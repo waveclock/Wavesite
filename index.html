@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wave Clock — Ocean City, NJ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+    --script: 'Caveat', cursive;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  img, svg { display: block; max-width: 100%; }
+
+  a { color: inherit; }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  /* ---------- Texture: subtle grain + horizon gradient behind hero ---------- */
+  .hero {
+    position: relative;
+    padding: 64px 0 0;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(44,74,99,0.12), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 70%, var(--foam) 100%);
+  }
+
+  .eyebrow-tape {
+    display: inline-block;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    background: var(--wax);
+    color: var(--ink);
+    padding: 6px 14px;
+    transform: rotate(-1.5deg);
+    box-shadow: 2px 2px 0 rgba(20,48,45,0.15);
+  }
+
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 48px;
+    align-items: center;
+    padding-bottom: 60px;
+  }
+
+  @media (max-width: 860px) {
+    .hero-grid { grid-template-columns: 1fr; }
+  }
+
+  h1.brand {
+    font-family: var(--display);
+    font-size: clamp(40px, 6.4vw, 72px);
+    line-height: 1.02;
+    margin: 20px 0 0;
+    color: var(--ink);
+    text-shadow: 3px 3px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+
+  h1.brand span { color: var(--navy); text-shadow: 3px 3px 0 var(--ink); }
+
+  .tagline {
+    font-family: var(--heading);
+    font-style: italic;
+    font-weight: 500;
+    font-size: clamp(19px, 2.4vw, 24px);
+    color: var(--ink-soft);
+    margin: 18px 0 0;
+    max-width: 46ch;
+  }
+
+  .hero-copy p.sub {
+    margin-top: 18px;
+    max-width: 50ch;
+    color: var(--ink-soft);
+    font-size: 16px;
+  }
+
+  .cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 15px;
+    padding: 14px 26px;
+    border-radius: 999px;
+    text-decoration: none;
+    border: 2px solid var(--ink);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+
+  .btn-primary {
+    background: var(--navy);
+    color: var(--foam);
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+  .btn-primary:hover { box-shadow: 5px 5px 0 var(--ink); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink);
+  }
+  .btn-ghost:hover { background: rgba(20,48,45,0.06); }
+
+  /* ---------- Live-cycling device mockup (the signature element) ---------- */
+  .device-stage {
+    display: flex;
+    justify-content: center;
+  }
+
+  .device-frame {
+    width: 100%;
+    max-width: 420px;
+    background: #fff;
+    border: 3px solid var(--ink);
+    border-radius: 6px;
+    box-shadow: 8px 8px 0 var(--driftwood);
+    padding: 14px;
+    transform: rotate(1.2deg);
+  }
+
+  .device-label {
+    font-family: var(--body);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--driftwood);
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .device-screen {
+    position: relative;
+    aspect-ratio: 792 / 272;
+    background: #FBFAF6;
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    padding: 10px 14px;
+    font-family: var(--body);
+  }
+  .slide.active { opacity: 1; }
+
+  .slide .s-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+  }
+  .slide .s-big {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 30px;
+    color: var(--ink);
+    margin-top: 2px;
+  }
+  .slide svg { position: absolute; }
+
+  .dots { display: flex; gap: 7px; justify-content: center; margin-top: 12px; }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--line);
+    transition: background 0.3s ease, transform 0.3s ease;
+  }
+  .dot.active { background: var(--navy); transform: scale(1.3); }
+
+  /* ---------- Wave divider ---------- */
+  .wave-divider {
+    display: block;
+    width: 100%;
+    height: 46px;
+  }
+  .wave-divider path { fill: var(--foam); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .wave-anim { animation: waveDrift 9s ease-in-out infinite; }
+  }
+  @keyframes waveDrift {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(-2%); }
+  }
+
+  /* ---------- Sections ---------- */
+  section { padding: 64px 0; }
+  .section-foam { background: var(--foam); }
+
+  .kicker {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--navy);
+    margin: 0 0 10px;
+  }
+
+  h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: clamp(26px, 3.4vw, 38px);
+    margin: 0 0 14px;
+    color: var(--ink);
+  }
+
+  .lede {
+    max-width: 62ch;
+    color: var(--ink-soft);
+    font-size: 17px;
+    margin-bottom: 8px;
+  }
+
+  /* ---------- Screens list (real sequence, cycled in this order) ---------- */
+  .screen-cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 22px;
+    margin-top: 36px;
+  }
+  @media (max-width: 720px) { .screen-cards { grid-template-columns: 1fr; } }
+
+  .screen-card {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 22px 24px;
+    position: relative;
+    box-shadow: 5px 5px 0 rgba(20,48,45,0.10);
+  }
+
+  .screen-order {
+    position: absolute;
+    top: -14px;
+    left: 20px;
+    background: var(--ink);
+    color: var(--foam);
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    letter-spacing: 0.06em;
+  }
+
+  .screen-card h3 {
+    font-family: var(--heading);
+    font-size: 21px;
+    font-weight: 700;
+    margin: 10px 0 8px;
+  }
+
+  .screen-card p { color: var(--ink-soft); font-size: 15px; margin: 0; }
+
+  .screen-card .tag {
+    display: inline-block;
+    margin-top: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--wax);
+    background: rgba(217,164,65,0.16);
+    padding: 3px 10px;
+    border-radius: 999px;
+  }
+
+  /* ---------- Data sources: nautical chart / manifest feel ---------- */
+  .manifest {
+    margin-top: 32px;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .manifest-row {
+    display: grid;
+    grid-template-columns: 1.1fr 1.6fr 0.9fr;
+    gap: 18px;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--line);
+    background: #fff;
+  }
+  .manifest-row:last-child { border-bottom: none; }
+  .manifest-row:nth-child(even) { background: var(--foam); }
+  @media (max-width: 760px) {
+    .manifest-row { grid-template-columns: 1fr; gap: 4px; }
+  }
+  .manifest-source {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .manifest-desc { color: var(--ink-soft); font-size: 14.5px; }
+  .manifest-what {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    align-self: start;
+    justify-self: end;
+  }
+  @media (max-width: 760px) { .manifest-what { justify-self: start; } }
+
+  .note-honest {
+    margin-top: 18px;
+    font-size: 14px;
+    color: var(--ink-soft);
+    border-left: 3px solid var(--wax);
+    padding-left: 14px;
+  }
+
+  /* ---------- Craft story ---------- */
+  .craft {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: center;
+  }
+  @media (max-width: 860px) { .craft { grid-template-columns: 1fr; } }
+
+  .sketch-frame {
+    background: #fff;
+    border: 2px solid var(--ink);
+    padding: 18px;
+    box-shadow: 6px 6px 0 var(--driftwood);
+    transform: rotate(-1deg);
+  }
+
+  .craft ul {
+    margin: 18px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .craft li {
+    padding: 10px 0;
+    border-bottom: 1px dashed var(--line);
+    color: var(--ink-soft);
+    font-size: 15px;
+  }
+  .craft li:last-child { border-bottom: none; }
+  .craft li b { color: var(--ink); }
+
+  /* ---------- Purchase CTA ---------- */
+  .buy-panel {
+    background: var(--ink);
+    color: var(--foam);
+    border-radius: 8px;
+    padding: 48px 40px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .buy-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 600px 300px at 50% 0%, rgba(201,116,86,0.18), transparent 70%);
+  }
+  .buy-panel > * { position: relative; }
+
+  .buy-panel h2 { color: var(--foam); }
+  .buy-panel .lede { color: rgba(247,244,236,0.78); margin-left: auto; margin-right: auto; }
+
+  .price-tag {
+    display: inline-block;
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 34px;
+    margin: 18px 0 6px;
+    color: var(--wax);
+  }
+  .price-note { font-size: 13px; color: rgba(247,244,236,0.6); margin-bottom: 10px; }
+
+  .update-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--wax);
+    margin-bottom: 24px;
+  }
+  .update-note .dot-live {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--wax);
+    box-shadow: 0 0 0 3px rgba(217,164,65,0.25);
+  }
+
+  /* ---------- Footer ---------- */
+  footer {
+    padding: 40px 0 50px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  .footer-name {
+    font-family: var(--script);
+    font-size: 28px;
+    color: var(--ink);
+    display: block;
+    margin-top: 6px;
+  }
+
+  ::selection { background: var(--wax); color: var(--ink); }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="eyebrow-tape">Handmade in Ocean City, NJ</span>
+    <h1 class="brand">WAVE<span>CLOCK</span></h1>
+
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <p class="tagline">A tide clock that actually knows what the ocean's doing &mdash; and when the sun's about to sink into it.</p>
+        <p class="sub">One little e-paper display, four things it actually tells you well: today's tide, this week's swell, this week's weather, and the exact minute the sun goes down at Second Street Dock.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#buy">Get one for your beach house &rarr;</a>
+          <a class="btn btn-ghost" href="#screens">See what it shows</a>
+        </div>
+      </div>
+
+      <div class="device-stage">
+        <div class="device-frame">
+          <div class="device-label"><span>WAVE CLOCK</span><span>LIVE VIEW</span></div>
+          <div class="device-screen" id="deviceScreen">
+
+            <!-- Slide 1: Tide -->
+            <div class="slide active" data-slide="0">
+              <div class="s-title">Next Tide</div>
+              <div class="s-big">HIGH &middot; 4.2 ft</div>
+              <svg width="100%" height="70%" viewBox="0 0 400 100" style="bottom:0;left:0" preserveAspectRatio="none">
+                <path d="M0,70 C60,20 120,20 180,55 C240,90 300,90 360,40 L400,20" fill="none" stroke="#1F3347" stroke-width="2"/>
+              </svg>
+            </div>
+
+            <!-- Slide 2: Wave Forecast -->
+            <div class="slide" data-slide="1">
+              <div class="s-title">5-Day Wave Forecast</div>
+              <div class="s-big" style="font-size:20px;">Clean &middot; Fair &middot; Choppy</div>
+              <svg width="100%" height="60%" viewBox="0 0 400 90" style="bottom:0;left:0" preserveAspectRatio="none">
+                <path d="M0,80 C50,20 100,10 150,50 C200,85 250,70 300,30 C340,10 370,15 400,40" fill="none" stroke="#1F3347" stroke-width="2"/>
+                <line x1="100" y1="0" x2="100" y2="90" stroke="#A68A6D" stroke-width="1"/>
+                <line x1="200" y1="0" x2="200" y2="90" stroke="#A68A6D" stroke-width="1"/>
+                <line x1="300" y1="0" x2="300" y2="90" stroke="#A68A6D" stroke-width="1"/>
+              </svg>
+            </div>
+
+            <!-- Slide 3: Weather -->
+            <div class="slide" data-slide="2">
+              <div class="s-title">5-Day Weather</div>
+              <div class="s-big" style="font-size:20px;">78&deg; / 61&deg; &middot; Rain Thu</div>
+              <svg width="100%" height="60%" viewBox="0 0 400 90" style="bottom:0;left:0" preserveAspectRatio="none">
+                <path d="M0,50 C60,10 120,15 180,45 C240,75 300,55 360,20 L400,30" fill="none" stroke="#1F3347" stroke-width="2"/>
+                <rect x="150" y="60" width="8" height="25" fill="#2C4A63"/>
+                <rect x="165" y="65" width="8" height="20" fill="#2C4A63"/>
+              </svg>
+            </div>
+
+            <!-- Slide 4: Sunset -->
+            <div class="slide" data-slide="3">
+              <div class="s-title">Second Street Dock</div>
+              <div class="s-big" style="font-size:19px;">Sunset in 14 min &middot; 7:58 PM</div>
+              <svg width="100%" height="72%" viewBox="0 0 400 100" style="bottom:0;left:0" preserveAspectRatio="none">
+                <line x1="0" y1="55" x2="400" y2="55" stroke="#1F3347" stroke-width="1.4"/>
+                <circle cx="230" cy="48" r="16" fill="none" stroke="#C97456" stroke-width="2"/>
+                <line x1="80" y1="90" x2="160" y2="55" stroke="#1F3347" stroke-width="1.4"/>
+                <line x1="80" y1="82" x2="150" y2="55" stroke="#1F3347" stroke-width="1.4"/>
+              </svg>
+            </div>
+
+          </div>
+          <div class="dots">
+            <div class="dot active" data-dot="0"></div>
+            <div class="dot" data-dot="1"></div>
+            <div class="dot" data-dot="2"></div>
+            <div class="dot" data-dot="3"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <svg class="wave-divider wave-anim" viewBox="0 0 1440 60" preserveAspectRatio="none">
+    <path d="M0,30 C240,60 480,0 720,20 C960,40 1200,10 1440,30 L1440,60 L0,60 Z"></path>
+  </svg>
+</header>
+
+<section class="section-foam" id="screens">
+  <div class="wrap">
+    <p class="kicker">What it actually shows</p>
+    <h2>Four screens, in the order it cycles through them</h2>
+    <p class="lede">Every 60 seconds it moves to the next one on its own &mdash; or press the button to jump ahead. This is the real order, because the order is the point: your day, the water, the week, and the one moment worth stepping outside for.</p>
+
+    <div class="screen-cards">
+      <div class="screen-card">
+        <span class="screen-order">Screen 1</span>
+        <h3>Tide &amp; Conditions</h3>
+        <p>A smooth curve through today's actual high and low tides, a stick-figure surfer riding the current moment on that curve, plus water temp, air temp, today's forecasted high, live wind speed and direction, sky condition, and current wave height &mdash; all in one glance.</p>
+        <span class="tag">Default screen</span>
+      </div>
+
+      <div class="screen-card">
+        <span class="screen-order">Screen 2</span>
+        <h3>5-Day Wave Forecast</h3>
+        <p>A wave-height chart for the next five days, shaded by a simple read on quality: long, well-spaced swells read "clean," short wind-chop reads "choppy," with a legend so it's never a guess.</p>
+        <span class="tag">Planning ahead</span>
+      </div>
+
+      <div class="screen-card">
+        <span class="screen-order">Screen 3</span>
+        <h3>5-Day Weather</h3>
+        <p>Day-by-day high/low, wind, and sky icons across the top, with a continuous hourly temperature curve underneath &mdash; and rain bars showing exactly when and how much, not just "chance of rain."</p>
+        <span class="tag">Pack accordingly</span>
+      </div>
+
+      <div class="screen-card">
+        <span class="screen-order">Screen 4</span>
+        <h3>Sunset at Second Street Dock</h3>
+        <p>A hand-sketched pencil-style scene &mdash; dock, distant bridge, gulls &mdash; where the sun visibly sinks toward the water as sunset approaches. It takes over automatically 60 minutes before the sun actually sets, so you never miss it by accident.</p>
+        <span class="tag">The whole reason this exists</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="sources">
+  <div class="wrap">
+    <p class="kicker">Where the numbers come from</p>
+    <h2>Real sources, nothing made up</h2>
+    <p class="lede">Every number on the screen traces back to a public source you could look up yourself. No proprietary weather model, no subscription, no black box.</p>
+
+    <div class="manifest">
+      <div class="manifest-row">
+        <div class="manifest-source">NOAA CO-OPS</div>
+        <div class="manifest-desc">Official U.S. tide predictions for the Atlantic City, NJ station &mdash; the harmonic model behind that curve on Screen 1.</div>
+        <div class="manifest-what">Tide times &amp; heights</div>
+      </div>
+      <div class="manifest-row">
+        <div class="manifest-source">Open&#8209;Meteo Forecast API</div>
+        <div class="manifest-desc">Current wind, air temperature, sky condition, and today's forecasted high &mdash; calculated for Ocean City's exact coordinates, not a distant weather station.</div>
+        <div class="manifest-what">Current conditions</div>
+      </div>
+      <div class="manifest-row">
+        <div class="manifest-source">Open&#8209;Meteo Marine API</div>
+        <div class="manifest-desc">Wave height, period, direction, and sea surface temperature, both right now and five days out.</div>
+        <div class="manifest-what">Waves &amp; water temp</div>
+      </div>
+      <div class="manifest-row">
+        <div class="manifest-source">Open&#8209;Meteo Astronomy</div>
+        <div class="manifest-desc">The actual daily sunrise and sunset time for this exact spot on the map &mdash; not a rounded almanac guess.</div>
+        <div class="manifest-what">Sunset countdown</div>
+      </div>
+    </div>
+
+    <p class="note-honest">Two honest caveats: wave "quality" (clean/fair/choppy) is a simple read on swell period, not a professional surf forecast &mdash; it doesn't account for wind direction relative to the coast or the sandbar. And every source here is a public weather API, not a live sensor sitting in the water in front of your house.</p>
+  </div>
+</section>
+
+<section class="section-foam">
+  <div class="wrap">
+    <div class="craft">
+      <div class="sketch-frame">
+        <svg viewBox="0 0 400 220" width="100%">
+          <rect width="400" height="220" fill="#FBFAF6"/>
+          <line x1="20" y1="130" x2="380" y2="130" stroke="#1F3347" stroke-width="1.3"/>
+          <circle cx="270" cy="105" r="22" fill="none" stroke="#C97456" stroke-width="2"/>
+          <circle cx="270" cy="105" r="26" fill="none" stroke="#C97456" stroke-width="1"/>
+          <line x1="60" y1="185" x2="200" y2="130" stroke="#1F3347" stroke-width="1.5"/>
+          <line x1="60" y1="178" x2="195" y2="130" stroke="#1F3347" stroke-width="1.5"/>
+          <line x1="90" y1="160" x2="90" y2="185" stroke="#1F3347" stroke-width="1.2"/>
+          <line x1="130" y1="150" x2="130" y2="180" stroke="#1F3347" stroke-width="1.2"/>
+          <line x1="170" y1="140" x2="170" y2="170" stroke="#1F3347" stroke-width="1.2"/>
+          <path d="M30,150 Q60,140 90,150 T150,150" fill="none" stroke="#1F3347" stroke-width="1"/>
+        </svg>
+      </div>
+      <div>
+        <p class="kicker">Not off-the-shelf</p>
+        <h2>Sketched, not stock-photo'd</h2>
+        <p class="lede">The sunset screen isn't a clip-art icon &mdash; it's built pencil-line by pencil-line: a one-point-perspective pier that recedes toward the horizon, a distant low bridge, a bench, a bike leaning on a fence, and a sun that actually sinks below the waterline as the minutes count down.</p>
+        <ul>
+          <li><b>Every screen redraws itself</b> once a minute, or the instant you press the button.</li>
+          <li><b>The sunset screen locks itself on</b> for the hour before sunset, so it can't get cycled away right when it matters.</li>
+          <li><b>Designed and built in Ocean City, NJ</b> &mdash; every coordinate, every station ID, points at this town specifically.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="buy">
+  <div class="wrap">
+    <div class="buy-panel">
+      <p class="kicker" style="color:var(--wax);">Own one</p>
+      <h2>Built to order, one at a time</h2>
+      <p class="lede">Each Wave Clock ships set up for your exact stretch of coastline &mdash; not a generic factory default. Tell me your beach, I'll build it for that spot.</p>
+      <div class="price-tag">$-- <!-- SET YOUR PRICE HERE --></div>
+      <div class="price-note">Includes setup for your location &middot; edit this price before publishing</div>
+      <div class="update-note"><span class="dot-live"></span>Free software updates delivered automatically over WiFi &mdash; no visits, no reflashing.</div>
+      <div class="cta-row" style="justify-content:center;">
+        <a class="btn btn-primary" href="mailto:YOUR_EMAIL_HERE?subject=Wave%20Clock%20Order">Email to order &rarr;</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>OCEAN CITY WAVE CLOCK &middot; Copyright 2026</p>
+    <p>Designed in OCNJ by<span class="footer-name">Kurt Woehr</span></p>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var slides = document.querySelectorAll('.slide');
+    var dots = document.querySelectorAll('.dot');
+    var current = 0;
+    var total = slides.length;
+    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function show(i) {
+      slides.forEach(function (s) { s.classList.remove('active'); });
+      dots.forEach(function (d) { d.classList.remove('active'); });
+      slides[i].classList.add('active');
+      dots[i].classList.add('active');
+      current = i;
+    }
+
+    if (!reduceMotion) {
+      setInterval(function () {
+        show((current + 1) % total);
+      }, 3200);
+    }
+
+    dots.forEach(function (dot, i) {
+      dot.addEventListener('click', function () { show(i); });
+    });
+  })();
+</script>
+
+</body>
+</html>
