@@ -187,26 +187,14 @@
     inset: 0;
     opacity: 0;
     transition: opacity 0.6s ease;
-    padding: 10px 14px;
-    font-family: var(--body);
   }
   .slide.active { opacity: 1; }
 
-  .slide .s-title {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    color: var(--ink-soft);
-    text-transform: uppercase;
+  .slide img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
-  .slide .s-big {
-    font-family: var(--heading);
-    font-weight: 700;
-    font-size: 30px;
-    color: var(--ink);
-    margin-top: 2px;
-  }
-  .slide svg { position: absolute; }
 
   .dots { display: flex; gap: 7px; justify-content: center; margin-top: 12px; }
   .dot {
@@ -477,46 +465,22 @@
 
             <!-- Slide 1: Tide -->
             <div class="slide active" data-slide="0">
-              <div class="s-title">Next Tide</div>
-              <div class="s-big">HIGH &middot; 4.2 ft</div>
-              <svg width="100%" height="70%" viewBox="0 0 400 100" style="bottom:0;left:0" preserveAspectRatio="none">
-                <path d="M0,70 C60,20 120,20 180,55 C240,90 300,90 360,40 L400,20" fill="none" stroke="#1F3347" stroke-width="2"/>
-              </svg>
+              <img src="screen_tide.jpg" alt="Wave Clock tide and conditions screen">
             </div>
 
             <!-- Slide 2: Wave Forecast -->
             <div class="slide" data-slide="1">
-              <div class="s-title">5-Day Wave Forecast</div>
-              <div class="s-big" style="font-size:20px;">Clean &middot; Fair &middot; Choppy</div>
-              <svg width="100%" height="60%" viewBox="0 0 400 90" style="bottom:0;left:0" preserveAspectRatio="none">
-                <path d="M0,80 C50,20 100,10 150,50 C200,85 250,70 300,30 C340,10 370,15 400,40" fill="none" stroke="#1F3347" stroke-width="2"/>
-                <line x1="100" y1="0" x2="100" y2="90" stroke="#A68A6D" stroke-width="1"/>
-                <line x1="200" y1="0" x2="200" y2="90" stroke="#A68A6D" stroke-width="1"/>
-                <line x1="300" y1="0" x2="300" y2="90" stroke="#A68A6D" stroke-width="1"/>
-              </svg>
+              <img src="screen_wave_forecast.jpg" alt="Wave Clock 5-day wave forecast screen">
             </div>
 
             <!-- Slide 3: Weather -->
             <div class="slide" data-slide="2">
-              <div class="s-title">5-Day Weather</div>
-              <div class="s-big" style="font-size:20px;">78&deg; / 61&deg; &middot; Rain Thu</div>
-              <svg width="100%" height="60%" viewBox="0 0 400 90" style="bottom:0;left:0" preserveAspectRatio="none">
-                <path d="M0,50 C60,10 120,15 180,45 C240,75 300,55 360,20 L400,30" fill="none" stroke="#1F3347" stroke-width="2"/>
-                <rect x="150" y="60" width="8" height="25" fill="#2C4A63"/>
-                <rect x="165" y="65" width="8" height="20" fill="#2C4A63"/>
-              </svg>
+              <img src="screen_weather.jpg" alt="Wave Clock 5-day weather forecast screen">
             </div>
 
             <!-- Slide 4: Sunset -->
             <div class="slide" data-slide="3">
-              <div class="s-title">Second Street Dock</div>
-              <div class="s-big" style="font-size:19px;">Sunset in 14 min &middot; 7:58 PM</div>
-              <svg width="100%" height="72%" viewBox="0 0 400 100" style="bottom:0;left:0" preserveAspectRatio="none">
-                <line x1="0" y1="55" x2="400" y2="55" stroke="#1F3347" stroke-width="1.4"/>
-                <circle cx="230" cy="48" r="16" fill="none" stroke="#C97456" stroke-width="2"/>
-                <line x1="80" y1="90" x2="160" y2="55" stroke="#1F3347" stroke-width="1.4"/>
-                <line x1="80" y1="82" x2="150" y2="55" stroke="#1F3347" stroke-width="1.4"/>
-              </svg>
+              <img src="screen_sunset.jpg" alt="Wave Clock sunset countdown screen at Second Street Dock">
             </div>
 
           </div>
@@ -611,18 +575,7 @@
   <div class="wrap">
     <div class="craft">
       <div class="sketch-frame">
-        <svg viewBox="0 0 400 220" width="100%">
-          <rect width="400" height="220" fill="#FBFAF6"/>
-          <line x1="20" y1="130" x2="380" y2="130" stroke="#1F3347" stroke-width="1.3"/>
-          <circle cx="270" cy="105" r="22" fill="none" stroke="#C97456" stroke-width="2"/>
-          <circle cx="270" cy="105" r="26" fill="none" stroke="#C97456" stroke-width="1"/>
-          <line x1="60" y1="185" x2="200" y2="130" stroke="#1F3347" stroke-width="1.5"/>
-          <line x1="60" y1="178" x2="195" y2="130" stroke="#1F3347" stroke-width="1.5"/>
-          <line x1="90" y1="160" x2="90" y2="185" stroke="#1F3347" stroke-width="1.2"/>
-          <line x1="130" y1="150" x2="130" y2="180" stroke="#1F3347" stroke-width="1.2"/>
-          <line x1="170" y1="140" x2="170" y2="170" stroke="#1F3347" stroke-width="1.2"/>
-          <path d="M30,150 Q60,140 90,150 T150,150" fill="none" stroke="#1F3347" stroke-width="1"/>
-        </svg>
+        <img src="screen_sunset.jpg" alt="Wave Clock sunset countdown screen, pencil-sketch style, showing the pier and dock at Second Street" style="width:100%; display:block;">
       </div>
       <div>
         <p class="kicker">Not off-the-shelf</p>
