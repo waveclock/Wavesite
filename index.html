@@ -310,6 +310,30 @@
     border-radius: 999px;
   }
 
+  /* ---------- Towns covered ---------- */
+  .towns-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 28px;
+  }
+  .town-chip {
+    display: inline-block;
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 14px;
+    padding: 8px 18px;
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+    background: #fff;
+    color: var(--ink);
+  }
+  .town-chip-home {
+    background: var(--navy);
+    color: var(--foam);
+    border-color: var(--navy);
+  }
+
   /* ---------- Data sources: nautical chart / manifest feel ---------- */
   .manifest {
     margin-top: 32px;
@@ -570,6 +594,25 @@
         <div class="manifest-desc">The actual daily sunrise and sunset time for this exact spot on the map &mdash; not a rounded almanac guess.</div>
         <div class="manifest-what">Sunset countdown</div>
       </div>
+    </div>
+  </div>
+</section>
+
+<section id="towns">
+  <div class="wrap">
+    <p class="kicker">Where Wave Clock works</p>
+    <h2>Now covering 8 Jersey Shore towns</h2>
+    <p class="lede">Ocean City is home base, but the same tide-accurate build now ships for these towns too &mdash; each one tuned to its own station and coordinates, not a generic default.</p>
+
+    <div class="towns-grid">
+      <span class="town-chip town-chip-home">Ocean City</span>
+      <span class="town-chip">Avalon</span>
+      <span class="town-chip">Stone Harbor</span>
+      <span class="town-chip">Wildwood</span>
+      <span class="town-chip">Cape May</span>
+      <span class="town-chip">Margate</span>
+      <span class="town-chip">Brigantine</span>
+      <span class="town-chip">Sea Isle City</span>
     </div>
   </div>
 </section>
