@@ -155,13 +155,7 @@
 
   .device-frame {
     width: 100%;
-    max-width: 420px;
-    background: #fff;
-    border: 3px solid var(--ink);
-    border-radius: 6px;
-    box-shadow: 8px 8px 0 var(--driftwood);
-    padding: 14px;
-    transform: rotate(1.2deg);
+    max-width: 480px;
   }
 
   .device-label {
@@ -177,9 +171,9 @@
 
   .device-screen {
     position: relative;
-    aspect-ratio: 792 / 272;
-    background: #FBFAF6;
-    border: 1px solid var(--line);
+    aspect-ratio: 2.1 / 1;
+    background: var(--foam);
+    border-radius: 10px;
     overflow: hidden;
   }
 
@@ -381,11 +375,8 @@
   @media (max-width: 860px) { .craft { grid-template-columns: 1fr; } }
 
   .sketch-frame {
-    background: #fff;
-    border: 2px solid var(--ink);
-    padding: 18px;
-    box-shadow: 6px 6px 0 var(--driftwood);
-    transform: rotate(-1deg);
+    border-radius: 10px;
+    overflow: hidden;
   }
 
   .craft ul {
@@ -490,22 +481,22 @@
 
             <!-- Slide 1: Tide -->
             <div class="slide active" data-slide="0">
-              <img src="screen_tide.jpg" alt="Wave Clock tide and conditions screen">
+              <img src="screen_tide.png" alt="Wave Clock tide and conditions screen">
             </div>
 
             <!-- Slide 2: Wave Forecast -->
             <div class="slide" data-slide="1">
-              <img src="screen_wave_forecast.jpg" alt="Wave Clock 5-day wave forecast screen">
+              <img src="screen_wave_forecast.png" alt="Wave Clock 5-day wave forecast screen">
             </div>
 
             <!-- Slide 3: Weather -->
             <div class="slide" data-slide="2">
-              <img src="screen_weather.jpg" alt="Wave Clock 5-day weather forecast screen">
+              <img src="screen_weather.png" alt="Wave Clock 5-day weather forecast screen">
             </div>
 
             <!-- Slide 4: Sunset -->
             <div class="slide" data-slide="3">
-              <img src="screen_sunset.jpg" alt="Wave Clock sunset countdown screen at Second Street Dock">
+              <img src="screen_sunset.png" alt="Wave Clock sunset countdown screen at Second Street Dock">
             </div>
 
           </div>
@@ -535,7 +526,7 @@
       <div class="screen-card">
         <span class="screen-order">Screen 1</span>
         <h3>Tide &amp; Conditions</h3>
-        <img class="screen-thumb" src="screen_tide.jpg" alt="Tide and conditions screen">
+        <img class="screen-thumb" src="screen_tide.png" alt="Tide and conditions screen">
         <p>A smooth curve through today's actual high and low tides, a stick-figure surfer riding the current moment on that curve, plus water temp, air temp, today's forecasted high, live wind speed and direction, sky condition, and current wave height &mdash; all in one glance.</p>
         <span class="tag">Default screen</span>
       </div>
@@ -543,7 +534,7 @@
       <div class="screen-card">
         <span class="screen-order">Screen 2</span>
         <h3>5-Day Wave Forecast</h3>
-        <img class="screen-thumb" src="screen_wave_forecast.jpg" alt="5-day wave forecast screen">
+        <img class="screen-thumb" src="screen_wave_forecast.png" alt="5-day wave forecast screen">
         <p>A wave-height chart for the next five days, shaded by a quality read that factors in both swell period and wind, sorted into clean, fair, or choppy, with a legend so it's never a guess.</p>
         <span class="tag">Planning ahead</span>
       </div>
@@ -551,7 +542,7 @@
       <div class="screen-card">
         <span class="screen-order">Screen 3</span>
         <h3>5-Day Weather</h3>
-        <img class="screen-thumb" src="screen_weather.jpg" alt="5-day weather forecast screen">
+        <img class="screen-thumb" src="screen_weather.png" alt="5-day weather forecast screen">
         <p>Day-by-day high/low, wind, and sky icons across the top, with a continuous hourly temperature curve underneath &mdash; and rain bars showing exactly when and how much, not just "chance of rain."</p>
         <span class="tag">Pack accordingly</span>
       </div>
@@ -559,7 +550,7 @@
       <div class="screen-card">
         <span class="screen-order">Screen 4</span>
         <h3>Sunset at Second Street Dock</h3>
-        <img class="screen-thumb" src="screen_sunset.jpg" alt="Sunset countdown screen at Second Street Dock">
+        <img class="screen-thumb" src="screen_sunset.png" alt="Sunset countdown screen at Second Street Dock">
         <p>A hand-sketched pencil-style scene &mdash; dock, distant bridge, gulls &mdash; where the sun visibly sinks toward the bay as sunset approaches. It takes over automatically 60 minutes before the sun actually sets, so you never miss it by accident.</p>
         <span class="tag">The whole reason this exists</span>
       </div>
@@ -590,7 +581,7 @@
   <div class="wrap">
     <div class="craft">
       <div class="sketch-frame">
-        <img src="screen_sunset.jpg" alt="Wave Clock sunset countdown screen, pencil-sketch style, showing the pier and dock at Second Street" style="width:100%; display:block;">
+        <img src="screen_sunset.png" alt="Wave Clock sunset countdown screen, pencil-sketch style, showing the pier and dock at Second Street" style="width:100%; display:block;">
       </div>
       <div>
         <p class="kicker">Not off-the-shelf</p>
