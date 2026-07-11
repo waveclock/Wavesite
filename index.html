@@ -448,6 +448,49 @@
     box-shadow: 0 0 0 3px rgba(217,164,65,0.25);
   }
 
+  /* ---------- Contact form ---------- */
+  .contact-form {
+    max-width: 520px;
+    margin-top: 32px;
+  }
+  .form-row {
+    margin-bottom: 18px;
+    display: flex;
+    flex-direction: column;
+  }
+  .form-row label {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.03em;
+    color: var(--ink);
+    margin-bottom: 6px;
+  }
+  .form-row input,
+  .form-row textarea {
+    font-family: var(--body);
+    font-size: 15px;
+    color: var(--ink);
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 12px 14px;
+    resize: vertical;
+  }
+  .form-row input:focus,
+  .form-row textarea:focus {
+    outline: 3px solid var(--coral);
+    outline-offset: 1px;
+  }
+  .contact-form .btn {
+    cursor: pointer;
+  }
+  .form-note {
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin-top: 14px;
+  }
+
   /* ---------- Footer ---------- */
   footer {
     padding: 40px 0 50px;
@@ -620,6 +663,33 @@
         <a class="btn btn-primary" href="https://buy.stripe.com/14AeVf2SOeRK5ctgQE2cg00" target="_blank" rel="noopener">Order now &rarr;</a>
       </div>
     </div>
+  </div>
+</section>
+
+<section id="contact" class="section-foam">
+  <div class="wrap">
+    <p class="kicker">Questions?</p>
+    <h2>Get in touch</h2>
+    <p class="lede">Have a question about your town, an order, or anything else? Send a note and I'll get back to you.</p>
+
+    <form class="contact-form" action="https://formspree.io/f/mrewnvlr" method="POST">
+      <div class="form-row">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" required>
+      </div>
+      <div class="form-row">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="_replyto" required>
+      </div>
+      <div class="form-row">
+        <label for="message">Message</label>
+        <textarea id="message" name="message" rows="5" required></textarea>
+      </div>
+      <input type="text" name="_gotcha" style="display:none" tabindex="-1" autocomplete="off">
+      <input type="hidden" name="_subject" value="New message from waveclock.net">
+      <button type="submit" class="btn btn-primary">Send message &rarr;</button>
+      <p class="form-note">This goes straight to my inbox &mdash; no account or sign-up needed on your end.</p>
+    </form>
   </div>
 </section>
 
