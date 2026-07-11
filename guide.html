@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>User Guide — Wave Clock</title>
+<meta name="description" content="Setup, controls, screens, settings, and troubleshooting for your Wave Clock.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://waveclock.net/guide.html">
+<meta property="og:title" content="User Guide — Wave Clock">
+<meta property="og:description" content="Setup, controls, screens, settings, and troubleshooting for your Wave Clock.">
+<meta property="og:image" content="https://waveclock.net/screen_tide.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="User Guide — Wave Clock">
+<meta name="twitter:description" content="Setup, controls, screens, settings, and troubleshooting for your Wave Clock.">
+<meta name="twitter:image" content="https://waveclock.net/screen_tide.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+    --script: 'Caveat', cursive;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  section { padding: 56px 0; }
+  .section-foam { background: var(--foam); }
+
+  .kicker {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--navy);
+    margin: 0 0 10px;
+  }
+
+  h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: clamp(26px, 3.4vw, 38px);
+    margin: 0 0 14px;
+    color: var(--ink);
+  }
+
+  .lede {
+    max-width: 62ch;
+    color: var(--ink-soft);
+    font-size: 17px;
+    margin-bottom: 8px;
+  }
+
+  .cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 15px;
+    padding: 14px 26px;
+    border-radius: 999px;
+    text-decoration: none;
+    border: 2px solid var(--ink);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink);
+  }
+  .btn-ghost:hover { background: rgba(20,48,45,0.06); }
+
+  /* ---------- Numbered steps ---------- */
+  .step-list {
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+    margin-top: 36px;
+  }
+  .step-item {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 24px 26px 22px;
+    position: relative;
+    box-shadow: 5px 5px 0 rgba(20,48,45,0.10);
+  }
+  .step-number {
+    position: absolute;
+    top: -14px;
+    left: 20px;
+    background: var(--ink);
+    color: var(--foam);
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    letter-spacing: 0.06em;
+  }
+  .step-item h3 {
+    font-family: var(--heading);
+    font-size: 19px;
+    font-weight: 700;
+    margin: 12px 0 8px;
+  }
+  .step-item p { color: var(--ink-soft); font-size: 15px; margin: 0 0 8px; }
+  .step-item ul { margin: 8px 0 0; padding-left: 20px; }
+  .step-item li { color: var(--ink-soft); font-size: 15px; margin-bottom: 5px; }
+
+  /* ---------- Controls table ---------- */
+  .controls-table {
+    margin-top: 32px;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .controls-row {
+    display: grid;
+    grid-template-columns: 0.9fr 1.6fr;
+    gap: 18px;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--line);
+    background: #fff;
+    align-items: center;
+  }
+  .controls-row:last-child { border-bottom: none; }
+  .controls-row:nth-child(even) { background: var(--foam); }
+  @media (max-width: 640px) {
+    .controls-row { grid-template-columns: 1fr; gap: 4px; }
+  }
+  .controls-name {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .controls-desc { color: var(--ink-soft); font-size: 14.5px; }
+
+  /* ---------- Dashed list (screens / settings) ---------- */
+  .guide-list {
+    margin: 28px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .guide-list li {
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--line);
+    color: var(--ink-soft);
+    font-size: 15px;
+  }
+  .guide-list li:last-child { border-bottom: none; }
+  .guide-list li b { color: var(--ink); }
+
+  /* ---------- Callout ---------- */
+  .callout {
+    background: var(--foam);
+    border-left: 4px solid var(--wax);
+    padding: 16px 20px;
+    border-radius: 4px;
+    font-size: 14.5px;
+    color: var(--ink-soft);
+    margin-top: 24px;
+  }
+  .callout b { color: var(--ink); }
+
+  /* ---------- Troubleshooting cards ---------- */
+  .faq-list {
+    margin-top: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .faq-item {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 22px 26px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
+  }
+  .faq-item h3 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 18px;
+    margin: 0 0 8px;
+    color: var(--ink);
+  }
+  .faq-item p { color: var(--ink-soft); font-size: 15px; margin: 0 0 8px; }
+  .faq-item p:last-child { margin-bottom: 0; }
+  .faq-item ul { margin: 8px 0 0; padding-left: 20px; }
+  .faq-item li { color: var(--ink-soft); font-size: 15px; margin-bottom: 5px; }
+
+  /* ---------- Footer ---------- */
+  footer {
+    padding: 40px 0 50px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  .footer-name {
+    font-family: var(--script);
+    font-size: 28px;
+    color: var(--ink);
+    display: block;
+    margin-top: 6px;
+  }
+  .footer-name a { text-decoration: none; }
+  .footer-name a:hover { text-decoration: underline; }
+
+  ::selection { background: var(--wax); color: var(--ink); }
+</style>
+</head>
+<body>
+
+<section style="padding-bottom:0;">
+  <div class="wrap">
+    <div class="cta-row" style="margin-top:48px;">
+      <a class="btn btn-ghost" href="index.html">&larr; Back to Wave Clock</a>
+    </div>
+  </div>
+</section>
+
+<section id="guide-top" style="padding-top:24px; padding-bottom:16px;">
+  <div class="wrap">
+    <p class="kicker">Quick start guide</p>
+    <h2>User Guide</h2>
+    <p class="lede">Setup, usage, and troubleshooting for your Wave Clock.</p>
+  </div>
+</section>
+
+<section id="start" class="section-foam">
+  <div class="wrap">
+    <p class="kicker">Getting started</p>
+    <h2>Set it up in three steps</h2>
+
+    <div class="step-list">
+      <div class="step-item">
+        <span class="step-number">Step 1</span>
+        <h3>Power it on</h3>
+        <p>Plug in the USB-C cable. The screen will briefly show your Wave Clock's name while it connects.</p>
+      </div>
+      <div class="step-item">
+        <span class="step-number">Step 2</span>
+        <h3>Connect to your WiFi (first time only)</h3>
+        <p>If this is a brand-new setup, your phone or computer will need to join a temporary network the device creates:</p>
+        <ul>
+          <li>On your phone, go to WiFi settings and join the network named <b>"WaveClock-Setup"</b>.</li>
+          <li>A setup page should open automatically. If it doesn't, open a web browser.</li>
+          <li>Select your home WiFi network and enter its password.</li>
+          <li>The Wave Clock will reconnect and continue setup automatically.</li>
+        </ul>
+      </div>
+      <div class="step-item">
+        <span class="step-number">Step 3</span>
+        <h3>Choose your town</h3>
+        <p>The screen will show &ldquo;WELCOME! Select your town.&rdquo; Use the wheel (up/down) to scroll through the available beach towns, then press the bottom button to confirm. This step only happens once &mdash; your Wave Clock will remember it from now on.</p>
+      </div>
+    </div>
+
+    <p class="lede" style="margin-top:26px;">That's it &mdash; your Wave Clock is ready and will show the Tide &amp; Conditions screen.</p>
+  </div>
+</section>
+
+<section id="controls">
+  <div class="wrap">
+    <p class="kicker">The controls</p>
+    <h2>What each button does</h2>
+
+    <div class="controls-table">
+      <div class="controls-row">
+        <div class="controls-name">Top button</div>
+        <div class="controls-desc">Move to the next screen</div>
+      </div>
+      <div class="controls-row">
+        <div class="controls-name">Wheel &ndash; up / down</div>
+        <div class="controls-desc">Move between screens (either direction)</div>
+      </div>
+      <div class="controls-row">
+        <div class="controls-name">Wheel &ndash; press</div>
+        <div class="controls-desc">No everyday function &mdash; used inside Diagnostics only</div>
+      </div>
+      <div class="controls-row">
+        <div class="controls-name">Bottom button</div>
+        <div class="controls-desc">Open Settings. Press again to move between Settings pages, and again to close.</div>
+      </div>
+      <div class="controls-row">
+        <div class="controls-name">Hold top button (5 sec)</div>
+        <div class="controls-desc">Open the hidden Diagnostics screen (see Troubleshooting)</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="screens" class="section-foam">
+  <div class="wrap">
+    <p class="kicker">The five screens</p>
+    <h2>What it cycles through</h2>
+    <p class="lede">Your Wave Clock cycles through these automatically (you control how often, in Settings), or you can flip through them manually anytime.</p>
+
+    <ul class="guide-list">
+      <li><b>Tide &amp; Conditions</b> &mdash; Today's tide curve, water &amp; air temp, wind, and sky &mdash; the default screen.</li>
+      <li><b>Wave Forecast</b> &mdash; 5-day wave height chart, shaded by quality: Clean, Fair, or Choppy.</li>
+      <li><b>Weather Forecast</b> &mdash; 5-day high/low temps, wind, sky icons, and a rain chart.</li>
+      <li><b>Sunset</b> &mdash; Shows automatically for the hour before sunset each day &mdash; illustrated countdown, no need to go looking for it.</li>
+      <li><b>Lifeguard / Surf Report</b> &mdash; Rip current risk, swell detail, wave/wind/temp readings, and the next tide.</li>
+    </ul>
+
+    <div class="callout">
+      <b>A note on the Sunset screen:</b> for the hour before sunset, your Wave Clock automatically switches to it and stays there &mdash; the top button won't move away from it during that window (this is intentional, so you never miss it). The wheel can still peek at other screens, but it'll return to Sunset on its own after about a minute.
+    </div>
+  </div>
+</section>
+
+<section id="settings">
+  <div class="wrap">
+    <p class="kicker">Settings</p>
+    <h2>Press the bottom button to open</h2>
+    <p class="lede">Press it again to move to the next Settings page, and once more to close.</p>
+
+    <ul class="guide-list">
+      <li><b>Screen Cycle</b> &mdash; how often the display automatically advances: Off, 1 Minute, or 5 Minutes.</li>
+      <li><b>Location</b> &mdash; change which town's data your Wave Clock shows. Use the wheel to browse (all towns are shown at once, so you can see how far to scroll), then confirm with the bottom button.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="troubleshooting" class="section-foam">
+  <div class="wrap">
+    <p class="kicker">Troubleshooting</p>
+    <h2>If something's off</h2>
+
+    <div class="faq-list">
+      <div class="faq-item">
+        <h3>A small warning triangle appears in the corner of the screen</h3>
+        <p>This means your Wave Clock hasn't successfully updated its data in a few hours &mdash; usually a WiFi issue. Check the Diagnostics screen below for more detail.</p>
+      </div>
+      <div class="faq-item">
+        <h3>Checking what's wrong: the Diagnostics screen</h3>
+        <p>Hold the top button for 5 seconds. This shows firmware version, WiFi connection status and signal strength, your selected town, how long since data last updated successfully, and how long it's been running. Press any button to close it.</p>
+      </div>
+      <div class="faq-item">
+        <h3>Checking for a software update manually</h3>
+        <p>Your Wave Clock checks for updates automatically once a day. To check right away instead: open Diagnostics (hold the top button 5 seconds), then press the wheel. It'll show its progress and let you know the result.</p>
+      </div>
+      <div class="faq-item">
+        <h3>Need to switch to a different WiFi network</h3>
+        <p>Unplug the Wave Clock. Hold the bottom button down, then plug it back in while still holding the button. This clears the saved WiFi network only &mdash; your town, screen settings, and everything else stay exactly as you left them. Follow the WiFi setup steps again once it restarts.</p>
+      </div>
+      <div class="faq-item">
+        <h3>The screen seems frozen or stuck</h3>
+        <ul>
+          <li>Check the Diagnostics screen first &mdash; it'll show if WiFi is actually connected.</li>
+          <li>Unplug and replug the power cable &mdash; this simply restarts the device and doesn't erase anything.</li>
+          <li>If it still doesn't recover, reach out for support &mdash; have the Diagnostics screen's info ready.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="cta-row">
+      <a class="btn btn-ghost" href="index.html#contact">Still stuck? Get in touch &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>WAVE CLOCK</p>
+    <p>Designed in OCNJ<span class="footer-name"><a href="index.html">waveclock.net</a></span></p>
+    <p><a href="index.html">&larr; Back to Wave Clock</a></p>
+    <p><a href="faq.html">Shipping, returns &amp; FAQs &rarr;</a></p>
+    <p><a href="index.html#contact">Questions? Get in touch &rarr;</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
