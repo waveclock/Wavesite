@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Where the Numbers Come From — Wave Clock</title>
-<meta name="description" content="The real, public data sources behind every number on the Wave Clock display — NOAA tide predictions and Open-Meteo marine, weather, and astronomy data.">
+<title>FAQs — Wave Clock</title>
+<meta name="description" content="Answers to common questions about Wave Clock: setting your town, shipping times, and the return policy.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
@@ -101,42 +101,32 @@
   }
   .btn-ghost:hover { background: rgba(20,48,45,0.06); }
 
-  /* ---------- Data sources: nautical chart / manifest feel ---------- */
-  .manifest {
+  /* ---------- FAQ list ---------- */
+  .faq-list {
     margin-top: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .faq-item {
+    background: #fff;
     border: 2px solid var(--ink);
     border-radius: 4px;
-    overflow: hidden;
+    padding: 22px 26px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
   }
-  .manifest-row {
-    display: grid;
-    grid-template-columns: 1.1fr 1.6fr 0.9fr;
-    gap: 18px;
-    padding: 18px 24px;
-    border-bottom: 1px solid var(--line);
-    background: #fff;
-  }
-  .manifest-row:last-child { border-bottom: none; }
-  .manifest-row:nth-child(even) { background: var(--foam); }
-  @media (max-width: 760px) {
-    .manifest-row { grid-template-columns: 1fr; gap: 4px; }
-  }
-  .manifest-source {
+  .faq-item h3 {
     font-family: var(--heading);
     font-weight: 700;
-    font-size: 16px;
-  }
-  .manifest-desc { color: var(--ink-soft); font-size: 14.5px; }
-  .manifest-what {
-    font-size: 12px;
-    font-weight: 700;
+    font-size: 19px;
+    margin: 0 0 8px;
     color: var(--ink);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    align-self: start;
-    justify-self: end;
   }
-  @media (max-width: 760px) { .manifest-what { justify-self: start; } }
+  .faq-item p {
+    color: var(--ink-soft);
+    font-size: 15px;
+    margin: 0;
+  }
 
   /* ---------- Footer ---------- */
   footer {
@@ -168,32 +158,24 @@
   </div>
 </section>
 
-<section id="sources" style="padding-top:0;">
+<section id="faq" style="padding-top:0;">
   <div class="wrap">
-    <p class="kicker">Where the numbers come from</p>
-    <h2>Real sources, for OCNJ</h2>
-    <p class="lede">Every number on this wave clock is fine-tuned for Ocean City. NOAA CO-OPS tide predictions, plus Open-Meteo marine, weather, and astronomy data calculated for this exact spot on the map.</p>
+    <p class="kicker">Before you order</p>
+    <h2>Frequently asked questions</h2>
+    <p class="lede">A few things worth knowing about setup, shipping, and returns.</p>
 
-    <div class="manifest">
-      <div class="manifest-row">
-        <div class="manifest-source">NOAA CO-OPS</div>
-        <div class="manifest-desc">Official U.S. tide predictions for the Atlantic City, NJ station &mdash; the harmonic model behind that curve on Screen 1.</div>
-        <div class="manifest-what">Tide times &amp; heights</div>
+    <div class="faq-list">
+      <div class="faq-item">
+        <h3>How do I set it to my town?</h3>
+        <p>Every Wave Clock ships with the same board &mdash; you pick your town from the settings menu right on the device after it arrives. Any of the 8 towns works, no need to specify anything at checkout.</p>
       </div>
-      <div class="manifest-row">
-        <div class="manifest-source">Open&#8209;Meteo Forecast API</div>
-        <div class="manifest-desc">Current wind, air temperature, sky condition, and today's forecasted high &mdash; calculated for Ocean City's exact coordinates, not a distant weather station.</div>
-        <div class="manifest-what">Current conditions</div>
+      <div class="faq-item">
+        <h3>How fast does it ship?</h3>
+        <p>Orders usually ship within 4 days. From there it goes out UPS Ground, so add a few more days in transit depending on your location.</p>
       </div>
-      <div class="manifest-row">
-        <div class="manifest-source">Open&#8209;Meteo Marine API</div>
-        <div class="manifest-desc">Wave height, period, direction, and sea surface temperature, both right now and five days out.</div>
-        <div class="manifest-what">Waves &amp; water temp</div>
-      </div>
-      <div class="manifest-row">
-        <div class="manifest-source">Open&#8209;Meteo Astronomy</div>
-        <div class="manifest-desc">The actual daily sunrise and sunset time for this exact spot on the map &mdash; not a rounded almanac guess.</div>
-        <div class="manifest-what">Sunset countdown</div>
+      <div class="faq-item">
+        <h3>What's the return policy?</h3>
+        <p>Free returns within 30 days of delivery &mdash; you just cover the cost of shipping it back.</p>
       </div>
     </div>
   </div>
@@ -204,8 +186,6 @@
     <p>WAVE CLOCK</p>
     <p>Designed in OCNJ<span class="footer-name"><a href="index.html">waveclock.net</a></span></p>
     <p><a href="index.html">&larr; Back to Wave Clock</a></p>
-    <p><a href="faq.html">Shipping, returns &amp; FAQs &rarr;</a></p>
-    <p><a href="index.html#contact">Questions? Get in touch &rarr;</a></p>
   </div>
 </footer>
 
