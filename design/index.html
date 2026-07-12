@@ -6,7 +6,7 @@
 <title>Design Your Wave Clock</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Press+Start+2P&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --sand: #F1E6CF;
@@ -339,12 +339,23 @@
     <input type="range" id="sizeSlider" min="3" max="24" value="8">
   </div>
 
+  <div class="toolbar" id="fontRow">
+    <button class="tool-btn active" id="fontSerifBtn" data-font="Georgia, serif">Serif</button>
+    <button class="tool-btn" id="fontBlockBtn" data-font="'Bungee', sans-serif" data-outline="true">Block</button>
+    <button class="tool-btn" id="fontPixelBtn" data-font="'Press Start 2P', monospace">Pixel</button>
+  </div>
+
   <div class="text-row">
     <input type="text" id="textInput" placeholder="Type a message&hellip;" maxlength="24">
     <button id="stampTextBtn">Add Text</button>
   </div>
 
   <div class="icon-row" id="iconRow"></div>
+
+  <div class="text-row">
+    <input type="text" id="emojiInput" placeholder="Add an emoji&hellip;" maxlength="16">
+    <button id="stampEmojiBtn">Add Emoji</button>
+  </div>
 
   <div class="photo-row">
     <button class="tool-btn" id="uploadPhotoBtn">&#128247; Upload Photo</button>
@@ -681,14 +692,36 @@
   }
 
   // Maps the Line Detail slider (10-150, default 50) to a percentile of
-  // this photo's edge strengths -- bounded 60th-98th percentile so it can
-  // never crank all the way down to zero edges or up to solid noise.
+  // this photo's edge strengths -- bounded 30th-75th percentile, biased
+  // toward keeping a lot of edges (a fuller, denser sketch) rather than a
+  // sparse clean outline, while hysteresis still drops isolated noise.
   function thresholdsForSensitivity(sortedValues, sensitivity) {
     if (!sortedValues.length) return { high: 1, low: 1 };
-    const percentile = 60 + (sensitivity - 10) * (98 - 60) / (150 - 10);
+    const percentile = 30 + (sensitivity - 10) * (75 - 30) / (150 - 10);
     const idx = Math.min(sortedValues.length - 1, Math.floor(sortedValues.length * percentile / 100));
     const high = sortedValues[idx];
     return { high, low: high * 0.4 };
+  }
+
+  // Thickens the thinned 1px edge lines back into bolder pencil-like
+  // strokes -- NMS/hysteresis alone leave hairline edges that read as too
+  // sparse/technical for a hand-drawn sketch look.
+  function dilateEdges(edges, width, height) {
+    const out = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        if (edges[i]) { out[i] = 1; continue; }
+        for (let dy = -1; dy <= 1 && !out[i]; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+            if (edges[ny * width + nx]) { out[i] = 1; break; }
+          }
+        }
+      }
+    }
+    return out;
   }
 
   // Hysteresis: keeps every "strong" edge, plus any "weak" edge connected
@@ -759,10 +792,54 @@
   const cancelStageBtn = document.getElementById("cancelStageBtn");
   const textInput = document.getElementById("textInput");
   const stampTextBtn = document.getElementById("stampTextBtn");
+  const fontButtons = document.querySelectorAll("#fontRow .tool-btn");
+  let selectedTextFont = fontButtons[0].dataset.font;
+  let selectedTextOutline = fontButtons[0].dataset.outline === "true";
+  fontButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      fontButtons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      selectedTextFont = btn.dataset.font;
+      selectedTextOutline = btn.dataset.outline === "true";
+    });
+  });
   const uploadPhotoBtn = document.getElementById("uploadPhotoBtn");
   const photoInput = document.getElementById("photoInput");
+  const emojiInput = document.getElementById("emojiInput");
+  const stampEmojiBtn = document.getElementById("stampEmojiBtn");
   const sensitivityRow = document.getElementById("sensitivityRow");
   const sensitivitySlider = document.getElementById("sensitivitySlider");
+
+  // Runs any source canvas (an uploaded photo, an emoji rendered to a
+  // canvas, anything) through the same line-art pipeline and stages it --
+  // this is what lets both "Upload Photo" and "Add Emoji" share one
+  // conversion path, since a colored emoji glyph collapses into an
+  // unreadable blob on a 1-bit display exactly like a photo does.
+  function stageLineArt(sourceCanvas, workW, workH, sizeOverride) {
+    const sourceCtx = sourceCanvas.getContext("2d");
+    const imgData = sourceCtx.getImageData(0, 0, workW, workH).data;
+    const gray = toGrayscale(imgData, workW, workH);
+    const blurred = gaussianBlur(gray, workW, workH);
+    const { magnitude, direction } = sobelGradients(blurred, workW, workH);
+    const suppressed = nonMaxSuppression(magnitude, direction, workW, workH);
+    const sortedValues = sortedEdgeStrengths(suppressed);
+
+    const defaultSensitivity = 50;
+    const { high, low } = thresholdsForSensitivity(sortedValues, defaultSensitivity);
+    const edges = dilateEdges(hysteresis(suppressed, workW, workH, high, low), workW, workH);
+    const lineArtCanvas = edgesToCanvas(edges, workW, workH);
+
+    const staged = {
+      kind: "photo",
+      canvas: lineArtCanvas,
+      suppressed, sortedValues, // cached so the sensitivity slider can re-run hysteresis cheaply, without redoing blur/Sobel/NMS
+      workW, workH,
+      aspectRatio: workW / workH,
+      sensitivity: defaultSensitivity
+    };
+    if (sizeOverride) staged.size = sizeOverride;
+    startStaging(staged);
+  }
 
   uploadPhotoBtn.addEventListener("click", () => photoInput.click());
 
@@ -782,29 +859,9 @@
         const workCanvas = document.createElement("canvas");
         workCanvas.width = workW;
         workCanvas.height = workH;
-        const workCtx = workCanvas.getContext("2d");
-        workCtx.drawImage(img, 0, 0, workW, workH);
+        workCanvas.getContext("2d").drawImage(img, 0, 0, workW, workH);
 
-        const imgData = workCtx.getImageData(0, 0, workW, workH).data;
-        const gray = toGrayscale(imgData, workW, workH);
-        const blurred = gaussianBlur(gray, workW, workH);
-        const { magnitude, direction } = sobelGradients(blurred, workW, workH);
-        const suppressed = nonMaxSuppression(magnitude, direction, workW, workH);
-        const sortedValues = sortedEdgeStrengths(suppressed);
-
-        const defaultSensitivity = 50;
-        const { high, low } = thresholdsForSensitivity(sortedValues, defaultSensitivity);
-        const edges = hysteresis(suppressed, workW, workH, high, low);
-        const lineArtCanvas = edgesToCanvas(edges, workW, workH);
-
-        startStaging({
-          kind: "photo",
-          canvas: lineArtCanvas,
-          suppressed, sortedValues, // cached so the sensitivity slider can re-run hysteresis cheaply, without redoing blur/Sobel/NMS
-          workW, workH,
-          aspectRatio: workW / workH,
-          sensitivity: defaultSensitivity
-        });
+        stageLineArt(workCanvas, workW, workH);
 
         photoInput.value = ""; // allow re-selecting the same file later
       };
@@ -813,19 +870,44 @@
     reader.readAsDataURL(file);
   });
 
+  stampEmojiBtn.addEventListener("click", () => {
+    const emoji = emojiInput.value.trim();
+    if (!emoji) return;
+
+    // Render the emoji glyph (in color, via the phone's own emoji font)
+    // onto a plain canvas so it can run through the exact same edge
+    // detection as an uploaded photo.
+    const size = 240;
+    const emojiCanvas = document.createElement("canvas");
+    emojiCanvas.width = size;
+    emojiCanvas.height = size;
+    const emojiCtx = emojiCanvas.getContext("2d");
+    emojiCtx.fillStyle = "#fff";
+    emojiCtx.fillRect(0, 0, size, size);
+    emojiCtx.font = Math.round(size * 0.72) + "px sans-serif";
+    emojiCtx.textAlign = "center";
+    emojiCtx.textBaseline = "middle";
+    emojiCtx.fillText(emoji, size / 2, size / 2 + size * 0.06);
+
+    stageLineArt(emojiCanvas, size, size, 90); // smaller default than photos -- emoji are compact, icon-like shapes
+
+    emojiInput.value = "";
+  });
+
   sensitivitySlider.addEventListener("input", () => {
     if (!stagedObject || stagedObject.kind !== "photo") return;
     stagedObject.sensitivity = parseInt(sensitivitySlider.value, 10);
     const { high, low } = thresholdsForSensitivity(stagedObject.sortedValues, stagedObject.sensitivity);
-    const edges = hysteresis(stagedObject.suppressed, stagedObject.workW, stagedObject.workH, high, low);
+    const edges = dilateEdges(hysteresis(stagedObject.suppressed, stagedObject.workW, stagedObject.workH, high, low), stagedObject.workW, stagedObject.workH);
     stagedObject.canvas = edgesToCanvas(edges, stagedObject.workW, stagedObject.workH);
     redrawOverlay();
   });
 
   function setControlsEnabled(enabled) {
-    [penBtn, eraserBtn, clearBtn, sizeSlider, textInput, stampTextBtn, publishBtn, uploadPhotoBtn]
+    [penBtn, eraserBtn, clearBtn, sizeSlider, textInput, stampTextBtn, publishBtn, uploadPhotoBtn, emojiInput, stampEmojiBtn]
       .forEach((el) => { el.disabled = !enabled; });
     iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
+    fontButtons.forEach((el) => { el.disabled = !enabled; });
   }
 
   function startStaging(obj) {
@@ -860,10 +942,15 @@
     overlayCtx.strokeStyle = "#000";
 
     if (stagedObject.kind === "text") {
-      overlayCtx.font = "bold " + stagedObject.size + "px Georgia, serif";
+      overlayCtx.font = "bold " + stagedObject.size + "px " + stagedObject.font;
       overlayCtx.textAlign = "center";
       overlayCtx.textBaseline = "middle";
-      overlayCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
+      if (stagedObject.outline) {
+        overlayCtx.lineWidth = Math.max(1, stagedObject.size * 0.07);
+        overlayCtx.strokeText(stagedObject.content, stagedObject.x, stagedObject.y);
+      } else {
+        overlayCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
+      }
     } else if (stagedObject.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(stagedObject);
       overlayCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
@@ -919,10 +1006,16 @@
     pushUndoState();
     baseCtx.fillStyle = "#000";
     if (stagedObject.kind === "text") {
-      baseCtx.font = "bold " + stagedObject.size + "px Georgia, serif";
+      baseCtx.font = "bold " + stagedObject.size + "px " + stagedObject.font;
       baseCtx.textAlign = "center";
       baseCtx.textBaseline = "middle";
-      baseCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
+      if (stagedObject.outline) {
+        baseCtx.strokeStyle = "#000";
+        baseCtx.lineWidth = Math.max(1, stagedObject.size * 0.07);
+        baseCtx.strokeText(stagedObject.content, stagedObject.x, stagedObject.y);
+      } else {
+        baseCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
+      }
     } else if (stagedObject.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(stagedObject);
       baseCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
@@ -937,7 +1030,7 @@
   stampTextBtn.addEventListener("click", () => {
     const text = textInput.value.trim();
     if (!text) return;
-    startStaging({ kind: "text", content: text });
+    startStaging({ kind: "text", content: text, font: selectedTextFont, outline: selectedTextOutline });
     textInput.value = "";
   });
 
