@@ -681,14 +681,36 @@
   }
 
   // Maps the Line Detail slider (10-150, default 50) to a percentile of
-  // this photo's edge strengths -- bounded 60th-98th percentile so it can
-  // never crank all the way down to zero edges or up to solid noise.
+  // this photo's edge strengths -- bounded 30th-75th percentile, biased
+  // toward keeping a lot of edges (a fuller, denser sketch) rather than a
+  // sparse clean outline, while hysteresis still drops isolated noise.
   function thresholdsForSensitivity(sortedValues, sensitivity) {
     if (!sortedValues.length) return { high: 1, low: 1 };
-    const percentile = 60 + (sensitivity - 10) * (98 - 60) / (150 - 10);
+    const percentile = 30 + (sensitivity - 10) * (75 - 30) / (150 - 10);
     const idx = Math.min(sortedValues.length - 1, Math.floor(sortedValues.length * percentile / 100));
     const high = sortedValues[idx];
     return { high, low: high * 0.4 };
+  }
+
+  // Thickens the thinned 1px edge lines back into bolder pencil-like
+  // strokes -- NMS/hysteresis alone leave hairline edges that read as too
+  // sparse/technical for a hand-drawn sketch look.
+  function dilateEdges(edges, width, height) {
+    const out = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        if (edges[i]) { out[i] = 1; continue; }
+        for (let dy = -1; dy <= 1 && !out[i]; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+            if (edges[ny * width + nx]) { out[i] = 1; break; }
+          }
+        }
+      }
+    }
+    return out;
   }
 
   // Hysteresis: keeps every "strong" edge, plus any "weak" edge connected
@@ -794,7 +816,7 @@
 
         const defaultSensitivity = 50;
         const { high, low } = thresholdsForSensitivity(sortedValues, defaultSensitivity);
-        const edges = hysteresis(suppressed, workW, workH, high, low);
+        const edges = dilateEdges(hysteresis(suppressed, workW, workH, high, low), workW, workH);
         const lineArtCanvas = edgesToCanvas(edges, workW, workH);
 
         startStaging({
@@ -817,7 +839,7 @@
     if (!stagedObject || stagedObject.kind !== "photo") return;
     stagedObject.sensitivity = parseInt(sensitivitySlider.value, 10);
     const { high, low } = thresholdsForSensitivity(stagedObject.sortedValues, stagedObject.sensitivity);
-    const edges = hysteresis(stagedObject.suppressed, stagedObject.workW, stagedObject.workH, high, low);
+    const edges = dilateEdges(hysteresis(stagedObject.suppressed, stagedObject.workW, stagedObject.workH, high, low), stagedObject.workW, stagedObject.workH);
     stagedObject.canvas = edgesToCanvas(edges, stagedObject.workW, stagedObject.workH);
     redrawOverlay();
   });
