@@ -6,7 +6,7 @@
 <title>Design Your Wave Clock</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Press+Start+2P&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --sand: #F1E6CF;
@@ -337,6 +337,12 @@
   <div class="size-row">
     <span>Brush size</span>
     <input type="range" id="sizeSlider" min="3" max="24" value="8">
+  </div>
+
+  <div class="toolbar" id="fontRow">
+    <button class="tool-btn active" id="fontSerifBtn" data-font="Georgia, serif">Serif</button>
+    <button class="tool-btn" id="fontBlockBtn" data-font="'Bungee', sans-serif">Block</button>
+    <button class="tool-btn" id="fontPixelBtn" data-font="'Press Start 2P', monospace">Pixel</button>
   </div>
 
   <div class="text-row">
@@ -786,6 +792,15 @@
   const cancelStageBtn = document.getElementById("cancelStageBtn");
   const textInput = document.getElementById("textInput");
   const stampTextBtn = document.getElementById("stampTextBtn");
+  const fontButtons = document.querySelectorAll("#fontRow .tool-btn");
+  let selectedTextFont = fontButtons[0].dataset.font;
+  fontButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      fontButtons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      selectedTextFont = btn.dataset.font;
+    });
+  });
   const uploadPhotoBtn = document.getElementById("uploadPhotoBtn");
   const photoInput = document.getElementById("photoInput");
   const emojiInput = document.getElementById("emojiInput");
@@ -890,6 +905,7 @@
     [penBtn, eraserBtn, clearBtn, sizeSlider, textInput, stampTextBtn, publishBtn, uploadPhotoBtn, emojiInput, stampEmojiBtn]
       .forEach((el) => { el.disabled = !enabled; });
     iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
+    fontButtons.forEach((el) => { el.disabled = !enabled; });
   }
 
   function startStaging(obj) {
@@ -924,7 +940,7 @@
     overlayCtx.strokeStyle = "#000";
 
     if (stagedObject.kind === "text") {
-      overlayCtx.font = "bold " + stagedObject.size + "px Georgia, serif";
+      overlayCtx.font = "bold " + stagedObject.size + "px " + stagedObject.font;
       overlayCtx.textAlign = "center";
       overlayCtx.textBaseline = "middle";
       overlayCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
@@ -983,7 +999,7 @@
     pushUndoState();
     baseCtx.fillStyle = "#000";
     if (stagedObject.kind === "text") {
-      baseCtx.font = "bold " + stagedObject.size + "px Georgia, serif";
+      baseCtx.font = "bold " + stagedObject.size + "px " + stagedObject.font;
       baseCtx.textAlign = "center";
       baseCtx.textBaseline = "middle";
       baseCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
@@ -1001,7 +1017,7 @@
   stampTextBtn.addEventListener("click", () => {
     const text = textInput.value.trim();
     if (!text) return;
-    startStaging({ kind: "text", content: text });
+    startStaging({ kind: "text", content: text, font: selectedTextFont });
     textInput.value = "";
   });
 
