@@ -131,9 +131,8 @@
 
   .staging-bar {
     display: none;
-    align-items: center;
-    gap: 10px;
-    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
     background: #fff;
     border: 2px solid var(--navy);
     border-radius: 10px;
@@ -244,6 +243,22 @@
   .icon-btn:disabled { opacity: 0.4; cursor: default; }
   .icon-btn svg { width: 100%; height: 100%; }
 
+  .photo-row {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 22px;
+  }
+
+  .staging-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+  .staging-bar-row.hidden { display: none; }
+  .staging-bar-row span { font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
+  .staging-bar-row input[type="range"] { flex: 1; accent-color: var(--navy); }
+
   .publish-btn {
     display: block;
     width: 100%;
@@ -300,10 +315,16 @@
   </div>
 
   <div class="staging-bar" id="stagingBar">
-    <span>Drag to move &middot; Size</span>
-    <input type="range" id="stagingSizeSlider" min="20" max="140" value="64">
-    <button class="commit-btn" id="commitBtn" title="Place it">&#10003;</button>
-    <button class="cancel-btn" id="cancelStageBtn" title="Cancel">&#10005;</button>
+    <div class="staging-bar-row hidden" id="sensitivityRow">
+      <span>Line detail</span>
+      <input type="range" id="sensitivitySlider" min="10" max="150" value="50">
+    </div>
+    <div class="staging-bar-row">
+      <span>Drag to move &middot; Size</span>
+      <input type="range" id="stagingSizeSlider" min="20" max="300" value="64">
+      <button class="commit-btn" id="commitBtn" title="Place it">&#10003;</button>
+      <button class="cancel-btn" id="cancelStageBtn" title="Cancel">&#10005;</button>
+    </div>
   </div>
 
   <div class="toolbar">
@@ -324,6 +345,11 @@
   </div>
 
   <div class="icon-row" id="iconRow"></div>
+
+  <div class="photo-row">
+    <button class="tool-btn" id="uploadPhotoBtn">&#128247; Upload Photo</button>
+    <input type="file" id="photoInput" accept="image/*" style="display:none">
+  </div>
 
   <button class="publish-btn" id="publishBtn">Publish to My Wave Clock</button>
   <p class="status" id="statusMsg"></p>
@@ -542,6 +568,59 @@
     return map[name] || "";
   }
 
+  // ================= Photo upload: converts to line art via edge
+  // detection (Sobel operator), not a soft/shaded pencil-sketch effect --
+  // gradients don't survive being forced to pure black-and-white nearly as
+  // well as clean line edges do on a 1-bit display. =================
+  const MAX_WORKING_DIMENSION = 500; // caps processing cost; plenty of detail for any placement size on a 792x272 panel
+
+  function toGrayscale(imgData, width, height) {
+    const gray = new Float32Array(width * height);
+    for (let i = 0; i < width * height; i++) {
+      const r = imgData[i * 4], g = imgData[i * 4 + 1], b = imgData[i * 4 + 2];
+      gray[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+    return gray;
+  }
+
+  function sobelMagnitude(gray, width, height) {
+    const mag = new Float32Array(width * height);
+    const gx = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
+    const gy = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        let sx = 0, sy = 0, k = 0;
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const v = gray[(y + ky) * width + (x + kx)];
+            sx += v * gx[k];
+            sy += v * gy[k];
+            k++;
+          }
+        }
+        mag[y * width + x] = Math.sqrt(sx * sx + sy * sy);
+      }
+    }
+    return mag;
+  }
+
+  function magnitudeToCanvas(mag, width, height, threshold) {
+    const out = document.createElement("canvas");
+    out.width = width;
+    out.height = height;
+    const outCtx = out.getContext("2d");
+    const imgOut = outCtx.createImageData(width, height);
+    for (let i = 0; i < width * height; i++) {
+      const val = (mag[i] > threshold) ? 0 : 255; // black edge line, white elsewhere
+      imgOut.data[i * 4] = val;
+      imgOut.data[i * 4 + 1] = val;
+      imgOut.data[i * 4 + 2] = val;
+      imgOut.data[i * 4 + 3] = 255;
+    }
+    outCtx.putImageData(imgOut, 0, 0);
+    return out;
+  }
+
   const iconRow = document.getElementById("iconRow");
   Object.keys(ICONS).forEach((name) => {
     const btn = document.createElement("button");
@@ -562,21 +641,89 @@
   const cancelStageBtn = document.getElementById("cancelStageBtn");
   const textInput = document.getElementById("textInput");
   const stampTextBtn = document.getElementById("stampTextBtn");
+  const uploadPhotoBtn = document.getElementById("uploadPhotoBtn");
+  const photoInput = document.getElementById("photoInput");
+  const sensitivityRow = document.getElementById("sensitivityRow");
+  const sensitivitySlider = document.getElementById("sensitivitySlider");
+
+  uploadPhotoBtn.addEventListener("click", () => photoInput.click());
+
+  photoInput.addEventListener("change", (evt) => {
+    const file = evt.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        // Scale down to a manageable working resolution before processing
+        const scale = Math.min(1, MAX_WORKING_DIMENSION / Math.max(img.width, img.height));
+        const workW = Math.round(img.width * scale);
+        const workH = Math.round(img.height * scale);
+
+        const workCanvas = document.createElement("canvas");
+        workCanvas.width = workW;
+        workCanvas.height = workH;
+        const workCtx = workCanvas.getContext("2d");
+        workCtx.drawImage(img, 0, 0, workW, workH);
+
+        const imgData = workCtx.getImageData(0, 0, workW, workH).data;
+        const gray = toGrayscale(imgData, workW, workH);
+        const magnitude = sobelMagnitude(gray, workW, workH);
+
+        const defaultSensitivity = 50;
+        const lineArtCanvas = magnitudeToCanvas(magnitude, workW, workH, defaultSensitivity);
+
+        startStaging({
+          kind: "photo",
+          canvas: lineArtCanvas,
+          magnitude, // cached so the sensitivity slider can re-threshold cheaply, without re-running Sobel
+          workW, workH,
+          aspectRatio: workW / workH,
+          sensitivity: defaultSensitivity
+        });
+
+        photoInput.value = ""; // allow re-selecting the same file later
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  sensitivitySlider.addEventListener("input", () => {
+    if (!stagedObject || stagedObject.kind !== "photo") return;
+    stagedObject.sensitivity = parseInt(sensitivitySlider.value, 10);
+    stagedObject.canvas = magnitudeToCanvas(stagedObject.magnitude, stagedObject.workW, stagedObject.workH, stagedObject.sensitivity);
+    redrawOverlay();
+  });
 
   function setControlsEnabled(enabled) {
-    [penBtn, eraserBtn, clearBtn, sizeSlider, textInput, stampTextBtn, publishBtn]
+    [penBtn, eraserBtn, clearBtn, sizeSlider, textInput, stampTextBtn, publishBtn, uploadPhotoBtn]
       .forEach((el) => { el.disabled = !enabled; });
     iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
   }
 
   function startStaging(obj) {
     if (stagedObject) return;
-    stagedObject = Object.assign({ x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64 }, obj);
+    const defaultSize = (obj.kind === "photo") ? 160 : 64;
+    stagedObject = Object.assign({ x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: defaultSize }, obj);
     stagingSizeSlider.value = stagedObject.size;
+    sensitivityRow.classList.toggle("hidden", obj.kind !== "photo");
+    if (obj.kind === "photo") sensitivitySlider.value = obj.sensitivity;
     stagingBar.classList.add("visible");
     overlayCanvas.classList.add("staging");
     setControlsEnabled(false);
     redrawOverlay();
+  }
+
+  function getPhotoDisplayDims(obj) {
+    // obj.size is always the LARGER of width/height -- the other dimension
+    // is derived from the photo's own aspect ratio, so it never looks
+    // stretched or squashed regardless of the source photo's shape.
+    if (obj.aspectRatio >= 1) {
+      return { w: obj.size, h: obj.size / obj.aspectRatio };
+    }
+    return { w: obj.size * obj.aspectRatio, h: obj.size };
   }
 
   function redrawOverlay() {
@@ -592,6 +739,9 @@
       overlayCtx.textAlign = "center";
       overlayCtx.textBaseline = "middle";
       overlayCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
+    } else if (stagedObject.kind === "photo") {
+      const { w, h } = getPhotoDisplayDims(stagedObject);
+      overlayCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
     } else {
       ICONS[stagedObject.name](overlayCtx, stagedObject.x, stagedObject.y, stagedObject.size);
     }
@@ -648,6 +798,9 @@
       baseCtx.textAlign = "center";
       baseCtx.textBaseline = "middle";
       baseCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
+    } else if (stagedObject.kind === "photo") {
+      const { w, h } = getPhotoDisplayDims(stagedObject);
+      baseCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
     } else {
       ICONS[stagedObject.name](baseCtx, stagedObject.x, stagedObject.y, stagedObject.size);
     }
@@ -699,7 +852,7 @@
   publishBtn.addEventListener("click", async () => {
     if (!deviceId) return;
     publishBtn.disabled = true;
-    setStatus("Publishing\u2026");
+    setStatus("Publishing…");
 
     try {
       const packed = packTo1Bit(baseCanvas);
@@ -709,7 +862,7 @@
       setStatus("Published! It'll appear on your Wave Clock within the hour.", "success");
     } catch (err) {
       console.error(err);
-      setStatus("Something went wrong publishing \u2014 try again in a moment.", "error");
+      setStatus("Something went wrong publishing — try again in a moment.", "error");
     } finally {
       publishBtn.disabled = false;
     }
