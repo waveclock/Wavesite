@@ -341,7 +341,7 @@
 
   <div class="toolbar" id="fontRow">
     <button class="tool-btn active" id="fontSerifBtn" data-font="Georgia, serif">Serif</button>
-    <button class="tool-btn" id="fontBlockBtn" data-font="'Bungee', sans-serif">Block</button>
+    <button class="tool-btn" id="fontBlockBtn" data-font="'Bungee', sans-serif" data-outline="true">Block</button>
     <button class="tool-btn" id="fontPixelBtn" data-font="'Press Start 2P', monospace">Pixel</button>
   </div>
 
@@ -794,11 +794,13 @@
   const stampTextBtn = document.getElementById("stampTextBtn");
   const fontButtons = document.querySelectorAll("#fontRow .tool-btn");
   let selectedTextFont = fontButtons[0].dataset.font;
+  let selectedTextOutline = fontButtons[0].dataset.outline === "true";
   fontButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
       fontButtons.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       selectedTextFont = btn.dataset.font;
+      selectedTextOutline = btn.dataset.outline === "true";
     });
   });
   const uploadPhotoBtn = document.getElementById("uploadPhotoBtn");
@@ -943,7 +945,12 @@
       overlayCtx.font = "bold " + stagedObject.size + "px " + stagedObject.font;
       overlayCtx.textAlign = "center";
       overlayCtx.textBaseline = "middle";
-      overlayCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
+      if (stagedObject.outline) {
+        overlayCtx.lineWidth = Math.max(1, stagedObject.size * 0.07);
+        overlayCtx.strokeText(stagedObject.content, stagedObject.x, stagedObject.y);
+      } else {
+        overlayCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
+      }
     } else if (stagedObject.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(stagedObject);
       overlayCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
@@ -1002,7 +1009,13 @@
       baseCtx.font = "bold " + stagedObject.size + "px " + stagedObject.font;
       baseCtx.textAlign = "center";
       baseCtx.textBaseline = "middle";
-      baseCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
+      if (stagedObject.outline) {
+        baseCtx.strokeStyle = "#000";
+        baseCtx.lineWidth = Math.max(1, stagedObject.size * 0.07);
+        baseCtx.strokeText(stagedObject.content, stagedObject.x, stagedObject.y);
+      } else {
+        baseCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
+      }
     } else if (stagedObject.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(stagedObject);
       baseCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
@@ -1017,7 +1030,7 @@
   stampTextBtn.addEventListener("click", () => {
     const text = textInput.value.trim();
     if (!text) return;
-    startStaging({ kind: "text", content: text, font: selectedTextFont });
+    startStaging({ kind: "text", content: text, font: selectedTextFont, outline: selectedTextOutline });
     textInput.value = "";
   });
 
