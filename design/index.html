@@ -346,6 +346,11 @@
 
   <div class="icon-row" id="iconRow"></div>
 
+  <div class="text-row">
+    <input type="text" id="emojiInput" placeholder="Add an emoji&hellip;" maxlength="16">
+    <button id="stampEmojiBtn">Add Emoji</button>
+  </div>
+
   <div class="photo-row">
     <button class="tool-btn" id="uploadPhotoBtn">&#128247; Upload Photo</button>
     <input type="file" id="photoInput" accept="image/*" style="display:none">
@@ -783,8 +788,41 @@
   const stampTextBtn = document.getElementById("stampTextBtn");
   const uploadPhotoBtn = document.getElementById("uploadPhotoBtn");
   const photoInput = document.getElementById("photoInput");
+  const emojiInput = document.getElementById("emojiInput");
+  const stampEmojiBtn = document.getElementById("stampEmojiBtn");
   const sensitivityRow = document.getElementById("sensitivityRow");
   const sensitivitySlider = document.getElementById("sensitivitySlider");
+
+  // Runs any source canvas (an uploaded photo, an emoji rendered to a
+  // canvas, anything) through the same line-art pipeline and stages it --
+  // this is what lets both "Upload Photo" and "Add Emoji" share one
+  // conversion path, since a colored emoji glyph collapses into an
+  // unreadable blob on a 1-bit display exactly like a photo does.
+  function stageLineArt(sourceCanvas, workW, workH, sizeOverride) {
+    const sourceCtx = sourceCanvas.getContext("2d");
+    const imgData = sourceCtx.getImageData(0, 0, workW, workH).data;
+    const gray = toGrayscale(imgData, workW, workH);
+    const blurred = gaussianBlur(gray, workW, workH);
+    const { magnitude, direction } = sobelGradients(blurred, workW, workH);
+    const suppressed = nonMaxSuppression(magnitude, direction, workW, workH);
+    const sortedValues = sortedEdgeStrengths(suppressed);
+
+    const defaultSensitivity = 50;
+    const { high, low } = thresholdsForSensitivity(sortedValues, defaultSensitivity);
+    const edges = dilateEdges(hysteresis(suppressed, workW, workH, high, low), workW, workH);
+    const lineArtCanvas = edgesToCanvas(edges, workW, workH);
+
+    const staged = {
+      kind: "photo",
+      canvas: lineArtCanvas,
+      suppressed, sortedValues, // cached so the sensitivity slider can re-run hysteresis cheaply, without redoing blur/Sobel/NMS
+      workW, workH,
+      aspectRatio: workW / workH,
+      sensitivity: defaultSensitivity
+    };
+    if (sizeOverride) staged.size = sizeOverride;
+    startStaging(staged);
+  }
 
   uploadPhotoBtn.addEventListener("click", () => photoInput.click());
 
@@ -804,35 +842,39 @@
         const workCanvas = document.createElement("canvas");
         workCanvas.width = workW;
         workCanvas.height = workH;
-        const workCtx = workCanvas.getContext("2d");
-        workCtx.drawImage(img, 0, 0, workW, workH);
+        workCanvas.getContext("2d").drawImage(img, 0, 0, workW, workH);
 
-        const imgData = workCtx.getImageData(0, 0, workW, workH).data;
-        const gray = toGrayscale(imgData, workW, workH);
-        const blurred = gaussianBlur(gray, workW, workH);
-        const { magnitude, direction } = sobelGradients(blurred, workW, workH);
-        const suppressed = nonMaxSuppression(magnitude, direction, workW, workH);
-        const sortedValues = sortedEdgeStrengths(suppressed);
-
-        const defaultSensitivity = 50;
-        const { high, low } = thresholdsForSensitivity(sortedValues, defaultSensitivity);
-        const edges = dilateEdges(hysteresis(suppressed, workW, workH, high, low), workW, workH);
-        const lineArtCanvas = edgesToCanvas(edges, workW, workH);
-
-        startStaging({
-          kind: "photo",
-          canvas: lineArtCanvas,
-          suppressed, sortedValues, // cached so the sensitivity slider can re-run hysteresis cheaply, without redoing blur/Sobel/NMS
-          workW, workH,
-          aspectRatio: workW / workH,
-          sensitivity: defaultSensitivity
-        });
+        stageLineArt(workCanvas, workW, workH);
 
         photoInput.value = ""; // allow re-selecting the same file later
       };
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
+  });
+
+  stampEmojiBtn.addEventListener("click", () => {
+    const emoji = emojiInput.value.trim();
+    if (!emoji) return;
+
+    // Render the emoji glyph (in color, via the phone's own emoji font)
+    // onto a plain canvas so it can run through the exact same edge
+    // detection as an uploaded photo.
+    const size = 240;
+    const emojiCanvas = document.createElement("canvas");
+    emojiCanvas.width = size;
+    emojiCanvas.height = size;
+    const emojiCtx = emojiCanvas.getContext("2d");
+    emojiCtx.fillStyle = "#fff";
+    emojiCtx.fillRect(0, 0, size, size);
+    emojiCtx.font = Math.round(size * 0.72) + "px sans-serif";
+    emojiCtx.textAlign = "center";
+    emojiCtx.textBaseline = "middle";
+    emojiCtx.fillText(emoji, size / 2, size / 2 + size * 0.06);
+
+    stageLineArt(emojiCanvas, size, size, 90); // smaller default than photos -- emoji are compact, icon-like shapes
+
+    emojiInput.value = "";
   });
 
   sensitivitySlider.addEventListener("input", () => {
@@ -845,7 +887,7 @@
   });
 
   function setControlsEnabled(enabled) {
-    [penBtn, eraserBtn, clearBtn, sizeSlider, textInput, stampTextBtn, publishBtn, uploadPhotoBtn]
+    [penBtn, eraserBtn, clearBtn, sizeSlider, textInput, stampTextBtn, publishBtn, uploadPhotoBtn, emojiInput, stampEmojiBtn]
       .forEach((el) => { el.disabled = !enabled; });
     iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
   }
