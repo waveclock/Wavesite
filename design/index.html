@@ -568,10 +568,13 @@
     return map[name] || "";
   }
 
-  // ================= Photo upload: converts to line art via edge
-  // detection (Sobel operator), not a soft/shaded pencil-sketch effect --
-  // gradients don't survive being forced to pure black-and-white nearly as
-  // well as clean line edges do on a 1-bit display. =================
+  // ================= Photo upload: converts to line art via Canny edge
+  // detection, not a soft/shaded pencil-sketch effect -- gradients don't
+  // survive being forced to pure black-and-white nearly as well as clean
+  // line edges do on a 1-bit display. Canny (blur -> gradient -> thin
+  // edges to 1px -> hysteresis threshold) reads as a much cleaner sketch
+  // than raw thresholded Sobel, which picks up every fleck of photo
+  // texture as its own "edge". =================
   const MAX_WORKING_DIMENSION = 500; // caps processing cost; plenty of detail for any placement size on a 792x272 panel
 
   function toGrayscale(imgData, width, height) {
@@ -583,8 +586,40 @@
     return gray;
   }
 
-  function sobelMagnitude(gray, width, height) {
-    const mag = new Float32Array(width * height);
+  // Separable 5-tap binomial blur (approximates a Gaussian, sigma ~1) --
+  // smooths away skin/fabric/JPEG texture before it can register as edges.
+  function gaussianBlur(gray, width, height) {
+    const kernel = [1, 4, 6, 4, 1];
+    const kernelSum = 16;
+    const clamp = (v, max) => v < 0 ? 0 : (v >= max ? max - 1 : v);
+    const horizontal = new Float32Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        let sum = 0;
+        for (let k = -2; k <= 2; k++) {
+          sum += gray[y * width + clamp(x + k, width)] * kernel[k + 2];
+        }
+        horizontal[y * width + x] = sum / kernelSum;
+      }
+    }
+    const blurred = new Float32Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        let sum = 0;
+        for (let k = -2; k <= 2; k++) {
+          sum += horizontal[clamp(y + k, height) * width + x] * kernel[k + 2];
+        }
+        blurred[y * width + x] = sum / kernelSum;
+      }
+    }
+    return blurred;
+  }
+
+  // Sobel gradient magnitude plus direction, quantized to the 4 angles
+  // non-maximum suppression needs (0°, 45°, 90°, 135°).
+  function sobelGradients(gray, width, height) {
+    const magnitude = new Float32Array(width * height);
+    const direction = new Uint8Array(width * height);
     const gx = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
     const gy = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
     for (let y = 1; y < height - 1; y++) {
@@ -598,20 +633,103 @@
             k++;
           }
         }
-        mag[y * width + x] = Math.sqrt(sx * sx + sy * sy);
+        const i = y * width + x;
+        magnitude[i] = Math.sqrt(sx * sx + sy * sy);
+        let angle = Math.atan2(sy, sx) * (180 / Math.PI);
+        if (angle < 0) angle += 180;
+        direction[i] = (angle < 22.5 || angle >= 157.5) ? 0 // horizontal
+          : (angle < 67.5) ? 1 // 45°
+          : (angle < 112.5) ? 2 // vertical
+          : 3; // 135°
       }
     }
-    return mag;
+    return { magnitude, direction };
   }
 
-  function magnitudeToCanvas(mag, width, height, threshold) {
+  // Thins fat gradient blobs down to 1px-wide ridge lines by keeping only
+  // pixels that are a local maximum along their own gradient direction.
+  function nonMaxSuppression(magnitude, direction, width, height) {
+    const out = new Float32Array(width * height);
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const i = y * width + x;
+        const m = magnitude[i];
+        if (m === 0) continue;
+        let n1, n2;
+        switch (direction[i]) {
+          case 0: n1 = magnitude[i - 1]; n2 = magnitude[i + 1]; break;
+          case 1: n1 = magnitude[i - width + 1]; n2 = magnitude[i + width - 1]; break;
+          case 2: n1 = magnitude[i - width]; n2 = magnitude[i + width]; break;
+          default: n1 = magnitude[i - width - 1]; n2 = magnitude[i + width + 1]; break;
+        }
+        out[i] = (m >= n1 && m >= n2) ? m : 0;
+      }
+    }
+    return out;
+  }
+
+  // Sorts this photo's own edge strengths once so thresholds can be picked
+  // as a percentile of ITS distribution, not one fixed number that only
+  // works for some photos' contrast.
+  function sortedEdgeStrengths(suppressed) {
+    const values = [];
+    for (let i = 0; i < suppressed.length; i++) {
+      if (suppressed[i] > 0) values.push(suppressed[i]);
+    }
+    values.sort((a, b) => a - b);
+    return values;
+  }
+
+  // Maps the Line Detail slider (10-150, default 50) to a percentile of
+  // this photo's edge strengths -- bounded 60th-98th percentile so it can
+  // never crank all the way down to zero edges or up to solid noise.
+  function thresholdsForSensitivity(sortedValues, sensitivity) {
+    if (!sortedValues.length) return { high: 1, low: 1 };
+    const percentile = 60 + (sensitivity - 10) * (98 - 60) / (150 - 10);
+    const idx = Math.min(sortedValues.length - 1, Math.floor(sortedValues.length * percentile / 100));
+    const high = sortedValues[idx];
+    return { high, low: high * 0.4 };
+  }
+
+  // Hysteresis: keeps every "strong" edge, plus any "weak" edge connected
+  // to a strong one -- this is what drops isolated noise specks while
+  // preserving faint-but-real contour lines that touch a strong edge.
+  function hysteresis(suppressed, width, height, highThreshold, lowThreshold) {
+    const edges = new Uint8Array(width * height);
+    const stack = [];
+    for (let i = 0; i < suppressed.length; i++) {
+      if (suppressed[i] >= highThreshold) {
+        edges[i] = 1;
+        stack.push(i);
+      }
+    }
+    while (stack.length) {
+      const i = stack.pop();
+      const x = i % width, y = (i / width) | 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+          const ni = ny * width + nx;
+          if (!edges[ni] && suppressed[ni] >= lowThreshold) {
+            edges[ni] = 1;
+            stack.push(ni);
+          }
+        }
+      }
+    }
+    return edges;
+  }
+
+  function edgesToCanvas(edges, width, height) {
     const out = document.createElement("canvas");
     out.width = width;
     out.height = height;
     const outCtx = out.getContext("2d");
     const imgOut = outCtx.createImageData(width, height);
     for (let i = 0; i < width * height; i++) {
-      const val = (mag[i] > threshold) ? 0 : 255; // black edge line, white elsewhere
+      const val = edges[i] ? 0 : 255; // black edge line, white elsewhere
       imgOut.data[i * 4] = val;
       imgOut.data[i * 4 + 1] = val;
       imgOut.data[i * 4 + 2] = val;
@@ -669,15 +787,20 @@
 
         const imgData = workCtx.getImageData(0, 0, workW, workH).data;
         const gray = toGrayscale(imgData, workW, workH);
-        const magnitude = sobelMagnitude(gray, workW, workH);
+        const blurred = gaussianBlur(gray, workW, workH);
+        const { magnitude, direction } = sobelGradients(blurred, workW, workH);
+        const suppressed = nonMaxSuppression(magnitude, direction, workW, workH);
+        const sortedValues = sortedEdgeStrengths(suppressed);
 
         const defaultSensitivity = 50;
-        const lineArtCanvas = magnitudeToCanvas(magnitude, workW, workH, defaultSensitivity);
+        const { high, low } = thresholdsForSensitivity(sortedValues, defaultSensitivity);
+        const edges = hysteresis(suppressed, workW, workH, high, low);
+        const lineArtCanvas = edgesToCanvas(edges, workW, workH);
 
         startStaging({
           kind: "photo",
           canvas: lineArtCanvas,
-          magnitude, // cached so the sensitivity slider can re-threshold cheaply, without re-running Sobel
+          suppressed, sortedValues, // cached so the sensitivity slider can re-run hysteresis cheaply, without redoing blur/Sobel/NMS
           workW, workH,
           aspectRatio: workW / workH,
           sensitivity: defaultSensitivity
@@ -693,7 +816,9 @@
   sensitivitySlider.addEventListener("input", () => {
     if (!stagedObject || stagedObject.kind !== "photo") return;
     stagedObject.sensitivity = parseInt(sensitivitySlider.value, 10);
-    stagedObject.canvas = magnitudeToCanvas(stagedObject.magnitude, stagedObject.workW, stagedObject.workH, stagedObject.sensitivity);
+    const { high, low } = thresholdsForSensitivity(stagedObject.sortedValues, stagedObject.sensitivity);
+    const edges = hysteresis(stagedObject.suppressed, stagedObject.workW, stagedObject.workH, high, low);
+    stagedObject.canvas = edgesToCanvas(edges, stagedObject.workW, stagedObject.workH);
     redrawOverlay();
   });
 
