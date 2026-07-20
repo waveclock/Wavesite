@@ -1,0 +1,12 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // aiGenerationLimits (and everything else) is only ever read/written
+    // by the Cloud Function via the Admin SDK, which bypasses these rules
+    // entirely. Deny all direct client access so the rate-limit counters
+    // can't be reset or tampered with from the browser.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
