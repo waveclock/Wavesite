@@ -359,12 +359,7 @@
 
   <div class="toolbar" id="photoStyleRow">
     <button class="tool-btn active" id="photoStyleSketchBtn" data-style="sketch">Sketch</button>
-    <button class="tool-btn" id="photoStyleDitherBtn" data-style="floyd">Dither</button>
     <button class="tool-btn" id="photoStyleRetroBtn" data-style="atkinson">Retro</button>
-    <button class="tool-btn" id="photoStyleOrderedBtn" data-style="bayer">Ordered</button>
-    <button class="tool-btn" id="photoStyleSmoothBtn" data-style="jjn">Smooth</button>
-    <button class="tool-btn" id="photoStyleHalftoneBtn" data-style="halftone">Halftone</button>
-    <button class="tool-btn" id="photoStyleThresholdBtn" data-style="threshold">Threshold</button>
   </div>
 
   <div class="photo-row">
@@ -782,40 +777,15 @@
     return out;
   }
 
-  // ================= Dithering: alternative photo styles. Where Sketch
-  // traces edges/outlines, these convert the WHOLE photo into a 1-bit
+  // ================= Dithering: the "Retro" photo style. Where Sketch
+  // traces edges/outlines, this converts the WHOLE photo into a 1-bit
   // pattern of black/white pixels whose local density stands in for
   // brightness -- closer to how the original photo actually looked,
   // instead of a line drawing of it. =================
 
-  // Classic error-diffusion dither: each pixel is thresholded, and
-  // whatever brightness that decision got wrong is pushed onto
-  // not-yet-visited neighbors, so errors average out over the image
-  // instead of just vanishing.
-  function ditherFloydSteinberg(gray, width, height) {
-    const buf = Float32Array.from(gray);
-    const bits = new Uint8Array(width * height); // 1 = black
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const i = y * width + x;
-        const oldVal = buf[i];
-        const newVal = oldVal < 128 ? 0 : 255;
-        bits[i] = newVal === 0 ? 1 : 0;
-        const err = oldVal - newVal;
-        if (x + 1 < width) buf[i + 1] += err * 7 / 16;
-        if (y + 1 < height) {
-          if (x > 0) buf[i + width - 1] += err * 3 / 16;
-          buf[i + width] += err * 5 / 16;
-          if (x + 1 < width) buf[i + width + 1] += err * 1 / 16;
-        }
-      }
-    }
-    return bits;
-  }
-
   // Atkinson (classic Mac look): only diffuses 6/8 of the error and
   // drops the rest, which biases the result lighter/higher-contrast with
-  // sparser, punchier dots than Floyd-Steinberg's smoother gradient.
+  // sparser, punchier dots than a straight Floyd-Steinberg dither would.
   function ditherAtkinson(gray, width, height) {
     const buf = Float32Array.from(gray);
     const bits = new Uint8Array(width * height);
@@ -837,108 +807,6 @@
       }
     }
     return bits;
-  }
-
-  // Ordered/Bayer dither: no error diffusion, just a fixed 8x8 threshold
-  // pattern repeated across the image -- reads as a regular halftone/
-  // cross-hatch texture rather than the more organic, photographic
-  // grain of error diffusion.
-  const BAYER_8 = [
-    [ 0, 48, 12, 60,  3, 51, 15, 63],
-    [32, 16, 44, 28, 35, 19, 47, 31],
-    [ 8, 56,  4, 52, 11, 59,  7, 55],
-    [40, 24, 36, 20, 43, 27, 39, 23],
-    [ 2, 50, 14, 62,  1, 49, 13, 61],
-    [34, 18, 46, 30, 33, 17, 45, 29],
-    [10, 58,  6, 54,  9, 57,  5, 53],
-    [42, 26, 38, 22, 41, 25, 37, 21]
-  ];
-
-  function ditherBayer(gray, width, height) {
-    const bits = new Uint8Array(width * height);
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const threshold = (BAYER_8[y % 8][x % 8] + 0.5) / 64 * 255;
-        bits[y * width + x] = gray[y * width + x] < threshold ? 1 : 0;
-      }
-    }
-    return bits;
-  }
-
-  // Jarvis-Judice-Ninke: same error-diffusion idea as Floyd-Steinberg, but
-  // spreads the error across 12 neighbors over 2 rows instead of 4 over 1,
-  // trading sharpness for a smoother, less grainy gradient.
-  function ditherJJN(gray, width, height) {
-    const buf = Float32Array.from(gray);
-    const bits = new Uint8Array(width * height);
-    const addErr = (x, y, amount) => {
-      if (x < 0 || x >= width || y < 0 || y >= height) return;
-      buf[y * width + x] += amount;
-    };
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const i = y * width + x;
-        const oldVal = buf[i];
-        const newVal = oldVal < 128 ? 0 : 255;
-        bits[i] = newVal === 0 ? 1 : 0;
-        const err = (oldVal - newVal) / 48;
-        addErr(x + 1, y, err * 7);
-        addErr(x + 2, y, err * 5);
-        addErr(x - 2, y + 1, err * 3);
-        addErr(x - 1, y + 1, err * 5);
-        addErr(x, y + 1, err * 7);
-        addErr(x + 1, y + 1, err * 5);
-        addErr(x + 2, y + 1, err * 3);
-        addErr(x - 2, y + 2, err * 1);
-        addErr(x - 1, y + 2, err * 3);
-        addErr(x, y + 2, err * 5);
-        addErr(x + 1, y + 2, err * 3);
-        addErr(x + 2, y + 2, err * 1);
-      }
-    }
-    return bits;
-  }
-
-  // Flat threshold: no dithering at all, every pixel is pure black or
-  // white based on a single cutoff -- the baseline everything else is
-  // trying to improve on, useful for comparison.
-  function ditherThreshold(gray, width, height) {
-    const bits = new Uint8Array(width * height);
-    for (let i = 0; i < width * height; i++) bits[i] = gray[i] < 128 ? 1 : 0;
-    return bits;
-  }
-
-  // True halftone: unlike the fixed-pixel Bayer matrix, this is the
-  // newspaper-print technique -- brightness is encoded as the SIZE of a
-  // dot within each cell (bigger dot = darker), not a pixel pattern.
-  function ditherHalftoneDots(gray, width, height) {
-    const cell = 8;
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = "#000";
-    for (let y = 0; y < height; y += cell) {
-      for (let x = 0; x < width; x += cell) {
-        let sum = 0, count = 0;
-        for (let dy = 0; dy < cell && y + dy < height; dy++) {
-          for (let dx = 0; dx < cell && x + dx < width; dx++) {
-            sum += gray[(y + dy) * width + (x + dx)];
-            count++;
-          }
-        }
-        const avg = sum / count;
-        const darkness = (255 - avg) / 255;
-        if (darkness <= 0.02) continue;
-        const radius = (cell / 2) * Math.sqrt(darkness);
-        ctx.beginPath();
-        ctx.arc(x + cell / 2, y + cell / 2, radius, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    return canvas;
   }
 
   function ditherToCanvas(bits, width, height) {
@@ -963,18 +831,8 @@
     const imgData = sourceCtx.getImageData(0, 0, workW, workH).data;
     const gray = toGrayscale(imgData, workW, workH);
 
-    let canvas;
-    if (style === "halftone") {
-      canvas = ditherHalftoneDots(gray, workW, workH);
-    } else {
-      let bits;
-      if (style === "floyd") bits = ditherFloydSteinberg(gray, workW, workH);
-      else if (style === "atkinson") bits = ditherAtkinson(gray, workW, workH);
-      else if (style === "jjn") bits = ditherJJN(gray, workW, workH);
-      else if (style === "threshold") bits = ditherThreshold(gray, workW, workH);
-      else bits = ditherBayer(gray, workW, workH);
-      canvas = ditherToCanvas(bits, workW, workH);
-    }
+    const bits = ditherAtkinson(gray, workW, workH);
+    const canvas = ditherToCanvas(bits, workW, workH);
 
     const staged = {
       kind: "photo",
