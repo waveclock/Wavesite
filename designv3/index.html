@@ -243,31 +243,6 @@
   .icon-btn:disabled { opacity: 0.4; cursor: default; }
   .icon-btn svg { width: 100%; height: 100%; }
 
-  .emoji-row {
-    display: flex;
-    gap: 8px;
-    justify-content: center;
-    flex-wrap: wrap;
-    margin-bottom: 10px;
-  }
-  .emoji-btn {
-    width: 46px; height: 46px;
-    border-radius: 10px;
-    border: 2px solid var(--ink);
-    background: #fff;
-    cursor: pointer;
-    font-size: 22px;
-    line-height: 1;
-    padding: 0;
-  }
-  .emoji-btn:disabled { opacity: 0.4; cursor: default; }
-
-  .photo-row {
-    display: flex;
-    justify-content: center;
-    margin-bottom: 22px;
-  }
-
   .staging-bar-row {
     display: flex;
     align-items: center;
@@ -371,33 +346,11 @@
 
   <div class="icon-row" id="iconRow"></div>
 
-  <div class="emoji-row" id="emojiRow">
-    <button class="emoji-btn" data-emoji="&#127754;">&#127754;</button>
-    <button class="emoji-btn" data-emoji="&#9728;&#65039;">&#9728;&#65039;</button>
-    <button class="emoji-btn" data-emoji="&#127769;">&#127769;</button>
-    <button class="emoji-btn" data-emoji="&#11088;">&#11088;</button>
-    <button class="emoji-btn" data-emoji="&#10084;&#65039;">&#10084;&#65039;</button>
-    <button class="emoji-btn" data-emoji="&#128526;">&#128526;</button>
-    <button class="emoji-btn" data-emoji="&#128514;">&#128514;</button>
-    <button class="emoji-btn" data-emoji="&#128293;">&#128293;</button>
-    <button class="emoji-btn" data-emoji="&#127881;">&#127881;</button>
-    <button class="emoji-btn" data-emoji="&#128032;">&#128032;</button>
-  </div>
-
-  <div class="text-row">
-    <input type="text" id="emojiInput" placeholder="&hellip;or type any emoji" maxlength="16">
-    <button id="stampEmojiBtn" disabled>Add Emoji</button>
-  </div>
-
   <div class="toolbar" id="photoStyleRow">
-    <button class="tool-btn active" id="photoStyleSketchBtn" data-style="sketch">Sketch</button>
-    <button class="tool-btn" id="photoStyleRetroBtn" data-style="atkinson">Retro</button>
+    <button class="tool-btn" id="photoStyleSketchBtn" data-style="sketch">&#128247; Sketch Photo</button>
+    <button class="tool-btn" id="photoStyleRetroBtn" data-style="atkinson">&#128247; Retro Photo</button>
   </div>
-
-  <div class="photo-row">
-    <button class="tool-btn" id="uploadPhotoBtn">&#128247; Upload Photo</button>
-    <input type="file" id="photoInput" accept="image/*" style="display:none">
-  </div>
+  <input type="file" id="photoInput" accept="image/*" style="display:none">
 
   <button class="publish-btn" id="publishBtn">Publish to My Wave Clock</button>
   <p class="status" id="statusMsg"></p>
@@ -916,28 +869,22 @@
       }
     });
   });
-  const uploadPhotoBtn = document.getElementById("uploadPhotoBtn");
   const photoInput = document.getElementById("photoInput");
+  // Each button both picks the photo style AND triggers the upload picker
+  // in one tap, instead of a separate select-a-style-then-upload step.
   const photoStyleButtons = document.querySelectorAll("#photoStyleRow .tool-btn");
-  let selectedPhotoStyle = photoStyleButtons[0].dataset.style;
+  let selectedPhotoStyle = "sketch";
   photoStyleButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
-      photoStyleButtons.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
       selectedPhotoStyle = btn.dataset.style;
+      photoInput.click();
     });
   });
-  const emojiInput = document.getElementById("emojiInput");
-  const stampEmojiBtn = document.getElementById("stampEmojiBtn");
-  const emojiQuickButtons = document.querySelectorAll("#emojiRow .emoji-btn");
   const sensitivityRow = document.getElementById("sensitivityRow");
   const sensitivitySlider = document.getElementById("sensitivitySlider");
 
-  // Runs any source canvas (an uploaded photo, an emoji rendered to a
-  // canvas, anything) through the same line-art pipeline and stages it --
-  // this is what lets both "Upload Photo" and "Add Emoji" share one
-  // conversion path, since a colored emoji glyph collapses into an
-  // unreadable blob on a 1-bit display exactly like a photo does.
+  // Runs an uploaded photo through the edge-detection pipeline and stages
+  // it as line art -- this is the "Sketch Photo" style.
   function stageLineArt(sourceCanvas, workW, workH, sizeOverride) {
     const sourceCtx = sourceCanvas.getContext("2d");
     const imgData = sourceCtx.getImageData(0, 0, workW, workH).data;
@@ -964,8 +911,6 @@
     if (sizeOverride) staged.size = sizeOverride;
     startStaging(staged);
   }
-
-  uploadPhotoBtn.addEventListener("click", () => photoInput.click());
 
   photoInput.addEventListener("change", (evt) => {
     const file = evt.target.files[0];
@@ -998,40 +943,6 @@
     reader.readAsDataURL(file);
   });
 
-  // Render the emoji glyph (in color, via the phone's own emoji font) onto
-  // a plain canvas so it can run through the exact same edge detection as
-  // an uploaded photo. Shared by both the quick-pick buttons (tap to add
-  // instantly) and the type-your-own text field, so people aren't
-  // required to dig up their phone's own emoji keyboard just to try one.
-  function stageEmojiChar(emoji) {
-    if (!emoji || stagedObject) return;
-    const size = 240;
-    const emojiCanvas = document.createElement("canvas");
-    emojiCanvas.width = size;
-    emojiCanvas.height = size;
-    const emojiCtx = emojiCanvas.getContext("2d");
-    emojiCtx.fillStyle = "#fff";
-    emojiCtx.fillRect(0, 0, size, size);
-    emojiCtx.font = Math.round(size * 0.72) + "px sans-serif";
-    emojiCtx.textAlign = "center";
-    emojiCtx.textBaseline = "middle";
-    emojiCtx.fillText(emoji, size / 2, size / 2 + size * 0.06);
-
-    stageLineArt(emojiCanvas, size, size, 90); // smaller default than photos -- emoji are compact, icon-like shapes
-  }
-
-  emojiQuickButtons.forEach((btn) => {
-    btn.addEventListener("click", () => stageEmojiChar(btn.dataset.emoji));
-  });
-
-  stampEmojiBtn.addEventListener("click", () => {
-    stageEmojiChar(emojiInput.value.trim());
-    emojiInput.value = "";
-    updateStampButtonsEnabled();
-  });
-
-  emojiInput.addEventListener("input", updateStampButtonsEnabled);
-
   sensitivitySlider.addEventListener("input", () => {
     if (!stagedObject || stagedObject.photoStyle !== "sketch") return;
     stagedObject.sensitivity = parseInt(sensitivitySlider.value, 10);
@@ -1041,22 +952,19 @@
     redrawOverlay();
   });
 
-  // Add Text/Add Emoji are disabled whenever their field is empty, so
-  // clicking with nothing typed can't silently do nothing -- the button
-  // itself shows there's nothing to add yet, instead of just not
-  // responding.
+  // Add Text is disabled whenever the field is empty, so clicking with
+  // nothing typed can't silently do nothing -- the button itself shows
+  // there's nothing to add yet, instead of just not responding.
   function updateStampButtonsEnabled() {
     const textCtxOk = !stagedObject || stagedObject.kind === "text";
     stampTextBtn.disabled = !textCtxOk || !textInput.value.trim();
-    stampEmojiBtn.disabled = !!stagedObject || !emojiInput.value.trim();
   }
 
   function setControlsEnabled(enabled) {
-    [penBtn, eraserBtn, clearBtn, sizeSlider, publishBtn, uploadPhotoBtn, emojiInput]
+    [penBtn, eraserBtn, clearBtn, sizeSlider, publishBtn]
       .forEach((el) => { el.disabled = !enabled; });
     iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
     photoStyleButtons.forEach((el) => { el.disabled = !enabled; });
-    emojiQuickButtons.forEach((el) => { el.disabled = !enabled; });
     // Text input/fonts stay usable while a TEXT object is staged (not
     // other kinds) so the live preview can keep updating and the font can
     // be changed without canceling and starting over.
