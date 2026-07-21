@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Design Your Wave Clock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Press+Start+2P&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+
+  .wrap { max-width: 560px; margin: 0 auto; padding: 24px 20px 0; }
+
+  header { text-align: center; margin-bottom: 18px; }
+
+  h1 {
+    font-family: var(--display);
+    font-size: clamp(28px, 7vw, 38px);
+    color: var(--ink);
+    text-shadow: 2px 2px 0 var(--navy);
+    margin: 0 0 8px;
+    letter-spacing: 0.01em;
+  }
+
+  .subtitle {
+    font-family: var(--heading);
+    font-style: italic;
+    font-size: 15px;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+
+  .device-tag {
+    display: inline-block;
+    margin-top: 10px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: var(--wax);
+    color: var(--ink);
+    padding: 5px 12px;
+    border-radius: 999px;
+    transform: rotate(-1deg);
+  }
+
+  .device-tag.error {
+    background: var(--coral);
+    color: var(--foam);
+  }
+
+  .canvas-stage {
+    display: flex;
+    justify-content: center;
+    margin: 22px 0 6px;
+  }
+
+  .device-frame {
+    background: #fff;
+    border: 3px solid var(--ink);
+    border-radius: 6px;
+    box-shadow: 7px 7px 0 var(--driftwood);
+    padding: 12px;
+    transform: rotate(0.6deg);
+    width: 100%;
+    max-width: 460px;
+  }
+
+  .device-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--driftwood);
+    margin-bottom: 8px;
+    text-align: center;
+  }
+
+  .canvas-inner {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 792 / 272;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  #baseCanvas, #overlayCanvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
+  }
+
+  #baseCanvas { background: #fff; }
+  #overlayCanvas { pointer-events: none; }
+  #overlayCanvas.staging { pointer-events: auto; cursor: grab; }
+
+  .staging-bar {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    background: #fff;
+    border: 2px solid var(--navy);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin: 10px auto 16px;
+    max-width: 460px;
+  }
+  .staging-bar.visible { display: flex; }
+  .staging-bar span { font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
+  .staging-bar input[type="range"] { flex: 1; accent-color: var(--navy); }
+  .staging-bar button {
+    font-size: 18px;
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    border: 2px solid var(--ink);
+    background: #fff;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+  .staging-bar .commit-btn { background: var(--navy); color: #fff; }
+  .staging-bar .cancel-btn { color: var(--coral-dark); }
+
+  .toolbar {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+
+  .tool-btn {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 14px;
+    padding: 10px 16px;
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+    transition: transform 0.1s ease;
+  }
+  .tool-btn:active { transform: scale(0.96); }
+  .tool-btn.active {
+    background: var(--navy);
+    color: var(--foam);
+    border-color: var(--navy);
+  }
+  .tool-btn:disabled { opacity: 0.4; cursor: default; }
+
+  .size-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 18px;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+  .size-row input[type="range"] { width: 140px; accent-color: var(--navy); }
+
+  .text-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .text-row input[type="text"] {
+    flex: 1;
+    font-family: var(--heading);
+    font-size: 16px;
+    padding: 12px 14px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .text-row input[type="text"]:disabled { background: var(--foam); color: var(--ink-soft); }
+  .text-row input[type="text"]:focus { outline: 2px solid var(--wax); outline-offset: 1px; }
+  .text-row button {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 14px;
+    padding: 0 18px;
+    border-radius: 8px;
+    border: 2px solid var(--ink);
+    background: var(--wax);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .text-row button:disabled { opacity: 0.4; cursor: default; }
+
+  .icon-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 22px;
+  }
+  .icon-btn {
+    width: 46px; height: 46px;
+    border-radius: 10px;
+    border: 2px solid var(--ink);
+    background: #fff;
+    cursor: pointer;
+    padding: 6px;
+  }
+  .icon-btn:disabled { opacity: 0.4; cursor: default; }
+  .icon-btn svg { width: 100%; height: 100%; }
+
+  .photo-row {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 22px;
+  }
+
+  .staging-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+  .staging-bar-row.hidden { display: none; }
+  .staging-bar-row span { font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
+  .staging-bar-row input[type="range"] { flex: 1; accent-color: var(--navy); }
+
+  .publish-btn {
+    display: block;
+    width: 100%;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 17px;
+    padding: 16px;
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+    background: var(--coral);
+    color: var(--foam);
+    box-shadow: 3px 3px 0 var(--ink);
+    cursor: pointer;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+  .publish-btn:active { transform: translateY(2px); box-shadow: 1px 1px 0 var(--ink); }
+  .publish-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .status {
+    text-align: center;
+    margin-top: 14px;
+    font-size: 14px;
+    min-height: 20px;
+    color: var(--ink-soft);
+  }
+  .status.success { color: var(--navy); font-weight: 700; }
+  .status.error { color: var(--coral-dark); font-weight: 700; }
+
+  footer {
+    text-align: center;
+    margin-top: 30px;
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>DESIGN YOUR<br>WAVE CLOCK</h1>
+    <p class="subtitle">Draw something, write something &mdash; whatever you want to see every time it cycles by.</p>
+    <span class="device-tag" id="deviceTag">Loading device&hellip;</span>
+  </header>
+
+  <div class="canvas-stage">
+    <div class="device-frame">
+      <div class="device-label">Live Preview</div>
+      <div class="canvas-inner">
+        <canvas id="baseCanvas" width="792" height="272"></canvas>
+        <canvas id="overlayCanvas" width="792" height="272"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="staging-bar" id="stagingBar">
+    <div class="staging-bar-row hidden" id="sensitivityRow">
+      <span>Line detail</span>
+      <input type="range" id="sensitivitySlider" min="10" max="150" value="50">
+    </div>
+    <div class="staging-bar-row">
+      <span>Drag to move &middot; Size</span>
+      <input type="range" id="stagingSizeSlider" min="20" max="300" value="64">
+      <button class="commit-btn" id="commitBtn" title="Place it">&#10003;</button>
+      <button class="cancel-btn" id="cancelStageBtn" title="Cancel">&#10005;</button>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button class="tool-btn active" id="penBtn">&#9998; Pen</button>
+    <button class="tool-btn" id="eraserBtn">&#9099; Eraser</button>
+    <button class="tool-btn" id="undoBtn">&#8630; Undo</button>
+    <button class="tool-btn" id="clearBtn">Clear</button>
+  </div>
+
+  <div class="size-row">
+    <span>Brush size</span>
+    <input type="range" id="sizeSlider" min="3" max="24" value="8">
+  </div>
+
+  <div class="toolbar" id="fontRow">
+    <button class="tool-btn active" id="fontSerifBtn" data-font="Georgia, serif">Serif</button>
+    <button class="tool-btn" id="fontBlockBtn" data-font="'Bungee', sans-serif" data-outline="true">Block</button>
+    <button class="tool-btn" id="fontPixelBtn" data-font="'Press Start 2P', monospace">Pixel</button>
+  </div>
+
+  <div class="text-row">
+    <input type="text" id="textInput" placeholder="Type a message&hellip;" maxlength="24">
+    <button id="stampTextBtn">Add Text</button>
+  </div>
+
+  <div class="icon-row" id="iconRow"></div>
+
+  <div class="text-row">
+    <input type="text" id="emojiInput" placeholder="Add an emoji&hellip;" maxlength="16">
+    <button id="stampEmojiBtn">Add Emoji</button>
+  </div>
+
+  <div class="toolbar" id="photoStyleRow">
+    <button class="tool-btn active" id="photoStyleSketchBtn" data-style="sketch">Sketch</button>
+    <button class="tool-btn" id="photoStyleDitherBtn" data-style="floyd">Dither</button>
+    <button class="tool-btn" id="photoStyleHalftoneBtn" data-style="bayer">Halftone</button>
+    <button class="tool-btn" id="photoStyleRetroBtn" data-style="atkinson">Retro</button>
+  </div>
+
+  <div class="photo-row">
+    <button class="tool-btn" id="uploadPhotoBtn">&#128247; Upload Photo</button>
+    <input type="file" id="photoInput" accept="image/*" style="display:none">
+  </div>
+
+  <button class="publish-btn" id="publishBtn">Publish to My Wave Clock</button>
+  <p class="status" id="statusMsg"></p>
+
+  <footer>waveclock.net &middot; Designed in Ocean City, NJ</footer>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getStorage, ref, uploadBytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
+    authDomain: "waveclock.firebaseapp.com",
+    projectId: "waveclock",
+    storageBucket: "waveclock.firebasestorage.app",
+    messagingSenderId: "668302334840",
+    appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const storage = getStorage(app);
+
+  const params = new URLSearchParams(window.location.search);
+  const deviceId = params.get("id");
+  const deviceTag = document.getElementById("deviceTag");
+  const publishBtn = document.getElementById("publishBtn");
+
+  if (!deviceId) {
+    deviceTag.textContent = "No device ID found in link";
+    deviceTag.classList.add("error");
+    publishBtn.disabled = true;
+  } else {
+    deviceTag.textContent = "Designing for " + deviceId;
+  }
+
+  // ================= Canvas setup =================
+  // Two layers: baseCanvas holds everything already committed (freehand
+  // strokes + placed text/icons) -- this is the only one ever read for
+  // Publish. overlayCanvas only ever shows the ONE object currently being
+  // positioned/resized, so dragging it never touches the real drawing
+  // underneath until it's explicitly committed.
+  const baseCanvas = document.getElementById("baseCanvas");
+  const baseCtx = baseCanvas.getContext("2d");
+  const overlayCanvas = document.getElementById("overlayCanvas");
+  const overlayCtx = overlayCanvas.getContext("2d");
+
+  baseCtx.fillStyle = "#fff";
+  baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
+  baseCtx.lineCap = "round";
+  baseCtx.lineJoin = "round";
+
+  function canvasPoint(evt, canvasEl) {
+    const rect = canvasEl.getBoundingClientRect();
+    const scaleX = canvasEl.width / rect.width;
+    const scaleY = canvasEl.height / rect.height;
+    return {
+      x: (evt.clientX - rect.left) * scaleX,
+      y: (evt.clientY - rect.top) * scaleY
+    };
+  }
+
+  // ================= Undo =================
+  const MAX_UNDO = 15;
+  let undoStack = [];
+
+  function pushUndoState() {
+    const snapshot = baseCtx.getImageData(0, 0, baseCanvas.width, baseCanvas.height);
+    undoStack.push(snapshot);
+    if (undoStack.length > MAX_UNDO) undoStack.shift();
+  }
+
+  document.getElementById("undoBtn").addEventListener("click", () => {
+    if (undoStack.length === 0) return;
+    const prev = undoStack.pop();
+    baseCtx.putImageData(prev, 0, 0);
+  });
+
+  // ================= Freehand drawing (pen / eraser) =================
+  let drawing = false;
+  let mode = "pen";
+  let brushSize = 8;
+  let lastPoint = null;
+
+  const sizeSlider = document.getElementById("sizeSlider");
+  sizeSlider.addEventListener("input", () => { brushSize = parseInt(sizeSlider.value, 10); });
+
+  baseCanvas.addEventListener("pointerdown", (evt) => {
+    if (stagedObject) return;
+    pushUndoState();
+    drawing = true;
+    lastPoint = canvasPoint(evt, baseCanvas);
+    baseCanvas.setPointerCapture(evt.pointerId);
+  });
+
+  baseCanvas.addEventListener("pointermove", (evt) => {
+    if (!drawing) return;
+    const point = canvasPoint(evt, baseCanvas);
+    baseCtx.strokeStyle = (mode === "pen") ? "#000" : "#fff";
+    baseCtx.lineWidth = brushSize * (baseCanvas.width / baseCanvas.getBoundingClientRect().width);
+    baseCtx.beginPath();
+    baseCtx.moveTo(lastPoint.x, lastPoint.y);
+    baseCtx.lineTo(point.x, point.y);
+    baseCtx.stroke();
+    lastPoint = point;
+  });
+
+  function stopDrawing() { drawing = false; lastPoint = null; }
+  baseCanvas.addEventListener("pointerup", stopDrawing);
+  baseCanvas.addEventListener("pointercancel", stopDrawing);
+  baseCanvas.addEventListener("pointerleave", stopDrawing);
+
+  const penBtn = document.getElementById("penBtn");
+  const eraserBtn = document.getElementById("eraserBtn");
+  const clearBtn = document.getElementById("clearBtn");
+
+  penBtn.addEventListener("click", () => {
+    mode = "pen";
+    penBtn.classList.add("active");
+    eraserBtn.classList.remove("active");
+  });
+  eraserBtn.addEventListener("click", () => {
+    mode = "eraser";
+    eraserBtn.classList.add("active");
+    penBtn.classList.remove("active");
+  });
+  clearBtn.addEventListener("click", () => {
+    pushUndoState();
+    baseCtx.fillStyle = "#fff";
+    baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
+  });
+
+  // ================= Icon stamps =================
+  // Simple solid-black shapes, same visual language as the firmware's own
+  // hand-drawn icons -- NOT real emoji, since color/shaded emoji collapse
+  // into unreadable blobs once thresholded to pure black-and-white.
+  const ICONS = {
+    sun: (ctx, cx, cy, s) => {
+      ctx.beginPath();
+      ctx.arc(cx, cy, s * 0.32, 0, Math.PI * 2);
+      ctx.fill();
+      for (let i = 0; i < 8; i++) {
+        const a = (i * Math.PI) / 4;
+        const x1 = cx + Math.cos(a) * s * 0.42, y1 = cy + Math.sin(a) * s * 0.42;
+        const x2 = cx + Math.cos(a) * s * 0.55, y2 = cy + Math.sin(a) * s * 0.55;
+        ctx.lineWidth = s * 0.06;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+    },
+    wave: (ctx, cx, cy, s) => {
+      ctx.lineWidth = s * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(cx - s * 0.5, cy);
+      ctx.bezierCurveTo(cx - s * 0.25, cy - s * 0.4, cx, cy + s * 0.4, cx + s * 0.25, cy);
+      ctx.bezierCurveTo(cx + s * 0.35, cy - s * 0.15, cx + s * 0.45, cy - s * 0.15, cx + s * 0.5, cy);
+      ctx.stroke();
+    },
+    star: (ctx, cx, cy, s) => {
+      const spikes = 5, outerR = s * 0.5, innerR = s * 0.22;
+      ctx.beginPath();
+      for (let i = 0; i < spikes * 2; i++) {
+        const r = (i % 2 === 0) ? outerR : innerR;
+        const a = (i * Math.PI) / spikes - Math.PI / 2;
+        const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+    },
+    heart: (ctx, cx, cy, s) => {
+      const r = s * 0.28;
+      ctx.beginPath();
+      ctx.arc(cx - r * 0.55, cy - r * 0.35, r * 0.7, 0, Math.PI * 2);
+      ctx.arc(cx + r * 0.55, cy - r * 0.35, r * 0.7, 0, Math.PI * 2);
+      ctx.moveTo(cx - r * 1.15, cy - r * 0.05);
+      ctx.lineTo(cx, cy + r * 1.15);
+      ctx.lineTo(cx + r * 1.15, cy - r * 0.05);
+      ctx.closePath();
+      ctx.fill();
+    },
+    surfboard: (ctx, cx, cy, s) => {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, s * 0.14, s * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    },
+    anchor: (ctx, cx, cy, s) => {
+      ctx.lineWidth = s * 0.09;
+      ctx.beginPath();
+      ctx.arc(cx, cy - s * 0.32, s * 0.12, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - s * 0.2);
+      ctx.lineTo(cx, cy + s * 0.42);
+      ctx.moveTo(cx - s * 0.22, cy - s * 0.02);
+      ctx.lineTo(cx + s * 0.22, cy - s * 0.02);
+      ctx.moveTo(cx - s * 0.4, cy + s * 0.18);
+      ctx.quadraticCurveTo(cx - s * 0.4, cy + s * 0.48, cx - s * 0.05, cy + s * 0.46);
+      ctx.moveTo(cx + s * 0.4, cy + s * 0.18);
+      ctx.quadraticCurveTo(cx + s * 0.4, cy + s * 0.48, cx + s * 0.05, cy + s * 0.46);
+      ctx.stroke();
+    }
+  };
+
+  function svgPreview(name) {
+    const map = {
+      sun: '<circle cx="12" cy="12" r="4" fill="#1F3347"/><g stroke="#1F3347" stroke-width="1.6"><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/><line x1="4" y1="4" x2="6" y2="6"/><line x1="18" y1="18" x2="20" y2="20"/><line x1="4" y1="20" x2="6" y2="18"/><line x1="18" y1="6" x2="20" y2="4"/></g>',
+      wave: '<path d="M2 14 C6 6 10 20 13 12 C15 8 18 8 22 12" stroke="#1F3347" stroke-width="2.4" fill="none"/>',
+      star: '<polygon points="12,2 14.7,9.2 22,9.5 16.2,14.2 18.2,21.3 12,17.1 5.8,21.3 7.8,14.2 2,9.5 9.3,9.2" fill="#1F3347"/>',
+      heart: '<path d="M12 21s-8-5.2-8-11.2C4 6 6.5 4 9 4c1.6 0 3 1 3 1s1.4-1 3-1c2.5 0 5 2 5 5.8C20 15.8 12 21 12 21z" fill="#1F3347"/>',
+      surfboard: '<ellipse cx="12" cy="12" rx="3.2" ry="10.5" fill="#1F3347"/>',
+      anchor: '<g stroke="#1F3347" stroke-width="1.8" fill="none"><circle cx="12" cy="4.5" r="1.8"/><line x1="12" y1="6.2" x2="12" y2="19"/><line x1="8" y1="9.5" x2="16" y2="9.5"/><path d="M4 13c0 4 3.5 6.5 8 6.5s8-2.5 8-6.5"/></g>'
+    };
+    return map[name] || "";
+  }
+
+  // ================= Photo upload: converts to line art via Canny edge
+  // detection, not a soft/shaded pencil-sketch effect -- gradients don't
+  // survive being forced to pure black-and-white nearly as well as clean
+  // line edges do on a 1-bit display. Canny (blur -> gradient -> thin
+  // edges to 1px -> hysteresis threshold) reads as a much cleaner sketch
+  // than raw thresholded Sobel, which picks up every fleck of photo
+  // texture as its own "edge". =================
+  const MAX_WORKING_DIMENSION = 500; // caps processing cost; plenty of detail for any placement size on a 792x272 panel
+
+  function toGrayscale(imgData, width, height) {
+    const gray = new Float32Array(width * height);
+    for (let i = 0; i < width * height; i++) {
+      const r = imgData[i * 4], g = imgData[i * 4 + 1], b = imgData[i * 4 + 2];
+      gray[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+    return gray;
+  }
+
+  // Separable 5-tap binomial blur (approximates a Gaussian, sigma ~1) --
+  // smooths away skin/fabric/JPEG texture before it can register as edges.
+  function gaussianBlur(gray, width, height) {
+    const kernel = [1, 4, 6, 4, 1];
+    const kernelSum = 16;
+    const clamp = (v, max) => v < 0 ? 0 : (v >= max ? max - 1 : v);
+    const horizontal = new Float32Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        let sum = 0;
+        for (let k = -2; k <= 2; k++) {
+          sum += gray[y * width + clamp(x + k, width)] * kernel[k + 2];
+        }
+        horizontal[y * width + x] = sum / kernelSum;
+      }
+    }
+    const blurred = new Float32Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        let sum = 0;
+        for (let k = -2; k <= 2; k++) {
+          sum += horizontal[clamp(y + k, height) * width + x] * kernel[k + 2];
+        }
+        blurred[y * width + x] = sum / kernelSum;
+      }
+    }
+    return blurred;
+  }
+
+  // Sobel gradient magnitude plus direction, quantized to the 4 angles
+  // non-maximum suppression needs (0°, 45°, 90°, 135°).
+  function sobelGradients(gray, width, height) {
+    const magnitude = new Float32Array(width * height);
+    const direction = new Uint8Array(width * height);
+    const gx = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
+    const gy = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        let sx = 0, sy = 0, k = 0;
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const v = gray[(y + ky) * width + (x + kx)];
+            sx += v * gx[k];
+            sy += v * gy[k];
+            k++;
+          }
+        }
+        const i = y * width + x;
+        magnitude[i] = Math.sqrt(sx * sx + sy * sy);
+        let angle = Math.atan2(sy, sx) * (180 / Math.PI);
+        if (angle < 0) angle += 180;
+        direction[i] = (angle < 22.5 || angle >= 157.5) ? 0 // horizontal
+          : (angle < 67.5) ? 1 // 45°
+          : (angle < 112.5) ? 2 // vertical
+          : 3; // 135°
+      }
+    }
+    return { magnitude, direction };
+  }
+
+  // Thins fat gradient blobs down to 1px-wide ridge lines by keeping only
+  // pixels that are a local maximum along their own gradient direction.
+  function nonMaxSuppression(magnitude, direction, width, height) {
+    const out = new Float32Array(width * height);
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const i = y * width + x;
+        const m = magnitude[i];
+        if (m === 0) continue;
+        let n1, n2;
+        switch (direction[i]) {
+          case 0: n1 = magnitude[i - 1]; n2 = magnitude[i + 1]; break;
+          case 1: n1 = magnitude[i - width + 1]; n2 = magnitude[i + width - 1]; break;
+          case 2: n1 = magnitude[i - width]; n2 = magnitude[i + width]; break;
+          default: n1 = magnitude[i - width - 1]; n2 = magnitude[i + width + 1]; break;
+        }
+        out[i] = (m >= n1 && m >= n2) ? m : 0;
+      }
+    }
+    return out;
+  }
+
+  // Sorts this photo's own edge strengths once so thresholds can be picked
+  // as a percentile of ITS distribution, not one fixed number that only
+  // works for some photos' contrast.
+  function sortedEdgeStrengths(suppressed) {
+    const values = [];
+    for (let i = 0; i < suppressed.length; i++) {
+      if (suppressed[i] > 0) values.push(suppressed[i]);
+    }
+    values.sort((a, b) => a - b);
+    return values;
+  }
+
+  // Maps the Line Detail slider (10-150, default 50) to a percentile of
+  // this photo's edge strengths -- bounded 30th-75th percentile, biased
+  // toward keeping a lot of edges (a fuller, denser sketch) rather than a
+  // sparse clean outline, while hysteresis still drops isolated noise.
+  function thresholdsForSensitivity(sortedValues, sensitivity) {
+    if (!sortedValues.length) return { high: 1, low: 1 };
+    const percentile = 30 + (sensitivity - 10) * (75 - 30) / (150 - 10);
+    const idx = Math.min(sortedValues.length - 1, Math.floor(sortedValues.length * percentile / 100));
+    const high = sortedValues[idx];
+    return { high, low: high * 0.4 };
+  }
+
+  // Thickens the thinned 1px edge lines back into bolder pencil-like
+  // strokes -- NMS/hysteresis alone leave hairline edges that read as too
+  // sparse/technical for a hand-drawn sketch look.
+  function dilateEdges(edges, width, height) {
+    const out = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        if (edges[i]) { out[i] = 1; continue; }
+        for (let dy = -1; dy <= 1 && !out[i]; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+            if (edges[ny * width + nx]) { out[i] = 1; break; }
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  // Hysteresis: keeps every "strong" edge, plus any "weak" edge connected
+  // to a strong one -- this is what drops isolated noise specks while
+  // preserving faint-but-real contour lines that touch a strong edge.
+  function hysteresis(suppressed, width, height, highThreshold, lowThreshold) {
+    const edges = new Uint8Array(width * height);
+    const stack = [];
+    for (let i = 0; i < suppressed.length; i++) {
+      if (suppressed[i] >= highThreshold) {
+        edges[i] = 1;
+        stack.push(i);
+      }
+    }
+    while (stack.length) {
+      const i = stack.pop();
+      const x = i % width, y = (i / width) | 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+          const ni = ny * width + nx;
+          if (!edges[ni] && suppressed[ni] >= lowThreshold) {
+            edges[ni] = 1;
+            stack.push(ni);
+          }
+        }
+      }
+    }
+    return edges;
+  }
+
+  function edgesToCanvas(edges, width, height) {
+    const out = document.createElement("canvas");
+    out.width = width;
+    out.height = height;
+    const outCtx = out.getContext("2d");
+    const imgOut = outCtx.createImageData(width, height);
+    for (let i = 0; i < width * height; i++) {
+      const val = edges[i] ? 0 : 255; // black edge line, white elsewhere
+      imgOut.data[i * 4] = val;
+      imgOut.data[i * 4 + 1] = val;
+      imgOut.data[i * 4 + 2] = val;
+      imgOut.data[i * 4 + 3] = 255;
+    }
+    outCtx.putImageData(imgOut, 0, 0);
+    return out;
+  }
+
+  // ================= Dithering: alternative photo styles. Where Sketch
+  // traces edges/outlines, these convert the WHOLE photo into a 1-bit
+  // pattern of black/white pixels whose local density stands in for
+  // brightness -- closer to how the original photo actually looked,
+  // instead of a line drawing of it. =================
+
+  // Classic error-diffusion dither: each pixel is thresholded, and
+  // whatever brightness that decision got wrong is pushed onto
+  // not-yet-visited neighbors, so errors average out over the image
+  // instead of just vanishing.
+  function ditherFloydSteinberg(gray, width, height) {
+    const buf = Float32Array.from(gray);
+    const bits = new Uint8Array(width * height); // 1 = black
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        const oldVal = buf[i];
+        const newVal = oldVal < 128 ? 0 : 255;
+        bits[i] = newVal === 0 ? 1 : 0;
+        const err = oldVal - newVal;
+        if (x + 1 < width) buf[i + 1] += err * 7 / 16;
+        if (y + 1 < height) {
+          if (x > 0) buf[i + width - 1] += err * 3 / 16;
+          buf[i + width] += err * 5 / 16;
+          if (x + 1 < width) buf[i + width + 1] += err * 1 / 16;
+        }
+      }
+    }
+    return bits;
+  }
+
+  // Atkinson (classic Mac look): only diffuses 6/8 of the error and
+  // drops the rest, which biases the result lighter/higher-contrast with
+  // sparser, punchier dots than Floyd-Steinberg's smoother gradient.
+  function ditherAtkinson(gray, width, height) {
+    const buf = Float32Array.from(gray);
+    const bits = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        const oldVal = buf[i];
+        const newVal = oldVal < 128 ? 0 : 255;
+        bits[i] = newVal === 0 ? 1 : 0;
+        const err = (oldVal - newVal) / 8;
+        if (x + 1 < width) buf[i + 1] += err;
+        if (x + 2 < width) buf[i + 2] += err;
+        if (y + 1 < height) {
+          if (x > 0) buf[i + width - 1] += err;
+          buf[i + width] += err;
+          if (x + 1 < width) buf[i + width + 1] += err;
+        }
+        if (y + 2 < height) buf[i + 2 * width] += err;
+      }
+    }
+    return bits;
+  }
+
+  // Ordered/Bayer dither: no error diffusion, just a fixed 8x8 threshold
+  // pattern repeated across the image -- reads as a regular halftone/
+  // cross-hatch texture rather than the more organic, photographic
+  // grain of error diffusion.
+  const BAYER_8 = [
+    [ 0, 48, 12, 60,  3, 51, 15, 63],
+    [32, 16, 44, 28, 35, 19, 47, 31],
+    [ 8, 56,  4, 52, 11, 59,  7, 55],
+    [40, 24, 36, 20, 43, 27, 39, 23],
+    [ 2, 50, 14, 62,  1, 49, 13, 61],
+    [34, 18, 46, 30, 33, 17, 45, 29],
+    [10, 58,  6, 54,  9, 57,  5, 53],
+    [42, 26, 38, 22, 41, 25, 37, 21]
+  ];
+
+  function ditherBayer(gray, width, height) {
+    const bits = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const threshold = (BAYER_8[y % 8][x % 8] + 0.5) / 64 * 255;
+        bits[y * width + x] = gray[y * width + x] < threshold ? 1 : 0;
+      }
+    }
+    return bits;
+  }
+
+  function ditherToCanvas(bits, width, height) {
+    const out = document.createElement("canvas");
+    out.width = width;
+    out.height = height;
+    const outCtx = out.getContext("2d");
+    const imgOut = outCtx.createImageData(width, height);
+    for (let i = 0; i < width * height; i++) {
+      const val = bits[i] ? 0 : 255;
+      imgOut.data[i * 4] = val;
+      imgOut.data[i * 4 + 1] = val;
+      imgOut.data[i * 4 + 2] = val;
+      imgOut.data[i * 4 + 3] = 255;
+    }
+    outCtx.putImageData(imgOut, 0, 0);
+    return out;
+  }
+
+  function stageDither(sourceCanvas, workW, workH, style, sizeOverride) {
+    const sourceCtx = sourceCanvas.getContext("2d");
+    const imgData = sourceCtx.getImageData(0, 0, workW, workH).data;
+    const gray = toGrayscale(imgData, workW, workH);
+
+    let bits;
+    if (style === "floyd") bits = ditherFloydSteinberg(gray, workW, workH);
+    else if (style === "atkinson") bits = ditherAtkinson(gray, workW, workH);
+    else bits = ditherBayer(gray, workW, workH);
+
+    const canvas = ditherToCanvas(bits, workW, workH);
+    const staged = {
+      kind: "photo",
+      photoStyle: style,
+      canvas,
+      workW, workH,
+      aspectRatio: workW / workH
+    };
+    if (sizeOverride) staged.size = sizeOverride;
+    startStaging(staged);
+  }
+
+  const iconRow = document.getElementById("iconRow");
+  Object.keys(ICONS).forEach((name) => {
+    const btn = document.createElement("button");
+    btn.className = "icon-btn";
+    btn.title = name.charAt(0).toUpperCase() + name.slice(1);
+    btn.innerHTML = '<svg viewBox="0 0 24 24">' + svgPreview(name) + '</svg>';
+    btn.addEventListener("click", () => startStaging({ kind: "icon", name }));
+    iconRow.appendChild(btn);
+  });
+
+  // ================= Staging: a movable/resizable text or icon,
+  // shown only on the overlay canvas until committed =================
+  let stagedObject = null;
+
+  const stagingBar = document.getElementById("stagingBar");
+  const stagingSizeSlider = document.getElementById("stagingSizeSlider");
+  const commitBtn = document.getElementById("commitBtn");
+  const cancelStageBtn = document.getElementById("cancelStageBtn");
+  const textInput = document.getElementById("textInput");
+  const stampTextBtn = document.getElementById("stampTextBtn");
+  const fontButtons = document.querySelectorAll("#fontRow .tool-btn");
+  let selectedTextFont = fontButtons[0].dataset.font;
+  let selectedTextOutline = fontButtons[0].dataset.outline === "true";
+  fontButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      fontButtons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      selectedTextFont = btn.dataset.font;
+      selectedTextOutline = btn.dataset.outline === "true";
+    });
+  });
+  const uploadPhotoBtn = document.getElementById("uploadPhotoBtn");
+  const photoInput = document.getElementById("photoInput");
+  const photoStyleButtons = document.querySelectorAll("#photoStyleRow .tool-btn");
+  let selectedPhotoStyle = photoStyleButtons[0].dataset.style;
+  photoStyleButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      photoStyleButtons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      selectedPhotoStyle = btn.dataset.style;
+    });
+  });
+  const emojiInput = document.getElementById("emojiInput");
+  const stampEmojiBtn = document.getElementById("stampEmojiBtn");
+  const sensitivityRow = document.getElementById("sensitivityRow");
+  const sensitivitySlider = document.getElementById("sensitivitySlider");
+
+  // Runs any source canvas (an uploaded photo, an emoji rendered to a
+  // canvas, anything) through the same line-art pipeline and stages it --
+  // this is what lets both "Upload Photo" and "Add Emoji" share one
+  // conversion path, since a colored emoji glyph collapses into an
+  // unreadable blob on a 1-bit display exactly like a photo does.
+  function stageLineArt(sourceCanvas, workW, workH, sizeOverride) {
+    const sourceCtx = sourceCanvas.getContext("2d");
+    const imgData = sourceCtx.getImageData(0, 0, workW, workH).data;
+    const gray = toGrayscale(imgData, workW, workH);
+    const blurred = gaussianBlur(gray, workW, workH);
+    const { magnitude, direction } = sobelGradients(blurred, workW, workH);
+    const suppressed = nonMaxSuppression(magnitude, direction, workW, workH);
+    const sortedValues = sortedEdgeStrengths(suppressed);
+
+    const defaultSensitivity = 50;
+    const { high, low } = thresholdsForSensitivity(sortedValues, defaultSensitivity);
+    const edges = dilateEdges(hysteresis(suppressed, workW, workH, high, low), workW, workH);
+    const lineArtCanvas = edgesToCanvas(edges, workW, workH);
+
+    const staged = {
+      kind: "photo",
+      photoStyle: "sketch",
+      canvas: lineArtCanvas,
+      suppressed, sortedValues, // cached so the sensitivity slider can re-run hysteresis cheaply, without redoing blur/Sobel/NMS
+      workW, workH,
+      aspectRatio: workW / workH,
+      sensitivity: defaultSensitivity
+    };
+    if (sizeOverride) staged.size = sizeOverride;
+    startStaging(staged);
+  }
+
+  uploadPhotoBtn.addEventListener("click", () => photoInput.click());
+
+  photoInput.addEventListener("change", (evt) => {
+    const file = evt.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        // Scale down to a manageable working resolution before processing
+        const scale = Math.min(1, MAX_WORKING_DIMENSION / Math.max(img.width, img.height));
+        const workW = Math.round(img.width * scale);
+        const workH = Math.round(img.height * scale);
+
+        const workCanvas = document.createElement("canvas");
+        workCanvas.width = workW;
+        workCanvas.height = workH;
+        workCanvas.getContext("2d").drawImage(img, 0, 0, workW, workH);
+
+        if (selectedPhotoStyle === "sketch") {
+          stageLineArt(workCanvas, workW, workH);
+        } else {
+          stageDither(workCanvas, workW, workH, selectedPhotoStyle);
+        }
+
+        photoInput.value = ""; // allow re-selecting the same file later
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  stampEmojiBtn.addEventListener("click", () => {
+    const emoji = emojiInput.value.trim();
+    if (!emoji) return;
+
+    // Render the emoji glyph (in color, via the phone's own emoji font)
+    // onto a plain canvas so it can run through the exact same edge
+    // detection as an uploaded photo.
+    const size = 240;
+    const emojiCanvas = document.createElement("canvas");
+    emojiCanvas.width = size;
+    emojiCanvas.height = size;
+    const emojiCtx = emojiCanvas.getContext("2d");
+    emojiCtx.fillStyle = "#fff";
+    emojiCtx.fillRect(0, 0, size, size);
+    emojiCtx.font = Math.round(size * 0.72) + "px sans-serif";
+    emojiCtx.textAlign = "center";
+    emojiCtx.textBaseline = "middle";
+    emojiCtx.fillText(emoji, size / 2, size / 2 + size * 0.06);
+
+    stageLineArt(emojiCanvas, size, size, 90); // smaller default than photos -- emoji are compact, icon-like shapes
+
+    emojiInput.value = "";
+  });
+
+  sensitivitySlider.addEventListener("input", () => {
+    if (!stagedObject || stagedObject.photoStyle !== "sketch") return;
+    stagedObject.sensitivity = parseInt(sensitivitySlider.value, 10);
+    const { high, low } = thresholdsForSensitivity(stagedObject.sortedValues, stagedObject.sensitivity);
+    const edges = dilateEdges(hysteresis(stagedObject.suppressed, stagedObject.workW, stagedObject.workH, high, low), stagedObject.workW, stagedObject.workH);
+    stagedObject.canvas = edgesToCanvas(edges, stagedObject.workW, stagedObject.workH);
+    redrawOverlay();
+  });
+
+  function setControlsEnabled(enabled) {
+    [penBtn, eraserBtn, clearBtn, sizeSlider, textInput, stampTextBtn, publishBtn, uploadPhotoBtn, emojiInput, stampEmojiBtn]
+      .forEach((el) => { el.disabled = !enabled; });
+    iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
+    fontButtons.forEach((el) => { el.disabled = !enabled; });
+    photoStyleButtons.forEach((el) => { el.disabled = !enabled; });
+  }
+
+  function startStaging(obj) {
+    if (stagedObject) return;
+    const defaultSize = (obj.kind === "photo") ? 160 : 64;
+    stagedObject = Object.assign({ x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: defaultSize }, obj);
+    stagingSizeSlider.value = stagedObject.size;
+    sensitivityRow.classList.toggle("hidden", obj.photoStyle !== "sketch");
+    if (obj.photoStyle === "sketch") sensitivitySlider.value = obj.sensitivity;
+    stagingBar.classList.add("visible");
+    overlayCanvas.classList.add("staging");
+    setControlsEnabled(false);
+    redrawOverlay();
+  }
+
+  function getPhotoDisplayDims(obj) {
+    // obj.size is always the LARGER of width/height -- the other dimension
+    // is derived from the photo's own aspect ratio, so it never looks
+    // stretched or squashed regardless of the source photo's shape.
+    if (obj.aspectRatio >= 1) {
+      return { w: obj.size, h: obj.size / obj.aspectRatio };
+    }
+    return { w: obj.size * obj.aspectRatio, h: obj.size };
+  }
+
+  function redrawOverlay() {
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    if (!stagedObject) return;
+
+    overlayCtx.save();
+    overlayCtx.fillStyle = "#000";
+    overlayCtx.strokeStyle = "#000";
+
+    if (stagedObject.kind === "text") {
+      overlayCtx.font = "bold " + stagedObject.size + "px " + stagedObject.font;
+      overlayCtx.textAlign = "center";
+      overlayCtx.textBaseline = "middle";
+      if (stagedObject.outline) {
+        overlayCtx.lineWidth = Math.max(1, stagedObject.size * 0.07);
+        overlayCtx.strokeText(stagedObject.content, stagedObject.x, stagedObject.y);
+      } else {
+        overlayCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
+      }
+    } else if (stagedObject.kind === "photo") {
+      const { w, h } = getPhotoDisplayDims(stagedObject);
+      overlayCtx.imageSmoothingEnabled = false; // keeps sketch lines/dither dots crisp black-white instead of blurring into gray
+      overlayCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
+    } else {
+      ICONS[stagedObject.name](overlayCtx, stagedObject.x, stagedObject.y, stagedObject.size);
+    }
+
+    const half = stagedObject.size * 0.65;
+    overlayCtx.setLineDash([6, 5]);
+    overlayCtx.strokeStyle = "#2C4A63";
+    overlayCtx.lineWidth = 2;
+    overlayCtx.strokeRect(stagedObject.x - half, stagedObject.y - half, half * 2, half * 2);
+    overlayCtx.restore();
+  }
+
+  stagingSizeSlider.addEventListener("input", () => {
+    if (!stagedObject) return;
+    stagedObject.size = parseInt(stagingSizeSlider.value, 10);
+    redrawOverlay();
+  });
+
+  let draggingStaged = false;
+  let dragOffset = { x: 0, y: 0 };
+
+  overlayCanvas.addEventListener("pointerdown", (evt) => {
+    if (!stagedObject) return;
+    const p = canvasPoint(evt, overlayCanvas);
+    draggingStaged = true;
+    dragOffset = { x: p.x - stagedObject.x, y: p.y - stagedObject.y };
+    overlayCanvas.setPointerCapture(evt.pointerId);
+  });
+  overlayCanvas.addEventListener("pointermove", (evt) => {
+    if (!draggingStaged || !stagedObject) return;
+    const p = canvasPoint(evt, overlayCanvas);
+    stagedObject.x = p.x - dragOffset.x;
+    stagedObject.y = p.y - dragOffset.y;
+    redrawOverlay();
+  });
+  function stopDraggingStaged() { draggingStaged = false; }
+  overlayCanvas.addEventListener("pointerup", stopDraggingStaged);
+  overlayCanvas.addEventListener("pointercancel", stopDraggingStaged);
+
+  function endStaging() {
+    stagedObject = null;
+    stagingBar.classList.remove("visible");
+    overlayCanvas.classList.remove("staging");
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    setControlsEnabled(true);
+  }
+
+  commitBtn.addEventListener("click", () => {
+    if (!stagedObject) return;
+    pushUndoState();
+    baseCtx.fillStyle = "#000";
+    if (stagedObject.kind === "text") {
+      baseCtx.font = "bold " + stagedObject.size + "px " + stagedObject.font;
+      baseCtx.textAlign = "center";
+      baseCtx.textBaseline = "middle";
+      if (stagedObject.outline) {
+        baseCtx.strokeStyle = "#000";
+        baseCtx.lineWidth = Math.max(1, stagedObject.size * 0.07);
+        baseCtx.strokeText(stagedObject.content, stagedObject.x, stagedObject.y);
+      } else {
+        baseCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
+      }
+    } else if (stagedObject.kind === "photo") {
+      const { w, h } = getPhotoDisplayDims(stagedObject);
+      baseCtx.imageSmoothingEnabled = false; // keeps sketch lines/dither dots crisp black-white instead of blurring into gray
+      baseCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
+    } else {
+      ICONS[stagedObject.name](baseCtx, stagedObject.x, stagedObject.y, stagedObject.size);
+    }
+    endStaging();
+  });
+
+  cancelStageBtn.addEventListener("click", endStaging);
+
+  stampTextBtn.addEventListener("click", () => {
+    const text = textInput.value.trim();
+    if (!text) return;
+    startStaging({ kind: "text", content: text, font: selectedTextFont, outline: selectedTextOutline });
+    textInput.value = "";
+  });
+
+  // ================= Publish =================
+  const statusMsg = document.getElementById("statusMsg");
+
+  function setStatus(text, kind) {
+    statusMsg.textContent = text;
+    statusMsg.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function packTo1Bit(sourceCanvas) {
+    const width = sourceCanvas.width;
+    const height = sourceCanvas.height;
+    const sourceCtx = sourceCanvas.getContext("2d");
+    const imgData = sourceCtx.getImageData(0, 0, width, height).data;
+    const bytesPerRow = Math.ceil(width / 8);
+    const packed = new Uint8Array(bytesPerRow * height);
+    const threshold = 180;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 4;
+        const r = imgData[i], g = imgData[i + 1], b = imgData[i + 2];
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+        const isBlack = luminance <= threshold;
+        if (isBlack) {
+          const byteIndex = y * bytesPerRow + (x >> 3);
+          const bitIndex = 7 - (x & 7);
+          packed[byteIndex] |= (1 << bitIndex);
+        }
+      }
+    }
+    return packed;
+  }
+
+  publishBtn.addEventListener("click", async () => {
+    if (!deviceId) return;
+    publishBtn.disabled = true;
+    setStatus("Publishing…");
+
+    try {
+      const packed = packTo1Bit(baseCanvas);
+      const blob = new Blob([packed], { type: "application/octet-stream" });
+      const storageRef = ref(storage, "designs/" + deviceId + ".bin");
+      await uploadBytes(storageRef, blob);
+      setStatus("Published! It'll appear on your Wave Clock within the hour.", "success");
+    } catch (err) {
+      console.error(err);
+      setStatus("Something went wrong publishing — try again in a moment.", "error");
+    } finally {
+      publishBtn.disabled = false;
+    }
+  });
+</script>
+
+</body>
+</html>
