@@ -357,6 +357,13 @@
     <button id="stampEmojiBtn">Add Emoji</button>
   </div>
 
+  <div class="toolbar" id="photoStyleRow">
+    <button class="tool-btn active" id="photoStyleSketchBtn" data-style="sketch">Sketch</button>
+    <button class="tool-btn" id="photoStyleDitherBtn" data-style="floyd">Dither</button>
+    <button class="tool-btn" id="photoStyleHalftoneBtn" data-style="bayer">Halftone</button>
+    <button class="tool-btn" id="photoStyleRetroBtn" data-style="atkinson">Retro</button>
+  </div>
+
   <div class="photo-row">
     <button class="tool-btn" id="uploadPhotoBtn">&#128247; Upload Photo</button>
     <input type="file" id="photoInput" accept="image/*" style="display:none">
@@ -772,6 +779,128 @@
     return out;
   }
 
+  // ================= Dithering: alternative photo styles. Where Sketch
+  // traces edges/outlines, these convert the WHOLE photo into a 1-bit
+  // pattern of black/white pixels whose local density stands in for
+  // brightness -- closer to how the original photo actually looked,
+  // instead of a line drawing of it. =================
+
+  // Classic error-diffusion dither: each pixel is thresholded, and
+  // whatever brightness that decision got wrong is pushed onto
+  // not-yet-visited neighbors, so errors average out over the image
+  // instead of just vanishing.
+  function ditherFloydSteinberg(gray, width, height) {
+    const buf = Float32Array.from(gray);
+    const bits = new Uint8Array(width * height); // 1 = black
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        const oldVal = buf[i];
+        const newVal = oldVal < 128 ? 0 : 255;
+        bits[i] = newVal === 0 ? 1 : 0;
+        const err = oldVal - newVal;
+        if (x + 1 < width) buf[i + 1] += err * 7 / 16;
+        if (y + 1 < height) {
+          if (x > 0) buf[i + width - 1] += err * 3 / 16;
+          buf[i + width] += err * 5 / 16;
+          if (x + 1 < width) buf[i + width + 1] += err * 1 / 16;
+        }
+      }
+    }
+    return bits;
+  }
+
+  // Atkinson (classic Mac look): only diffuses 6/8 of the error and
+  // drops the rest, which biases the result lighter/higher-contrast with
+  // sparser, punchier dots than Floyd-Steinberg's smoother gradient.
+  function ditherAtkinson(gray, width, height) {
+    const buf = Float32Array.from(gray);
+    const bits = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        const oldVal = buf[i];
+        const newVal = oldVal < 128 ? 0 : 255;
+        bits[i] = newVal === 0 ? 1 : 0;
+        const err = (oldVal - newVal) / 8;
+        if (x + 1 < width) buf[i + 1] += err;
+        if (x + 2 < width) buf[i + 2] += err;
+        if (y + 1 < height) {
+          if (x > 0) buf[i + width - 1] += err;
+          buf[i + width] += err;
+          if (x + 1 < width) buf[i + width + 1] += err;
+        }
+        if (y + 2 < height) buf[i + 2 * width] += err;
+      }
+    }
+    return bits;
+  }
+
+  // Ordered/Bayer dither: no error diffusion, just a fixed 8x8 threshold
+  // pattern repeated across the image -- reads as a regular halftone/
+  // cross-hatch texture rather than the more organic, photographic
+  // grain of error diffusion.
+  const BAYER_8 = [
+    [ 0, 48, 12, 60,  3, 51, 15, 63],
+    [32, 16, 44, 28, 35, 19, 47, 31],
+    [ 8, 56,  4, 52, 11, 59,  7, 55],
+    [40, 24, 36, 20, 43, 27, 39, 23],
+    [ 2, 50, 14, 62,  1, 49, 13, 61],
+    [34, 18, 46, 30, 33, 17, 45, 29],
+    [10, 58,  6, 54,  9, 57,  5, 53],
+    [42, 26, 38, 22, 41, 25, 37, 21]
+  ];
+
+  function ditherBayer(gray, width, height) {
+    const bits = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const threshold = (BAYER_8[y % 8][x % 8] + 0.5) / 64 * 255;
+        bits[y * width + x] = gray[y * width + x] < threshold ? 1 : 0;
+      }
+    }
+    return bits;
+  }
+
+  function ditherToCanvas(bits, width, height) {
+    const out = document.createElement("canvas");
+    out.width = width;
+    out.height = height;
+    const outCtx = out.getContext("2d");
+    const imgOut = outCtx.createImageData(width, height);
+    for (let i = 0; i < width * height; i++) {
+      const val = bits[i] ? 0 : 255;
+      imgOut.data[i * 4] = val;
+      imgOut.data[i * 4 + 1] = val;
+      imgOut.data[i * 4 + 2] = val;
+      imgOut.data[i * 4 + 3] = 255;
+    }
+    outCtx.putImageData(imgOut, 0, 0);
+    return out;
+  }
+
+  function stageDither(sourceCanvas, workW, workH, style, sizeOverride) {
+    const sourceCtx = sourceCanvas.getContext("2d");
+    const imgData = sourceCtx.getImageData(0, 0, workW, workH).data;
+    const gray = toGrayscale(imgData, workW, workH);
+
+    let bits;
+    if (style === "floyd") bits = ditherFloydSteinberg(gray, workW, workH);
+    else if (style === "atkinson") bits = ditherAtkinson(gray, workW, workH);
+    else bits = ditherBayer(gray, workW, workH);
+
+    const canvas = ditherToCanvas(bits, workW, workH);
+    const staged = {
+      kind: "photo",
+      photoStyle: style,
+      canvas,
+      workW, workH,
+      aspectRatio: workW / workH
+    };
+    if (sizeOverride) staged.size = sizeOverride;
+    startStaging(staged);
+  }
+
   const iconRow = document.getElementById("iconRow");
   Object.keys(ICONS).forEach((name) => {
     const btn = document.createElement("button");
@@ -805,6 +934,15 @@
   });
   const uploadPhotoBtn = document.getElementById("uploadPhotoBtn");
   const photoInput = document.getElementById("photoInput");
+  const photoStyleButtons = document.querySelectorAll("#photoStyleRow .tool-btn");
+  let selectedPhotoStyle = photoStyleButtons[0].dataset.style;
+  photoStyleButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      photoStyleButtons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      selectedPhotoStyle = btn.dataset.style;
+    });
+  });
   const emojiInput = document.getElementById("emojiInput");
   const stampEmojiBtn = document.getElementById("stampEmojiBtn");
   const sensitivityRow = document.getElementById("sensitivityRow");
@@ -831,6 +969,7 @@
 
     const staged = {
       kind: "photo",
+      photoStyle: "sketch",
       canvas: lineArtCanvas,
       suppressed, sortedValues, // cached so the sensitivity slider can re-run hysteresis cheaply, without redoing blur/Sobel/NMS
       workW, workH,
@@ -861,7 +1000,11 @@
         workCanvas.height = workH;
         workCanvas.getContext("2d").drawImage(img, 0, 0, workW, workH);
 
-        stageLineArt(workCanvas, workW, workH);
+        if (selectedPhotoStyle === "sketch") {
+          stageLineArt(workCanvas, workW, workH);
+        } else {
+          stageDither(workCanvas, workW, workH, selectedPhotoStyle);
+        }
 
         photoInput.value = ""; // allow re-selecting the same file later
       };
@@ -895,7 +1038,7 @@
   });
 
   sensitivitySlider.addEventListener("input", () => {
-    if (!stagedObject || stagedObject.kind !== "photo") return;
+    if (!stagedObject || stagedObject.photoStyle !== "sketch") return;
     stagedObject.sensitivity = parseInt(sensitivitySlider.value, 10);
     const { high, low } = thresholdsForSensitivity(stagedObject.sortedValues, stagedObject.sensitivity);
     const edges = dilateEdges(hysteresis(stagedObject.suppressed, stagedObject.workW, stagedObject.workH, high, low), stagedObject.workW, stagedObject.workH);
@@ -908,6 +1051,7 @@
       .forEach((el) => { el.disabled = !enabled; });
     iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
     fontButtons.forEach((el) => { el.disabled = !enabled; });
+    photoStyleButtons.forEach((el) => { el.disabled = !enabled; });
   }
 
   function startStaging(obj) {
@@ -915,8 +1059,8 @@
     const defaultSize = (obj.kind === "photo") ? 160 : 64;
     stagedObject = Object.assign({ x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: defaultSize }, obj);
     stagingSizeSlider.value = stagedObject.size;
-    sensitivityRow.classList.toggle("hidden", obj.kind !== "photo");
-    if (obj.kind === "photo") sensitivitySlider.value = obj.sensitivity;
+    sensitivityRow.classList.toggle("hidden", obj.photoStyle !== "sketch");
+    if (obj.photoStyle === "sketch") sensitivitySlider.value = obj.sensitivity;
     stagingBar.classList.add("visible");
     overlayCanvas.classList.add("staging");
     setControlsEnabled(false);
@@ -953,6 +1097,7 @@
       }
     } else if (stagedObject.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(stagedObject);
+      overlayCtx.imageSmoothingEnabled = false; // keeps sketch lines/dither dots crisp black-white instead of blurring into gray
       overlayCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
     } else {
       ICONS[stagedObject.name](overlayCtx, stagedObject.x, stagedObject.y, stagedObject.size);
@@ -1018,6 +1163,7 @@
       }
     } else if (stagedObject.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(stagedObject);
+      baseCtx.imageSmoothingEnabled = false; // keeps sketch lines/dither dots crisp black-white instead of blurring into gray
       baseCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
     } else {
       ICONS[stagedObject.name](baseCtx, stagedObject.x, stagedObject.y, stagedObject.size);
