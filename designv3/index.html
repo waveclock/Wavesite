@@ -129,6 +129,29 @@
   #overlayCanvas { pointer-events: none; }
   #overlayCanvas.staging { pointer-events: auto; cursor: grab; }
 
+  /* Sits directly on top of the preview, at the staged text's exact spot --
+     typing happens right where the text will appear instead of in a
+     separate box elsewhere on the page. Pointer events pass through to the
+     canvas underneath so dragging the staged text still works; JS
+     re-focuses it after a drag ends. */
+  .canvas-text-input {
+    position: absolute;
+    display: none;
+    transform: translate(-50%, -50%);
+    width: 92%;
+    max-width: 92%;
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0;
+    margin: 0;
+    text-align: center;
+    font-weight: bold;
+    pointer-events: none;
+    caret-color: var(--ink);
+  }
+  .canvas-text-input::placeholder { color: var(--ink-soft); }
+
   .staging-bar {
     display: none;
     flex-direction: column;
@@ -194,36 +217,6 @@
     color: var(--ink-soft);
   }
   .size-row input[type="range"] { width: 140px; accent-color: var(--navy); }
-
-  .text-row {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 14px;
-  }
-  .text-row input[type="text"] {
-    flex: 1;
-    font-family: var(--heading);
-    font-size: 16px;
-    padding: 12px 14px;
-    border: 2px solid var(--ink);
-    border-radius: 8px;
-    background: #fff;
-    color: var(--ink);
-  }
-  .text-row input[type="text"]:disabled { background: var(--foam); color: var(--ink-soft); }
-  .text-row input[type="text"]:focus { outline: 2px solid var(--wax); outline-offset: 1px; }
-  .text-row button {
-    font-family: var(--body);
-    font-weight: 700;
-    font-size: 14px;
-    padding: 0 18px;
-    border-radius: 8px;
-    border: 2px solid var(--ink);
-    background: var(--wax);
-    color: var(--ink);
-    cursor: pointer;
-  }
-  .text-row button:disabled { opacity: 0.4; cursor: default; }
 
   .icon-row {
     display: flex;
@@ -304,6 +297,7 @@
       <div class="canvas-inner">
         <canvas id="baseCanvas" width="792" height="272"></canvas>
         <canvas id="overlayCanvas" width="792" height="272"></canvas>
+        <input type="text" id="canvasTextInput" class="canvas-text-input" maxlength="24">
       </div>
     </div>
   </div>
@@ -333,11 +327,6 @@
     <button class="tool-btn active" id="fontSerifBtn" data-font="Georgia, serif">Serif</button>
     <button class="tool-btn" id="fontBlockBtn" data-font="'Bungee', sans-serif" data-outline="true">Block</button>
     <button class="tool-btn" id="fontPixelBtn" data-font="'Press Start 2P', monospace">Pixel</button>
-  </div>
-
-  <div class="text-row">
-    <input type="text" id="textInput" placeholder="Type a message&hellip;" maxlength="24">
-    <button id="stampTextBtn" disabled>Add Text</button>
   </div>
 
   <div class="size-row">
@@ -398,6 +387,8 @@
   const baseCtx = baseCanvas.getContext("2d");
   const overlayCanvas = document.getElementById("overlayCanvas");
   const overlayCtx = overlayCanvas.getContext("2d");
+  const canvasInner = document.querySelector(".canvas-inner");
+  const canvasTextInput = document.getElementById("canvasTextInput");
 
   baseCtx.fillStyle = "#fff";
   baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
@@ -849,10 +840,13 @@
   const stagingSizeSlider = document.getElementById("stagingSizeSlider");
   const commitBtn = document.getElementById("commitBtn");
   const cancelStageBtn = document.getElementById("cancelStageBtn");
-  const textInput = document.getElementById("textInput");
-  const stampTextBtn = document.getElementById("stampTextBtn");
   const textToolBtn = document.getElementById("textToolBtn");
-  textToolBtn.addEventListener("click", () => textInput.focus());
+  textToolBtn.addEventListener("click", () => {
+    if (stagedObject) return;
+    startStaging({ kind: "text", content: "", font: selectedTextFont, outline: selectedTextOutline });
+    canvasTextInput.value = "";
+    canvasTextInput.focus();
+  });
   const fontButtons = document.querySelectorAll("#fontRow .tool-btn");
   let selectedTextFont = fontButtons[0].dataset.font;
   let selectedTextOutline = fontButtons[0].dataset.outline === "true";
@@ -955,27 +949,16 @@
     redrawOverlay();
   });
 
-  // Add Text is disabled whenever the field is empty, so clicking with
-  // nothing typed can't silently do nothing -- the button itself shows
-  // there's nothing to add yet, instead of just not responding.
-  function updateStampButtonsEnabled() {
-    const textCtxOk = !stagedObject || stagedObject.kind === "text";
-    stampTextBtn.disabled = !textCtxOk || !textInput.value.trim();
-  }
-
   function setControlsEnabled(enabled) {
-    [penBtn, eraserBtn, clearBtn, sizeSlider, publishBtn]
+    [penBtn, textToolBtn, eraserBtn, clearBtn, sizeSlider, publishBtn]
       .forEach((el) => { el.disabled = !enabled; });
     iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
     photoStyleButtons.forEach((el) => { el.disabled = !enabled; });
-    // Text input/fonts stay usable while a TEXT object is staged (not
-    // other kinds) so the live preview can keep updating and the font can
-    // be changed without canceling and starting over.
+    // Fonts stay switchable while a TEXT object is staged (not other
+    // kinds) so the live preview can keep updating without canceling and
+    // starting over.
     const textCtxEnabled = enabled || (stagedObject && stagedObject.kind === "text");
-    textInput.disabled = !textCtxEnabled;
-    textToolBtn.disabled = !textCtxEnabled;
     fontButtons.forEach((el) => { el.disabled = !textCtxEnabled; });
-    updateStampButtonsEnabled();
   }
 
   function startStaging(obj) {
@@ -1001,31 +984,49 @@
     return { w: obj.size * obj.aspectRatio, h: obj.size };
   }
 
+  // Text is typed and shown via the real HTML input sitting on top of the
+  // canvas (canvasTextInput), not drawn onto the overlay canvas -- this
+  // keeps typing/cursor/keyboard behavior native instead of faked, and the
+  // font family/size/outline just need to visually match, not be redrawn
+  // every keystroke. It's positioned in CSS percentages so it tracks the
+  // canvas's own responsive scaling without a resize listener.
+  function positionCanvasTextInput() {
+    if (!stagedObject || stagedObject.kind !== "text") {
+      canvasTextInput.style.display = "none";
+      return;
+    }
+    const scale = canvasInner.getBoundingClientRect().width / baseCanvas.width;
+    canvasTextInput.style.display = "block";
+    canvasTextInput.style.left = (stagedObject.x / baseCanvas.width * 100) + "%";
+    canvasTextInput.style.top = (stagedObject.y / baseCanvas.height * 100) + "%";
+    canvasTextInput.style.fontFamily = stagedObject.font;
+    canvasTextInput.style.fontSize = (stagedObject.size * scale) + "px";
+    if (stagedObject.outline) {
+      canvasTextInput.style.color = "transparent";
+      canvasTextInput.style.webkitTextStroke = Math.max(1, stagedObject.size * 0.07 * scale) + "px " + "#1F3347";
+    } else {
+      canvasTextInput.style.color = "#1F3347";
+      canvasTextInput.style.webkitTextStroke = "";
+    }
+  }
+
   function redrawOverlay() {
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    positionCanvasTextInput();
     if (!stagedObject) return;
 
     overlayCtx.save();
     overlayCtx.fillStyle = "#000";
     overlayCtx.strokeStyle = "#000";
 
-    if (stagedObject.kind === "text") {
-      overlayCtx.font = "bold " + stagedObject.size + "px " + stagedObject.font;
-      overlayCtx.textAlign = "center";
-      overlayCtx.textBaseline = "middle";
-      if (stagedObject.outline) {
-        overlayCtx.lineWidth = Math.max(1, stagedObject.size * 0.07);
-        overlayCtx.strokeText(stagedObject.content, stagedObject.x, stagedObject.y);
-      } else {
-        overlayCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
-      }
-    } else if (stagedObject.kind === "photo") {
+    if (stagedObject.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(stagedObject);
       overlayCtx.imageSmoothingEnabled = false; // keeps sketch lines/dither dots crisp black-white instead of blurring into gray
       overlayCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
-    } else {
+    } else if (stagedObject.kind === "icon") {
       ICONS[stagedObject.name](overlayCtx, stagedObject.x, stagedObject.y, stagedObject.size);
     }
+    // kind === "text": no canvas draw, canvasTextInput shows it instead
 
     const half = stagedObject.size * 0.65;
     overlayCtx.setLineDash([6, 5]);
@@ -1058,7 +1059,16 @@
     stagedObject.y = p.y - dragOffset.y;
     redrawOverlay();
   });
-  function stopDraggingStaged() { draggingStaged = false; }
+  function stopDraggingStaged() {
+    if (draggingStaged && stagedObject && stagedObject.kind === "text") {
+      // Dragging happens on the canvas underneath (canvasTextInput has
+      // pointer-events:none so drags pass through to it), which blurs the
+      // input and can dismiss the on-screen keyboard -- bring it back once
+      // the drag ends so typing can continue right away.
+      canvasTextInput.focus();
+    }
+    draggingStaged = false;
+  }
   overlayCanvas.addEventListener("pointerup", stopDraggingStaged);
   overlayCanvas.addEventListener("pointercancel", stopDraggingStaged);
 
@@ -1067,12 +1077,19 @@
     stagingBar.classList.remove("visible");
     overlayCanvas.classList.remove("staging");
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-    textInput.value = ""; // text is staged live as you type, so clear it whenever staging ends (committed or canceled) rather than only on explicit "Add Text"
+    canvasTextInput.value = "";
+    canvasTextInput.style.display = "none";
     setControlsEnabled(true);
   }
 
   commitBtn.addEventListener("click", () => {
     if (!stagedObject) return;
+    if (stagedObject.kind === "text" && !stagedObject.content.trim()) {
+      // Nothing was typed -- there's nothing to place, so committing just
+      // cancels instead of stamping a blank space onto the design.
+      endStaging();
+      return;
+    }
     pushUndoState();
     baseCtx.fillStyle = "#000";
     if (stagedObject.kind === "text") {
@@ -1098,34 +1115,12 @@
 
   cancelStageBtn.addEventListener("click", endStaging);
 
-  // Text stages live as you type -- as soon as there's any content, it's
-  // already showing (and draggable/resizable) on the canvas, instead of
-  // waiting for an explicit "Add Text" click to find out what it looks
-  // like. Clearing the field back to empty cancels the staged text.
-  textInput.addEventListener("input", () => {
-    const raw = textInput.value;
-    const trimmed = raw.trim();
-    if (!stagedObject) {
-      if (trimmed) startStaging({ kind: "text", content: raw, font: selectedTextFont, outline: selectedTextOutline });
-      return;
-    }
-    if (stagedObject.kind !== "text") return;
-    if (!trimmed) { endStaging(); return; }
-    stagedObject.content = raw;
+  // Text stages live as you type into the overlay input sitting right on
+  // the canvas -- there's no separate box/button elsewhere on the page.
+  canvasTextInput.addEventListener("input", () => {
+    if (!stagedObject || stagedObject.kind !== "text") return;
+    stagedObject.content = canvasTextInput.value;
     redrawOverlay();
-  });
-
-  // Kept mainly as a way to dismiss the on-screen keyboard once the live
-  // preview looks right; also a fallback if the input event above somehow
-  // didn't fire.
-  stampTextBtn.addEventListener("click", () => {
-    if (stagedObject && stagedObject.kind === "text") {
-      textInput.blur();
-      return;
-    }
-    const text = textInput.value.trim();
-    if (!text) return;
-    startStaging({ kind: "text", content: textInput.value, font: selectedTextFont, outline: selectedTextOutline });
   });
 
   // ================= Publish =================
