@@ -323,14 +323,10 @@
 
   <div class="toolbar">
     <button class="tool-btn active" id="penBtn">&#9998; Pen</button>
+    <button class="tool-btn" id="textToolBtn">Text</button>
     <button class="tool-btn" id="eraserBtn">&#9099; Eraser</button>
     <button class="tool-btn" id="undoBtn">&#8630; Undo</button>
     <button class="tool-btn" id="clearBtn">Clear</button>
-  </div>
-
-  <div class="size-row">
-    <span>Brush size</span>
-    <input type="range" id="sizeSlider" min="3" max="24" value="8">
   </div>
 
   <div class="toolbar" id="fontRow">
@@ -342,6 +338,11 @@
   <div class="text-row">
     <input type="text" id="textInput" placeholder="Type a message&hellip;" maxlength="24">
     <button id="stampTextBtn" disabled>Add Text</button>
+  </div>
+
+  <div class="size-row">
+    <span>Brush size</span>
+    <input type="range" id="sizeSlider" min="3" max="24" value="8">
   </div>
 
   <div class="icon-row" id="iconRow"></div>
@@ -850,6 +851,8 @@
   const cancelStageBtn = document.getElementById("cancelStageBtn");
   const textInput = document.getElementById("textInput");
   const stampTextBtn = document.getElementById("stampTextBtn");
+  const textToolBtn = document.getElementById("textToolBtn");
+  textToolBtn.addEventListener("click", () => textInput.focus());
   const fontButtons = document.querySelectorAll("#fontRow .tool-btn");
   let selectedTextFont = fontButtons[0].dataset.font;
   let selectedTextOutline = fontButtons[0].dataset.outline === "true";
@@ -970,6 +973,7 @@
     // be changed without canceling and starting over.
     const textCtxEnabled = enabled || (stagedObject && stagedObject.kind === "text");
     textInput.disabled = !textCtxEnabled;
+    textToolBtn.disabled = !textCtxEnabled;
     fontButtons.forEach((el) => { el.disabled = !textCtxEnabled; });
     updateStampButtonsEnabled();
   }
