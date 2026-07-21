@@ -243,6 +243,25 @@
   .icon-btn:disabled { opacity: 0.4; cursor: default; }
   .icon-btn svg { width: 100%; height: 100%; }
 
+  .emoji-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .emoji-btn {
+    width: 46px; height: 46px;
+    border-radius: 10px;
+    border: 2px solid var(--ink);
+    background: #fff;
+    cursor: pointer;
+    font-size: 22px;
+    line-height: 1;
+    padding: 0;
+  }
+  .emoji-btn:disabled { opacity: 0.4; cursor: default; }
+
   .photo-row {
     display: flex;
     justify-content: center;
@@ -347,14 +366,27 @@
 
   <div class="text-row">
     <input type="text" id="textInput" placeholder="Type a message&hellip;" maxlength="24">
-    <button id="stampTextBtn">Add Text</button>
+    <button id="stampTextBtn" disabled>Add Text</button>
   </div>
 
   <div class="icon-row" id="iconRow"></div>
 
+  <div class="emoji-row" id="emojiRow">
+    <button class="emoji-btn" data-emoji="&#127754;">&#127754;</button>
+    <button class="emoji-btn" data-emoji="&#9728;&#65039;">&#9728;&#65039;</button>
+    <button class="emoji-btn" data-emoji="&#127769;">&#127769;</button>
+    <button class="emoji-btn" data-emoji="&#11088;">&#11088;</button>
+    <button class="emoji-btn" data-emoji="&#10084;&#65039;">&#10084;&#65039;</button>
+    <button class="emoji-btn" data-emoji="&#128526;">&#128526;</button>
+    <button class="emoji-btn" data-emoji="&#128514;">&#128514;</button>
+    <button class="emoji-btn" data-emoji="&#128293;">&#128293;</button>
+    <button class="emoji-btn" data-emoji="&#127881;">&#127881;</button>
+    <button class="emoji-btn" data-emoji="&#128032;">&#128032;</button>
+  </div>
+
   <div class="text-row">
-    <input type="text" id="emojiInput" placeholder="Add an emoji&hellip;" maxlength="16">
-    <button id="stampEmojiBtn">Add Emoji</button>
+    <input type="text" id="emojiInput" placeholder="&hellip;or type any emoji" maxlength="16">
+    <button id="stampEmojiBtn" disabled>Add Emoji</button>
   </div>
 
   <div class="toolbar" id="photoStyleRow">
@@ -874,6 +906,14 @@
       btn.classList.add("active");
       selectedTextFont = btn.dataset.font;
       selectedTextOutline = btn.dataset.outline === "true";
+      // Text stays staged (not yet committed) while fonts are being tried,
+      // so switching fonts here should restyle the live preview in place
+      // instead of forcing a cancel-and-redo.
+      if (stagedObject && stagedObject.kind === "text") {
+        stagedObject.font = selectedTextFont;
+        stagedObject.outline = selectedTextOutline;
+        redrawOverlay();
+      }
     });
   });
   const uploadPhotoBtn = document.getElementById("uploadPhotoBtn");
@@ -889,6 +929,7 @@
   });
   const emojiInput = document.getElementById("emojiInput");
   const stampEmojiBtn = document.getElementById("stampEmojiBtn");
+  const emojiQuickButtons = document.querySelectorAll("#emojiRow .emoji-btn");
   const sensitivityRow = document.getElementById("sensitivityRow");
   const sensitivitySlider = document.getElementById("sensitivitySlider");
 
@@ -957,13 +998,13 @@
     reader.readAsDataURL(file);
   });
 
-  stampEmojiBtn.addEventListener("click", () => {
-    const emoji = emojiInput.value.trim();
-    if (!emoji) return;
-
-    // Render the emoji glyph (in color, via the phone's own emoji font)
-    // onto a plain canvas so it can run through the exact same edge
-    // detection as an uploaded photo.
+  // Render the emoji glyph (in color, via the phone's own emoji font) onto
+  // a plain canvas so it can run through the exact same edge detection as
+  // an uploaded photo. Shared by both the quick-pick buttons (tap to add
+  // instantly) and the type-your-own text field, so people aren't
+  // required to dig up their phone's own emoji keyboard just to try one.
+  function stageEmojiChar(emoji) {
+    if (!emoji || stagedObject) return;
     const size = 240;
     const emojiCanvas = document.createElement("canvas");
     emojiCanvas.width = size;
@@ -977,9 +1018,19 @@
     emojiCtx.fillText(emoji, size / 2, size / 2 + size * 0.06);
 
     stageLineArt(emojiCanvas, size, size, 90); // smaller default than photos -- emoji are compact, icon-like shapes
+  }
 
-    emojiInput.value = "";
+  emojiQuickButtons.forEach((btn) => {
+    btn.addEventListener("click", () => stageEmojiChar(btn.dataset.emoji));
   });
+
+  stampEmojiBtn.addEventListener("click", () => {
+    stageEmojiChar(emojiInput.value.trim());
+    emojiInput.value = "";
+    updateStampButtonsEnabled();
+  });
+
+  emojiInput.addEventListener("input", updateStampButtonsEnabled);
 
   sensitivitySlider.addEventListener("input", () => {
     if (!stagedObject || stagedObject.photoStyle !== "sketch") return;
@@ -990,12 +1041,29 @@
     redrawOverlay();
   });
 
+  // Add Text/Add Emoji are disabled whenever their field is empty, so
+  // clicking with nothing typed can't silently do nothing -- the button
+  // itself shows there's nothing to add yet, instead of just not
+  // responding.
+  function updateStampButtonsEnabled() {
+    const textCtxOk = !stagedObject || stagedObject.kind === "text";
+    stampTextBtn.disabled = !textCtxOk || !textInput.value.trim();
+    stampEmojiBtn.disabled = !!stagedObject || !emojiInput.value.trim();
+  }
+
   function setControlsEnabled(enabled) {
-    [penBtn, eraserBtn, clearBtn, sizeSlider, textInput, stampTextBtn, publishBtn, uploadPhotoBtn, emojiInput, stampEmojiBtn]
+    [penBtn, eraserBtn, clearBtn, sizeSlider, publishBtn, uploadPhotoBtn, emojiInput]
       .forEach((el) => { el.disabled = !enabled; });
     iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
-    fontButtons.forEach((el) => { el.disabled = !enabled; });
     photoStyleButtons.forEach((el) => { el.disabled = !enabled; });
+    emojiQuickButtons.forEach((el) => { el.disabled = !enabled; });
+    // Text input/fonts stay usable while a TEXT object is staged (not
+    // other kinds) so the live preview can keep updating and the font can
+    // be changed without canceling and starting over.
+    const textCtxEnabled = enabled || (stagedObject && stagedObject.kind === "text");
+    textInput.disabled = !textCtxEnabled;
+    fontButtons.forEach((el) => { el.disabled = !textCtxEnabled; });
+    updateStampButtonsEnabled();
   }
 
   function startStaging(obj) {
@@ -1087,6 +1155,7 @@
     stagingBar.classList.remove("visible");
     overlayCanvas.classList.remove("staging");
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    textInput.value = ""; // text is staged live as you type, so clear it whenever staging ends (committed or canceled) rather than only on explicit "Add Text"
     setControlsEnabled(true);
   }
 
@@ -1117,11 +1186,34 @@
 
   cancelStageBtn.addEventListener("click", endStaging);
 
+  // Text stages live as you type -- as soon as there's any content, it's
+  // already showing (and draggable/resizable) on the canvas, instead of
+  // waiting for an explicit "Add Text" click to find out what it looks
+  // like. Clearing the field back to empty cancels the staged text.
+  textInput.addEventListener("input", () => {
+    const raw = textInput.value;
+    const trimmed = raw.trim();
+    if (!stagedObject) {
+      if (trimmed) startStaging({ kind: "text", content: raw, font: selectedTextFont, outline: selectedTextOutline });
+      return;
+    }
+    if (stagedObject.kind !== "text") return;
+    if (!trimmed) { endStaging(); return; }
+    stagedObject.content = raw;
+    redrawOverlay();
+  });
+
+  // Kept mainly as a way to dismiss the on-screen keyboard once the live
+  // preview looks right; also a fallback if the input event above somehow
+  // didn't fire.
   stampTextBtn.addEventListener("click", () => {
+    if (stagedObject && stagedObject.kind === "text") {
+      textInput.blur();
+      return;
+    }
     const text = textInput.value.trim();
     if (!text) return;
-    startStaging({ kind: "text", content: text, font: selectedTextFont, outline: selectedTextOutline });
-    textInput.value = "";
+    startStaging({ kind: "text", content: textInput.value, font: selectedTextFont, outline: selectedTextOutline });
   });
 
   // ================= Publish =================
