@@ -321,7 +321,7 @@
     </div>
     <div class="staging-bar-row">
       <span>Drag to move &middot; Size</span>
-      <input type="range" id="stagingSizeSlider" min="20" max="300" value="64">
+      <input type="range" id="stagingSizeSlider" min="20" max="800" value="64">
       <button class="commit-btn" id="commitBtn" title="Place it">&#10003;</button>
       <button class="cancel-btn" id="cancelStageBtn" title="Cancel">&#10005;</button>
     </div>
@@ -360,8 +360,11 @@
   <div class="toolbar" id="photoStyleRow">
     <button class="tool-btn active" id="photoStyleSketchBtn" data-style="sketch">Sketch</button>
     <button class="tool-btn" id="photoStyleDitherBtn" data-style="floyd">Dither</button>
-    <button class="tool-btn" id="photoStyleHalftoneBtn" data-style="bayer">Halftone</button>
     <button class="tool-btn" id="photoStyleRetroBtn" data-style="atkinson">Retro</button>
+    <button class="tool-btn" id="photoStyleOrderedBtn" data-style="bayer">Ordered</button>
+    <button class="tool-btn" id="photoStyleSmoothBtn" data-style="jjn">Smooth</button>
+    <button class="tool-btn" id="photoStyleHalftoneBtn" data-style="halftone">Halftone</button>
+    <button class="tool-btn" id="photoStyleThresholdBtn" data-style="threshold">Threshold</button>
   </div>
 
   <div class="photo-row">
@@ -862,6 +865,82 @@
     return bits;
   }
 
+  // Jarvis-Judice-Ninke: same error-diffusion idea as Floyd-Steinberg, but
+  // spreads the error across 12 neighbors over 2 rows instead of 4 over 1,
+  // trading sharpness for a smoother, less grainy gradient.
+  function ditherJJN(gray, width, height) {
+    const buf = Float32Array.from(gray);
+    const bits = new Uint8Array(width * height);
+    const addErr = (x, y, amount) => {
+      if (x < 0 || x >= width || y < 0 || y >= height) return;
+      buf[y * width + x] += amount;
+    };
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        const oldVal = buf[i];
+        const newVal = oldVal < 128 ? 0 : 255;
+        bits[i] = newVal === 0 ? 1 : 0;
+        const err = (oldVal - newVal) / 48;
+        addErr(x + 1, y, err * 7);
+        addErr(x + 2, y, err * 5);
+        addErr(x - 2, y + 1, err * 3);
+        addErr(x - 1, y + 1, err * 5);
+        addErr(x, y + 1, err * 7);
+        addErr(x + 1, y + 1, err * 5);
+        addErr(x + 2, y + 1, err * 3);
+        addErr(x - 2, y + 2, err * 1);
+        addErr(x - 1, y + 2, err * 3);
+        addErr(x, y + 2, err * 5);
+        addErr(x + 1, y + 2, err * 3);
+        addErr(x + 2, y + 2, err * 1);
+      }
+    }
+    return bits;
+  }
+
+  // Flat threshold: no dithering at all, every pixel is pure black or
+  // white based on a single cutoff -- the baseline everything else is
+  // trying to improve on, useful for comparison.
+  function ditherThreshold(gray, width, height) {
+    const bits = new Uint8Array(width * height);
+    for (let i = 0; i < width * height; i++) bits[i] = gray[i] < 128 ? 1 : 0;
+    return bits;
+  }
+
+  // True halftone: unlike the fixed-pixel Bayer matrix, this is the
+  // newspaper-print technique -- brightness is encoded as the SIZE of a
+  // dot within each cell (bigger dot = darker), not a pixel pattern.
+  function ditherHalftoneDots(gray, width, height) {
+    const cell = 8;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "#000";
+    for (let y = 0; y < height; y += cell) {
+      for (let x = 0; x < width; x += cell) {
+        let sum = 0, count = 0;
+        for (let dy = 0; dy < cell && y + dy < height; dy++) {
+          for (let dx = 0; dx < cell && x + dx < width; dx++) {
+            sum += gray[(y + dy) * width + (x + dx)];
+            count++;
+          }
+        }
+        const avg = sum / count;
+        const darkness = (255 - avg) / 255;
+        if (darkness <= 0.02) continue;
+        const radius = (cell / 2) * Math.sqrt(darkness);
+        ctx.beginPath();
+        ctx.arc(x + cell / 2, y + cell / 2, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    return canvas;
+  }
+
   function ditherToCanvas(bits, width, height) {
     const out = document.createElement("canvas");
     out.width = width;
@@ -884,12 +963,19 @@
     const imgData = sourceCtx.getImageData(0, 0, workW, workH).data;
     const gray = toGrayscale(imgData, workW, workH);
 
-    let bits;
-    if (style === "floyd") bits = ditherFloydSteinberg(gray, workW, workH);
-    else if (style === "atkinson") bits = ditherAtkinson(gray, workW, workH);
-    else bits = ditherBayer(gray, workW, workH);
+    let canvas;
+    if (style === "halftone") {
+      canvas = ditherHalftoneDots(gray, workW, workH);
+    } else {
+      let bits;
+      if (style === "floyd") bits = ditherFloydSteinberg(gray, workW, workH);
+      else if (style === "atkinson") bits = ditherAtkinson(gray, workW, workH);
+      else if (style === "jjn") bits = ditherJJN(gray, workW, workH);
+      else if (style === "threshold") bits = ditherThreshold(gray, workW, workH);
+      else bits = ditherBayer(gray, workW, workH);
+      canvas = ditherToCanvas(bits, workW, workH);
+    }
 
-    const canvas = ditherToCanvas(bits, workW, workH);
     const staged = {
       kind: "photo",
       photoStyle: style,
