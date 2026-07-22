@@ -97,13 +97,55 @@
     max-width: 460px;
   }
 
+  /* 3-column grid so the label stays visually centered regardless of the
+     quick-actions' width -- they're pinned to column 1, an empty column 3
+     balances them out. */
+  .device-label-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .device-quick-actions {
+    grid-column: 1;
+    justify-self: start;
+    display: flex;
+    gap: 6px;
+  }
+
+  /* Small and always visible next to "Live Preview" regardless of which
+     tool tab is active, since undo/erase/clear are things you reach for
+     no matter what you're doing, not just while drawing. */
+  .quick-icon-btn {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    border: 1.5px solid var(--driftwood);
+    background: #fff;
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+  }
+  .quick-icon-btn.active {
+    background: var(--navy);
+    color: var(--foam);
+    border-color: var(--navy);
+  }
+  .quick-icon-btn:disabled { opacity: 0.35; cursor: default; }
+
   .device-label {
+    grid-column: 2;
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--driftwood);
-    margin-bottom: 8px;
     text-align: center;
   }
 
@@ -298,7 +340,14 @@
 
   <div class="canvas-stage">
     <div class="device-frame">
-      <div class="device-label">Live Preview</div>
+      <div class="device-label-row">
+        <div class="device-quick-actions">
+          <button class="quick-icon-btn" id="eraserBtn" title="Erase">&#9099;</button>
+          <button class="quick-icon-btn" id="undoBtn" title="Undo">&#8630;</button>
+          <button class="quick-icon-btn" id="clearBtn" title="Clear">&#128465;</button>
+        </div>
+        <div class="device-label">Live Preview</div>
+      </div>
       <div class="canvas-inner">
         <canvas id="baseCanvas" width="792" height="272"></canvas>
         <canvas id="overlayCanvas" width="792" height="272"></canvas>
@@ -328,11 +377,6 @@
   </div>
 
   <div class="tool-panel" id="penPanel">
-    <div class="toolbar">
-      <button class="tool-btn" id="eraserBtn">&#9099; Erase</button>
-      <button class="tool-btn" id="undoBtn">&#8630; Undo</button>
-      <button class="tool-btn" id="clearBtn">Clear</button>
-    </div>
     <div class="size-row">
       <span>Brush size</span>
       <input type="range" id="sizeSlider" min="3" max="24" value="8">
@@ -478,6 +522,10 @@
   eraserBtn.addEventListener("click", () => {
     mode = (mode === "pen") ? "eraser" : "pen";
     eraserBtn.classList.toggle("active", mode === "eraser");
+    // Erasing only does anything once you're actually drawing on the
+    // canvas, which is gated to the Pen tab -- jump there so tapping this
+    // from anywhere puts you right into erasing, no extra navigation.
+    if (activeTool !== "pen") showToolPanel("pen");
   });
   clearBtn.addEventListener("click", () => {
     pushUndoState();
