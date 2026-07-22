@@ -97,15 +97,47 @@
     max-width: 460px;
   }
 
-  .device-label {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--driftwood);
-    margin-bottom: 8px;
-    text-align: center;
+  /* Every tool (Pen/Text/Sticker/Photo/Layers) plus the always-available
+     actions (Erase/Undo/Redo/Clear) live here, right above the preview --
+     nothing needs a trip down the page to reach. Two deliberate rows
+     (tools, then actions) instead of one wrapping row, so the layout is
+     the same predictable shape on every phone rather than reflowing
+     wherever the width happens to break. */
+  .quick-toolbar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
   }
+  .quick-toolbar-row {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+  }
+  .icon-tool-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    border: 1.5px solid var(--driftwood);
+    background: #fff;
+    color: var(--ink);
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+  }
+  .icon-tool-btn svg { width: 16px; height: 16px; }
+  .icon-tool-btn.active {
+    background: var(--navy);
+    color: var(--foam);
+    border-color: var(--navy);
+  }
+  .icon-tool-btn:disabled { opacity: 0.35; cursor: default; }
 
   .canvas-inner {
     position: relative;
@@ -115,8 +147,12 @@
     border-radius: 3px;
     overflow: hidden;
   }
+  /* Purely visual -- the actual black/white decision for Publish is
+     inverted separately in packTo1Bit. A CSS filter is enough to preview
+     it live without touching any canvas pixels or the layers stack. */
+  .canvas-inner.inverted { filter: invert(1); }
 
-  #baseCanvas, #overlayCanvas {
+  #baseCanvas, #layersCanvas, #overlayCanvas {
     position: absolute;
     top: 0; left: 0;
     width: 100%;
@@ -126,8 +162,31 @@
   }
 
   #baseCanvas { background: #fff; }
-  #overlayCanvas { pointer-events: none; }
+  #layersCanvas, #overlayCanvas { pointer-events: none; }
   #overlayCanvas.staging { pointer-events: auto; cursor: grab; }
+
+  /* Sits directly on top of the preview, at the staged text's exact spot --
+     typing happens right where the text will appear instead of in a
+     separate box elsewhere on the page. Pointer events pass through to the
+     canvas underneath so dragging the staged text still works; JS
+     re-focuses it after a drag ends. */
+  .canvas-text-input {
+    position: absolute;
+    display: none;
+    transform: translate(-50%, -50%);
+    width: 92%;
+    max-width: 92%;
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 0;
+    margin: 0;
+    text-align: center;
+    font-weight: bold;
+    pointer-events: none;
+    caret-color: var(--ink);
+  }
+  .canvas-text-input::placeholder { color: var(--ink-soft); }
 
   .staging-bar {
     display: none;
@@ -184,6 +243,11 @@
   }
   .tool-btn:disabled { opacity: 0.4; cursor: default; }
 
+  /* Only one of these is shown at a time, swapped based on which tool tab
+     is active -- keeps the page from stacking every tool's controls at
+     once, which meant scrolling up and down to reach them. */
+  .tool-panel.hidden { display: none; }
+
   .size-row {
     display: flex;
     align-items: center;
@@ -194,36 +258,6 @@
     color: var(--ink-soft);
   }
   .size-row input[type="range"] { width: 140px; accent-color: var(--navy); }
-
-  .text-row {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 14px;
-  }
-  .text-row input[type="text"] {
-    flex: 1;
-    font-family: var(--heading);
-    font-size: 16px;
-    padding: 12px 14px;
-    border: 2px solid var(--ink);
-    border-radius: 8px;
-    background: #fff;
-    color: var(--ink);
-  }
-  .text-row input[type="text"]:disabled { background: var(--foam); color: var(--ink-soft); }
-  .text-row input[type="text"]:focus { outline: 2px solid var(--wax); outline-offset: 1px; }
-  .text-row button {
-    font-family: var(--body);
-    font-weight: 700;
-    font-size: 14px;
-    padding: 0 18px;
-    border-radius: 8px;
-    border: 2px solid var(--ink);
-    background: var(--wax);
-    color: var(--ink);
-    cursor: pointer;
-  }
-  .text-row button:disabled { opacity: 0.4; cursor: default; }
 
   .icon-row {
     display: flex;
@@ -243,11 +277,101 @@
   .icon-btn:disabled { opacity: 0.4; cursor: default; }
   .icon-btn svg { width: 100%; height: 100%; }
 
-  .photo-row {
+  .clipart-search-row {
     display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .clipart-search-row input[type="text"] {
+    flex: 1;
+    font-family: var(--heading);
+    font-size: 15px;
+    padding: 10px 12px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .clipart-search-row input[type="text"]:disabled { background: var(--foam); color: var(--ink-soft); }
+  .clipart-search-row button {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 14px;
+    padding: 0 16px;
+    border-radius: 8px;
+    border: 2px solid var(--ink);
+    background: var(--wax);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .clipart-search-row button:disabled { opacity: 0.4; cursor: default; }
+
+  .clipart-status {
+    text-align: center;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 0 0 8px;
+    min-height: 14px;
+  }
+
+  .clipart-results {
+    display: flex;
+    gap: 8px;
     justify-content: center;
+    flex-wrap: wrap;
     margin-bottom: 22px;
   }
+  .clipart-result-btn {
+    width: 46px; height: 46px;
+    border-radius: 10px;
+    border: 2px solid var(--ink);
+    background: #fff;
+    cursor: pointer;
+    padding: 4px;
+  }
+  .clipart-result-btn:disabled { opacity: 0.4; cursor: default; }
+  .clipart-result-btn img { width: 100%; height: 100%; object-fit: contain; }
+
+  .layers-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .layers-empty {
+    text-align: center;
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin: 10px 0;
+  }
+  .layer-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .layer-row span {
+    flex: 1;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .layer-move-btn {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    border: 1.5px solid var(--ink);
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0;
+  }
+  .layer-move-btn:disabled { opacity: 0.3; cursor: default; }
 
   .staging-bar-row {
     display: flex;
@@ -306,10 +430,33 @@
 
   <div class="canvas-stage">
     <div class="device-frame">
-      <div class="device-label">Live Preview</div>
+      <div class="quick-toolbar" id="quickToolbar">
+        <div class="quick-toolbar-row">
+          <button class="icon-tool-btn active" id="toolPenBtn" data-tool="pen" title="Pen">&#9998;</button>
+          <button class="icon-tool-btn" id="toolTextBtn" data-tool="text" title="Text">T</button>
+          <button class="icon-tool-btn" id="toolStickerBtn" data-tool="sticker" title="Sticker">&#11088;</button>
+          <button class="icon-tool-btn" id="toolPhotoBtn" data-tool="photo" title="Photo">&#128247;</button>
+          <button class="icon-tool-btn" id="toolLayersBtn" data-tool="layers" title="Layers">
+            <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 13l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 17.5l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="quick-toolbar-row">
+          <button class="icon-tool-btn" id="eraserBtn" title="Erase">
+            <svg viewBox="0 0 24 24"><g transform="rotate(-35 12 12)"><rect x="4" y="8" width="16" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="4" y1="12.5" x2="20" y2="12.5" stroke="currentColor" stroke-width="1.6"/></g></svg>
+          </button>
+          <button class="icon-tool-btn" id="undoBtn" title="Undo">&#8630;</button>
+          <button class="icon-tool-btn" id="redoBtn" title="Redo">&#8631;</button>
+          <button class="icon-tool-btn" id="clearBtn" title="Clear">&#128465;</button>
+          <button class="icon-tool-btn" id="invertBtn" title="Invert Colors">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>
+          </button>
+        </div>
+      </div>
       <div class="canvas-inner">
         <canvas id="baseCanvas" width="792" height="272"></canvas>
+        <canvas id="layersCanvas" width="792" height="272"></canvas>
         <canvas id="overlayCanvas" width="792" height="272"></canvas>
+        <input type="text" id="canvasTextInput" class="canvas-text-input" maxlength="24">
       </div>
     </div>
   </div>
@@ -321,46 +468,49 @@
     </div>
     <div class="staging-bar-row">
       <span>Drag to move &middot; Size</span>
-      <input type="range" id="stagingSizeSlider" min="20" max="300" value="64">
+      <input type="range" id="stagingSizeSlider" min="20" max="800" value="64">
       <button class="commit-btn" id="commitBtn" title="Place it">&#10003;</button>
       <button class="cancel-btn" id="cancelStageBtn" title="Cancel">&#10005;</button>
     </div>
   </div>
 
-  <div class="toolbar">
-    <button class="tool-btn active" id="penBtn">&#9998; Pen</button>
-    <button class="tool-btn" id="eraserBtn">&#9099; Eraser</button>
-    <button class="tool-btn" id="undoBtn">&#8630; Undo</button>
-    <button class="tool-btn" id="clearBtn">Clear</button>
+  <div class="tool-panel" id="penPanel">
+    <div class="size-row">
+      <span>Brush size</span>
+      <input type="range" id="sizeSlider" min="3" max="24" value="8">
+    </div>
   </div>
 
-  <div class="size-row">
-    <span>Brush size</span>
-    <input type="range" id="sizeSlider" min="3" max="24" value="8">
+  <div class="tool-panel hidden" id="textPanel">
+    <div class="toolbar" id="fontRow">
+      <button class="tool-btn active" id="fontSerifBtn" data-font="Georgia, serif">Serif</button>
+      <button class="tool-btn" id="fontBlockBtn" data-font="'Bungee', sans-serif" data-outline="true">Block</button>
+      <button class="tool-btn" id="fontPixelBtn" data-font="'Press Start 2P', monospace">Pixel</button>
+    </div>
   </div>
 
-  <div class="toolbar" id="fontRow">
-    <button class="tool-btn active" id="fontSerifBtn" data-font="Georgia, serif">Serif</button>
-    <button class="tool-btn" id="fontBlockBtn" data-font="'Bungee', sans-serif" data-outline="true">Block</button>
-    <button class="tool-btn" id="fontPixelBtn" data-font="'Press Start 2P', monospace">Pixel</button>
+  <div class="tool-panel hidden" id="stickerPanel">
+    <div class="icon-row" id="iconRow"></div>
+
+    <div class="clipart-search-row">
+      <input type="text" id="clipartSearchInput" placeholder="Search clip art&hellip;" maxlength="40">
+      <button id="clipartSearchBtn" disabled>Search</button>
+    </div>
+    <p class="clipart-status" id="clipartStatus"></p>
+    <div class="clipart-results" id="clipartResults"></div>
   </div>
 
-  <div class="text-row">
-    <input type="text" id="textInput" placeholder="Type a message&hellip;" maxlength="24">
-    <button id="stampTextBtn">Add Text</button>
+  <div class="tool-panel hidden" id="photoPanel">
+    <div class="toolbar" id="photoStyleRow">
+      <button class="tool-btn" id="photoStyleSketchBtn" data-style="sketch">&#128247; Sketch Photo</button>
+      <button class="tool-btn" id="photoStyleRetroBtn" data-style="atkinson">&#128247; Retro Photo</button>
+    </div>
   </div>
 
-  <div class="icon-row" id="iconRow"></div>
-
-  <div class="text-row">
-    <input type="text" id="emojiInput" placeholder="Add an emoji&hellip;" maxlength="16">
-    <button id="stampEmojiBtn">Add Emoji</button>
+  <div class="tool-panel hidden" id="layersPanel">
+    <div class="layers-list" id="layersList"></div>
   </div>
-
-  <div class="photo-row">
-    <button class="tool-btn" id="uploadPhotoBtn">&#128247; Upload Photo</button>
-    <input type="file" id="photoInput" accept="image/*" style="display:none">
-  </div>
+  <input type="file" id="photoInput" accept="image/*" style="display:none">
 
   <button class="publish-btn" id="publishBtn">Publish to My Wave Clock</button>
   <p class="status" id="statusMsg"></p>
@@ -398,15 +548,22 @@
   }
 
   // ================= Canvas setup =================
-  // Two layers: baseCanvas holds everything already committed (freehand
-  // strokes + placed text/icons) -- this is the only one ever read for
-  // Publish. overlayCanvas only ever shows the ONE object currently being
-  // positioned/resized, so dragging it never touches the real drawing
-  // underneath until it's explicitly committed.
+  // Three layers: baseCanvas holds only freehand pen/eraser strokes (the
+  // background drawing, not individually reorderable). layersCanvas is a
+  // full re-render of the `layers` stack (committed text/stickers/photos,
+  // back to front) every time it changes, which is what makes reordering
+  // possible -- each layer is redrawn from its own descriptor rather than
+  // permanently flattened into pixels. overlayCanvas only ever shows the
+  // ONE object currently being positioned/resized, so dragging it never
+  // touches committed content until it's explicitly placed.
   const baseCanvas = document.getElementById("baseCanvas");
   const baseCtx = baseCanvas.getContext("2d");
+  const layersCanvas = document.getElementById("layersCanvas");
+  const layersCtx = layersCanvas.getContext("2d");
   const overlayCanvas = document.getElementById("overlayCanvas");
   const overlayCtx = overlayCanvas.getContext("2d");
+  const canvasInner = document.querySelector(".canvas-inner");
+  const canvasTextInput = document.getElementById("canvasTextInput");
 
   baseCtx.fillStyle = "#fff";
   baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
@@ -423,20 +580,140 @@
     };
   }
 
-  // ================= Undo =================
+  // ================= Layers: committed text/sticker/photo objects, kept
+  // as descriptors (not baked into pixels) so they can be re-stacked in
+  // any order. Freehand strokes aren't part of this -- they're always the
+  // bottom-most background. =================
+  let layers = []; // back to front; layers[layers.length - 1] is topmost
+
+  // Draws one committed layer object -- shared between the layers-canvas
+  // full re-render and the staging overlay's live preview so the two
+  // never drift out of sync with each other.
+  function drawStampObject(ctx, obj) {
+    if (obj.kind === "text") {
+      ctx.font = "bold " + obj.size + "px " + obj.font;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      if (obj.outline) {
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = Math.max(1, obj.size * 0.07);
+        ctx.strokeText(obj.content, obj.x, obj.y);
+      } else {
+        ctx.fillStyle = "#000";
+        ctx.fillText(obj.content, obj.x, obj.y);
+      }
+    } else if (obj.kind === "photo") {
+      const { w, h } = getPhotoDisplayDims(obj);
+      ctx.imageSmoothingEnabled = false; // keeps sketch lines/dither dots crisp black-white instead of blurring into gray
+      ctx.drawImage(obj.canvas, obj.x - w / 2, obj.y - h / 2, w, h);
+    } else if (obj.kind === "icon") {
+      ctx.fillStyle = "#000";
+      ICONS[obj.name](ctx, obj.x, obj.y, obj.size);
+    }
+  }
+
+  function renderLayers() {
+    layersCtx.clearRect(0, 0, layersCanvas.width, layersCanvas.height);
+    layers.forEach((obj) => drawStampObject(layersCtx, obj));
+    renderLayersList();
+  }
+
+  function layerLabel(obj) {
+    if (obj.kind === "text") return "Text: " + (obj.content || "(empty)");
+    if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
+    if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Retro") + ")";
+    return "Layer";
+  }
+
+  const layersList = document.getElementById("layersList");
+
+  // Listed topmost-first (front to back), matching how most layers panels
+  // read -- the up/down buttons move a layer's position in the `layers`
+  // array (its stacking order), not its x/y position on the canvas.
+  function renderLayersList() {
+    layersList.innerHTML = "";
+    if (layers.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "layers-empty";
+      empty.textContent = "No layers yet — add text, a sticker, or a photo.";
+      layersList.appendChild(empty);
+      return;
+    }
+    for (let i = layers.length - 1; i >= 0; i--) {
+      const obj = layers[i];
+      const row = document.createElement("div");
+      row.className = "layer-row";
+
+      const label = document.createElement("span");
+      label.textContent = layerLabel(obj);
+      row.appendChild(label);
+
+      const upBtn = document.createElement("button");
+      upBtn.className = "layer-move-btn";
+      upBtn.title = "Bring forward";
+      upBtn.textContent = "↑";
+      upBtn.disabled = i === layers.length - 1;
+      upBtn.addEventListener("click", () => moveLayer(i, i + 1));
+      row.appendChild(upBtn);
+
+      const downBtn = document.createElement("button");
+      downBtn.className = "layer-move-btn";
+      downBtn.title = "Send backward";
+      downBtn.textContent = "↓";
+      downBtn.disabled = i === 0;
+      downBtn.addEventListener("click", () => moveLayer(i, i - 1));
+      row.appendChild(downBtn);
+
+      layersList.appendChild(row);
+    }
+  }
+
+  function moveLayer(fromIndex, toIndex) {
+    if (toIndex < 0 || toIndex >= layers.length) return;
+    pushUndoState();
+    const [obj] = layers.splice(fromIndex, 1);
+    layers.splice(toIndex, 0, obj);
+    renderLayers();
+  }
+
+  // ================= Undo / Redo =================
+  // Snapshots capture BOTH the stroke pixels and the current layer stack
+  // together as one atomic checkpoint, so undo/redo works uniformly
+  // across drawing, erasing, clearing, placing a layer, and reordering
+  // layers -- not just pixel edits.
   const MAX_UNDO = 15;
   let undoStack = [];
+  let redoStack = [];
+
+  function snapshotState() {
+    return {
+      strokes: baseCtx.getImageData(0, 0, baseCanvas.width, baseCanvas.height),
+      layers: layers.map((l) => Object.assign({}, l))
+    };
+  }
 
   function pushUndoState() {
-    const snapshot = baseCtx.getImageData(0, 0, baseCanvas.width, baseCanvas.height);
-    undoStack.push(snapshot);
+    undoStack.push(snapshotState());
     if (undoStack.length > MAX_UNDO) undoStack.shift();
+    redoStack = []; // a new action invalidates whatever could have been redone
+  }
+
+  function applyState(state) {
+    baseCtx.putImageData(state.strokes, 0, 0);
+    layers = state.layers.map((l) => Object.assign({}, l));
+    renderLayers();
   }
 
   document.getElementById("undoBtn").addEventListener("click", () => {
     if (undoStack.length === 0) return;
-    const prev = undoStack.pop();
-    baseCtx.putImageData(prev, 0, 0);
+    redoStack.push(snapshotState());
+    applyState(undoStack.pop());
+  });
+
+  document.getElementById("redoBtn").addEventListener("click", () => {
+    if (redoStack.length === 0) return;
+    undoStack.push(snapshotState());
+    applyState(redoStack.pop());
   });
 
   // ================= Freehand drawing (pen / eraser) =================
@@ -449,7 +726,7 @@
   sizeSlider.addEventListener("input", () => { brushSize = parseInt(sizeSlider.value, 10); });
 
   baseCanvas.addEventListener("pointerdown", (evt) => {
-    if (stagedObject) return;
+    if (stagedObject || activeTool !== "pen") return;
     pushUndoState();
     drawing = true;
     lastPoint = canvasPoint(evt, baseCanvas);
@@ -473,24 +750,34 @@
   baseCanvas.addEventListener("pointercancel", stopDrawing);
   baseCanvas.addEventListener("pointerleave", stopDrawing);
 
-  const penBtn = document.getElementById("penBtn");
   const eraserBtn = document.getElementById("eraserBtn");
   const clearBtn = document.getElementById("clearBtn");
 
-  penBtn.addEventListener("click", () => {
-    mode = "pen";
-    penBtn.classList.add("active");
-    eraserBtn.classList.remove("active");
-  });
   eraserBtn.addEventListener("click", () => {
-    mode = "eraser";
-    eraserBtn.classList.add("active");
-    penBtn.classList.remove("active");
+    mode = (mode === "pen") ? "eraser" : "pen";
+    eraserBtn.classList.toggle("active", mode === "eraser");
+    // Erasing only does anything once you're actually drawing on the
+    // canvas, which is gated to the Pen tab -- jump there so tapping this
+    // from anywhere puts you right into erasing, no extra navigation.
+    if (activeTool !== "pen") showToolPanel("pen");
   });
   clearBtn.addEventListener("click", () => {
     pushUndoState();
     baseCtx.fillStyle = "#fff";
     baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
+    layers = [];
+    renderLayers();
+  });
+
+  // A view-mode toggle, not a content edit -- doesn't touch the undo
+  // stack. Live preview inverts via a CSS filter; Publish flips the
+  // actual black/white decision in packTo1Bit to match.
+  const invertBtn = document.getElementById("invertBtn");
+  let inverted = false;
+  invertBtn.addEventListener("click", () => {
+    inverted = !inverted;
+    invertBtn.classList.toggle("active", inverted);
+    canvasInner.classList.toggle("inverted", inverted);
   });
 
   // ================= Icon stamps =================
@@ -772,6 +1059,74 @@
     return out;
   }
 
+  // ================= Dithering: the "Retro" photo style. Where Sketch
+  // traces edges/outlines, this converts the WHOLE photo into a 1-bit
+  // pattern of black/white pixels whose local density stands in for
+  // brightness -- closer to how the original photo actually looked,
+  // instead of a line drawing of it. =================
+
+  // Atkinson (classic Mac look): only diffuses 6/8 of the error and
+  // drops the rest, which biases the result lighter/higher-contrast with
+  // sparser, punchier dots than a straight Floyd-Steinberg dither would.
+  function ditherAtkinson(gray, width, height) {
+    const buf = Float32Array.from(gray);
+    const bits = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        const oldVal = buf[i];
+        const newVal = oldVal < 128 ? 0 : 255;
+        bits[i] = newVal === 0 ? 1 : 0;
+        const err = (oldVal - newVal) / 8;
+        if (x + 1 < width) buf[i + 1] += err;
+        if (x + 2 < width) buf[i + 2] += err;
+        if (y + 1 < height) {
+          if (x > 0) buf[i + width - 1] += err;
+          buf[i + width] += err;
+          if (x + 1 < width) buf[i + width + 1] += err;
+        }
+        if (y + 2 < height) buf[i + 2 * width] += err;
+      }
+    }
+    return bits;
+  }
+
+  function ditherToCanvas(bits, width, height) {
+    const out = document.createElement("canvas");
+    out.width = width;
+    out.height = height;
+    const outCtx = out.getContext("2d");
+    const imgOut = outCtx.createImageData(width, height);
+    for (let i = 0; i < width * height; i++) {
+      const val = bits[i] ? 0 : 255;
+      imgOut.data[i * 4] = val;
+      imgOut.data[i * 4 + 1] = val;
+      imgOut.data[i * 4 + 2] = val;
+      imgOut.data[i * 4 + 3] = 255;
+    }
+    outCtx.putImageData(imgOut, 0, 0);
+    return out;
+  }
+
+  function stageDither(sourceCanvas, workW, workH, style, sizeOverride) {
+    const sourceCtx = sourceCanvas.getContext("2d");
+    const imgData = sourceCtx.getImageData(0, 0, workW, workH).data;
+    const gray = toGrayscale(imgData, workW, workH);
+
+    const bits = ditherAtkinson(gray, workW, workH);
+    const canvas = ditherToCanvas(bits, workW, workH);
+
+    const staged = {
+      kind: "photo",
+      photoStyle: style,
+      canvas,
+      workW, workH,
+      aspectRatio: workW / workH
+    };
+    if (sizeOverride) staged.size = sizeOverride;
+    startStaging(staged);
+  }
+
   const iconRow = document.getElementById("iconRow");
   Object.keys(ICONS).forEach((name) => {
     const btn = document.createElement("button");
@@ -782,6 +1137,89 @@
     iconRow.appendChild(btn);
   });
 
+  // ================= Clip art search: free icons from Iconify's public
+  // API (no key, CORS-permissive), brought in through the same Retro
+  // (Atkinson) dither as photos -- a raw vector icon's flat colors don't
+  // matter once it's thresholded and dithered like everything else on
+  // the 1-bit display, so it can share the exact same pipeline.
+  const clipartSearchInput = document.getElementById("clipartSearchInput");
+  const clipartSearchBtn = document.getElementById("clipartSearchBtn");
+  const clipartStatus = document.getElementById("clipartStatus");
+  const clipartResults = document.getElementById("clipartResults");
+
+  function setClipartStatus(text) {
+    clipartStatus.textContent = text || "";
+  }
+
+  function updateClipartSearchEnabled() {
+    clipartSearchBtn.disabled = !!stagedObject || !clipartSearchInput.value.trim();
+  }
+  clipartSearchInput.addEventListener("input", updateClipartSearchEnabled);
+
+  async function searchClipart() {
+    const query = clipartSearchInput.value.trim();
+    if (!query) return;
+    clipartResults.innerHTML = "";
+    setClipartStatus("Searching…");
+    try {
+      const res = await fetch("https://api.iconify.design/search?query=" + encodeURIComponent(query) + "&limit=32");
+      if (!res.ok) throw new Error("search request failed");
+      const data = await res.json();
+      const icons = data.icons || [];
+      if (!icons.length) {
+        setClipartStatus('No results for "' + query + '" — try a different word.');
+        return;
+      }
+      setClipartStatus("");
+      icons.forEach((iconId) => {
+        const btn = document.createElement("button");
+        btn.className = "clipart-result-btn";
+        btn.title = iconId;
+        const img = document.createElement("img");
+        img.src = "https://api.iconify.design/" + iconId + ".svg";
+        img.alt = iconId;
+        img.loading = "lazy";
+        btn.appendChild(img);
+        btn.addEventListener("click", () => stageClipart(iconId));
+        clipartResults.appendChild(btn);
+      });
+    } catch (err) {
+      console.error(err);
+      setClipartStatus("Couldn't reach the clip art search — try again in a moment.");
+    }
+  }
+
+  // Rasterizes the chosen icon onto a white square, same starting shape
+  // an uploaded photo would get, then runs it through stageDither with
+  // the "atkinson" (Retro) style specifically -- clip art always comes
+  // in Retro, never Sketch, since these are already clean vector shapes
+  // rather than photos that need edge-detection to read as line art.
+  function stageClipart(iconId) {
+    if (stagedObject) return;
+    const size = 240;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, size, size);
+      const pad = size * 0.12;
+      const drawSize = size - pad * 2;
+      ctx.drawImage(img, pad, pad, drawSize, drawSize);
+      stageDither(canvas, size, size, "atkinson");
+    };
+    img.onerror = () => setClipartStatus("Couldn't load that icon — try another.");
+    img.src = "https://api.iconify.design/" + iconId + ".svg?height=" + size;
+  }
+
+  clipartSearchBtn.addEventListener("click", searchClipart);
+  clipartSearchInput.addEventListener("keydown", (evt) => {
+    if (evt.key === "Enter") searchClipart();
+  });
+
   // ================= Staging: a movable/resizable text or icon,
   // shown only on the overlay canvas until committed =================
   let stagedObject = null;
@@ -790,8 +1228,48 @@
   const stagingSizeSlider = document.getElementById("stagingSizeSlider");
   const commitBtn = document.getElementById("commitBtn");
   const cancelStageBtn = document.getElementById("cancelStageBtn");
-  const textInput = document.getElementById("textInput");
-  const stampTextBtn = document.getElementById("stampTextBtn");
+  // ================= Tools: Pen/Text/Sticker/Photo/Layers, all in the
+  // quick toolbar up top. Only the active tool's panel is shown below,
+  // instead of stacking every tool's controls on the page at once --
+  // picking a tool jumps straight to its options with no scrolling. =====
+  let activeTool = "pen";
+  const toolTabButtons = document.querySelectorAll("#quickToolbar [data-tool]");
+  const toolPanels = {
+    pen: document.getElementById("penPanel"),
+    text: document.getElementById("textPanel"),
+    sticker: document.getElementById("stickerPanel"),
+    photo: document.getElementById("photoPanel"),
+    layers: document.getElementById("layersPanel")
+  };
+
+  function showToolPanel(tool) {
+    activeTool = tool;
+    toolTabButtons.forEach((b) => b.classList.toggle("active", b.dataset.tool === tool));
+    Object.keys(toolPanels).forEach((key) => toolPanels[key].classList.toggle("hidden", key !== tool));
+  }
+
+  toolTabButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (stagedObject) return; // finish or cancel the current placement first
+      const tool = btn.dataset.tool;
+      showToolPanel(tool);
+      // Picking Pen explicitly means "I want to draw," not erase -- drop
+      // out of erase mode so the two don't stay both looking active.
+      if (tool === "pen") {
+        mode = "pen";
+        eraserBtn.classList.remove("active");
+      }
+      // Text has no further sub-choice like Sticker/Photo do, so picking
+      // its tab stages an empty text object right away and focuses the
+      // on-canvas input.
+      if (tool === "text") {
+        startStaging({ kind: "text", content: "", font: selectedTextFont, outline: selectedTextOutline });
+        canvasTextInput.value = "";
+        canvasTextInput.focus();
+      }
+    });
+  });
+
   const fontButtons = document.querySelectorAll("#fontRow .tool-btn");
   let selectedTextFont = fontButtons[0].dataset.font;
   let selectedTextOutline = fontButtons[0].dataset.outline === "true";
@@ -801,20 +1279,32 @@
       btn.classList.add("active");
       selectedTextFont = btn.dataset.font;
       selectedTextOutline = btn.dataset.outline === "true";
+      // Text stays staged (not yet committed) while fonts are being tried,
+      // so switching fonts here should restyle the live preview in place
+      // instead of forcing a cancel-and-redo.
+      if (stagedObject && stagedObject.kind === "text") {
+        stagedObject.font = selectedTextFont;
+        stagedObject.outline = selectedTextOutline;
+        redrawOverlay();
+      }
     });
   });
-  const uploadPhotoBtn = document.getElementById("uploadPhotoBtn");
   const photoInput = document.getElementById("photoInput");
-  const emojiInput = document.getElementById("emojiInput");
-  const stampEmojiBtn = document.getElementById("stampEmojiBtn");
+  // Each button both picks the photo style AND triggers the upload picker
+  // in one tap, instead of a separate select-a-style-then-upload step.
+  const photoStyleButtons = document.querySelectorAll("#photoStyleRow .tool-btn");
+  let selectedPhotoStyle = "sketch";
+  photoStyleButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedPhotoStyle = btn.dataset.style;
+      photoInput.click();
+    });
+  });
   const sensitivityRow = document.getElementById("sensitivityRow");
   const sensitivitySlider = document.getElementById("sensitivitySlider");
 
-  // Runs any source canvas (an uploaded photo, an emoji rendered to a
-  // canvas, anything) through the same line-art pipeline and stages it --
-  // this is what lets both "Upload Photo" and "Add Emoji" share one
-  // conversion path, since a colored emoji glyph collapses into an
-  // unreadable blob on a 1-bit display exactly like a photo does.
+  // Runs an uploaded photo through the edge-detection pipeline and stages
+  // it as line art -- this is the "Sketch Photo" style.
   function stageLineArt(sourceCanvas, workW, workH, sizeOverride) {
     const sourceCtx = sourceCanvas.getContext("2d");
     const imgData = sourceCtx.getImageData(0, 0, workW, workH).data;
@@ -831,6 +1321,7 @@
 
     const staged = {
       kind: "photo",
+      photoStyle: "sketch",
       canvas: lineArtCanvas,
       suppressed, sortedValues, // cached so the sensitivity slider can re-run hysteresis cheaply, without redoing blur/Sobel/NMS
       workW, workH,
@@ -840,8 +1331,6 @@
     if (sizeOverride) staged.size = sizeOverride;
     startStaging(staged);
   }
-
-  uploadPhotoBtn.addEventListener("click", () => photoInput.click());
 
   photoInput.addEventListener("change", (evt) => {
     const file = evt.target.files[0];
@@ -861,7 +1350,11 @@
         workCanvas.height = workH;
         workCanvas.getContext("2d").drawImage(img, 0, 0, workW, workH);
 
-        stageLineArt(workCanvas, workW, workH);
+        if (selectedPhotoStyle === "sketch") {
+          stageLineArt(workCanvas, workW, workH);
+        } else {
+          stageDither(workCanvas, workW, workH, selectedPhotoStyle);
+        }
 
         photoInput.value = ""; // allow re-selecting the same file later
       };
@@ -870,32 +1363,8 @@
     reader.readAsDataURL(file);
   });
 
-  stampEmojiBtn.addEventListener("click", () => {
-    const emoji = emojiInput.value.trim();
-    if (!emoji) return;
-
-    // Render the emoji glyph (in color, via the phone's own emoji font)
-    // onto a plain canvas so it can run through the exact same edge
-    // detection as an uploaded photo.
-    const size = 240;
-    const emojiCanvas = document.createElement("canvas");
-    emojiCanvas.width = size;
-    emojiCanvas.height = size;
-    const emojiCtx = emojiCanvas.getContext("2d");
-    emojiCtx.fillStyle = "#fff";
-    emojiCtx.fillRect(0, 0, size, size);
-    emojiCtx.font = Math.round(size * 0.72) + "px sans-serif";
-    emojiCtx.textAlign = "center";
-    emojiCtx.textBaseline = "middle";
-    emojiCtx.fillText(emoji, size / 2, size / 2 + size * 0.06);
-
-    stageLineArt(emojiCanvas, size, size, 90); // smaller default than photos -- emoji are compact, icon-like shapes
-
-    emojiInput.value = "";
-  });
-
   sensitivitySlider.addEventListener("input", () => {
-    if (!stagedObject || stagedObject.kind !== "photo") return;
+    if (!stagedObject || stagedObject.photoStyle !== "sketch") return;
     stagedObject.sensitivity = parseInt(sensitivitySlider.value, 10);
     const { high, low } = thresholdsForSensitivity(stagedObject.sortedValues, stagedObject.sensitivity);
     const edges = dilateEdges(hysteresis(stagedObject.suppressed, stagedObject.workW, stagedObject.workH, high, low), stagedObject.workW, stagedObject.workH);
@@ -904,10 +1373,18 @@
   });
 
   function setControlsEnabled(enabled) {
-    [penBtn, eraserBtn, clearBtn, sizeSlider, textInput, stampTextBtn, publishBtn, uploadPhotoBtn, emojiInput, stampEmojiBtn]
+    [eraserBtn, clearBtn, invertBtn, sizeSlider, publishBtn, clipartSearchInput]
       .forEach((el) => { el.disabled = !enabled; });
+    toolTabButtons.forEach((el) => { el.disabled = !enabled; }); // can't switch tools mid-placement
     iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
-    fontButtons.forEach((el) => { el.disabled = !enabled; });
+    clipartResults.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
+    photoStyleButtons.forEach((el) => { el.disabled = !enabled; });
+    // Fonts stay switchable while a TEXT object is staged (not other
+    // kinds) so the live preview can keep updating without canceling and
+    // starting over.
+    const textCtxEnabled = enabled || (stagedObject && stagedObject.kind === "text");
+    fontButtons.forEach((el) => { el.disabled = !textCtxEnabled; });
+    updateClipartSearchEnabled();
   }
 
   function startStaging(obj) {
@@ -915,8 +1392,8 @@
     const defaultSize = (obj.kind === "photo") ? 160 : 64;
     stagedObject = Object.assign({ x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: defaultSize }, obj);
     stagingSizeSlider.value = stagedObject.size;
-    sensitivityRow.classList.toggle("hidden", obj.kind !== "photo");
-    if (obj.kind === "photo") sensitivitySlider.value = obj.sensitivity;
+    sensitivityRow.classList.toggle("hidden", obj.photoStyle !== "sketch");
+    if (obj.photoStyle === "sketch") sensitivitySlider.value = obj.sensitivity;
     stagingBar.classList.add("visible");
     overlayCanvas.classList.add("staging");
     setControlsEnabled(false);
@@ -933,30 +1410,40 @@
     return { w: obj.size * obj.aspectRatio, h: obj.size };
   }
 
+  // Text is typed and shown via the real HTML input sitting on top of the
+  // canvas (canvasTextInput), not drawn onto the overlay canvas -- this
+  // keeps typing/cursor/keyboard behavior native instead of faked, and the
+  // font family/size/outline just need to visually match, not be redrawn
+  // every keystroke. It's positioned in CSS percentages so it tracks the
+  // canvas's own responsive scaling without a resize listener.
+  function positionCanvasTextInput() {
+    if (!stagedObject || stagedObject.kind !== "text") {
+      canvasTextInput.style.display = "none";
+      return;
+    }
+    const scale = canvasInner.getBoundingClientRect().width / baseCanvas.width;
+    canvasTextInput.style.display = "block";
+    canvasTextInput.style.left = (stagedObject.x / baseCanvas.width * 100) + "%";
+    canvasTextInput.style.top = (stagedObject.y / baseCanvas.height * 100) + "%";
+    canvasTextInput.style.fontFamily = stagedObject.font;
+    canvasTextInput.style.fontSize = (stagedObject.size * scale) + "px";
+    if (stagedObject.outline) {
+      canvasTextInput.style.color = "transparent";
+      canvasTextInput.style.webkitTextStroke = Math.max(1, stagedObject.size * 0.07 * scale) + "px " + "#1F3347";
+    } else {
+      canvasTextInput.style.color = "#1F3347";
+      canvasTextInput.style.webkitTextStroke = "";
+    }
+  }
+
   function redrawOverlay() {
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    positionCanvasTextInput();
     if (!stagedObject) return;
 
     overlayCtx.save();
-    overlayCtx.fillStyle = "#000";
-    overlayCtx.strokeStyle = "#000";
-
-    if (stagedObject.kind === "text") {
-      overlayCtx.font = "bold " + stagedObject.size + "px " + stagedObject.font;
-      overlayCtx.textAlign = "center";
-      overlayCtx.textBaseline = "middle";
-      if (stagedObject.outline) {
-        overlayCtx.lineWidth = Math.max(1, stagedObject.size * 0.07);
-        overlayCtx.strokeText(stagedObject.content, stagedObject.x, stagedObject.y);
-      } else {
-        overlayCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
-      }
-    } else if (stagedObject.kind === "photo") {
-      const { w, h } = getPhotoDisplayDims(stagedObject);
-      overlayCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
-    } else {
-      ICONS[stagedObject.name](overlayCtx, stagedObject.x, stagedObject.y, stagedObject.size);
-    }
+    // kind === "text": no canvas draw here, canvasTextInput shows it instead
+    if (stagedObject.kind !== "text") drawStampObject(overlayCtx, stagedObject);
 
     const half = stagedObject.size * 0.65;
     overlayCtx.setLineDash([6, 5]);
@@ -989,7 +1476,16 @@
     stagedObject.y = p.y - dragOffset.y;
     redrawOverlay();
   });
-  function stopDraggingStaged() { draggingStaged = false; }
+  function stopDraggingStaged() {
+    if (draggingStaged && stagedObject && stagedObject.kind === "text") {
+      // Dragging happens on the canvas underneath (canvasTextInput has
+      // pointer-events:none so drags pass through to it), which blurs the
+      // input and can dismiss the on-screen keyboard -- bring it back once
+      // the drag ends so typing can continue right away.
+      canvasTextInput.focus();
+    }
+    draggingStaged = false;
+  }
   overlayCanvas.addEventListener("pointerup", stopDraggingStaged);
   overlayCanvas.addEventListener("pointercancel", stopDraggingStaged);
 
@@ -998,40 +1494,42 @@
     stagingBar.classList.remove("visible");
     overlayCanvas.classList.remove("staging");
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    canvasTextInput.value = "";
+    canvasTextInput.style.display = "none";
     setControlsEnabled(true);
   }
 
   commitBtn.addEventListener("click", () => {
     if (!stagedObject) return;
-    pushUndoState();
-    baseCtx.fillStyle = "#000";
-    if (stagedObject.kind === "text") {
-      baseCtx.font = "bold " + stagedObject.size + "px " + stagedObject.font;
-      baseCtx.textAlign = "center";
-      baseCtx.textBaseline = "middle";
-      if (stagedObject.outline) {
-        baseCtx.strokeStyle = "#000";
-        baseCtx.lineWidth = Math.max(1, stagedObject.size * 0.07);
-        baseCtx.strokeText(stagedObject.content, stagedObject.x, stagedObject.y);
-      } else {
-        baseCtx.fillText(stagedObject.content, stagedObject.x, stagedObject.y);
-      }
-    } else if (stagedObject.kind === "photo") {
-      const { w, h } = getPhotoDisplayDims(stagedObject);
-      baseCtx.drawImage(stagedObject.canvas, stagedObject.x - w / 2, stagedObject.y - h / 2, w, h);
-    } else {
-      ICONS[stagedObject.name](baseCtx, stagedObject.x, stagedObject.y, stagedObject.size);
+    if (stagedObject.kind === "text" && !stagedObject.content.trim()) {
+      // Nothing was typed -- there's nothing to place, so committing just
+      // cancels instead of stamping a blank space onto the design.
+      endStaging();
+      return;
     }
+    pushUndoState();
+    const committed = Object.assign({}, stagedObject);
+    // Sketch photos carry large working buffers (suppressed/sortedValues)
+    // used only to cheaply re-run the sensitivity slider while staging --
+    // dead weight once committed, so drop them rather than keep them
+    // around in every layer and undo snapshot from here on.
+    delete committed.suppressed;
+    delete committed.sortedValues;
+    layers.push(committed);
+    renderLayers();
     endStaging();
   });
 
   cancelStageBtn.addEventListener("click", endStaging);
 
-  stampTextBtn.addEventListener("click", () => {
-    const text = textInput.value.trim();
-    if (!text) return;
-    startStaging({ kind: "text", content: text, font: selectedTextFont, outline: selectedTextOutline });
-    textInput.value = "";
+  // Text stages live as you type into the overlay input sitting right on
+  // the canvas -- there's no separate box/button elsewhere on the page.
+  // Emoji are allowed through as typed; thresholding to 1-bit for the
+  // e-paper display still reads fine for most emoji shapes.
+  canvasTextInput.addEventListener("input", () => {
+    if (!stagedObject || stagedObject.kind !== "text") return;
+    stagedObject.content = canvasTextInput.value;
+    redrawOverlay();
   });
 
   // ================= Publish =================
@@ -1040,6 +1538,19 @@
   function setStatus(text, kind) {
     statusMsg.textContent = text;
     statusMsg.className = "status" + (kind ? " " + kind : "");
+  }
+
+  // Publish reads a single flat image, but strokes and layers now live on
+  // separate canvases -- flatten them into one offscreen canvas just for
+  // this, same as the browser already does visually by stacking them.
+  function getCompositeCanvas() {
+    const out = document.createElement("canvas");
+    out.width = baseCanvas.width;
+    out.height = baseCanvas.height;
+    const ctx = out.getContext("2d");
+    ctx.drawImage(baseCanvas, 0, 0);
+    ctx.drawImage(layersCanvas, 0, 0);
+    return out;
   }
 
   function packTo1Bit(sourceCanvas) {
@@ -1056,7 +1567,7 @@
         const i = (y * width + x) * 4;
         const r = imgData[i], g = imgData[i + 1], b = imgData[i + 2];
         const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-        const isBlack = luminance <= threshold;
+        const isBlack = inverted ? luminance > threshold : luminance <= threshold;
         if (isBlack) {
           const byteIndex = y * bytesPerRow + (x >> 3);
           const bitIndex = 7 - (x & 7);
@@ -1073,7 +1584,7 @@
     setStatus("Publishing…");
 
     try {
-      const packed = packTo1Bit(baseCanvas);
+      const packed = packTo1Bit(getCompositeCanvas());
       const blob = new Blob([packed], { type: "application/octet-stream" });
       const storageRef = ref(storage, "designs/" + deviceId + ".bin");
       await uploadBytes(storageRef, blob);
@@ -1085,6 +1596,8 @@
       publishBtn.disabled = false;
     }
   });
+
+  renderLayers(); // shows the "no layers yet" empty state from the start
 </script>
 
 </body>
