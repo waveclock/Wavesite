@@ -146,6 +146,7 @@
     border: 1px solid var(--line);
     border-radius: 3px;
     overflow: hidden;
+    background: #fff; /* the "paper" -- baseCanvas itself is transparent now, see below */
   }
   /* Purely visual -- the actual black/white decision for Publish is
      inverted separately in packTo1Bit. A CSS filter is enough to preview
@@ -161,7 +162,6 @@
     touch-action: none;
   }
 
-  #baseCanvas { background: #fff; }
   #layersCanvas, #overlayCanvas { pointer-events: none; }
   #overlayCanvas.staging { pointer-events: auto; cursor: grab; }
 
@@ -453,8 +453,8 @@
         </div>
       </div>
       <div class="canvas-inner">
-        <canvas id="baseCanvas" width="792" height="272"></canvas>
         <canvas id="layersCanvas" width="792" height="272"></canvas>
+        <canvas id="baseCanvas" width="792" height="272"></canvas>
         <canvas id="overlayCanvas" width="792" height="272"></canvas>
         <input type="text" id="canvasTextInput" class="canvas-text-input" maxlength="24">
       </div>
@@ -548,14 +548,19 @@
   }
 
   // ================= Canvas setup =================
-  // Three layers: baseCanvas holds only freehand pen/eraser strokes (the
-  // background drawing, not individually reorderable). layersCanvas is a
-  // full re-render of the `layers` stack (committed text/stickers/photos,
-  // back to front) every time it changes, which is what makes reordering
-  // possible -- each layer is redrawn from its own descriptor rather than
-  // permanently flattened into pixels. overlayCanvas only ever shows the
-  // ONE object currently being positioned/resized, so dragging it never
-  // touches committed content until it's explicitly placed.
+  // Three layers, bottom to top: layersCanvas is a full re-render of the
+  // `layers` stack (committed text/stickers/photos) every time it
+  // changes, which is what makes reordering possible -- each layer is
+  // redrawn from its own descriptor rather than permanently flattened
+  // into pixels. baseCanvas holds only freehand pen/eraser strokes, and
+  // sits ON TOP of layersCanvas (not individually reorderable, but always
+  // drawable/erasable over anything already placed, e.g. annotating a
+  // photo) -- it starts fully transparent, not painted white, so ink only
+  // covers what's actually drawn and erasing reveals whatever's beneath
+  // (a photo, or the white "paper" that's .canvas-inner's own background)
+  // instead of painting an opaque white patch over it. overlayCanvas only
+  // ever shows the ONE object currently being positioned/resized, so
+  // dragging it never touches committed content until it's placed.
   const baseCanvas = document.getElementById("baseCanvas");
   const baseCtx = baseCanvas.getContext("2d");
   const layersCanvas = document.getElementById("layersCanvas");
@@ -565,8 +570,6 @@
   const canvasInner = document.querySelector(".canvas-inner");
   const canvasTextInput = document.getElementById("canvasTextInput");
 
-  baseCtx.fillStyle = "#fff";
-  baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
   baseCtx.lineCap = "round";
   baseCtx.lineJoin = "round";
 
@@ -736,7 +739,17 @@
   baseCanvas.addEventListener("pointermove", (evt) => {
     if (!drawing) return;
     const point = canvasPoint(evt, baseCanvas);
-    baseCtx.strokeStyle = (mode === "pen") ? "#000" : "#fff";
+    if (mode === "pen") {
+      baseCtx.globalCompositeOperation = "source-over";
+      baseCtx.strokeStyle = "#000";
+    } else {
+      // Erasing clears pixels back to transparent instead of painting an
+      // opaque white patch -- that way it reveals whatever's actually
+      // underneath (a placed photo/sticker, or the white "paper"), rather
+      // than always painting over it with solid white.
+      baseCtx.globalCompositeOperation = "destination-out";
+      baseCtx.strokeStyle = "rgba(0,0,0,1)"; // only alpha matters for destination-out
+    }
     baseCtx.lineWidth = brushSize * (baseCanvas.width / baseCanvas.getBoundingClientRect().width);
     baseCtx.beginPath();
     baseCtx.moveTo(lastPoint.x, lastPoint.y);
@@ -763,8 +776,7 @@
   });
   clearBtn.addEventListener("click", () => {
     pushUndoState();
-    baseCtx.fillStyle = "#fff";
-    baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
+    baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
     layers = [];
     renderLayers();
   });
@@ -1540,16 +1552,19 @@
     statusMsg.className = "status" + (kind ? " " + kind : "");
   }
 
-  // Publish reads a single flat image, but strokes and layers now live on
-  // separate canvases -- flatten them into one offscreen canvas just for
-  // this, same as the browser already does visually by stacking them.
+  // Publish reads a single flat image, but the white "paper", layers, and
+  // strokes now live separately -- flatten them into one offscreen canvas
+  // in the same bottom-to-top order the browser already renders them in
+  // (white background, then placed layers, then strokes on top).
   function getCompositeCanvas() {
     const out = document.createElement("canvas");
     out.width = baseCanvas.width;
     out.height = baseCanvas.height;
     const ctx = out.getContext("2d");
-    ctx.drawImage(baseCanvas, 0, 0);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, out.width, out.height);
     ctx.drawImage(layersCanvas, 0, 0);
+    ctx.drawImage(baseCanvas, 0, 0);
     return out;
   }
 
