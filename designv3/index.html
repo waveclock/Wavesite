@@ -1090,6 +1090,12 @@
       if (stagedObject) return; // finish or cancel the current placement first
       const tool = btn.dataset.tool;
       showToolPanel(tool);
+      // Picking Pen explicitly means "I want to draw," not erase -- drop
+      // out of erase mode so the two don't stay both looking active.
+      if (tool === "pen") {
+        mode = "pen";
+        eraserBtn.classList.remove("active");
+      }
       // Text has no further sub-choice like Sticker/Photo do, so picking
       // its tab stages an empty text object right away and focuses the
       // on-canvas input.
