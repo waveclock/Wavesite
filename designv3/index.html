@@ -273,6 +273,61 @@
   .icon-btn:disabled { opacity: 0.4; cursor: default; }
   .icon-btn svg { width: 100%; height: 100%; }
 
+  .clipart-search-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .clipart-search-row input[type="text"] {
+    flex: 1;
+    font-family: var(--heading);
+    font-size: 15px;
+    padding: 10px 12px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .clipart-search-row input[type="text"]:disabled { background: var(--foam); color: var(--ink-soft); }
+  .clipart-search-row button {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 14px;
+    padding: 0 16px;
+    border-radius: 8px;
+    border: 2px solid var(--ink);
+    background: var(--wax);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .clipart-search-row button:disabled { opacity: 0.4; cursor: default; }
+
+  .clipart-status {
+    text-align: center;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 0 0 8px;
+    min-height: 14px;
+  }
+
+  .clipart-results {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 22px;
+  }
+  .clipart-result-btn {
+    width: 46px; height: 46px;
+    border-radius: 10px;
+    border: 2px solid var(--ink);
+    background: #fff;
+    cursor: pointer;
+    padding: 4px;
+  }
+  .clipart-result-btn:disabled { opacity: 0.4; cursor: default; }
+  .clipart-result-btn img { width: 100%; height: 100%; object-fit: contain; }
+
   .layers-list {
     display: flex;
     flex-direction: column;
@@ -429,6 +484,13 @@
 
   <div class="tool-panel hidden" id="stickerPanel">
     <div class="icon-row" id="iconRow"></div>
+
+    <div class="clipart-search-row">
+      <input type="text" id="clipartSearchInput" placeholder="Search clip art&hellip;" maxlength="40">
+      <button id="clipartSearchBtn" disabled>Search</button>
+    </div>
+    <p class="clipart-status" id="clipartStatus"></p>
+    <div class="clipart-results" id="clipartResults"></div>
   </div>
 
   <div class="tool-panel hidden" id="photoPanel">
@@ -1057,6 +1119,89 @@
     iconRow.appendChild(btn);
   });
 
+  // ================= Clip art search: free icons from Iconify's public
+  // API (no key, CORS-permissive), brought in through the same Retro
+  // (Atkinson) dither as photos -- a raw vector icon's flat colors don't
+  // matter once it's thresholded and dithered like everything else on
+  // the 1-bit display, so it can share the exact same pipeline.
+  const clipartSearchInput = document.getElementById("clipartSearchInput");
+  const clipartSearchBtn = document.getElementById("clipartSearchBtn");
+  const clipartStatus = document.getElementById("clipartStatus");
+  const clipartResults = document.getElementById("clipartResults");
+
+  function setClipartStatus(text) {
+    clipartStatus.textContent = text || "";
+  }
+
+  function updateClipartSearchEnabled() {
+    clipartSearchBtn.disabled = !!stagedObject || !clipartSearchInput.value.trim();
+  }
+  clipartSearchInput.addEventListener("input", updateClipartSearchEnabled);
+
+  async function searchClipart() {
+    const query = clipartSearchInput.value.trim();
+    if (!query) return;
+    clipartResults.innerHTML = "";
+    setClipartStatus("Searching…");
+    try {
+      const res = await fetch("https://api.iconify.design/search?query=" + encodeURIComponent(query) + "&limit=32");
+      if (!res.ok) throw new Error("search request failed");
+      const data = await res.json();
+      const icons = data.icons || [];
+      if (!icons.length) {
+        setClipartStatus('No results for "' + query + '" — try a different word.');
+        return;
+      }
+      setClipartStatus("");
+      icons.forEach((iconId) => {
+        const btn = document.createElement("button");
+        btn.className = "clipart-result-btn";
+        btn.title = iconId;
+        const img = document.createElement("img");
+        img.src = "https://api.iconify.design/" + iconId + ".svg";
+        img.alt = iconId;
+        img.loading = "lazy";
+        btn.appendChild(img);
+        btn.addEventListener("click", () => stageClipart(iconId));
+        clipartResults.appendChild(btn);
+      });
+    } catch (err) {
+      console.error(err);
+      setClipartStatus("Couldn't reach the clip art search — try again in a moment.");
+    }
+  }
+
+  // Rasterizes the chosen icon onto a white square, same starting shape
+  // an uploaded photo would get, then runs it through stageDither with
+  // the "atkinson" (Retro) style specifically -- clip art always comes
+  // in Retro, never Sketch, since these are already clean vector shapes
+  // rather than photos that need edge-detection to read as line art.
+  function stageClipart(iconId) {
+    if (stagedObject) return;
+    const size = 240;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, size, size);
+      const pad = size * 0.12;
+      const drawSize = size - pad * 2;
+      ctx.drawImage(img, pad, pad, drawSize, drawSize);
+      stageDither(canvas, size, size, "atkinson");
+    };
+    img.onerror = () => setClipartStatus("Couldn't load that icon — try another.");
+    img.src = "https://api.iconify.design/" + iconId + ".svg?height=" + size;
+  }
+
+  clipartSearchBtn.addEventListener("click", searchClipart);
+  clipartSearchInput.addEventListener("keydown", (evt) => {
+    if (evt.key === "Enter") searchClipart();
+  });
+
   // ================= Staging: a movable/resizable text or icon,
   // shown only on the overlay canvas until committed =================
   let stagedObject = null;
@@ -1210,16 +1355,18 @@
   });
 
   function setControlsEnabled(enabled) {
-    [eraserBtn, clearBtn, sizeSlider, publishBtn]
+    [eraserBtn, clearBtn, sizeSlider, publishBtn, clipartSearchInput]
       .forEach((el) => { el.disabled = !enabled; });
     toolTabButtons.forEach((el) => { el.disabled = !enabled; }); // can't switch tools mid-placement
     iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
+    clipartResults.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
     photoStyleButtons.forEach((el) => { el.disabled = !enabled; });
     // Fonts stay switchable while a TEXT object is staged (not other
     // kinds) so the live preview can keep updating without canceling and
     // starting over.
     const textCtxEnabled = enabled || (stagedObject && stagedObject.kind === "text");
     fontButtons.forEach((el) => { el.disabled = !textCtxEnabled; });
+    updateClipartSearchEnabled();
   }
 
   function startStaging(obj) {
