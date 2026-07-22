@@ -97,34 +97,23 @@
     max-width: 460px;
   }
 
-  .device-label {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--driftwood);
-    text-align: center;
-    margin-bottom: 8px;
-  }
-
   /* Every tool (Pen/Text/Sticker/Photo/Layers) plus the always-available
      actions (Erase/Undo/Redo/Clear) live here, right above the preview --
-     nothing needs a trip down the page to reach. A divider separates the
-     tool-switchers from the one-shot actions, and the gap is generous so
-     small icons don't feel cramped. */
+     nothing needs a trip down the page to reach. Two deliberate rows
+     (tools, then actions) instead of one wrapping row, so the layout is
+     the same predictable shape on every phone rather than reflowing
+     wherever the width happens to break. */
   .quick-toolbar {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 10px;
+    gap: 8px;
+    margin-bottom: 14px;
   }
-  .quick-toolbar-divider {
-    width: 1px;
-    height: 20px;
-    background: var(--line);
-    margin: 0 2px;
+  .quick-toolbar-row {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
   }
   .icon-tool-btn {
     width: 32px;
@@ -382,22 +371,24 @@
 
   <div class="canvas-stage">
     <div class="device-frame">
-      <div class="device-label">Live Preview</div>
       <div class="quick-toolbar" id="quickToolbar">
-        <button class="icon-tool-btn active" id="toolPenBtn" data-tool="pen" title="Pen">&#9998;</button>
-        <button class="icon-tool-btn" id="toolTextBtn" data-tool="text" title="Text">T</button>
-        <button class="icon-tool-btn" id="toolStickerBtn" data-tool="sticker" title="Sticker">&#11088;</button>
-        <button class="icon-tool-btn" id="toolPhotoBtn" data-tool="photo" title="Photo">&#128247;</button>
-        <button class="icon-tool-btn" id="toolLayersBtn" data-tool="layers" title="Layers">
-          <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 13l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 17.5l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-        </button>
-        <span class="quick-toolbar-divider"></span>
-        <button class="icon-tool-btn" id="eraserBtn" title="Erase">
-          <svg viewBox="0 0 24 24"><g transform="rotate(-35 12 12)"><rect x="4" y="8" width="16" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="4" y1="12.5" x2="20" y2="12.5" stroke="currentColor" stroke-width="1.6"/></g></svg>
-        </button>
-        <button class="icon-tool-btn" id="undoBtn" title="Undo">&#8630;</button>
-        <button class="icon-tool-btn" id="redoBtn" title="Redo">&#8631;</button>
-        <button class="icon-tool-btn" id="clearBtn" title="Clear">&#128465;</button>
+        <div class="quick-toolbar-row">
+          <button class="icon-tool-btn active" id="toolPenBtn" data-tool="pen" title="Pen">&#9998;</button>
+          <button class="icon-tool-btn" id="toolTextBtn" data-tool="text" title="Text">T</button>
+          <button class="icon-tool-btn" id="toolStickerBtn" data-tool="sticker" title="Sticker">&#11088;</button>
+          <button class="icon-tool-btn" id="toolPhotoBtn" data-tool="photo" title="Photo">&#128247;</button>
+          <button class="icon-tool-btn" id="toolLayersBtn" data-tool="layers" title="Layers">
+            <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 13l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 17.5l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="quick-toolbar-row">
+          <button class="icon-tool-btn" id="eraserBtn" title="Erase">
+            <svg viewBox="0 0 24 24"><g transform="rotate(-35 12 12)"><rect x="4" y="8" width="16" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="4" y1="12.5" x2="20" y2="12.5" stroke="currentColor" stroke-width="1.6"/></g></svg>
+          </button>
+          <button class="icon-tool-btn" id="undoBtn" title="Undo">&#8630;</button>
+          <button class="icon-tool-btn" id="redoBtn" title="Redo">&#8631;</button>
+          <button class="icon-tool-btn" id="clearBtn" title="Clear">&#128465;</button>
+        </div>
       </div>
       <div class="canvas-inner">
         <canvas id="baseCanvas" width="792" height="272"></canvas>
