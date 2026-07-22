@@ -147,6 +147,10 @@
     border-radius: 3px;
     overflow: hidden;
   }
+  /* Purely visual -- the actual black/white decision for Publish is
+     inverted separately in packTo1Bit. A CSS filter is enough to preview
+     it live without touching any canvas pixels or the layers stack. */
+  .canvas-inner.inverted { filter: invert(1); }
 
   #baseCanvas, #layersCanvas, #overlayCanvas {
     position: absolute;
@@ -443,6 +447,9 @@
           <button class="icon-tool-btn" id="undoBtn" title="Undo">&#8630;</button>
           <button class="icon-tool-btn" id="redoBtn" title="Redo">&#8631;</button>
           <button class="icon-tool-btn" id="clearBtn" title="Clear">&#128465;</button>
+          <button class="icon-tool-btn" id="invertBtn" title="Invert Colors">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>
+          </button>
         </div>
       </div>
       <div class="canvas-inner">
@@ -760,6 +767,17 @@
     baseCtx.fillRect(0, 0, baseCanvas.width, baseCanvas.height);
     layers = [];
     renderLayers();
+  });
+
+  // A view-mode toggle, not a content edit -- doesn't touch the undo
+  // stack. Live preview inverts via a CSS filter; Publish flips the
+  // actual black/white decision in packTo1Bit to match.
+  const invertBtn = document.getElementById("invertBtn");
+  let inverted = false;
+  invertBtn.addEventListener("click", () => {
+    inverted = !inverted;
+    invertBtn.classList.toggle("active", inverted);
+    canvasInner.classList.toggle("inverted", inverted);
   });
 
   // ================= Icon stamps =================
@@ -1355,7 +1373,7 @@
   });
 
   function setControlsEnabled(enabled) {
-    [eraserBtn, clearBtn, sizeSlider, publishBtn, clipartSearchInput]
+    [eraserBtn, clearBtn, invertBtn, sizeSlider, publishBtn, clipartSearchInput]
       .forEach((el) => { el.disabled = !enabled; });
     toolTabButtons.forEach((el) => { el.disabled = !enabled; }); // can't switch tools mid-placement
     iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
@@ -1549,7 +1567,7 @@
         const i = (y * width + x) * 4;
         const r = imgData[i], g = imgData[i + 1], b = imgData[i + 2];
         const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-        const isBlack = luminance <= threshold;
+        const isBlack = inverted ? luminance > threshold : luminance <= threshold;
         if (isBlack) {
           const byteIndex = y * bytesPerRow + (x >> 3);
           const bitIndex = 7 - (x & 7);
