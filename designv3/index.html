@@ -1504,21 +1504,13 @@
 
   cancelStageBtn.addEventListener("click", endStaging);
 
-  // Color emoji render as actual multicolor glyphs in fillText/strokeText
-  // regardless of fillStyle, and collapse into an unreadable blob once
-  // thresholded to pure black-and-white for the e-paper display -- same
-  // reason the icon stamps are hand-drawn shapes, not real emoji. Strip
-  // them out as they're typed rather than letting one slip through into
-  // a design that publishes looking broken.
-  const EMOJI_STRIP_RE = /[\p{Extended_Pictographic}\p{Regional_Indicator}\u{1F3FB}-\u{1F3FF}\u200D\uFE0F]/gu;
-
   // Text stages live as you type into the overlay input sitting right on
   // the canvas -- there's no separate box/button elsewhere on the page.
+  // Emoji are allowed through as typed; thresholding to 1-bit for the
+  // e-paper display still reads fine for most emoji shapes.
   canvasTextInput.addEventListener("input", () => {
     if (!stagedObject || stagedObject.kind !== "text") return;
-    const stripped = canvasTextInput.value.replace(EMOJI_STRIP_RE, "");
-    if (stripped !== canvasTextInput.value) canvasTextInput.value = stripped;
-    stagedObject.content = stripped;
+    stagedObject.content = canvasTextInput.value;
     redrawOverlay();
   });
 
