@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Android WiFi Setup Help — Wave Clock</title>
+<meta name="description" content="Fix for Android phones that don't automatically show the Wave Clock WiFi setup page.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://waveclock.net/android-wifi-help.html">
+<meta property="og:title" content="Android WiFi Setup Help — Wave Clock">
+<meta property="og:description" content="Fix for Android phones that don't automatically show the Wave Clock WiFi setup page.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+    --script: 'Caveat', cursive;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; }
+
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  section { padding: 48px 0; }
+  .section-foam { background: var(--foam); }
+
+  .kicker {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--navy);
+    margin: 0 0 10px;
+  }
+
+  h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: clamp(26px, 3.4vw, 36px);
+    margin: 0 0 14px;
+    color: var(--ink);
+  }
+
+  .lede {
+    max-width: 62ch;
+    color: var(--ink-soft);
+    font-size: 17px;
+    margin-bottom: 8px;
+  }
+
+  .cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 15px;
+    padding: 14px 26px;
+    border-radius: 999px;
+    text-decoration: none;
+    border: 2px solid var(--ink);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink);
+  }
+  .btn-ghost:hover { background: rgba(20,48,45,0.06); }
+
+  /* ---------- Numbered steps ---------- */
+  .step-list {
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+    margin-top: 36px;
+  }
+  .step-item {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 24px 26px 22px;
+    position: relative;
+    box-shadow: 5px 5px 0 rgba(20,48,45,0.10);
+  }
+  .step-number {
+    position: absolute;
+    top: -14px;
+    left: 20px;
+    background: var(--ink);
+    color: var(--foam);
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    letter-spacing: 0.06em;
+  }
+  .step-item h3 {
+    font-family: var(--heading);
+    font-size: 19px;
+    font-weight: 700;
+    margin: 12px 0 8px;
+  }
+  .step-item p { color: var(--ink-soft); font-size: 15px; margin: 0 0 8px; }
+  .step-item code {
+    display: inline-block;
+    background: var(--foam);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 15px;
+    color: var(--navy);
+  }
+
+  /* ---------- Callout ---------- */
+  .callout {
+    background: var(--foam);
+    border-left: 4px solid var(--wax);
+    padding: 16px 20px;
+    border-radius: 4px;
+    font-size: 14.5px;
+    color: var(--ink-soft);
+    margin-top: 24px;
+  }
+  .callout b { color: var(--ink); }
+  .callout ul { margin: 8px 0 0; padding-left: 20px; }
+  .callout li { margin-bottom: 6px; }
+  .callout li:last-child { margin-bottom: 0; }
+
+  /* ---------- Footer ---------- */
+  footer {
+    padding: 40px 0 50px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  .footer-name {
+    font-family: var(--script);
+    font-size: 28px;
+    color: var(--ink);
+    display: block;
+    margin-top: 6px;
+  }
+  .footer-name a { text-decoration: none; }
+  .footer-name a:hover { text-decoration: underline; }
+
+  ::selection { background: var(--wax); color: var(--ink); }
+</style>
+</head>
+<body>
+
+<section style="padding-bottom:0;">
+  <div class="wrap">
+    <div class="cta-row" style="margin-top:48px;">
+      <a class="btn btn-ghost" href="guide.html#start">&larr; Back to User Guide</a>
+    </div>
+  </div>
+</section>
+
+<section id="android-help-top" style="padding-top:24px; padding-bottom:16px;">
+  <div class="wrap">
+    <p class="kicker">Setup help</p>
+    <h2>Android didn't show the WiFi setup page?</h2>
+    <p class="lede">Good news: this is a known quirk with how some Android phones handle this step, not anything wrong with your clock. Here's the fix.</p>
+  </div>
+</section>
+
+<section class="section-foam" style="padding-top:0;">
+  <div class="wrap">
+    <div class="step-list">
+      <div class="step-item">
+        <span class="step-number">Step 1</span>
+        <h3>Open a browser</h3>
+        <p>Once your phone is connected to the clock's WiFi network ("WaveClock-Setup"), open a web browser &mdash; Chrome, or whatever you normally use.</p>
+      </div>
+      <div class="step-item">
+        <span class="step-number">Step 2</span>
+        <h3>Type in the address bar</h3>
+        <p>Type this into the address bar:</p>
+        <p><code>http://192.168.4.1</code></p>
+      </div>
+      <div class="step-item">
+        <span class="step-number">Step 3</span>
+        <h3>Press go</h3>
+        <p>That should bring up the setup page directly, where you can pick your home WiFi network and enter your password.</p>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top:26px;">
+      <b>A couple of things that trip people up:</b>
+      <ul>
+        <li>Make sure it's <code>http://</code> and not <code>https://</code> &mdash; some phones auto-add the "s" and the page won't load that way.</li>
+        <li>If your phone shows a pop-up saying something like "WiFi has no internet, stay connected?" &mdash; say yes, that's expected.</li>
+      </ul>
+    </div>
+
+    <p class="lede" style="margin-top:26px;">Give that a try and see if it gets you through!</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">Still stuck?</p>
+    <h2>We've got you</h2>
+    <p class="lede">If it's still not working after that, just let us know what phone and Android version you're on, and we'll dig in further.</p>
+
+    <div class="cta-row">
+      <a class="btn btn-ghost" href="index.html#contact">Get in touch &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>WAVE CLOCK</p>
+    <p>Designed in OCNJ<span class="footer-name"><a href="index.html">waveclock.net</a></span></p>
+    <p><a href="guide.html">&larr; Back to User Guide</a></p>
+    <p><a href="index.html">Wave Clock home</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
