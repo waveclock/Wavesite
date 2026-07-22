@@ -207,6 +207,11 @@
   }
   .tool-btn:disabled { opacity: 0.4; cursor: default; }
 
+  /* Only one of these is shown at a time, swapped based on which tool tab
+     is active -- keeps the page from stacking every tool's controls at
+     once, which meant scrolling up and down to reach them. */
+  .tool-panel.hidden { display: none; }
+
   .size-row {
     display: flex;
     align-items: center;
@@ -315,30 +320,42 @@
     </div>
   </div>
 
-  <div class="toolbar">
-    <button class="tool-btn active" id="penBtn">&#9998; Pen</button>
-    <button class="tool-btn" id="textToolBtn">Text</button>
-    <button class="tool-btn" id="eraserBtn">&#9099; Eraser</button>
-    <button class="tool-btn" id="undoBtn">&#8630; Undo</button>
-    <button class="tool-btn" id="clearBtn">Clear</button>
+  <div class="toolbar" id="toolTabs">
+    <button class="tool-btn active" id="tabPenBtn" data-tool="pen">&#9998; Pen</button>
+    <button class="tool-btn" id="tabTextBtn" data-tool="text">Text</button>
+    <button class="tool-btn" id="tabStickerBtn" data-tool="sticker">Sticker</button>
+    <button class="tool-btn" id="tabPhotoBtn" data-tool="photo">Photo</button>
   </div>
 
-  <div class="toolbar" id="fontRow">
-    <button class="tool-btn active" id="fontSerifBtn" data-font="Georgia, serif">Serif</button>
-    <button class="tool-btn" id="fontBlockBtn" data-font="'Bungee', sans-serif" data-outline="true">Block</button>
-    <button class="tool-btn" id="fontPixelBtn" data-font="'Press Start 2P', monospace">Pixel</button>
+  <div class="tool-panel" id="penPanel">
+    <div class="toolbar">
+      <button class="tool-btn" id="eraserBtn">&#9099; Erase</button>
+      <button class="tool-btn" id="undoBtn">&#8630; Undo</button>
+      <button class="tool-btn" id="clearBtn">Clear</button>
+    </div>
+    <div class="size-row">
+      <span>Brush size</span>
+      <input type="range" id="sizeSlider" min="3" max="24" value="8">
+    </div>
   </div>
 
-  <div class="size-row">
-    <span>Brush size</span>
-    <input type="range" id="sizeSlider" min="3" max="24" value="8">
+  <div class="tool-panel hidden" id="textPanel">
+    <div class="toolbar" id="fontRow">
+      <button class="tool-btn active" id="fontSerifBtn" data-font="Georgia, serif">Serif</button>
+      <button class="tool-btn" id="fontBlockBtn" data-font="'Bungee', sans-serif" data-outline="true">Block</button>
+      <button class="tool-btn" id="fontPixelBtn" data-font="'Press Start 2P', monospace">Pixel</button>
+    </div>
   </div>
 
-  <div class="icon-row" id="iconRow"></div>
+  <div class="tool-panel hidden" id="stickerPanel">
+    <div class="icon-row" id="iconRow"></div>
+  </div>
 
-  <div class="toolbar" id="photoStyleRow">
-    <button class="tool-btn" id="photoStyleSketchBtn" data-style="sketch">&#128247; Sketch Photo</button>
-    <button class="tool-btn" id="photoStyleRetroBtn" data-style="atkinson">&#128247; Retro Photo</button>
+  <div class="tool-panel hidden" id="photoPanel">
+    <div class="toolbar" id="photoStyleRow">
+      <button class="tool-btn" id="photoStyleSketchBtn" data-style="sketch">&#128247; Sketch Photo</button>
+      <button class="tool-btn" id="photoStyleRetroBtn" data-style="atkinson">&#128247; Retro Photo</button>
+    </div>
   </div>
   <input type="file" id="photoInput" accept="image/*" style="display:none">
 
@@ -431,7 +448,7 @@
   sizeSlider.addEventListener("input", () => { brushSize = parseInt(sizeSlider.value, 10); });
 
   baseCanvas.addEventListener("pointerdown", (evt) => {
-    if (stagedObject) return;
+    if (stagedObject || activeTool !== "pen") return;
     pushUndoState();
     drawing = true;
     lastPoint = canvasPoint(evt, baseCanvas);
@@ -455,19 +472,12 @@
   baseCanvas.addEventListener("pointercancel", stopDrawing);
   baseCanvas.addEventListener("pointerleave", stopDrawing);
 
-  const penBtn = document.getElementById("penBtn");
   const eraserBtn = document.getElementById("eraserBtn");
   const clearBtn = document.getElementById("clearBtn");
 
-  penBtn.addEventListener("click", () => {
-    mode = "pen";
-    penBtn.classList.add("active");
-    eraserBtn.classList.remove("active");
-  });
   eraserBtn.addEventListener("click", () => {
-    mode = "eraser";
-    eraserBtn.classList.add("active");
-    penBtn.classList.remove("active");
+    mode = (mode === "pen") ? "eraser" : "pen";
+    eraserBtn.classList.toggle("active", mode === "eraser");
   });
   clearBtn.addEventListener("click", () => {
     pushUndoState();
@@ -840,13 +850,41 @@
   const stagingSizeSlider = document.getElementById("stagingSizeSlider");
   const commitBtn = document.getElementById("commitBtn");
   const cancelStageBtn = document.getElementById("cancelStageBtn");
-  const textToolBtn = document.getElementById("textToolBtn");
-  textToolBtn.addEventListener("click", () => {
-    if (stagedObject) return;
-    startStaging({ kind: "text", content: "", font: selectedTextFont, outline: selectedTextOutline });
-    canvasTextInput.value = "";
-    canvasTextInput.focus();
+  // ================= Tool tabs: Pen/Text/Sticker/Photo. Only the active
+  // tool's panel is shown below the tab row, instead of stacking every
+  // tool's controls on the page at once -- picking a tool jumps straight
+  // to its options with no scrolling. =================
+  let activeTool = "pen";
+  const toolTabButtons = document.querySelectorAll("#toolTabs .tool-btn");
+  const toolPanels = {
+    pen: document.getElementById("penPanel"),
+    text: document.getElementById("textPanel"),
+    sticker: document.getElementById("stickerPanel"),
+    photo: document.getElementById("photoPanel")
+  };
+
+  function showToolPanel(tool) {
+    activeTool = tool;
+    toolTabButtons.forEach((b) => b.classList.toggle("active", b.dataset.tool === tool));
+    Object.keys(toolPanels).forEach((key) => toolPanels[key].classList.toggle("hidden", key !== tool));
+  }
+
+  toolTabButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (stagedObject) return; // finish or cancel the current placement first
+      const tool = btn.dataset.tool;
+      showToolPanel(tool);
+      // Text has no further sub-choice like Sticker/Photo do, so picking
+      // its tab stages an empty text object right away and focuses the
+      // on-canvas input.
+      if (tool === "text") {
+        startStaging({ kind: "text", content: "", font: selectedTextFont, outline: selectedTextOutline });
+        canvasTextInput.value = "";
+        canvasTextInput.focus();
+      }
+    });
   });
+
   const fontButtons = document.querySelectorAll("#fontRow .tool-btn");
   let selectedTextFont = fontButtons[0].dataset.font;
   let selectedTextOutline = fontButtons[0].dataset.outline === "true";
@@ -950,8 +988,9 @@
   });
 
   function setControlsEnabled(enabled) {
-    [penBtn, textToolBtn, eraserBtn, clearBtn, sizeSlider, publishBtn]
+    [eraserBtn, clearBtn, sizeSlider, publishBtn]
       .forEach((el) => { el.disabled = !enabled; });
+    toolTabButtons.forEach((el) => { el.disabled = !enabled; }); // can't switch tools mid-placement
     iconRow.querySelectorAll("button").forEach((el) => { el.disabled = !enabled; });
     photoStyleButtons.forEach((el) => { el.disabled = !enabled; });
     // Fonts stay switchable while a TEXT object is staged (not other
