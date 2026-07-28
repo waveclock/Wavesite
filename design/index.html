@@ -552,16 +552,21 @@
   // `layers` stack (committed text/stickers/photos) every time it
   // changes, which is what makes reordering possible -- each layer is
   // redrawn from its own descriptor rather than permanently flattened
-  // into pixels. baseCanvas holds only freehand pen/eraser strokes, and
-  // sits ON TOP of layersCanvas (not individually reorderable, but always
-  // drawable/erasable over anything already placed, e.g. annotating a
-  // photo) -- it starts fully transparent, not painted white, so ink only
-  // covers what's actually drawn. The eraser is just a brush that paints
-  // opaque white instead of black, same stroke logic as the pen, so it
-  // reliably covers whatever's beneath it (a photo, a sticker, prior ink)
-  // rather than trying to reveal it. overlayCanvas only ever shows the ONE
-  // object currently being positioned/resized, so dragging it never
-  // touches committed content until it's placed.
+  // into pixels. baseCanvas is a transient scratch pad: while a pen/eraser
+  // stroke is actively being dragged, it's drawn there so the live line
+  // tracks the pointer without repainting the whole layer stack on every
+  // move. The instant the stroke ends, it's baked into a "stroke" entry in
+  // the `layers` array (see below) at whatever height that entry sits in
+  // the stack, and baseCanvas is cleared again -- so drawing/erasing keeps
+  // its correct place in time relative to everything else (a stroke drawn
+  // before a sticker was placed stays under it; one drawn after stays on
+  // top), instead of strokes always floating above every layer regardless
+  // of when they were made. The eraser is just a brush that paints opaque
+  // white instead of black, same stroke logic as the pen, so it reliably
+  // covers whatever's beneath it in its own layer rather than trying to
+  // reveal it. overlayCanvas only ever shows the ONE object currently
+  // being positioned/resized, so dragging it never touches committed
+  // content until it's placed.
   const baseCanvas = document.getElementById("baseCanvas");
   const baseCtx = baseCanvas.getContext("2d");
   const layersCanvas = document.getElementById("layersCanvas");
@@ -584,10 +589,10 @@
     };
   }
 
-  // ================= Layers: committed text/sticker/photo objects, kept
-  // as descriptors (not baked into pixels) so they can be re-stacked in
-  // any order. Freehand strokes aren't part of this -- they're always the
-  // bottom-most background. =================
+  // ================= Layers: committed text/sticker/photo/stroke objects,
+  // kept as descriptors (not baked into pixels) so they can be re-stacked
+  // in any order. A "stroke" layer holds a canvas of baked pen/eraser ink
+  // -- see baseCanvas above for how those get created. =================
   let layers = []; // back to front; layers[layers.length - 1] is topmost
 
   // Draws one committed layer object -- shared between the layers-canvas
@@ -613,6 +618,8 @@
     } else if (obj.kind === "icon") {
       ctx.fillStyle = "#000";
       ICONS[obj.name](ctx, obj.x, obj.y, obj.size);
+    } else if (obj.kind === "stroke") {
+      ctx.drawImage(obj.canvas, 0, 0);
     }
   }
 
@@ -626,6 +633,7 @@
     if (obj.kind === "text") return "Text: " + (obj.content || "(empty)");
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
     if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Retro") + ")";
+    if (obj.kind === "stroke") return "Drawing";
     return "Layer";
   }
 
@@ -639,7 +647,7 @@
     if (layers.length === 0) {
       const empty = document.createElement("p");
       empty.className = "layers-empty";
-      empty.textContent = "No layers yet — add text, a sticker, or a photo.";
+      empty.textContent = "No layers yet — draw, or add text, a sticker, or a photo.";
       layersList.appendChild(empty);
       return;
     }
@@ -681,17 +689,19 @@
   }
 
   // ================= Undo / Redo =================
-  // Snapshots capture BOTH the stroke pixels and the current layer stack
-  // together as one atomic checkpoint, so undo/redo works uniformly
-  // across drawing, erasing, clearing, placing a layer, and reordering
-  // layers -- not just pixel edits.
+  // Snapshots capture the layer stack (which now includes baked-ink
+  // "stroke" layers, see above) as one atomic checkpoint, so undo/redo
+  // works uniformly across drawing, erasing, clearing, placing a layer,
+  // and reordering layers -- not just pixel edits. Stroke layers are
+  // never mutated in place once baked (see stopDrawing), so a shallow
+  // copy of each layer object here is enough to freeze it against later
+  // changes.
   const MAX_UNDO = 15;
   let undoStack = [];
   let redoStack = [];
 
   function snapshotState() {
     return {
-      strokes: baseCtx.getImageData(0, 0, baseCanvas.width, baseCanvas.height),
       layers: layers.map((l) => Object.assign({}, l))
     };
   }
@@ -703,7 +713,8 @@
   }
 
   function applyState(state) {
-    baseCtx.putImageData(state.strokes, 0, 0);
+    baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+    currentStrokeLayer = null; // the old reference may not exist in the restored stack
     layers = state.layers.map((l) => Object.assign({}, l));
     renderLayers();
   }
@@ -726,6 +737,21 @@
   let brushSize = 8;
   let lastPoint = null;
 
+  // The "stroke" layer currently being drawn/erased into, if any. Kept
+  // across multiple separate strokes so a quick series of pen strokes
+  // collapses into one layer instead of fragmenting the stack -- but the
+  // moment anything else becomes topmost (a sticker/text/photo gets
+  // placed, or layers get reordered), the next stroke starts a fresh
+  // layer on top rather than reaching back down to append to this one.
+  let currentStrokeLayer = null;
+
+  function makeStrokeCanvas() {
+    const c = document.createElement("canvas");
+    c.width = baseCanvas.width;
+    c.height = baseCanvas.height;
+    return c;
+  }
+
   const sizeSlider = document.getElementById("sizeSlider");
   sizeSlider.addEventListener("input", () => { brushSize = parseInt(sizeSlider.value, 10); });
 
@@ -735,6 +761,10 @@
     drawing = true;
     lastPoint = canvasPoint(evt, baseCanvas);
     baseCanvas.setPointerCapture(evt.pointerId);
+    if (!currentStrokeLayer || layers[layers.length - 1] !== currentStrokeLayer) {
+      currentStrokeLayer = { kind: "stroke", canvas: makeStrokeCanvas() };
+      layers.push(currentStrokeLayer);
+    }
   });
 
   baseCanvas.addEventListener("pointermove", (evt) => {
@@ -750,7 +780,24 @@
     lastPoint = point;
   });
 
-  function stopDrawing() { drawing = false; lastPoint = null; }
+  function stopDrawing() {
+    if (drawing && currentStrokeLayer) {
+      // Bake the just-drawn stroke into a NEW canvas for this layer
+      // rather than painting into the existing one in place -- undo
+      // snapshots hold shallow copies that share the canvas reference,
+      // so mutating it in place would silently corrupt already-taken
+      // snapshots.
+      const merged = makeStrokeCanvas();
+      const mergedCtx = merged.getContext("2d");
+      mergedCtx.drawImage(currentStrokeLayer.canvas, 0, 0);
+      mergedCtx.drawImage(baseCanvas, 0, 0);
+      currentStrokeLayer.canvas = merged;
+      baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+      renderLayers();
+    }
+    drawing = false;
+    lastPoint = null;
+  }
   baseCanvas.addEventListener("pointerup", stopDrawing);
   baseCanvas.addEventListener("pointercancel", stopDrawing);
   baseCanvas.addEventListener("pointerleave", stopDrawing);
@@ -769,6 +816,7 @@
   clearBtn.addEventListener("click", () => {
     pushUndoState();
     baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+    currentStrokeLayer = null;
     layers = [];
     renderLayers();
   });
