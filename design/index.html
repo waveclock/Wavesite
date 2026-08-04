@@ -1524,21 +1524,70 @@
   let draggingStaged = false;
   let dragOffset = { x: 0, y: 0 };
 
+  // Two-finger pinch-to-resize, alongside the size slider (mouse users
+  // still need the slider). Tracks every active touch by pointerId; once a
+  // second finger comes down, the gesture switches from drag-to-move to
+  // scaling the staged object by how much the distance between the two
+  // fingers has changed since the pinch started.
+  const activePointers = new Map(); // pointerId -> last known canvas point
+  let pinchStartDistance = 0;
+  let pinchStartSize = 0;
+
+  function pinchDistance() {
+    const [a, b] = Array.from(activePointers.values());
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
   overlayCanvas.addEventListener("pointerdown", (evt) => {
     if (!stagedObject) return;
     const p = canvasPoint(evt, overlayCanvas);
-    draggingStaged = true;
-    dragOffset = { x: p.x - stagedObject.x, y: p.y - stagedObject.y };
     overlayCanvas.setPointerCapture(evt.pointerId);
+    activePointers.set(evt.pointerId, p);
+
+    if (activePointers.size === 2) {
+      draggingStaged = false;
+      pinchStartDistance = pinchDistance();
+      pinchStartSize = stagedObject.size;
+    } else if (activePointers.size === 1) {
+      draggingStaged = true;
+      dragOffset = { x: p.x - stagedObject.x, y: p.y - stagedObject.y };
+    }
   });
   overlayCanvas.addEventListener("pointermove", (evt) => {
-    if (!draggingStaged || !stagedObject) return;
+    if (!stagedObject || !activePointers.has(evt.pointerId)) return;
     const p = canvasPoint(evt, overlayCanvas);
-    stagedObject.x = p.x - dragOffset.x;
-    stagedObject.y = p.y - dragOffset.y;
-    redrawOverlay();
+    activePointers.set(evt.pointerId, p);
+
+    if (activePointers.size >= 2) {
+      if (pinchStartDistance > 0) {
+        const scale = pinchDistance() / pinchStartDistance;
+        const newSize = Math.round(Math.min(800, Math.max(20, pinchStartSize * scale)));
+        stagedObject.size = newSize;
+        stagingSizeSlider.value = newSize;
+        redrawOverlay();
+      }
+      return;
+    }
+
+    if (draggingStaged) {
+      stagedObject.x = p.x - dragOffset.x;
+      stagedObject.y = p.y - dragOffset.y;
+      redrawOverlay();
+    }
   });
-  function stopDraggingStaged() {
+  function releaseStagedPointer(evt) {
+    activePointers.delete(evt.pointerId);
+    if (activePointers.size === 1 && stagedObject) {
+      // Dropped from a pinch back down to one finger -- resume dragging
+      // from wherever that finger actually is, instead of jumping to
+      // match a stale offset from before the pinch.
+      const [[, p]] = activePointers;
+      draggingStaged = true;
+      dragOffset = { x: p.x - stagedObject.x, y: p.y - stagedObject.y };
+      return;
+    }
+    if (activePointers.size > 0) return;
+
     if (draggingStaged && stagedObject && stagedObject.kind === "text") {
       // Dragging happens on the canvas underneath (canvasTextInput has
       // pointer-events:none so drags pass through to it), which blurs the
@@ -1548,8 +1597,8 @@
     }
     draggingStaged = false;
   }
-  overlayCanvas.addEventListener("pointerup", stopDraggingStaged);
-  overlayCanvas.addEventListener("pointercancel", stopDraggingStaged);
+  overlayCanvas.addEventListener("pointerup", releaseStagedPointer);
+  overlayCanvas.addEventListener("pointercancel", releaseStagedPointer);
 
   function endStaging() {
     stagedObject = null;
