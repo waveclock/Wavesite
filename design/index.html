@@ -777,6 +777,50 @@
     }
   });
 
+  // Tap a placed text/sticker/photo to pick it back up: it's pulled out of
+  // the committed layer stack and dropped right back into the same
+  // staging flow used to place it originally (drag, pinch-resize, slider
+  // all just work), and re-committing always appends to the end of
+  // `layers` -- the topmost position -- which doubles as "bring to
+  // front." Only active when nothing's already staged and the Pen tab
+  // isn't selected, so it never fights with drawing a stroke.
+  function hitTestLayers(px, py) {
+    for (let i = layers.length - 1; i >= 0; i--) {
+      const obj = layers[i];
+      if (obj.kind === "stroke") continue; // freehand ink isn't a selectable object
+      const half = obj.size * 0.65; // matches the selection box drawn while staging
+      if (Math.abs(px - obj.x) <= half && Math.abs(py - obj.y) <= half) return i;
+    }
+    return -1;
+  }
+
+  const TOOL_TAB_FOR_KIND = { text: "text", icon: "sticker", photo: "photo" };
+
+  // Pulls the layer at canvas point (px, py) back into the staging flow
+  // (drag/pinch-resize/slider all just work), switching to that layer's
+  // own tool tab so its options (font, sticker picker, photo style) show
+  // up alongside it. Returns whether anything was actually selected.
+  function trySelectLayerAt(px, py) {
+    const index = hitTestLayers(px, py);
+    if (index === -1) return false;
+    const [obj] = layers.splice(index, 1);
+    renderLayers();
+    showToolPanel(TOOL_TAB_FOR_KIND[obj.kind] || activeTool);
+    startStaging(obj);
+    return true;
+  }
+
+  baseCanvas.addEventListener("pointerdown", (evt) => {
+    // Nothing staged means overlayCanvas is pointer-events:none and this
+    // tap reaches baseCanvas directly. (The case where something IS
+    // staged -- including the Text tab's auto-staged empty text -- is
+    // handled in overlayCanvas's own pointerdown below, since it's what
+    // actually receives the tap once staging.classList is on.)
+    if (stagedObject || activeTool === "pen") return;
+    const p = canvasPoint(evt, baseCanvas);
+    trySelectLayerAt(p.x, p.y);
+  });
+
   baseCanvas.addEventListener("pointermove", (evt) => {
     if (!drawing) return;
     const point = canvasPoint(evt, baseCanvas);
@@ -1111,11 +1155,14 @@
     const outCtx = out.getContext("2d");
     const imgOut = outCtx.createImageData(width, height);
     for (let i = 0; i < width * height; i++) {
-      const val = edges[i] ? 0 : 255; // black edge line, white elsewhere
-      imgOut.data[i * 4] = val;
-      imgOut.data[i * 4 + 1] = val;
-      imgOut.data[i * 4 + 2] = val;
-      imgOut.data[i * 4 + 3] = 255;
+      const isEdge = !!edges[i];
+      // Black edge line, fully opaque; everywhere else transparent instead
+      // of opaque white, so the photo's "background" doesn't paint over
+      // whatever else is stamped underneath it.
+      imgOut.data[i * 4] = 0;
+      imgOut.data[i * 4 + 1] = 0;
+      imgOut.data[i * 4 + 2] = 0;
+      imgOut.data[i * 4 + 3] = isEdge ? 255 : 0;
     }
     outCtx.putImageData(imgOut, 0, 0);
     return out;
@@ -1160,11 +1207,14 @@
     const outCtx = out.getContext("2d");
     const imgOut = outCtx.createImageData(width, height);
     for (let i = 0; i < width * height; i++) {
-      const val = bits[i] ? 0 : 255;
-      imgOut.data[i * 4] = val;
-      imgOut.data[i * 4 + 1] = val;
-      imgOut.data[i * 4 + 2] = val;
-      imgOut.data[i * 4 + 3] = 255;
+      const isInk = !!bits[i];
+      // Dither dot, fully opaque; everywhere else transparent instead of
+      // opaque white, so the photo's "background" doesn't paint over
+      // whatever else is stamped underneath it.
+      imgOut.data[i * 4] = 0;
+      imgOut.data[i * 4 + 1] = 0;
+      imgOut.data[i * 4 + 2] = 0;
+      imgOut.data[i * 4 + 3] = isInk ? 255 : 0;
     }
     outCtx.putImageData(imgOut, 0, 0);
     return out;
@@ -1541,6 +1591,18 @@
   overlayCanvas.addEventListener("pointerdown", (evt) => {
     if (!stagedObject) return;
     const p = canvasPoint(evt, overlayCanvas);
+
+    // The Text tab auto-stages a blank text object the instant it's
+    // opened, so overlayCanvas is already in staging mode (and sitting on
+    // top of baseCanvas) even though nothing's really been placed yet. If
+    // a tap here actually lands on an existing layer, treat it as a
+    // selection instead of starting a drag on that empty, invisible text.
+    if (stagedObject.kind === "text" && !stagedObject.content && hitTestLayers(p.x, p.y) !== -1) {
+      endStaging();
+      trySelectLayerAt(p.x, p.y);
+      return;
+    }
+
     overlayCanvas.setPointerCapture(evt.pointerId);
     activePointers.set(evt.pointerId, p);
 
