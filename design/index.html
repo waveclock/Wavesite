@@ -413,6 +413,13 @@
   .status.success { color: var(--navy); font-weight: 700; }
   .status.error { color: var(--coral-dark); font-weight: 700; }
 
+  .publish-note {
+    text-align: center;
+    margin-top: 4px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+
   footer {
     text-align: center;
     margin-top: 30px;
@@ -504,8 +511,8 @@
 
   <div class="tool-panel hidden" id="photoPanel">
     <div class="toolbar" id="photoStyleRow">
+      <button class="tool-btn" id="photoStyleRetroBtn" data-style="atkinson">&#128247; Normal Photo</button>
       <button class="tool-btn" id="photoStyleSketchBtn" data-style="sketch">&#128247; Sketch Photo</button>
-      <button class="tool-btn" id="photoStyleRetroBtn" data-style="atkinson">&#128247; Retro Photo</button>
     </div>
   </div>
 
@@ -516,6 +523,7 @@
 
   <button class="publish-btn" id="publishBtn">Publish to My Wave Clock</button>
   <p class="status" id="statusMsg"></p>
+  <p class="publish-note">Takes about an hour to show up &mdash; or hit the reset button on the back of your WaveClock to push it now.</p>
 
   <footer>waveclock.net &middot; Designed in Ocean City, NJ</footer>
 </div>
@@ -634,7 +642,7 @@
   function layerLabel(obj) {
     if (obj.kind === "text") return "Text: " + (obj.content || "(empty)");
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
-    if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Retro") + ")";
+    if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Normal") + ")";
     if (obj.kind === "stroke") return "Drawing";
     return "Layer";
   }
@@ -1113,7 +1121,7 @@
     return out;
   }
 
-  // ================= Dithering: the "Retro" photo style. Where Sketch
+  // ================= Dithering: the "Normal" photo style. Where Sketch
   // traces edges/outlines, this converts the WHOLE photo into a 1-bit
   // pattern of black/white pixels whose local density stands in for
   // brightness -- closer to how the original photo actually looked,
@@ -1192,7 +1200,7 @@
   });
 
   // ================= Clip art search: free icons from Iconify's public
-  // API (no key, CORS-permissive), brought in through the same Retro
+  // API (no key, CORS-permissive), brought in through the same Normal
   // (Atkinson) dither as photos -- a raw vector icon's flat colors don't
   // matter once it's thresholded and dithered like everything else on
   // the 1-bit display, so it can share the exact same pipeline.
@@ -1245,8 +1253,8 @@
 
   // Rasterizes the chosen icon onto a white square, same starting shape
   // an uploaded photo would get, then runs it through stageDither with
-  // the "atkinson" (Retro) style specifically -- clip art always comes
-  // in Retro, never Sketch, since these are already clean vector shapes
+  // the "atkinson" (Normal) style specifically -- clip art always comes
+  // in Normal, never Sketch, since these are already clean vector shapes
   // rather than photos that need edge-detection to read as line art.
   function stageClipart(iconId) {
     if (stagedObject) return;
