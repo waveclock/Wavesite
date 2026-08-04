@@ -363,6 +363,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .layer-row span.selectable { cursor: pointer; }
+  .layer-row span.selectable:hover { text-decoration: underline; }
   .layer-move-btn {
     width: 28px; height: 28px;
     border-radius: 6px;
@@ -668,6 +670,11 @@
 
       const label = document.createElement("span");
       label.textContent = layerLabel(obj);
+      if (obj.kind !== "stroke") {
+        label.classList.add("selectable");
+        label.title = "Tap to edit";
+        label.addEventListener("click", () => selectLayer(i));
+      }
       row.appendChild(label);
 
       const upBtn = document.createElement("button");
@@ -777,13 +784,9 @@
     }
   });
 
-  // Tap a placed text/sticker/photo to pick it back up: it's pulled out of
-  // the committed layer stack and dropped right back into the same
-  // staging flow used to place it originally (drag, pinch-resize, slider
-  // all just work), and re-committing always appends to the end of
-  // `layers` -- the topmost position -- which doubles as "bring to
-  // front." Only active when nothing's already staged and the Pen tab
-  // isn't selected, so it never fights with drawing a stroke.
+  // Finds which committed layer (if any) sits under canvas point (px, py),
+  // topmost first. Freehand strokes aren't selectable this way -- they
+  // don't have a single size/position the way a stamped object does.
   function hitTestLayers(px, py) {
     for (let i = layers.length - 1; i >= 0; i--) {
       const obj = layers[i];
@@ -796,18 +799,42 @@
 
   const TOOL_TAB_FOR_KIND = { text: "text", icon: "sticker", photo: "photo" };
 
-  // Pulls the layer at canvas point (px, py) back into the staging flow
-  // (drag/pinch-resize/slider all just work), switching to that layer's
-  // own tool tab so its options (font, sticker picker, photo style) show
-  // up alongside it. Returns whether anything was actually selected.
-  function trySelectLayerAt(px, py) {
-    const index = hitTestLayers(px, py);
-    if (index === -1) return false;
+  // Pulls a committed layer back into the staging flow (drag/pinch-resize/
+  // slider all just work), switching to that layer's own tool tab so its
+  // options (font, sticker picker, photo style) show up alongside it.
+  // Re-committing appends to the end of `layers` -- the topmost position --
+  // which doubles as "bring to front." Used by both tapping a layer
+  // directly on the canvas and clicking its row in the Layers panel.
+  function selectLayer(index) {
+    if (index < 0 || index >= layers.length) return false;
     const [obj] = layers.splice(index, 1);
     renderLayers();
     showToolPanel(TOOL_TAB_FOR_KIND[obj.kind] || activeTool);
     startStaging(obj);
+    if (obj.kind === "text") {
+      // startStaging only restores the object's data (x/y/size/content) --
+      // the actual on-screen input still needs its value set explicitly,
+      // same as when text staging starts fresh from the Text tab. The
+      // focus has to be deferred a tick: this can run inside the same
+      // pointerdown that triggered selection, and the browser's own
+      // default focus handling for that click would otherwise steal focus
+      // right back immediately afterward (same quirk noted below for
+      // dragging).
+      canvasTextInput.value = obj.content;
+      setTimeout(() => {
+        canvasTextInput.focus();
+        // Land the cursor at the end so continuing to type appends,
+        // instead of wherever the browser defaults an empty-then-filled
+        // input's caret to (the start).
+        const len = canvasTextInput.value.length;
+        canvasTextInput.setSelectionRange(len, len);
+      }, 0);
+    }
     return true;
+  }
+
+  function trySelectLayerAt(px, py) {
+    return selectLayer(hitTestLayers(px, py));
   }
 
   baseCanvas.addEventListener("pointerdown", (evt) => {
