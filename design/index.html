@@ -606,6 +606,7 @@
   // in any order. A "stroke" layer holds a canvas of baked pen/eraser ink
   // -- see baseCanvas above for how those get created. =================
   let layers = []; // back to front; layers[layers.length - 1] is topmost
+  let nextLayerId = 1; // assigned once per layer, on first commit -- see layerLabels()
 
   // Draws one committed layer object -- shared between the layers-canvas
   // full re-render and the staging overlay's live preview so the two
@@ -650,19 +651,31 @@
   }
 
   // Base labels alone can't tell two Stickers or two Drawings apart in the
-  // list, so any label that repeats gets a " 1" / " 2" / ... suffix, in
-  // stacking order bottom-to-top. Labels that are already unique are left
-  // alone -- no point numbering a lone "Sticker: Sun".
+  // list, so any label that repeats gets a " 1" / " 2" / ... suffix.
+  // Numbered by creation order (each layer's stable id, assigned once on
+  // first commit) rather than current stacking position -- otherwise
+  // selecting a layer and re-committing it (which moves it to the front)
+  // would shuffle its number and whatever it displaced. Labels that are
+  // already unique are left alone -- no point numbering a lone "Sticker:
+  // Sun".
   function layerLabels() {
     const base = layers.map(layerLabel);
     const counts = {};
     base.forEach((label) => { counts[label] = (counts[label] || 0) + 1; });
+
+    const byCreationOrder = layers
+      .map((obj, i) => i)
+      .sort((a, b) => layers[a].id - layers[b].id);
     const seen = {};
-    return base.map((label) => {
-      if (counts[label] <= 1) return label;
+    const numberFor = {};
+    byCreationOrder.forEach((i) => {
+      const label = base[i];
+      if (counts[label] <= 1) return;
       seen[label] = (seen[label] || 0) + 1;
-      return label + " " + seen[label];
+      numberFor[i] = seen[label];
     });
+
+    return base.map((label, i) => (counts[label] <= 1 ? label : label + " " + numberFor[i]));
   }
 
   const layersList = document.getElementById("layersList");
@@ -796,7 +809,7 @@
     lastPoint = canvasPoint(evt, baseCanvas);
     baseCanvas.setPointerCapture(evt.pointerId);
     if (!currentStrokeLayer || layers[layers.length - 1] !== currentStrokeLayer) {
-      currentStrokeLayer = { kind: "stroke", canvas: makeStrokeCanvas() };
+      currentStrokeLayer = { kind: "stroke", canvas: makeStrokeCanvas(), id: nextLayerId++ };
       layers.push(currentStrokeLayer);
     }
   });
@@ -1732,6 +1745,12 @@
     // around in every layer and undo snapshot from here on.
     delete committed.suppressed;
     delete committed.sortedValues;
+    // Assigned once, the first time a layer is committed -- re-selecting
+    // and re-committing an existing layer (see selectLayer) carries its id
+    // along through staging via Object.assign, so its number in the
+    // Layers panel stays put instead of shuffling around as things get
+    // reordered.
+    if (committed.id === undefined) committed.id = nextLayerId++;
     layers.push(committed);
     renderLayers();
     endStaging();
