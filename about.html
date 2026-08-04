@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>About — Wave Clock</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="description" content="Meet Kurt, the engineer and beach bum behind Wave Clock — why he built it, and why he still hand-builds, programs, and ships every one himself.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://waveclock.net/about.html">
+<meta property="og:title" content="About — Wave Clock">
+<meta property="og:description" content="Meet Kurt, the engineer and beach bum behind Wave Clock — why he built it, and why he still hand-builds, programs, and ships every one himself.">
+<meta property="og:image" content="https://waveclock.net/social_preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="About — Wave Clock">
+<meta name="twitter:description" content="Meet Kurt, the engineer and beach bum behind Wave Clock — why he built it, and why he still hand-builds, programs, and ships every one himself.">
+<meta name="twitter:image" content="https://waveclock.net/social_preview.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+    --script: 'Caveat', cursive;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  section { padding: 56px 0; }
+  .section-foam { background: var(--foam); }
+
+  .kicker {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--navy);
+    margin: 0 0 10px;
+  }
+
+  h1.title {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: clamp(30px, 4.4vw, 46px);
+    margin: 0 0 14px;
+    color: var(--ink);
+  }
+
+  h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: clamp(24px, 3vw, 32px);
+    margin: 0 0 14px;
+    color: var(--ink);
+  }
+
+  .lede {
+    max-width: 62ch;
+    color: var(--ink-soft);
+    font-size: 17px;
+    margin-bottom: 8px;
+  }
+
+  p { color: var(--ink-soft); font-size: 15.5px; }
+
+  .cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 15px;
+    padding: 14px 26px;
+    border-radius: 999px;
+    text-decoration: none;
+    border: 2px solid var(--ink);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+
+  .btn-primary { background: var(--coral); color: #fff; box-shadow: 3px 3px 0 var(--ink); }
+  .btn-primary:hover { box-shadow: 4px 5px 0 var(--ink); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink);
+  }
+  .btn-ghost:hover { background: rgba(20,48,45,0.06); }
+
+  /* ---------- Photo + story, matching the homepage craft section ---------- */
+  .about-grid {
+    display: grid;
+    grid-template-columns: 0.85fr 1.15fr;
+    gap: 48px;
+    align-items: center;
+  }
+  @media (max-width: 860px) { .about-grid { grid-template-columns: 1fr; } }
+
+  .sketch-frame {
+    background: #fff;
+    border: 2px solid var(--ink);
+    padding: 18px;
+    box-shadow: 6px 6px 0 var(--driftwood);
+    transform: rotate(-1deg);
+  }
+  .sketch-frame svg { width: 100%; height: auto; display: block; }
+  .sketch-frame figcaption {
+    margin-top: 12px;
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    font-style: italic;
+  }
+
+  .signoff {
+    font-family: var(--script);
+    font-size: 30px;
+    color: var(--ink);
+    margin-top: 28px;
+  }
+
+  /* ---------- Footer ---------- */
+  footer {
+    padding: 40px 0 50px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  .footer-name {
+    font-family: var(--script);
+    font-size: 28px;
+    color: var(--ink);
+    display: block;
+    margin-top: 6px;
+  }
+  .footer-name a { text-decoration: none; }
+  .footer-name a:hover { text-decoration: underline; }
+
+  ::selection { background: var(--wax); color: var(--ink); }
+</style>
+</head>
+<body>
+
+<section style="padding-bottom:0;">
+  <div class="wrap">
+    <div class="cta-row" style="margin-top:48px;">
+      <a class="btn btn-ghost" href="index.html">&larr; Back to Wave Clock</a>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top:24px;">
+  <div class="wrap">
+    <p class="kicker">About Wave Clock</p>
+    <h1 class="title">Hi, I'm Kurt &mdash; engineer by trade, beach bum at heart.</h1>
+  </div>
+</section>
+
+<section class="section-foam" style="padding-top:0;">
+  <div class="wrap">
+    <div class="about-grid">
+      <figure class="sketch-frame" style="margin:0;">
+        <svg viewBox="0 0 300 220" xmlns="http://www.w3.org/2000/svg">
+          <rect width="300" height="220" fill="#F8F2E4"/>
+          <path d="M20,175 C70,165 130,185 180,170 C220,158 260,168 285,158" fill="none" stroke="#1F3347" stroke-width="2" stroke-linecap="round"/>
+          <ellipse cx="150" cy="150" rx="95" ry="12" fill="none" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="150" cy="70" r="11" fill="none" stroke="#1F3347" stroke-width="3"/>
+          <line x1="150" y1="81" x2="150" y2="120" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
+          <line x1="150" y1="92" x2="128" y2="80" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
+          <line x1="150" y1="92" x2="180" y2="72" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
+          <line x1="150" y1="120" x2="132" y2="146" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
+          <line x1="150" y1="120" x2="168" y2="146" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
+          <line x1="112" y1="55" x2="188" y2="95" stroke="#1F3347" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <figcaption>Photo of Kurt with his paddle board coming soon</figcaption>
+      </figure>
+
+      <div>
+        <p class="kicker">Where it started</p>
+        <h2>A tide-chart obsession</h2>
+        <p>I grew up spending summers in Wildwood, and these days I'm down in Ocean City every chance I get. Somewhere along the way, checking the tide turned into an obsession &mdash; nothing ruins a beach day faster than setting up your chairs in the perfect spot, only to watch the tide creep in and swallow them a couple hours later.</p>
+        <p>I'm an electrical engineer by training (Penn State, go Nittany Lions), and I'd rather build a thing than just wish it existed. So instead of squinting at a tide chart on my phone, I built a little display that just sits there, glanceable and beautiful, always showing what the ocean's up to. That idea turned into Wave Clock.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">What I'm about</p>
+    <h2>Hand-built, personally shipped</h2>
+    <p class="lede">I'm always thinking about catching that next wave on my paddle board while I hand-build every wooden stand myself, then program, pack, and ship each Wave Clock personally &mdash; no warehouse, no call center, just someone who loves the coast and loves talking to people about the beach.</p>
+    <p>My goal is simple: help people spend less time on their phones and more time enjoying the beach. If a Wave Clock gets you to the perfect spot before the tide does, I've done my job.</p>
+    <p class="signoff">Thanks for stopping by, and I'll see you at the beach. &#127754;</p>
+
+    <div class="cta-row">
+      <a class="btn btn-primary" href="index.html#buy">Get your Wave Clock &rarr;</a>
+      <a class="btn btn-ghost" href="index.html#contact">Get in touch &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>WAVE CLOCK</p>
+    <p>Designed in OCNJ<span class="footer-name"><a href="index.html">waveclock.net</a></span></p>
+    <p><a href="index.html">&larr; Back to Wave Clock</a></p>
+    <p><a href="guide.html">User guide &rarr;</a></p>
+    <p><a href="faq.html">Shipping, returns &amp; FAQs &rarr;</a></p>
+    <p><a href="index.html#contact">Questions? Get in touch &rarr;</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
