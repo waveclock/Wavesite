@@ -649,6 +649,22 @@
     return "Layer";
   }
 
+  // Base labels alone can't tell two Stickers or two Drawings apart in the
+  // list, so any label that repeats gets a " 1" / " 2" / ... suffix, in
+  // stacking order bottom-to-top. Labels that are already unique are left
+  // alone -- no point numbering a lone "Sticker: Sun".
+  function layerLabels() {
+    const base = layers.map(layerLabel);
+    const counts = {};
+    base.forEach((label) => { counts[label] = (counts[label] || 0) + 1; });
+    const seen = {};
+    return base.map((label) => {
+      if (counts[label] <= 1) return label;
+      seen[label] = (seen[label] || 0) + 1;
+      return label + " " + seen[label];
+    });
+  }
+
   const layersList = document.getElementById("layersList");
 
   // Listed topmost-first (front to back), matching how most layers panels
@@ -663,13 +679,14 @@
       layersList.appendChild(empty);
       return;
     }
+    const labels = layerLabels();
     for (let i = layers.length - 1; i >= 0; i--) {
       const obj = layers[i];
       const row = document.createElement("div");
       row.className = "layer-row";
 
       const label = document.createElement("span");
-      label.textContent = layerLabel(obj);
+      label.textContent = labels[i];
       if (obj.kind !== "stroke") {
         label.classList.add("selectable");
         label.title = "Tap to edit";
