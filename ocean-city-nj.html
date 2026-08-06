@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wave Clock — Tide, Surf &amp; Sunset Clock for Ocean City, NJ</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="description" content="A handmade tide clock made for Ocean City, NJ — today's tide, the week's swell and weather, and the exact minute the sun sets over Second Street Dock.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://waveclock.net/ocean-city-nj.html">
+<meta property="og:title" content="Wave Clock — Tide, Surf &amp; Sunset Clock for Ocean City, NJ">
+<meta property="og:description" content="A handmade tide clock made for Ocean City, NJ — today's tide, the week's swell and weather, and the exact minute the sun sets over Second Street Dock.">
+<meta property="og:image" content="https://waveclock.net/social_preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Wave Clock — Tide, Surf &amp; Sunset Clock for Ocean City, NJ">
+<meta name="twitter:description" content="A handmade tide clock made for Ocean City, NJ — today's tide, the week's swell and weather, and the exact minute the sun sets over Second Street Dock.">
+<meta name="twitter:image" content="https://waveclock.net/social_preview.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+    --script: 'Caveat', cursive;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  img, svg { display: block; max-width: 100%; }
+
+  a { color: inherit; }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  .hero {
+    position: relative;
+    padding: 64px 0 0;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(44,74,99,0.12), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 70%, var(--foam) 100%);
+  }
+
+  .eyebrow-tape {
+    display: inline-block;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    background: var(--wax);
+    color: var(--ink);
+    padding: 6px 14px;
+    transform: rotate(-1.5deg);
+    box-shadow: 2px 2px 0 rgba(20,48,45,0.15);
+  }
+
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 48px;
+    align-items: center;
+    padding-bottom: 60px;
+  }
+  @media (max-width: 860px) { .hero-grid { grid-template-columns: 1fr; } }
+
+  h1.brand {
+    font-family: var(--display);
+    font-size: clamp(34px, 5vw, 58px);
+    line-height: 1.08;
+    margin: 20px 0 0;
+    color: var(--ink);
+    text-shadow: 3px 3px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+
+  .tagline {
+    font-family: var(--heading);
+    font-style: italic;
+    font-weight: 500;
+    font-size: clamp(19px, 2.4vw, 24px);
+    color: var(--ink-soft);
+    margin: 18px 0 0;
+    max-width: 46ch;
+  }
+
+  .hero-copy p.sub {
+    margin-top: 18px;
+    max-width: 50ch;
+    color: var(--ink-soft);
+    font-size: 16px;
+  }
+
+  .cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 15px;
+    padding: 14px 26px;
+    border-radius: 999px;
+    text-decoration: none;
+    border: 2px solid var(--ink);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+
+  .btn-primary {
+    background: var(--navy);
+    color: var(--foam);
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+  .btn-primary:hover { box-shadow: 5px 5px 0 var(--ink); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink);
+  }
+  .btn-ghost:hover { background: rgba(20,48,45,0.06); }
+
+  .device-stage { display: flex; justify-content: center; }
+
+  .device-frame {
+    width: 100%;
+    max-width: 420px;
+    background: #fff;
+    border: 3px solid var(--ink);
+    border-radius: 6px;
+    box-shadow: 8px 8px 0 var(--driftwood);
+    padding: 14px;
+    transform: rotate(1.2deg);
+  }
+
+  .device-label {
+    font-family: var(--body);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--driftwood);
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .device-screen {
+    position: relative;
+    aspect-ratio: 792 / 272;
+    background: #FBFAF6;
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .device-screen img { width: 100%; height: 100%; object-fit: cover; }
+
+  section { padding: 56px 0; }
+  .section-foam { background: var(--foam); }
+
+  .kicker {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--navy);
+    margin: 0 0 10px;
+  }
+
+  h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: clamp(26px, 3.4vw, 38px);
+    margin: 0 0 14px;
+    color: var(--ink);
+  }
+
+  .lede {
+    max-width: 62ch;
+    color: var(--ink-soft);
+    font-size: 17px;
+    margin-bottom: 8px;
+  }
+
+  p { color: var(--ink-soft); font-size: 15.5px; }
+
+  .landmark-list {
+    margin: 28px 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+  @media (max-width: 640px) { .landmark-list { grid-template-columns: 1fr; } }
+  .landmark-list li {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 16px 18px;
+    font-size: 14.5px;
+    color: var(--ink-soft);
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.08);
+  }
+  .landmark-list li b { color: var(--ink); display: block; margin-bottom: 3px; font-family: var(--heading); font-size: 16px; }
+  .placeholder { color: var(--coral-dark); font-style: italic; }
+
+  .feature-list {
+    margin: 28px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .feature-list li {
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--line);
+    color: var(--ink-soft);
+    font-size: 15px;
+  }
+  .feature-list li:last-child { border-bottom: none; }
+  .feature-list li b { color: var(--ink); }
+
+  .craft {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: center;
+  }
+  @media (max-width: 860px) { .craft { grid-template-columns: 1fr; } }
+
+  .sketch-frame {
+    background: #fff;
+    border: 2px solid var(--ink);
+    padding: 18px;
+    box-shadow: 6px 6px 0 var(--driftwood);
+    transform: rotate(-1deg);
+  }
+
+  .buy-panel {
+    background: var(--ink);
+    color: var(--foam);
+    border-radius: 8px;
+    padding: 48px 40px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .buy-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 600px 300px at 50% 0%, rgba(201,116,86,0.18), transparent 70%);
+  }
+  .buy-panel > * { position: relative; }
+  .buy-panel h2 { color: var(--foam); }
+  .buy-panel .lede { color: rgba(247,244,236,0.78); margin-left: auto; margin-right: auto; }
+
+  .price-tag {
+    display: inline-block;
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 34px;
+    margin: 18px 0 6px;
+    color: var(--wax);
+  }
+  .price-note { font-size: 13px; color: rgba(247,244,236,0.6); margin-bottom: 10px; }
+
+  footer {
+    padding: 40px 0 50px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  .footer-name {
+    font-family: var(--script);
+    font-size: 28px;
+    color: var(--ink);
+    display: block;
+    margin-top: 6px;
+  }
+  .footer-name a { text-decoration: none; }
+  .footer-name a:hover { text-decoration: underline; }
+
+  ::selection { background: var(--wax); color: var(--ink); }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="eyebrow-tape">Made for Ocean City, NJ</span>
+    <h1 class="brand">Wave Clock, Built for Ocean City</h1>
+
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <p class="tagline">The tide, the swell, and the exact minute the sun drops over Second Street Dock — glanceable, right on your counter.</p>
+        <p class="sub">Wave Clock is a handmade e-paper display tuned specifically to Ocean City's stretch of the bay and beach. No app, no login — just today's tide curve, this week's wave and weather forecast, and a sunset countdown timed to Second Street Dock, updating quietly in the background all summer long.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="index.html#buy">Get one for your OCNJ beach house &rarr;</a>
+          <a class="btn btn-ghost" href="index.html#screens">See what it shows</a>
+        </div>
+      </div>
+
+      <div class="device-stage">
+        <div class="device-frame">
+          <div class="device-label"><span>WAVE CLOCK</span><span>OCEAN CITY, NJ</span></div>
+          <div class="device-screen">
+            <img src="screen_tide.jpg" alt="Wave Clock tide and conditions screen for Ocean City, NJ">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="section-foam">
+  <div class="wrap">
+    <p class="kicker">Local, not generic</p>
+    <h2>Tuned to this stretch of the Jersey Shore</h2>
+    <p class="lede">Every number on the display is calculated for Ocean City's own coordinates — not a rounded-off regional average from somewhere up or down the coast.</p>
+
+    <ul class="landmark-list">
+      <li><b>Second Street Dock</b>The sunset countdown screen is timed to the sun going down right over this dock on the bay side — a hand-sketched scene, right on the display.</li>
+      <li><b>The Boardwalk</b>Wave and weather data for the week ahead, so you know before you walk up whether it's a boardwalk day or a beach day.</li>
+      <li><b>Music Pier</b><span class="placeholder">[LOCAL DETAIL: any specific tie-in to Music Pier events/schedule worth mentioning?]</span></li>
+      <li><b>Your beach tag zone</b><span class="placeholder">[LOCAL DETAIL: mention specific beach/street numbers, a marina name, or surf break if there's one worth calling out]</span></li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">What it shows</p>
+    <h2>Everything an OCNJ beach house needs at a glance</h2>
+    <ul class="feature-list">
+      <li><b>Tide &amp; Conditions</b> &mdash; today's tide curve, water &amp; air temp, wind, and sky, calculated for Ocean City.</li>
+      <li><b>5-Day Wave Forecast</b> &mdash; wave heights for the week, shaded Clean, Fair, or Choppy at a glance.</li>
+      <li><b>5-Day Weather</b> &mdash; highs, lows, wind, and exactly when rain's coming.</li>
+      <li><b>Beach Day</b> &mdash; rip current risk, high tide, wave and water conditions, wind, UV, humidity, and fly risk, all on one screen.</li>
+      <li><b>Sunset at Second Street Dock</b> &mdash; a hand-sketched scene where the sun sinks toward the bay, right on cue, with a night mode once it's down.</li>
+      <li><b>Custom</b> &mdash; draw, write, stamp an icon, or upload a photo from your phone &mdash; no app required.</li>
+    </ul>
+    <p style="margin-top:24px;"><a href="index.html#screens">See every screen in detail &rarr;</a></p>
+  </div>
+</section>
+
+<section class="section-foam">
+  <div class="wrap">
+    <div class="craft">
+      <div class="sketch-frame">
+        <img src="wave_clock_dunes.jpg" alt="Wave Clock on its handcrafted wooden stand, sitting on a dune fence overlooking the beach in Ocean City, NJ" style="width:100%; display:block;">
+      </div>
+      <div>
+        <p class="kicker">Not off-the-shelf</p>
+        <h2>Hand-built in Ocean City</h2>
+        <p class="lede">Every Wave Clock is hand-built, programmed, and shipped by one person who lives and surfs this stretch of coast &mdash; not a warehouse or a call center.</p>
+        <p><a href="about.html">Read the story behind Wave Clock &rarr;</a></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="buy">
+  <div class="wrap">
+    <div class="buy-panel">
+      <p class="kicker" style="color:var(--wax);">Own one</p>
+      <h2>Get your Ocean City Wave Clock</h2>
+      <div class="price-tag">$99</div>
+      <div class="price-note">Usually ships within 4 days</div>
+      <div class="cta-row" style="justify-content:center;">
+        <a class="btn btn-primary" href="https://buy.stripe.com/14AeVf2SOeRK5ctgQE2cg00" target="_blank" rel="noopener">Order now &rarr;</a>
+      </div>
+      <p style="margin-top:22px; font-size:13px;"><a href="index.html" style="color:rgba(247,244,236,0.75); text-decoration:underline;">&larr; Back to the full Wave Clock site</a></p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>WAVE CLOCK</p>
+    <p>Designed in OCNJ<span class="footer-name"><a href="index.html">waveclock.net</a></span></p>
+    <p><a href="index.html">&larr; Back to Wave Clock home</a></p>
+    <p><a href="index.html#screens">See what it shows &rarr;</a></p>
+    <p><a href="about.html">The Wave Clock story &rarr;</a></p>
+    <p><a href="index.html#contact">Questions? Get in touch &rarr;</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
