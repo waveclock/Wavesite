@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Set Your Wave Clock Location</title>
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta name="description" content="Pick your town and tide station to set up your Wave Clock.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+    --good: #3E7A5C;
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 40px;
+  }
+
+  .wrap { max-width: 480px; margin: 0 auto; padding: 0 20px; }
+
+  header.top {
+    text-align: center;
+    padding: 28px 20px 22px;
+    background:
+      radial-gradient(ellipse 500px 260px at 50% -20%, rgba(44,74,99,0.14), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 100%);
+  }
+  .brand-mark { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }
+  h1.brand {
+    font-family: var(--display);
+    font-size: 22px;
+    margin: 0;
+    color: var(--ink);
+    text-shadow: 2px 2px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+  .device-tag {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    background: #fff;
+    border: 1.5px solid var(--line);
+    border-radius: 999px;
+    padding: 5px 14px;
+  }
+  .device-tag.error { color: var(--coral-dark); border-color: var(--coral); }
+
+  .intro { text-align: center; padding: 4px 8px 20px; }
+  .intro h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 24px;
+    margin: 0 0 8px;
+  }
+  .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0; max-width: 38ch; margin: 0 auto; }
+
+  .step {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
+    padding: 20px 18px;
+    margin-top: 18px;
+  }
+  .step.disabled { opacity: 0.5; pointer-events: none; }
+
+  .step-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--navy);
+    color: var(--foam);
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step-head h3 {
+    font-family: var(--heading);
+    font-size: 17px;
+    font-weight: 700;
+    margin: 0;
+  }
+  .step-check {
+    margin-left: auto;
+    color: var(--good);
+    font-size: 13px;
+    font-weight: 700;
+    display: none;
+    align-items: center;
+    gap: 4px;
+  }
+  .step.done .step-check { display: flex; }
+
+  /* ---------- Locate button ---------- */
+  .locate-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    width: 100%;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 15px;
+    padding: 14px;
+    border-radius: 999px;
+    border: 2px solid var(--navy);
+    background: var(--foam);
+    color: var(--navy);
+    cursor: pointer;
+  }
+  .locate-btn:active { transform: scale(0.98); }
+  .locate-btn:disabled { opacity: 0.6; cursor: default; }
+  .locate-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .locate-status { text-align: center; font-size: 12.5px; color: var(--coral-dark); margin: 8px 0 0; min-height: 0; }
+
+  .or-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 16px 0 14px;
+    color: var(--ink-soft);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .or-divider::before, .or-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  /* ---------- Search ---------- */
+  .search-row {
+    position: relative;
+    margin-bottom: 4px;
+  }
+  .search-row input {
+    width: 100%;
+    font-family: var(--body);
+    font-size: 16px;
+    padding: 12px 14px 12px 38px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    background: var(--foam);
+    color: var(--ink);
+  }
+  .search-row input:focus { outline: 3px solid var(--coral); outline-offset: 1px; }
+  .search-row svg {
+    position: absolute;
+    left: 12px; top: 50%;
+    transform: translateY(-50%);
+    width: 16px; height: 16px;
+    color: var(--ink-soft);
+  }
+
+  .search-results { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .search-result-row {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 14px;
+    text-align: left;
+    padding: 11px 13px;
+    border-radius: 8px;
+    border: 2px solid var(--ink);
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .search-result-row:active { transform: scale(0.98); }
+
+  .no-results { color: var(--ink-soft); font-size: 14px; padding: 10px 2px; margin: 0; }
+
+  .selected-town-card {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: var(--foam);
+    border: 2px solid var(--navy);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .selected-town-name { font-family: var(--heading); font-weight: 700; font-size: 16px; }
+  .change-btn {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--coral-dark);
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 13px;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 4px;
+  }
+
+  /* ---------- Stations ---------- */
+  .station-note {
+    background: var(--foam);
+    border-left: 4px solid var(--wax);
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin-bottom: 14px;
+  }
+  .station-note b { color: var(--ink); }
+
+  .station-map {
+    display: none;
+    height: 200px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    margin-bottom: 14px;
+    overflow: hidden;
+    background: var(--foam);
+  }
+  .town-marker span {
+    display: block; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--coral); border: 2px solid #fff; box-shadow: 0 0 0 2px var(--ink);
+  }
+  .station-marker span {
+    display: block; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--navy); border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink);
+    cursor: pointer;
+  }
+  .station-marker-selected span {
+    width: 17px; height: 17px; background: var(--wax);
+  }
+  .leaflet-container { font-family: var(--body); }
+
+  .station-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
+  .station-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    padding: 11px 13px;
+    cursor: pointer;
+    background: #fff;
+  }
+  .station-row.selected { background: var(--foam); border-color: var(--navy); box-shadow: 2px 2px 0 var(--navy); }
+  .station-radio {
+    flex-shrink: 0;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    border: 2px solid var(--ink);
+    position: relative;
+  }
+  .station-row.selected .station-radio { border-color: var(--navy); }
+  .station-row.selected .station-radio::after {
+    content: "";
+    position: absolute; inset: 3px;
+    border-radius: 50%;
+    background: var(--navy);
+  }
+  .station-info { flex: 1; min-width: 0; }
+  .station-name { font-weight: 600; font-size: 14.5px; }
+  .station-meta { font-size: 12.5px; color: var(--ink-soft); }
+  .station-status { font-size: 13.5px; color: var(--ink-soft); padding: 10px 2px; }
+  .station-status.error { color: var(--coral-dark); }
+
+  /* ---------- Save ---------- */
+  .save-btn {
+    display: block;
+    width: 100%;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 16px;
+    padding: 16px;
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+    background: var(--coral);
+    color: #fff;
+    box-shadow: 3px 3px 0 var(--ink);
+    cursor: pointer;
+    margin-top: 18px;
+  }
+  .save-btn:active { transform: translateY(1px); box-shadow: 2px 2px 0 var(--ink); }
+  .save-btn:disabled { background: var(--driftwood); cursor: default; box-shadow: none; opacity: 0.6; }
+
+  .status-msg {
+    text-align: center;
+    margin-top: 14px;
+    font-size: 14.5px;
+    min-height: 20px;
+    color: var(--ink-soft);
+  }
+  .status-msg.success { color: var(--good); font-weight: 700; }
+  .status-msg.error { color: var(--coral-dark); font-weight: 700; }
+
+  .saved-card {
+    display: none;
+    text-align: center;
+    padding: 30px 20px;
+  }
+  .saved-card.visible { display: block; }
+  .saved-card svg { width: 64px; height: 64px; margin: 0 auto 14px; display: block; }
+  .saved-card h2 { font-family: var(--heading); font-size: 24px; margin: 0 0 10px; }
+  .saved-card p { color: var(--ink-soft); font-size: 15px; max-width: 34ch; margin: 0 auto; }
+  .saved-card .saved-detail { margin-top: 18px; font-size: 13px; color: var(--driftwood); }
+
+  footer {
+    text-align: center;
+    padding: 30px 20px 10px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  footer a { color: var(--navy); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <svg class="brand-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="50" cy="50" r="46" fill="none" stroke="#1F3347" stroke-width="3.5"/>
+    <path d="M18 60 C28 54 34 66 44 60 C52 55 58 66 68 60 C74 56 78 60 82 58" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M18 68 C28 62 34 74 44 68 C52 63 58 74 68 68 C74 64 78 68 82 66" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
+    <circle cx="50" cy="30" r="6" fill="none" stroke="#1F3347" stroke-width="3"/>
+    <line x1="50" y1="36" x2="50" y2="48" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
+  </svg>
+  <h1 class="brand">WAVE CLOCK</h1>
+  <span class="device-tag" id="deviceTag">Checking your device&hellip;</span>
+</header>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h2>Set your location</h2>
+    <p>Pick your spot and your tide station &mdash; it'll show up on your Wave Clock in a minute or two.</p>
+  </div>
+
+  <div class="step" id="stepTown">
+    <div class="step-head">
+      <span class="step-num">1</span>
+      <h3>Find your location</h3>
+      <span class="step-check">&#10003; Picked</span>
+    </div>
+
+    <button type="button" class="locate-btn" id="locateBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2 L12 6 M12 18 L12 22 M2 12 L6 12 M18 12 L22 12"/></svg>
+      Use my current location
+    </button>
+    <p class="locate-status" id="locateStatus"></p>
+
+    <div class="or-divider"><span>or search</span></div>
+
+    <div class="search-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="townSearch" placeholder="Town, city, or zip code&hellip;" autocomplete="off">
+    </div>
+    <div id="searchResultsWrap"></div>
+
+    <div class="selected-town-card" id="selectedTownCard">
+      <span class="selected-town-name" id="selectedTownName"></span>
+      <button type="button" class="change-btn" id="changeTownBtn">Change</button>
+    </div>
+  </div>
+
+  <div class="step disabled" id="stepStation">
+    <div class="step-head">
+      <span class="step-num">2</span>
+      <h3>Pick your tide station</h3>
+      <span class="step-check">&#10003; Picked</span>
+    </div>
+
+    <div class="station-note">
+      <b>Ocean-facing stations are less common than bay/inlet ones nearby.</b> If you want ocean tides, look for a name that suggests open water &mdash; it might not be the very first one on the list.
+    </div>
+
+    <div class="station-map" id="stationMap"></div>
+
+    <div id="stationListWrap">
+      <p class="station-status" id="stationStatus">Pick your location above to see nearby stations.</p>
+    </div>
+  </div>
+
+  <button class="save-btn" id="saveBtn" disabled>Save to my Wave Clock</button>
+  <p class="status-msg" id="statusMsg"></p>
+
+  <div class="saved-card" id="savedCard">
+    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="50" r="46" fill="none" stroke="#3E7A5C" stroke-width="4"/>
+      <path d="M30 52 L44 66 L72 36" fill="none" stroke="#3E7A5C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h2>Saved!</h2>
+    <p>Your Wave Clock checks in every so often on its own &mdash; this'll show up on the device within a minute or two.</p>
+    <p class="saved-detail" id="savedDetail"></p>
+  </div>
+
+</div>
+
+<footer>
+  <p>Wrong device? Scan the QR code on your Wave Clock again.</p>
+  <p><a href="../index.html">waveclock.net</a></p>
+</footer>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getStorage, ref, uploadBytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+  // Same Firebase project/bucket already used by the /design/ page's
+  // uploads -- device firmware polls this same bucket, just a different
+  // path (locations/{id}.json instead of designs/{id}.bin).
+  const firebaseConfig = {
+    apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
+    authDomain: "waveclock.firebaseapp.com",
+    projectId: "waveclock",
+    storageBucket: "waveclock.firebasestorage.app",
+    messagingSenderId: "668302334840",
+    appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
+  };
+  const app = initializeApp(firebaseConfig);
+  const storage = getStorage(app);
+
+  const params = new URLSearchParams(window.location.search);
+  const deviceId = params.get("id");
+  const deviceTag = document.getElementById("deviceTag");
+  const saveBtn = document.getElementById("saveBtn");
+
+  if (!deviceId) {
+    deviceTag.textContent = "No device ID found in link";
+    deviceTag.classList.add("error");
+  } else {
+    deviceTag.textContent = "Setting up " + deviceId;
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // ================= US state name -> abbreviation =================
+  // A fixed, permanent list (50 states + DC) -- not a town list, this
+  // never needs maintenance as coverage expands.
+  const STATE_ABBR = {
+    Alabama: "AL", Alaska: "AK", Arizona: "AZ", Arkansas: "AR", California: "CA",
+    Colorado: "CO", Connecticut: "CT", Delaware: "DE", "District of Columbia": "DC",
+    Florida: "FL", Georgia: "GA", Hawaii: "HI", Idaho: "ID", Illinois: "IL",
+    Indiana: "IN", Iowa: "IA", Kansas: "KS", Kentucky: "KY", Louisiana: "LA",
+    Maine: "ME", Maryland: "MD", Massachusetts: "MA", Michigan: "MI", Minnesota: "MN",
+    Mississippi: "MS", Missouri: "MO", Montana: "MT", Nebraska: "NE", Nevada: "NV",
+    "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+    "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK",
+    Oregon: "OR", Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC",
+    "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT",
+    Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI",
+    Wyoming: "WY"
+  };
+
+  function buildTownLabel(address, fallbackDisplayName) {
+    address = address || {};
+    const cityLike = address.city || address.town || address.village || address.hamlet ||
+      address.suburb || address.municipality || address.county;
+    const state = address.state || "";
+    const stateAbbr = STATE_ABBR[state] || state;
+    if (cityLike && stateAbbr) return { short: cityLike, full: cityLike + ", " + stateAbbr, state: stateAbbr };
+    if (cityLike) return { short: cityLike, full: cityLike, state: "" };
+    const parts = (fallbackDisplayName || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const short = parts[0] || "Your Location";
+    return { short: short, full: parts.slice(0, 2).join(", ") || short, state: stateAbbr };
+  }
+
+  // ================= Step 1: find your location =================
+  // Geocoding via OpenStreetMap's Nominatim -- free, no API key, works for
+  // any US town/city/zip so there's no fixed town list to maintain. Search
+  // is debounced and each keystroke cancels the prior in-flight request to
+  // stay within Nominatim's public-instance usage policy (light, non-bulk
+  // use). If this page's traffic ever grows large, that policy caps out
+  // and a self-hosted Nominatim instance or a paid geocoder would be the
+  // next step -- worth knowing about now even though it isn't a problem
+  // at today's scale.
+  const locateBtn = document.getElementById("locateBtn");
+  const locateStatus = document.getElementById("locateStatus");
+  const townSearch = document.getElementById("townSearch");
+  const searchResultsWrap = document.getElementById("searchResultsWrap");
+  const selectedTownCard = document.getElementById("selectedTownCard");
+  const selectedTownName = document.getElementById("selectedTownName");
+  const changeTownBtn = document.getElementById("changeTownBtn");
+  const orDivider = document.querySelector(".or-divider");
+  const searchRow = document.querySelector(".search-row");
+  const stepTown = document.getElementById("stepTown");
+  const stepStation = document.getElementById("stepStation");
+
+  let selectedTown = null;
+  let selectedStation = null;
+
+  function selectTownFromResult(town) {
+    selectedTown = town;
+    townSearch.value = "";
+    searchResultsWrap.innerHTML = "";
+    selectedTownName.textContent = town.name + (town.state ? ", " + town.state : "");
+    selectedTownCard.style.display = "flex";
+    locateBtn.style.display = "none";
+    orDivider.style.display = "none";
+    searchRow.style.display = "none";
+    stepTown.classList.add("done");
+    stepStation.classList.remove("disabled");
+    selectedStation = null;
+    renderSaveState();
+    loadStations(town);
+    loadZones(town);
+    stepStation.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  changeTownBtn.addEventListener("click", () => {
+    selectedTown = null;
+    selectedStation = null;
+    selectedTownCard.style.display = "none";
+    locateBtn.style.display = "";
+    orDivider.style.display = "";
+    searchRow.style.display = "";
+    stepTown.classList.remove("done");
+    stepStation.classList.add("disabled");
+    renderSaveState();
+  });
+
+  function resetLocateBtn() {
+    locateBtn.disabled = false;
+    locateBtn.textContent = "";
+    locateBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2 L12 6 M12 18 L12 22 M2 12 L6 12 M18 12 L22 12"/></svg> Use my current location';
+  }
+
+  locateBtn.addEventListener("click", () => {
+    locateStatus.textContent = "";
+    if (!navigator.geolocation) {
+      locateStatus.textContent = "Location isn't available in this browser — search instead.";
+      return;
+    }
+    locateBtn.disabled = true;
+    locateBtn.textContent = "Finding you…";
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        let label = { short: "Your Location", state: "" };
+        try {
+          const resp = await fetch(
+            "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=" + lat + "&lon=" + lon + "&zoom=14&addressdetails=1"
+          );
+          if (resp.ok) {
+            const data = await resp.json();
+            label = buildTownLabel(data.address, data.display_name);
+          }
+        } catch (err) {
+          console.error(err);
+        }
+        resetLocateBtn();
+        selectTownFromResult({ name: label.short, state: label.state, lat: lat, lon: lon });
+      },
+      () => {
+        resetLocateBtn();
+        locateStatus.textContent = "Couldn't get your location — search your town instead.";
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  });
+
+  let searchTimer = null;
+  let searchAbort = null;
+
+  function renderSearchResults(results) {
+    if (!results.length) {
+      searchResultsWrap.innerHTML = '<p class="no-results">No matches &mdash; try a nearby town, city, or zip code.</p>';
+      return;
+    }
+    const list = document.createElement("div");
+    list.className = "search-results";
+    results.forEach((r) => {
+      const label = buildTownLabel(r.address, r.display_name);
+      const lat = parseFloat(r.lat);
+      const lon = parseFloat(r.lon);
+      if (isNaN(lat) || isNaN(lon)) return;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "search-result-row";
+      btn.textContent = label.full;
+      btn.addEventListener("click", () => {
+        selectTownFromResult({ name: label.short, state: label.state, lat: lat, lon: lon });
+      });
+      list.appendChild(btn);
+    });
+    searchResultsWrap.innerHTML = "";
+    searchResultsWrap.appendChild(list);
+  }
+
+  async function runSearch(q) {
+    if (searchAbort) searchAbort.abort();
+    searchAbort = new AbortController();
+    searchResultsWrap.innerHTML = '<p class="station-status">Searching&hellip;</p>';
+    try {
+      const resp = await fetch(
+        "https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=us&addressdetails=1&limit=8&q=" + encodeURIComponent(q),
+        { signal: searchAbort.signal }
+      );
+      if (!resp.ok) throw new Error("search failed: " + resp.status);
+      const data = await resp.json();
+      renderSearchResults(data);
+    } catch (err) {
+      if (err.name === "AbortError") return;
+      console.error(err);
+      searchResultsWrap.innerHTML = '<p class="station-status error">Search isn\'t working right now &mdash; try again in a moment.</p>';
+    }
+  }
+
+  townSearch.addEventListener("input", () => {
+    const q = townSearch.value.trim();
+    clearTimeout(searchTimer);
+    if (q.length < 3) {
+      searchResultsWrap.innerHTML = "";
+      return;
+    }
+    searchTimer = setTimeout(() => runSearch(q), 350);
+  });
+
+  // ================= Step 2: nearby NOAA tide stations + map =================
+  const stationListWrap = document.getElementById("stationListWrap");
+  const stationMapEl = document.getElementById("stationMap");
+  let allStationsCache = null;
+  let map = null;
+  let markers = [];
+  let stationIcon = null;
+  let selectedIcon = null;
+  let townIcon = null;
+
+  function haversineMiles(lat1, lon1, lat2, lon2) {
+    const R = 3958.8;
+    const toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.asin(Math.sqrt(a));
+  }
+
+  async function fetchAllStations() {
+    if (allStationsCache) return allStationsCache;
+    const resp = await fetch("https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions");
+    if (!resp.ok) throw new Error("NOAA station list request failed: " + resp.status);
+    const data = await resp.json();
+    allStationsCache = data.stations || [];
+    return allStationsCache;
+  }
+
+  function selectStation(s) {
+    selectedStation = s;
+    stationListWrap.querySelectorAll(".station-row").forEach((r) => {
+      r.classList.toggle("selected", r.dataset.stationId === String(s.id));
+    });
+    markers.forEach((m) => {
+      if (m._stationId) m.setIcon(m._stationId === s.id ? selectedIcon : stationIcon);
+    });
+    stepStation.classList.add("done");
+    renderSaveState();
+  }
+
+  function clearMap() {
+    if (map) {
+      map.remove();
+      map = null;
+    }
+    markers = [];
+    stationMapEl.style.display = "none";
+  }
+
+  function renderStationMap(town, stations) {
+    clearMap();
+    if (typeof L === "undefined" || !stations.length) return;
+    try {
+      stationMapEl.style.display = "block";
+      map = L.map(stationMapEl, { zoomControl: true, attributionControl: true });
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(map);
+
+      townIcon = L.divIcon({ className: "town-marker", html: "<span></span>", iconSize: [14, 14] });
+      stationIcon = L.divIcon({ className: "station-marker", html: "<span></span>", iconSize: [12, 12] });
+      selectedIcon = L.divIcon({ className: "station-marker station-marker-selected", html: "<span></span>", iconSize: [17, 17] });
+
+      const townMarker = L.marker([town.lat, town.lon], { icon: townIcon }).addTo(map);
+      markers.push(townMarker);
+
+      const bounds = [[town.lat, town.lon]];
+      stations.forEach((s) => {
+        const marker = L.marker([s.lat, s.lon], { icon: stationIcon }).addTo(map);
+        marker._stationId = s.id;
+        marker.on("click", () => selectStation(s));
+        markers.push(marker);
+        bounds.push([s.lat, s.lon]);
+      });
+      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 13 });
+    } catch (err) {
+      console.error("Map failed to load:", err);
+      clearMap();
+    }
+  }
+
+  async function loadStations(town) {
+    clearMap();
+    stationListWrap.innerHTML = '<p class="station-status" id="stationStatus">Looking up nearby tide stations&hellip;</p>';
+    try {
+      const stations = await fetchAllStations();
+      const nearby = stations
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          state: s.state,
+          lat: s.lat,
+          lon: s.lng !== undefined ? s.lng : s.lon,
+          distance: haversineMiles(town.lat, town.lon, s.lat, s.lng !== undefined ? s.lng : s.lon)
+        }))
+        .filter((s) => s.distance <= 60)
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 20);
+
+      if (nearby.length === 0) {
+        stationListWrap.innerHTML = '<p class="station-status error">No NOAA stations found nearby &mdash; try a different spot, or contact us and we\'ll set it up manually.</p>';
+        return;
+      }
+
+      stationListWrap.innerHTML = "";
+      const list = document.createElement("div");
+      list.className = "station-list";
+      nearby.forEach((s) => {
+        const row = document.createElement("div");
+        row.className = "station-row";
+        row.dataset.stationId = String(s.id);
+        row.innerHTML =
+          '<div class="station-radio"></div>' +
+          '<div class="station-info">' +
+            '<div class="station-name">' + escapeHtml(s.name) + (s.state ? ", " + escapeHtml(s.state) : "") + "</div>" +
+            '<div class="station-meta">' + s.distance.toFixed(1) + " mi away &middot; Station " + escapeHtml(s.id) + "</div>" +
+          "</div>";
+        row.addEventListener("click", () => selectStation(s));
+        list.appendChild(row);
+      });
+      stationListWrap.appendChild(list);
+      renderStationMap(town, nearby);
+    } catch (err) {
+      console.error(err);
+      stationListWrap.innerHTML = '<p class="station-status error">Couldn\'t reach NOAA right now &mdash; check your connection and try again.</p>';
+    }
+  }
+
+  // ================= NWS forecast zones (srfZone / cwfZone) =================
+  // srfZone: the NWS public/land forecast zone for the town itself (e.g.
+  // NJZ024), used for rip current risk on the Beach Day / Lifeguard
+  // screens. Resolved live via api.weather.gov/points, which reliably
+  // returns this for any land coordinate.
+  //
+  // cwfZone: the NWS Coastal Waters Forecast marine zone (e.g. ANZ453),
+  // used for swell/period detail. This is the piece worth double-checking
+  // before this ships for real -- there's no single documented NWS
+  // endpoint that resolves an arbitrary point directly to a marine zone
+  // the way there is for land zones. This queries the same /points
+  // endpoint again for a coordinate shifted just offshore, which should
+  // land inside the neighboring marine zone polygon, but that offset
+  // hasn't been validated against real NWS zone boundaries -- only
+  // spot-checked in concept. Worth confirming against a known-good value
+  // (Ocean City, NJ = ANZ453) before relying on it broadly. It's also
+  // coastline-direction-specific (nudging "east" only makes sense for an
+  // Atlantic-facing point) -- fine for the Jersey/Delaware/Maryland coast
+  // this targets today, but would need rethinking for a Gulf or Pacific
+  // coordinate.
+  let zoneResult = null;
+
+  async function fetchZoneForPoint(lat, lon) {
+    const resp = await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`);
+    if (!resp.ok) throw new Error("NWS point lookup failed: " + resp.status);
+    const data = await resp.json();
+    const zoneUrl = data.properties && data.properties.forecastZone;
+    if (!zoneUrl) throw new Error("No forecast zone in NWS response");
+    return zoneUrl.split("/").pop();
+  }
+
+  async function loadZones(town) {
+    zoneResult = null;
+    try {
+      const srfZone = await fetchZoneForPoint(town.lat, town.lon);
+      const cwfZone = await fetchZoneForPoint(town.lat, town.lon + 0.05);
+      zoneResult = { srfZone, cwfZone };
+    } catch (err) {
+      console.error("Zone lookup failed:", err);
+      zoneResult = null;
+    }
+    renderSaveState();
+  }
+
+  // ================= Save =================
+  const statusMsg = document.getElementById("statusMsg");
+  const savedCard = document.getElementById("savedCard");
+  const savedDetail = document.getElementById("savedDetail");
+
+  function renderSaveState() {
+    const ready = deviceId && selectedTown && selectedStation;
+    saveBtn.disabled = !ready;
+  }
+
+  function setStatus(text, kind) {
+    statusMsg.textContent = text;
+    statusMsg.className = "status-msg" + (kind ? " " + kind : "");
+  }
+
+  saveBtn.addEventListener("click", async () => {
+    if (!deviceId || !selectedTown || !selectedStation) return;
+    saveBtn.disabled = true;
+
+    if (!zoneResult) {
+      setStatus("Still working out your forecast zone — one more second…");
+      try {
+        await loadZones(selectedTown);
+      } catch (err) {
+        // handled below
+      }
+    }
+
+    if (!zoneResult) {
+      setStatus("Couldn't confirm your forecast zone — check your connection and try again.", "error");
+      saveBtn.disabled = false;
+      return;
+    }
+
+    setStatus("Saving…");
+    try {
+      const payload = {
+        name: selectedTown.name.toUpperCase(),
+        stationId: selectedStation.id,
+        lat: selectedTown.lat,
+        lon: selectedTown.lon,
+        srfZone: zoneResult.srfZone,
+        cwfZone: zoneResult.cwfZone
+      };
+      const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+      const storageRef = ref(storage, "locations/" + deviceId + ".json");
+      await uploadBytes(storageRef, blob);
+
+      setStatus("");
+      savedDetail.textContent = selectedTown.name + (selectedTown.state ? ", " + selectedTown.state : "") + " · " + selectedStation.name + " (Station " + selectedStation.id + ")";
+      savedCard.classList.add("visible");
+      stepTown.style.display = "none";
+      stepStation.style.display = "none";
+      saveBtn.style.display = "none";
+      savedCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
+      console.error(err);
+      setStatus("Something went wrong saving — try again in a moment.", "error");
+      saveBtn.disabled = false;
+    }
+  });
+</script>
+
+</body>
+</html>
