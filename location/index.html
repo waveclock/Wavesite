@@ -173,13 +173,16 @@
 
   .selected-town-card {
     display: none;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
     background: var(--foam);
     border: 2px solid var(--navy);
     border-radius: 8px;
     padding: 14px 16px;
+  }
+  .selected-town-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
   }
   .selected-town-name { font-family: var(--heading); font-weight: 700; font-size: 16px; }
   .change-btn {
@@ -194,6 +197,42 @@
     cursor: pointer;
     padding: 4px;
   }
+
+  .display-name-field {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  .display-name-field label {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+  }
+  .display-name-field input {
+    width: 100%;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: 0.02em;
+    padding: 11px 12px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .display-name-field input:focus { outline: 3px solid var(--coral); outline-offset: 1px; }
+  .display-name-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .display-name-hint { font-size: 11.5px; color: var(--ink-soft); }
+  .display-name-count { font-size: 11.5px; color: var(--ink-soft); font-weight: 700; flex-shrink: 0; white-space: nowrap; }
+  .display-name-count.limit { color: var(--coral-dark); }
 
   /* ---------- Stations ---------- */
   .station-note {
@@ -346,8 +385,18 @@
     <div id="searchResultsWrap"></div>
 
     <div class="selected-town-card" id="selectedTownCard">
-      <span class="selected-town-name" id="selectedTownName"></span>
-      <button type="button" class="change-btn" id="changeTownBtn">Change</button>
+      <div class="selected-town-top">
+        <span class="selected-town-name" id="selectedTownName"></span>
+        <button type="button" class="change-btn" id="changeTownBtn">Change</button>
+      </div>
+      <div class="display-name-field">
+        <label for="displayName">Type the name to show on your Wave Clock</label>
+        <input type="text" id="displayName" maxlength="17" autocomplete="off">
+        <div class="display-name-meta">
+          <span class="display-name-hint">17 characters max &mdash; this is exactly what appears on the device screen.</span>
+          <span class="display-name-count" id="displayNameCount">0/17</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -473,19 +522,50 @@
   const selectedTownCard = document.getElementById("selectedTownCard");
   const selectedTownName = document.getElementById("selectedTownName");
   const changeTownBtn = document.getElementById("changeTownBtn");
+  const displayNameInput = document.getElementById("displayName");
+  const displayNameCount = document.getElementById("displayNameCount");
   const searchRow = document.querySelector(".search-row");
   const stepTown = document.getElementById("stepTown");
   const stepStation = document.getElementById("stepStation");
 
+  const DISPLAY_NAME_MAX = 17;
+
   let selectedTown = null;
   let selectedStation = null;
+
+  // The device screen only fits DISPLAY_NAME_MAX characters, so this
+  // defaults to the matched town name (truncated if needed) but stays
+  // fully editable -- e.g. "North Wildwood" fits, but something like
+  // "North Myrtle Beach" doesn't and needs shortening by the customer.
+  function deriveDisplayName(name) {
+    return (name || "").toUpperCase().slice(0, DISPLAY_NAME_MAX);
+  }
+
+  function updateDisplayNameCount() {
+    const len = displayNameInput.value.length;
+    displayNameCount.textContent = len + "/" + DISPLAY_NAME_MAX;
+    displayNameCount.classList.toggle("limit", len >= DISPLAY_NAME_MAX);
+  }
+
+  displayNameInput.addEventListener("input", () => {
+    const upper = displayNameInput.value.toUpperCase();
+    if (upper !== displayNameInput.value) {
+      const pos = displayNameInput.selectionStart;
+      displayNameInput.value = upper;
+      displayNameInput.setSelectionRange(pos, pos);
+    }
+    updateDisplayNameCount();
+    renderSaveState();
+  });
 
   function selectTownFromResult(town) {
     selectedTown = town;
     townSearch.value = "";
     searchResultsWrap.innerHTML = "";
     selectedTownName.textContent = town.name + (town.state ? ", " + town.state : "");
-    selectedTownCard.style.display = "flex";
+    displayNameInput.value = deriveDisplayName(town.name);
+    updateDisplayNameCount();
+    selectedTownCard.style.display = "block";
     searchRow.style.display = "none";
     stepTown.classList.add("done");
     stepStation.classList.remove("disabled");
@@ -748,8 +828,13 @@
   const savedCard = document.getElementById("savedCard");
   const savedDetail = document.getElementById("savedDetail");
 
+  function displayNameIsValid() {
+    const val = displayNameInput.value.trim();
+    return val.length > 0 && val.length <= DISPLAY_NAME_MAX;
+  }
+
   function renderSaveState() {
-    const ready = deviceId && selectedTown && selectedStation;
+    const ready = deviceId && selectedTown && selectedStation && displayNameIsValid();
     saveBtn.disabled = !ready;
   }
 
@@ -760,6 +845,11 @@
 
   saveBtn.addEventListener("click", async () => {
     if (!deviceId || !selectedTown || !selectedStation) return;
+    const displayName = displayNameInput.value.trim();
+    if (!displayName || displayName.length > DISPLAY_NAME_MAX) {
+      setStatus("Give it a display name of " + DISPLAY_NAME_MAX + " characters or fewer.", "error");
+      return;
+    }
     saveBtn.disabled = true;
 
     if (!zoneResult) {
@@ -780,7 +870,7 @@
     setStatus("Saving…");
     try {
       const payload = {
-        name: selectedTown.name.toUpperCase(),
+        name: displayName,
         stationId: selectedStation.id,
         lat: selectedTown.lat,
         lon: selectedTown.lon,
@@ -792,7 +882,7 @@
       await uploadBytes(storageRef, blob);
 
       setStatus("");
-      savedDetail.textContent = selectedTown.name + (selectedTown.state ? ", " + selectedTown.state : "") + " · " + selectedStation.name + " (Station " + selectedStation.id + ")";
+      savedDetail.textContent = 'Shows as "' + displayName + '" · ' + selectedTown.name + (selectedTown.state ? ", " + selectedTown.state : "") + " · " + selectedStation.name + " (Station " + selectedStation.id + ")";
       savedCard.classList.add("visible");
       stepTown.style.display = "none";
       stepStation.style.display = "none";
