@@ -800,7 +800,11 @@
       savedCard.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
       console.error(err);
-      setStatus("Something went wrong saving — try again in a moment.", "error");
+      if (err && err.code === "storage/unauthorized") {
+        setStatus("Saving isn't allowed for this yet — the Storage rules need to permit writes to locations/, not just designs/.", "error");
+      } else {
+        setStatus("Something went wrong saving — try again in a moment.", "error");
+      }
       saveBtn.disabled = false;
     }
   });
