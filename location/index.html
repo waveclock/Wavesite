@@ -564,7 +564,27 @@
     locateBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2 L12 6 M12 18 L12 22 M2 12 L6 12 M18 12 L22 12"/></svg> Use my current location';
   }
 
-  locateBtn.addEventListener("click", () => {
+  function requestPosition(highAccuracy) {
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: highAccuracy,
+        timeout: highAccuracy ? 8000 : 15000,
+        maximumAge: 300000
+      });
+    });
+  }
+
+  function geolocationErrorMessage(err) {
+    if (err.code === err.PERMISSION_DENIED) {
+      return "Location access is turned off for this site — enable it in your browser settings, or search your town instead.";
+    }
+    if (err.code === err.POSITION_UNAVAILABLE) {
+      return "Couldn't pin down your location right now — search your town instead.";
+    }
+    return "Location took too long to find — search your town instead.";
+  }
+
+  locateBtn.addEventListener("click", async () => {
     locateStatus.textContent = "";
     if (!navigator.geolocation) {
       locateStatus.textContent = "Location isn't available in this browser — search instead.";
@@ -572,31 +592,46 @@
     }
     locateBtn.disabled = true;
     locateBtn.textContent = "Finding you…";
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-        let label = { short: "Your Location", state: "" };
+
+    let pos;
+    try {
+      // enableHighAccuracy forces a GPS-only fix, which is more precise
+      // but can be slow on a cold start (indoors, or first request on a
+      // fresh page load) -- fall back to a coarser, longer-timeout
+      // request rather than failing outright if that first one times out.
+      pos = await requestPosition(true);
+    } catch (err) {
+      if (err.code === err.TIMEOUT) {
         try {
-          const resp = await fetch(
-            "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=" + lat + "&lon=" + lon + "&zoom=14&addressdetails=1"
-          );
-          if (resp.ok) {
-            const data = await resp.json();
-            label = buildTownLabel(data.address, data.display_name);
-          }
-        } catch (err) {
-          console.error(err);
+          pos = await requestPosition(false);
+        } catch (err2) {
+          resetLocateBtn();
+          locateStatus.textContent = geolocationErrorMessage(err2);
+          return;
         }
+      } else {
         resetLocateBtn();
-        selectTownFromResult({ name: label.short, state: label.state, lat: lat, lon: lon });
-      },
-      () => {
-        resetLocateBtn();
-        locateStatus.textContent = "Couldn't get your location — search your town instead.";
-      },
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
+        locateStatus.textContent = geolocationErrorMessage(err);
+        return;
+      }
+    }
+
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+    let label = { short: "Your Location", state: "" };
+    try {
+      const resp = await fetch(
+        "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=" + lat + "&lon=" + lon + "&zoom=14&addressdetails=1"
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        label = buildTownLabel(data.address, data.display_name);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    resetLocateBtn();
+    selectTownFromResult({ name: label.short, state: label.state, lat: lat, lon: lon });
   });
 
   let searchTimer = null;
