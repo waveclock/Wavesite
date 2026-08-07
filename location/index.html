@@ -130,46 +130,6 @@
   }
   .step.done .step-check { display: flex; }
 
-  /* ---------- Locate button ---------- */
-  .locate-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 9px;
-    width: 100%;
-    font-family: var(--body);
-    font-weight: 700;
-    font-size: 15px;
-    padding: 14px;
-    border-radius: 999px;
-    border: 2px solid var(--navy);
-    background: var(--foam);
-    color: var(--navy);
-    cursor: pointer;
-  }
-  .locate-btn:active { transform: scale(0.98); }
-  .locate-btn:disabled { opacity: 0.6; cursor: default; }
-  .locate-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
-  .locate-status { text-align: center; font-size: 12.5px; color: var(--coral-dark); margin: 8px 0 0; min-height: 0; }
-
-  .or-divider {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 16px 0 14px;
-    color: var(--ink-soft);
-    font-size: 12px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-  .or-divider::before, .or-divider::after {
-    content: "";
-    flex: 1;
-    height: 1px;
-    background: var(--line);
-  }
-
   /* ---------- Search ---------- */
   .search-row {
     position: relative;
@@ -379,14 +339,6 @@
       <span class="step-check">&#10003; Picked</span>
     </div>
 
-    <button type="button" class="locate-btn" id="locateBtn">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2 L12 6 M12 18 L12 22 M2 12 L6 12 M18 12 L22 12"/></svg>
-      Use my current location
-    </button>
-    <p class="locate-status" id="locateStatus"></p>
-
-    <div class="or-divider"><span>or search</span></div>
-
     <div class="search-row">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       <input type="text" id="townSearch" placeholder="Town, city, or zip code&hellip;" autocomplete="off">
@@ -419,6 +371,7 @@
 
   <button class="save-btn" id="saveBtn" disabled>Save to my Wave Clock</button>
   <p class="status-msg" id="statusMsg"></p>
+  <p class="status-msg error" id="noDeviceMsg" style="display:none;">This link is missing your device ID, so there's nothing to save to &mdash; scan the QR code on your Wave Clock to get a working link.</p>
 
   <div class="saved-card" id="savedCard">
     <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
@@ -459,10 +412,12 @@
   const deviceId = params.get("id");
   const deviceTag = document.getElementById("deviceTag");
   const saveBtn = document.getElementById("saveBtn");
+  const noDeviceMsg = document.getElementById("noDeviceMsg");
 
   if (!deviceId) {
     deviceTag.textContent = "No device ID found in link";
     deviceTag.classList.add("error");
+    noDeviceMsg.style.display = "block";
   } else {
     deviceTag.textContent = "Setting up " + deviceId;
   }
@@ -513,14 +468,11 @@
   // and a self-hosted Nominatim instance or a paid geocoder would be the
   // next step -- worth knowing about now even though it isn't a problem
   // at today's scale.
-  const locateBtn = document.getElementById("locateBtn");
-  const locateStatus = document.getElementById("locateStatus");
   const townSearch = document.getElementById("townSearch");
   const searchResultsWrap = document.getElementById("searchResultsWrap");
   const selectedTownCard = document.getElementById("selectedTownCard");
   const selectedTownName = document.getElementById("selectedTownName");
   const changeTownBtn = document.getElementById("changeTownBtn");
-  const orDivider = document.querySelector(".or-divider");
   const searchRow = document.querySelector(".search-row");
   const stepTown = document.getElementById("stepTown");
   const stepStation = document.getElementById("stepStation");
@@ -534,8 +486,6 @@
     searchResultsWrap.innerHTML = "";
     selectedTownName.textContent = town.name + (town.state ? ", " + town.state : "");
     selectedTownCard.style.display = "flex";
-    locateBtn.style.display = "none";
-    orDivider.style.display = "none";
     searchRow.style.display = "none";
     stepTown.classList.add("done");
     stepStation.classList.remove("disabled");
@@ -550,88 +500,10 @@
     selectedTown = null;
     selectedStation = null;
     selectedTownCard.style.display = "none";
-    locateBtn.style.display = "";
-    orDivider.style.display = "";
     searchRow.style.display = "";
     stepTown.classList.remove("done");
     stepStation.classList.add("disabled");
     renderSaveState();
-  });
-
-  function resetLocateBtn() {
-    locateBtn.disabled = false;
-    locateBtn.textContent = "";
-    locateBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2 L12 6 M12 18 L12 22 M2 12 L6 12 M18 12 L22 12"/></svg> Use my current location';
-  }
-
-  function requestPosition(highAccuracy) {
-    return new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: highAccuracy,
-        timeout: highAccuracy ? 8000 : 15000,
-        maximumAge: 300000
-      });
-    });
-  }
-
-  function geolocationErrorMessage(err) {
-    if (err.code === err.PERMISSION_DENIED) {
-      return "Location access is turned off for this site — enable it in your browser settings, or search your town instead.";
-    }
-    if (err.code === err.POSITION_UNAVAILABLE) {
-      return "Couldn't pin down your location right now — search your town instead.";
-    }
-    return "Location took too long to find — search your town instead.";
-  }
-
-  locateBtn.addEventListener("click", async () => {
-    locateStatus.textContent = "";
-    if (!navigator.geolocation) {
-      locateStatus.textContent = "Location isn't available in this browser — search instead.";
-      return;
-    }
-    locateBtn.disabled = true;
-    locateBtn.textContent = "Finding you…";
-
-    let pos;
-    try {
-      // enableHighAccuracy forces a GPS-only fix, which is more precise
-      // but can be slow on a cold start (indoors, or first request on a
-      // fresh page load) -- fall back to a coarser, longer-timeout
-      // request rather than failing outright if that first one times out.
-      pos = await requestPosition(true);
-    } catch (err) {
-      if (err.code === err.TIMEOUT) {
-        try {
-          pos = await requestPosition(false);
-        } catch (err2) {
-          resetLocateBtn();
-          locateStatus.textContent = geolocationErrorMessage(err2);
-          return;
-        }
-      } else {
-        resetLocateBtn();
-        locateStatus.textContent = geolocationErrorMessage(err);
-        return;
-      }
-    }
-
-    const lat = pos.coords.latitude;
-    const lon = pos.coords.longitude;
-    let label = { short: "Your Location", state: "" };
-    try {
-      const resp = await fetch(
-        "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=" + lat + "&lon=" + lon + "&zoom=14&addressdetails=1"
-      );
-      if (resp.ok) {
-        const data = await resp.json();
-        label = buildTownLabel(data.address, data.display_name);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-    resetLocateBtn();
-    selectTownFromResult({ name: label.short, state: label.state, lat: lat, lon: lon });
   });
 
   let searchTimer = null;
@@ -742,12 +614,19 @@
     stationMapEl.style.display = "none";
   }
 
+  // Town-level zoom on load rather than fitting every pulled-in station
+  // into view -- with up to 40 stations now loaded (see loadStations),
+  // fitting bounds to all of them would zoom out far past the town
+  // itself. Starting close and letting people pan out to find the
+  // farther ones reads better on a phone.
+  const MAP_INITIAL_ZOOM = 13;
+
   function renderStationMap(town, stations) {
     clearMap();
     if (typeof L === "undefined" || !stations.length) return;
     try {
       stationMapEl.style.display = "block";
-      map = L.map(stationMapEl, { zoomControl: true, attributionControl: true });
+      map = L.map(stationMapEl, { zoomControl: true, attributionControl: true }).setView([town.lat, town.lon], MAP_INITIAL_ZOOM);
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
@@ -761,15 +640,12 @@
       const townMarker = L.marker([town.lat, town.lon], { icon: townIcon }).addTo(map);
       markers.push(townMarker);
 
-      const bounds = [[town.lat, town.lon]];
       stations.forEach((s) => {
         const marker = L.marker([s.lat, s.lon], { icon: stationIcon }).addTo(map);
         marker._stationId = s.id;
         marker.on("click", () => selectStation(s));
         markers.push(marker);
-        bounds.push([s.lat, s.lon]);
       });
-      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 13 });
     } catch (err) {
       console.error("Map failed to load:", err);
       clearMap();
@@ -790,9 +666,9 @@
           lon: s.lng !== undefined ? s.lng : s.lon,
           distance: haversineMiles(town.lat, town.lon, s.lat, s.lng !== undefined ? s.lng : s.lon)
         }))
-        .filter((s) => s.distance <= 60)
+        .filter((s) => s.distance <= 100)
         .sort((a, b) => a.distance - b.distance)
-        .slice(0, 20);
+        .slice(0, 40);
 
       if (nearby.length === 0) {
         stationListWrap.innerHTML = '<p class="station-status error">No NOAA stations found nearby &mdash; try a different spot, or contact us and we\'ll set it up manually.</p>';
