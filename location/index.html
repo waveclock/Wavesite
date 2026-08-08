@@ -415,7 +415,7 @@
   .saved-card {
     display: none;
     text-align: center;
-    padding: 30px 20px;
+    padding: 6px 20px 30px;
   }
   .saved-card.visible { display: block; }
   .saved-card h2 { font-family: var(--heading); font-size: 24px; margin: 0 0 10px; }
@@ -435,7 +435,7 @@
   .surf-scene {
     width: 100%;
     max-width: 260px;
-    margin: 4px auto 10px;
+    margin: 0 auto 6px;
     overflow: hidden;
   }
   .surf-scene svg { width: 100%; height: auto; display: block; overflow: visible; }
@@ -515,7 +515,7 @@
       <span class="step-check">&#10003; Confirmed</span>
     </div>
 
-    <p class="zone-help">This is exactly what shows on your Wave Clock screen.</p>
+    <p class="zone-help">This is how your town name will display on your Wave Clock screen.</p>
 
     <div class="name-view" id="nameView">
       <div class="name-view-value" id="nameViewValue"></div>
@@ -603,7 +603,7 @@
         </g>
       </svg>
     </div>
-    <h2>Saved!</h2>
+    <h2>WaveClock Updating Location&hellip;</h2>
     <p>Your Wave Clock will pick up these new town settings on its own within a minute or two &mdash; or right away if you press the reset button in the top-left corner of the board.</p>
     <div class="review-table-wrap saved-table-wrap">
       <table class="review-table saved-table" id="savedTable"></table>
@@ -1729,6 +1729,7 @@
       await uploadBytes(storageRef, blob);
 
       setStatus("");
+      statusMsg.style.display = "none";
       introHeading.textContent = "Your location is set";
       introSub.style.display = "none";
       const savedRows = [
