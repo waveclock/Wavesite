@@ -786,19 +786,24 @@
   // returns this for any land coordinate.
   //
   // cwfZone: the NWS Coastal Waters Forecast marine zone (e.g. ANZ453),
-  // used for swell/period detail. This is the piece worth double-checking
-  // before this ships for real -- there's no single documented NWS
-  // endpoint that resolves an arbitrary point directly to a marine zone
-  // the way there is for land zones. This queries the same /points
-  // endpoint again for a coordinate shifted just offshore, which should
-  // land inside the neighboring marine zone polygon, but that offset
-  // hasn't been validated against real NWS zone boundaries -- only
-  // spot-checked in concept. Worth confirming against a known-good value
-  // (Ocean City, NJ = ANZ453) before relying on it broadly. It's also
-  // coastline-direction-specific (nudging "east" only makes sense for an
-  // Atlantic-facing point) -- fine for the Jersey/Delaware/Maryland coast
-  // this targets today, but would need rethinking for a Gulf or Pacific
-  // coordinate.
+  // used for swell/period detail. An earlier version of this reused
+  // /points (the land-zone endpoint) on a coordinate nudged offshore --
+  // that was wrong: /points resolves the public/civil zone grid, not
+  // marine zones, so nudging offshore didn't reliably land in the right
+  // polygon at all. This now calls NWS's dedicated zone-lookup endpoint
+  // with type=marine, which does real point-in-polygon against actual
+  // marine zone boundaries -- the correct tool for this, instead of
+  // reusing the wrong one. The town's own coordinate is still on land
+  // (no marine zone contains it), so this still needs an offshore point;
+  // it now tries a few increasing eastward nudges (0.05 up to 0.35
+  // degrees) until one actually lands inside a marine zone, which is
+  // more robust against barrier islands/inlets than a single fixed
+  // offset. Still coastline-direction-specific (nudging "east" assumes
+  // an Atlantic-facing point) -- fine for the coast this targets today,
+  // would need rethinking for a Gulf or Pacific coordinate. This hasn't
+  // been verified against a real NWS response from this sandbox (network
+  // access to weather.gov is blocked here) -- worth confirming Ocean
+  // City, NJ resolves to the known-good ANZ453 once this is live.
   let zoneResult = null;
 
   async function fetchZoneForPoint(lat, lon) {
@@ -810,11 +815,32 @@
     return zoneUrl.split("/").pop();
   }
 
+  const MARINE_ZONE_ID_PATTERN = /^[A-Z]{2,3}Z\d{3}$/;
+  const MARINE_OFFSET_ATTEMPTS = [0.05, 0.1, 0.2, 0.35];
+
+  async function fetchMarineZoneForPoint(lat, lon) {
+    for (const offset of MARINE_OFFSET_ATTEMPTS) {
+      try {
+        const resp = await fetch(
+          `https://api.weather.gov/zones?type=marine&point=${lat.toFixed(4)},${(lon + offset).toFixed(4)}`
+        );
+        if (!resp.ok) continue;
+        const data = await resp.json();
+        const features = data.features || [];
+        const id = features[0] && features[0].properties && features[0].properties.id;
+        if (id && MARINE_ZONE_ID_PATTERN.test(id)) return id;
+      } catch (err) {
+        // try the next, larger offset
+      }
+    }
+    throw new Error("No marine zone found near this point");
+  }
+
   async function loadZones(town) {
     zoneResult = null;
     try {
       const srfZone = await fetchZoneForPoint(town.lat, town.lon);
-      const cwfZone = await fetchZoneForPoint(town.lat, town.lon + 0.05);
+      const cwfZone = await fetchMarineZoneForPoint(town.lat, town.lon);
       zoneResult = { srfZone, cwfZone };
     } catch (err) {
       console.error("Zone lookup failed:", err);
