@@ -246,6 +246,8 @@
   }
   .station-note b { color: var(--ink); }
 
+  .zone-help { font-size: 13px; color: var(--ink-soft); margin: 0 0 14px; }
+
   .station-map {
     display: none;
     height: 200px;
@@ -418,6 +420,22 @@
     </div>
   </div>
 
+  <div class="step disabled" id="stepZone">
+    <div class="step-head">
+      <span class="step-num">3</span>
+      <h3>Confirm your forecast zone</h3>
+      <span class="step-check">&#10003; Picked</span>
+    </div>
+
+    <p class="zone-help">This is the offshore area used for swell and wave forecasts on your Wave Clock. We've picked one for you, but double-check it's the water you actually mean &mdash; tap a different shaded area or the list below to change it.</p>
+
+    <div class="station-map" id="zoneMap"></div>
+
+    <div id="zoneListWrap">
+      <p class="station-status" id="zoneStatus">Pick your location above to see forecast zone options.</p>
+    </div>
+  </div>
+
   <button class="save-btn" id="saveBtn" disabled>Save to my Wave Clock</button>
   <p class="status-msg" id="statusMsg"></p>
   <p class="status-msg error" id="noDeviceMsg" style="display:none;">This link is missing your device ID, so there's nothing to save to &mdash; scan the QR code on your Wave Clock to get a working link.</p>
@@ -527,6 +545,7 @@
   const searchRow = document.querySelector(".search-row");
   const stepTown = document.getElementById("stepTown");
   const stepStation = document.getElementById("stepStation");
+  const stepZone = document.getElementById("stepZone");
 
   const DISPLAY_NAME_MAX = 17;
 
@@ -569,6 +588,7 @@
     searchRow.style.display = "none";
     stepTown.classList.add("done");
     stepStation.classList.remove("disabled");
+    stepZone.classList.remove("disabled");
     selectedStation = null;
     renderSaveState();
     loadStations(town);
@@ -582,7 +602,17 @@
     selectedTownCard.style.display = "none";
     searchRow.style.display = "";
     stepTown.classList.remove("done");
+    stepStation.classList.remove("done");
     stepStation.classList.add("disabled");
+    stepZone.classList.remove("done");
+    stepZone.classList.add("disabled");
+    clearMap();
+    clearZoneMap();
+    stationListWrap.innerHTML = '<p class="station-status" id="stationStatus">Pick your location above to see nearby stations.</p>';
+    zoneListWrap.innerHTML = '<p class="station-status" id="zoneStatus">Pick your location above to see forecast zone options.</p>';
+    srfZoneResult = null;
+    marineZoneCandidates = [];
+    selectedMarineZoneId = null;
     renderSaveState();
   });
 
@@ -792,19 +822,26 @@
   // marine zones, so nudging offshore didn't reliably land in the right
   // polygon at all. This now calls NWS's dedicated zone-lookup endpoint
   // with type=marine, which does real point-in-polygon against actual
-  // marine zone boundaries -- the correct tool for this, instead of
-  // reusing the wrong one. The town's own coordinate is still on land
+  // marine zone boundaries. The town's own coordinate is still on land
   // (no marine zone contains it), so this still needs an offshore point;
-  // it now tries a few increasing eastward nudges (0.05 up to 0.35
-  // degrees) until one actually lands inside a marine zone, which is
-  // more robust against barrier islands/inlets than a single fixed
-  // offset. Still coastline-direction-specific (nudging "east" assumes
-  // an Atlantic-facing point) -- fine for the coast this targets today,
-  // would need rethinking for a Gulf or Pacific coordinate. This hasn't
-  // been verified against a real NWS response from this sandbox (network
-  // access to weather.gov is blocked here) -- worth confirming Ocean
-  // City, NJ resolves to the known-good ANZ453 once this is live.
-  let zoneResult = null;
+  // it tries a few increasing eastward nudges (0.05 up to 0.35 degrees)
+  // until one actually lands inside a marine zone. Still
+  // coastline-direction-specific (nudging "east" assumes an
+  // Atlantic-facing point) -- fine for the coast this targets today,
+  // would need rethinking for a Gulf or Pacific coordinate.
+  //
+  // Rather than silently trusting whichever zone that auto-detection
+  // lands on, this fetches the real polygon for it plus its along-shore
+  // neighbors and shows them on a map so the customer can see the actual
+  // boundaries and override the pick if it's wrong -- since this was
+  // already the shakiest, hardest-to-verify part of the whole page, a
+  // visual confirmation step beats trusting a single heuristic silently.
+  // This hasn't been verified against a real NWS response from this
+  // sandbox (network access to weather.gov is blocked here).
+  let srfZoneResult = null;
+  let marineZoneCandidates = []; // [{ id, name, geojson }]
+  let suggestedMarineZoneId = null;
+  let selectedMarineZoneId = null;
 
   async function fetchZoneForPoint(lat, lon) {
     const resp = await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`);
@@ -818,33 +855,179 @@
   const MARINE_ZONE_ID_PATTERN = /^[A-Z]{2,3}Z\d{3}$/;
   const MARINE_OFFSET_ATTEMPTS = [0.05, 0.1, 0.2, 0.35];
 
-  async function fetchMarineZoneForPoint(lat, lon) {
+  async function fetchMarineZoneIdAtPoint(lat, lon) {
+    const resp = await fetch(`https://api.weather.gov/zones?type=marine&point=${lat.toFixed(4)},${lon.toFixed(4)}`);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const features = data.features || [];
+    const id = features[0] && features[0].properties && features[0].properties.id;
+    return id && MARINE_ZONE_ID_PATTERN.test(id) ? id : null;
+  }
+
+  async function fetchMarineZoneIdWithRetries(lat, lon) {
     for (const offset of MARINE_OFFSET_ATTEMPTS) {
       try {
-        const resp = await fetch(
-          `https://api.weather.gov/zones?type=marine&point=${lat.toFixed(4)},${(lon + offset).toFixed(4)}`
-        );
-        if (!resp.ok) continue;
-        const data = await resp.json();
-        const features = data.features || [];
-        const id = features[0] && features[0].properties && features[0].properties.id;
-        if (id && MARINE_ZONE_ID_PATTERN.test(id)) return id;
+        const id = await fetchMarineZoneIdAtPoint(lat, lon + offset);
+        if (id) return { id, offset };
       } catch (err) {
         // try the next, larger offset
       }
     }
-    throw new Error("No marine zone found near this point");
+    return null;
+  }
+
+  async function fetchMarineZoneGeometry(id) {
+    const resp = await fetch(`https://api.weather.gov/zones/marine/${id}`);
+    if (!resp.ok) throw new Error("Marine zone geometry fetch failed: " + resp.status);
+    const data = await resp.json();
+    const name = (data.properties && data.properties.name) || id;
+    return { id, name, geojson: data };
+  }
+
+  // Finds the zone at the town's own offshore point (the "suggested" one),
+  // then samples a couple of points along the coast north and south of it
+  // at the same offshore distance to pick up 1-2 neighboring zones, so
+  // there's something to compare against on the map rather than a single
+  // unverifiable answer.
+  async function fetchMarineZoneCandidates(town) {
+    const suggested = await fetchMarineZoneIdWithRetries(town.lat, town.lon);
+    if (!suggested) throw new Error("No marine zone found near this point");
+
+    const idSet = new Set([suggested.id]);
+    const neighborLats = [town.lat - 0.25, town.lat + 0.25];
+    for (const lat of neighborLats) {
+      try {
+        const id = await fetchMarineZoneIdAtPoint(lat, town.lon + suggested.offset);
+        if (id) idSet.add(id);
+      } catch (err) {
+        // skip this neighbor if it fails, the suggested zone still stands
+      }
+    }
+
+    const ids = Array.from(idSet).slice(0, 4);
+    const zones = [];
+    for (const id of ids) {
+      try {
+        zones.push(await fetchMarineZoneGeometry(id));
+      } catch (err) {
+        console.error("Couldn't load geometry for zone " + id, err);
+      }
+    }
+    if (!zones.length) throw new Error("Could not load any marine zone geometry");
+    return { zones, suggestedId: suggested.id };
+  }
+
+  const zoneListWrap = document.getElementById("zoneListWrap");
+  const zoneMapEl = document.getElementById("zoneMap");
+  let zoneMapInstance = null;
+  let zoneLayers = [];
+
+  function zoneStyle(isSelected) {
+    return {
+      color: isSelected ? "#C97456" : "#2C4A63",
+      weight: isSelected ? 3 : 2,
+      fillColor: isSelected ? "#C97456" : "#2C4A63",
+      fillOpacity: isSelected ? 0.25 : 0.08
+    };
+  }
+
+  function clearZoneMap() {
+    if (zoneMapInstance) {
+      zoneMapInstance.remove();
+      zoneMapInstance = null;
+    }
+    zoneLayers = [];
+    zoneMapEl.style.display = "none";
+  }
+
+  function selectMarineZone(id) {
+    selectedMarineZoneId = id;
+    zoneListWrap.querySelectorAll(".station-row").forEach((r) => {
+      r.classList.toggle("selected", r.dataset.zoneId === id);
+    });
+    zoneLayers.forEach((layer) => layer.setStyle(zoneStyle(layer._zoneId === id)));
+    stepZone.classList.add("done");
+    renderSaveState();
+  }
+
+  function renderZoneMap(candidates, selectedId) {
+    clearZoneMap();
+    if (typeof L === "undefined" || !candidates.length) return;
+    try {
+      zoneMapEl.style.display = "block";
+      zoneMapInstance = L.map(zoneMapEl, { zoomControl: true, attributionControl: true });
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(zoneMapInstance);
+
+      let combinedBounds = null;
+      candidates.forEach((z) => {
+        const layer = L.geoJSON(z.geojson, { style: zoneStyle(z.id === selectedId) }).addTo(zoneMapInstance);
+        layer._zoneId = z.id;
+        layer.on("click", () => selectMarineZone(z.id));
+        zoneLayers.push(layer);
+        try {
+          const b = layer.getBounds();
+          combinedBounds = combinedBounds ? combinedBounds.extend(b) : b;
+        } catch (err) {
+          // skip if this geometry has no valid bounds
+        }
+      });
+      if (combinedBounds) {
+        zoneMapInstance.fitBounds(combinedBounds, { padding: [20, 20] });
+      }
+    } catch (err) {
+      console.error("Zone map failed to load:", err);
+      clearZoneMap();
+    }
+  }
+
+  function renderZoneList(candidates, selectedId) {
+    zoneListWrap.innerHTML = "";
+    const list = document.createElement("div");
+    list.className = "station-list";
+    candidates.forEach((z) => {
+      const row = document.createElement("div");
+      row.className = "station-row" + (z.id === selectedId ? " selected" : "");
+      row.dataset.zoneId = z.id;
+      row.innerHTML =
+        '<div class="station-radio"></div>' +
+        '<div class="station-info">' +
+          '<div class="station-name">' + escapeHtml(z.name) + "</div>" +
+          '<div class="station-meta">Zone ' + escapeHtml(z.id) + (z.id === suggestedMarineZoneId ? " &middot; Suggested" : "") + "</div>" +
+        "</div>";
+      row.addEventListener("click", () => selectMarineZone(z.id));
+      list.appendChild(row);
+    });
+    zoneListWrap.appendChild(list);
   }
 
   async function loadZones(town) {
-    zoneResult = null;
+    srfZoneResult = null;
+    marineZoneCandidates = [];
+    suggestedMarineZoneId = null;
+    selectedMarineZoneId = null;
+    clearZoneMap();
+    zoneListWrap.innerHTML = '<p class="station-status" id="zoneStatus">Figuring out your offshore forecast zone&hellip;</p>';
+
     try {
-      const srfZone = await fetchZoneForPoint(town.lat, town.lon);
-      const cwfZone = await fetchMarineZoneForPoint(town.lat, town.lon);
-      zoneResult = { srfZone, cwfZone };
+      srfZoneResult = await fetchZoneForPoint(town.lat, town.lon);
     } catch (err) {
-      console.error("Zone lookup failed:", err);
-      zoneResult = null;
+      console.error("srfZone lookup failed:", err);
+    }
+
+    try {
+      const result = await fetchMarineZoneCandidates(town);
+      marineZoneCandidates = result.zones;
+      suggestedMarineZoneId = result.suggestedId;
+      selectedMarineZoneId = result.suggestedId;
+      renderZoneMap(marineZoneCandidates, selectedMarineZoneId);
+      renderZoneList(marineZoneCandidates, selectedMarineZoneId);
+      stepZone.classList.add("done");
+    } catch (err) {
+      console.error("Marine zone lookup failed:", err);
+      zoneListWrap.innerHTML = '<p class="station-status error">Couldn\'t figure out your offshore forecast zone &mdash; check your connection and try again.</p>';
     }
     renderSaveState();
   }
@@ -860,7 +1043,7 @@
   }
 
   function renderSaveState() {
-    const ready = deviceId && selectedTown && selectedStation && displayNameIsValid();
+    const ready = deviceId && selectedTown && selectedStation && displayNameIsValid() && srfZoneResult && selectedMarineZoneId;
     saveBtn.disabled = !ready;
   }
 
@@ -878,7 +1061,7 @@
     }
     saveBtn.disabled = true;
 
-    if (!zoneResult) {
+    if (!srfZoneResult || !selectedMarineZoneId) {
       setStatus("Still working out your forecast zone — one more second…");
       try {
         await loadZones(selectedTown);
@@ -887,7 +1070,7 @@
       }
     }
 
-    if (!zoneResult) {
+    if (!srfZoneResult || !selectedMarineZoneId) {
       setStatus("Couldn't confirm your forecast zone — check your connection and try again.", "error");
       saveBtn.disabled = false;
       return;
@@ -900,18 +1083,19 @@
         stationId: selectedStation.id,
         lat: selectedTown.lat,
         lon: selectedTown.lon,
-        srfZone: zoneResult.srfZone,
-        cwfZone: zoneResult.cwfZone
+        srfZone: srfZoneResult,
+        cwfZone: selectedMarineZoneId
       };
       const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
       const storageRef = ref(storage, "locations/" + deviceId + ".json");
       await uploadBytes(storageRef, blob);
 
       setStatus("");
-      savedDetail.textContent = 'Shows as "' + displayName + '" · ' + selectedTown.name + (selectedTown.state ? ", " + selectedTown.state : "") + " · " + selectedStation.name + " (Station " + selectedStation.id + ")";
+      savedDetail.textContent = 'Shows as "' + displayName + '" · ' + selectedTown.name + (selectedTown.state ? ", " + selectedTown.state : "") + " · " + selectedStation.name + " (Station " + selectedStation.id + ") · Zone " + selectedMarineZoneId;
       savedCard.classList.add("visible");
       stepTown.style.display = "none";
       stepStation.style.display = "none";
+      stepZone.style.display = "none";
       saveBtn.style.display = "none";
       savedCard.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
