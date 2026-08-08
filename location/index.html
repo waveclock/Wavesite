@@ -611,6 +611,13 @@
         existingSettings = JSON.parse(new TextDecoder().decode(bytes));
       } catch (err) {
         existingSettings = null;
+        // storage/object-not-found is the expected, silent case for a
+        // device that's never been set up before -- anything else means
+        // the read genuinely failed (permissions, network, malformed
+        // file) and is worth being able to see in the console.
+        if (!err || (err.code !== "storage/object-not-found" && err.message !== "timed out")) {
+          console.error("Couldn't check for existing location settings:", err);
+        }
       }
     }
     existingSettingsChecked = true;
