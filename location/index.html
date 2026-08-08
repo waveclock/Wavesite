@@ -272,6 +272,30 @@
 
   .zone-help { font-size: 13px; color: var(--ink-soft); margin: 0 0 14px; }
 
+  .review-table-wrap {
+    overflow-x: auto;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+  }
+  .review-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
+  .review-table th, .review-table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    white-space: nowrap;
+  }
+  .review-table tr:last-child td { border-bottom: none; }
+  .review-table th {
+    font-family: var(--body);
+    font-weight: 700;
+    color: var(--ink-soft);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--foam);
+  }
+  .review-table td.changed { color: var(--coral-dark); font-weight: 700; }
+
   .marine-warning {
     display: none;
     background: var(--foam);
@@ -494,6 +518,19 @@
     </div>
   </div>
 
+  <div class="step disabled" id="stepReview">
+    <div class="step-head">
+      <span class="step-num">5</span>
+      <h3>Review &amp; confirm</h3>
+    </div>
+
+    <p class="zone-help" id="reviewIntro">Here's exactly what will be saved to your Wave Clock.</p>
+
+    <div class="review-table-wrap">
+      <table class="review-table" id="reviewTable"></table>
+    </div>
+  </div>
+
   <button class="save-btn" id="saveBtn" disabled>Save to my Wave Clock</button>
   <p class="status-msg" id="statusMsg"></p>
   <p class="status-msg error" id="noDeviceMsg" style="display:none;">This link is missing your device ID, so there's nothing to save to &mdash; scan the QR code on your Wave Clock to get a working link.</p>
@@ -517,7 +554,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getStorage, ref, uploadBytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+  import { getStorage, ref, uploadBytes, getBytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
   // Same Firebase project/bucket already used by the /design/ page's
   // uploads -- device firmware polls this same bucket, just a different
@@ -546,6 +583,30 @@
   } else {
     deviceTag.textContent = "Setting up " + deviceId;
   }
+
+  // Fetched once up front (reads are public per the Storage rules, same
+  // as the device itself fetching this file) so the review step below
+  // can show what's already saved for this device alongside what's about
+  // to replace it. A missing file is the normal case for first-time setup
+  // -- storage/object-not-found, and any other read failure, both just
+  // mean "nothing to compare against" rather than an error worth
+  // surfacing here.
+  let existingSettings = null;
+  let existingSettingsChecked = false;
+
+  async function loadExistingSettings() {
+    if (deviceId) {
+      try {
+        const bytes = await getBytes(ref(storage, "locations/" + deviceId + ".json"));
+        existingSettings = JSON.parse(new TextDecoder().decode(bytes));
+      } catch (err) {
+        existingSettings = null;
+      }
+    }
+    existingSettingsChecked = true;
+    renderSaveState();
+  }
+  loadExistingSettings();
 
   function escapeHtml(str) {
     const div = document.createElement("div");
@@ -1397,11 +1458,56 @@
   const statusMsg = document.getElementById("statusMsg");
   const savedCard = document.getElementById("savedCard");
   const savedDetail = document.getElementById("savedDetail");
+  const stepReview = document.getElementById("stepReview");
+  const reviewTable = document.getElementById("reviewTable");
+
+  const REVIEW_FIELDS = [
+    { key: "name", label: "Display name" },
+    { key: "stationId", label: "Tide station" },
+    { key: "lat", label: "Latitude" },
+    { key: "lon", label: "Longitude" },
+    { key: "srfZone", label: "Surf zone" },
+    { key: "cwfZone", label: "Marine zone" }
+  ];
+
+  function renderReviewTable(ready) {
+    if (!ready || !existingSettingsChecked) {
+      stepReview.classList.add("disabled");
+      reviewTable.innerHTML = "";
+      return;
+    }
+    stepReview.classList.remove("disabled");
+
+    const newSettings = {
+      name: confirmedDisplayName,
+      stationId: selectedStation.id,
+      lat: selectedTown.lat,
+      lon: selectedTown.lon,
+      srfZone: srfZoneResult,
+      cwfZone: selectedMarineZoneId
+    };
+    const hasOld = existingSettings && typeof existingSettings === "object";
+
+    let html = "<thead><tr><th>Field</th>" + (hasOld ? "<th>Current</th>" : "") + "<th>New</th></tr></thead><tbody>";
+    REVIEW_FIELDS.forEach((f) => {
+      const newVal = newSettings[f.key];
+      const oldVal = hasOld ? existingSettings[f.key] : undefined;
+      const changed = hasOld && String(oldVal) !== String(newVal);
+      html += "<tr><td>" + escapeHtml(f.label) + "</td>";
+      if (hasOld) {
+        html += "<td>" + escapeHtml(oldVal !== undefined && oldVal !== null ? String(oldVal) : "—") + "</td>";
+      }
+      html += '<td class="' + (changed ? "changed" : "") + '">' + escapeHtml(String(newVal)) + "</td></tr>";
+    });
+    html += "</tbody>";
+    reviewTable.innerHTML = html;
+  }
 
   function renderSaveState() {
     const nameOk = confirmedDisplayName && confirmedDisplayName.length > 0 && confirmedDisplayName.length <= DISPLAY_NAME_MAX;
     const ready = deviceId && selectedTown && selectedStation && nameOk && srfZoneResult && selectedMarineZoneId;
     saveBtn.disabled = !ready;
+    renderReviewTable(ready);
   }
 
   function setStatus(text, kind) {
@@ -1453,6 +1559,7 @@
       stepTown.style.display = "none";
       stepStation.style.display = "none";
       stepZone.style.display = "none";
+      stepReview.style.display = "none";
       saveBtn.style.display = "none";
       savedCard.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
