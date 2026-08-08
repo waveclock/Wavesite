@@ -590,14 +590,24 @@
   // to replace it. A missing file is the normal case for first-time setup
   // -- storage/object-not-found, and any other read failure, both just
   // mean "nothing to compare against" rather than an error worth
-  // surfacing here.
+  // surfacing here. Guarded with a timeout: without one, a request that
+  // hangs (rather than cleanly failing) instead of erroring would leave
+  // existingSettingsChecked false forever, which would keep step 5
+  // permanently disabled even after every other step is done.
   let existingSettings = null;
   let existingSettingsChecked = false;
+
+  function withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))
+    ]);
+  }
 
   async function loadExistingSettings() {
     if (deviceId) {
       try {
-        const bytes = await getBytes(ref(storage, "locations/" + deviceId + ".json"));
+        const bytes = await withTimeout(getBytes(ref(storage, "locations/" + deviceId + ".json")), 6000);
         existingSettings = JSON.parse(new TextDecoder().decode(bytes));
       } catch (err) {
         existingSettings = null;
