@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Manage Your Wave Clock</title>
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta name="description" content="Manage your Wave Clock — location, settings, and custom screen.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+    --good: #3E7A5C;
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+
+  .wrap { max-width: 480px; margin: 0 auto; padding: 0 20px; }
+
+  header.top {
+    text-align: center;
+    padding: 28px 20px 22px;
+    background:
+      radial-gradient(ellipse 500px 260px at 50% -20%, rgba(44,74,99,0.14), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 100%);
+  }
+  .brand-mark { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }
+  h1.brand {
+    font-family: var(--display);
+    font-size: 22px;
+    margin: 0;
+    color: var(--ink);
+    text-shadow: 2px 2px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+  .device-tag {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    background: #fff;
+    border: 1.5px solid var(--line);
+    border-radius: 999px;
+    padding: 5px 14px;
+  }
+  .device-tag.error { color: var(--coral-dark); border-color: var(--coral); }
+
+  .intro { text-align: center; padding: 4px 8px 20px; }
+  .intro h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 24px;
+    margin: 0 0 8px;
+  }
+  .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0 auto; max-width: 38ch; }
+
+  .no-device-msg {
+    display: none;
+    background: var(--foam);
+    border-left: 4px solid var(--coral);
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--ink);
+    margin: 0 0 18px;
+  }
+
+  /* ---------- Hub cards ---------- */
+  .hub-list { display: flex; flex-direction: column; gap: 14px; }
+  .hub-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 12px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
+    padding: 16px 16px;
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  .hub-card:active { transform: translateY(1px); box-shadow: 2px 2px 0 rgba(20,48,45,0.10); }
+  .hub-icon {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--foam);
+    border: 2px solid var(--ink);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hub-icon svg { width: 26px; height: 26px; display: block; }
+  .hub-text { flex: 1; min-width: 0; }
+  .hub-title { display: block; font-family: var(--heading); font-weight: 700; font-size: 17px; margin: 0 0 3px; }
+  .hub-desc { display: block; font-size: 13px; color: var(--ink-soft); margin: 0; }
+  .hub-chevron { flex-shrink: 0; width: 18px; height: 18px; color: var(--ink-soft); }
+
+  footer {
+    text-align: center;
+    padding: 30px 20px 10px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  footer a { color: var(--navy); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <svg class="brand-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="50" cy="50" r="46" fill="none" stroke="#1F3347" stroke-width="3.5"/>
+    <path d="M18 60 C28 54 34 66 44 60 C52 55 58 66 68 60 C74 56 78 60 82 58" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M18 68 C28 62 34 74 44 68 C52 63 58 74 68 68 C74 64 78 68 82 66" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
+    <circle cx="50" cy="30" r="6" fill="none" stroke="#1F3347" stroke-width="3"/>
+    <line x1="50" y1="36" x2="50" y2="48" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
+  </svg>
+  <h1 class="brand">WAVE CLOCK</h1>
+  <span class="device-tag" id="deviceTag">Checking your device&hellip;</span>
+</header>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h2>Manage your Wave Clock</h2>
+    <p>Pick what you&rsquo;d like to update.</p>
+  </div>
+
+  <p class="no-device-msg" id="noDeviceMsg">This link is missing your device ID, so there&rsquo;s nothing to manage &mdash; scan the QR code on your Wave Clock to get a working link.</p>
+
+  <div class="hub-list">
+    <a class="hub-card" id="locationCard" href="../location/">
+      <span class="hub-icon">
+        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M20 6 C13 6 8 11.5 8 18 C8 27 20 35 20 35 C20 35 32 27 32 18 C32 11.5 27 6 20 6 Z" stroke="#1F3347" stroke-width="2.6" stroke-linejoin="round"/>
+          <circle cx="20" cy="18" r="5.5" stroke="#1F3347" stroke-width="2.4"/>
+        </svg>
+      </span>
+      <span class="hub-text">
+        <span class="hub-title">Location</span>
+        <span class="hub-desc">Town, tide station &amp; forecast zone</span>
+      </span>
+      <svg class="hub-chevron" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+
+    <a class="hub-card" id="settingsCard" href="../settings/">
+      <span class="hub-icon">
+        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="20" cy="20" r="6" stroke="#1F3347" stroke-width="2.4"/>
+          <path d="M20 8v4M20 28v4M32 20h-4M12 20H8M28.5 11.5l-2.8 2.8M14.3 25.7l-2.8 2.8M28.5 28.5l-2.8-2.8M14.3 14.3l-2.8-2.8" stroke="#1F3347" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="hub-text">
+        <span class="hub-title">Settings</span>
+        <span class="hub-desc">Screen cycle, screens &amp; sunset reminder</span>
+      </span>
+      <svg class="hub-chevron" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+
+    <a class="hub-card" id="designCard" href="../design/">
+      <span class="hub-icon">
+        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="8" y="10" width="24" height="17" rx="2.5" stroke="#1F3347" stroke-width="2.4"/>
+          <path d="M13 32h14" stroke="#1F3347" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M13 21 L17 17 L20 20 L27 13" stroke="#1F3347" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="hub-text">
+        <span class="hub-title">Custom Screen</span>
+        <span class="hub-desc">Draw or design your own screen</span>
+      </span>
+      <svg class="hub-chevron" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+  </div>
+
+</div>
+
+<footer>
+  <p><a href="../index.html">waveclock.net</a></p>
+</footer>
+
+<script type="module">
+  const params = new URLSearchParams(window.location.search);
+  const deviceId = params.get("id");
+  const deviceTag = document.getElementById("deviceTag");
+  const noDeviceMsg = document.getElementById("noDeviceMsg");
+  const cards = [
+    document.getElementById("locationCard"),
+    document.getElementById("settingsCard"),
+    document.getElementById("designCard")
+  ];
+
+  if (!deviceId) {
+    deviceTag.textContent = "No device ID found in link";
+    deviceTag.classList.add("error");
+    noDeviceMsg.style.display = "block";
+  } else {
+    deviceTag.textContent = "Managing " + deviceId;
+    cards.forEach((card) => {
+      card.href = card.getAttribute("href") + "?id=" + encodeURIComponent(deviceId);
+    });
+  }
+</script>
+
+</body>
+</html>

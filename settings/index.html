@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Wave Clock Settings</title>
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta name="description" content="Set your Wave Clock's screen cycle, screens, and sunset reminder.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+    --good: #3E7A5C;
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 40px;
+  }
+
+  .wrap { max-width: 480px; margin: 0 auto; padding: 0 20px; }
+
+  header.top {
+    text-align: center;
+    padding: 28px 20px 22px;
+    background:
+      radial-gradient(ellipse 500px 260px at 50% -20%, rgba(44,74,99,0.14), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 100%);
+  }
+  .brand-mark { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }
+  h1.brand {
+    font-family: var(--display);
+    font-size: 22px;
+    margin: 0;
+    color: var(--ink);
+    text-shadow: 2px 2px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+  .device-tag {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    background: #fff;
+    border: 1.5px solid var(--line);
+    border-radius: 999px;
+    padding: 5px 14px;
+  }
+  .device-tag.error { color: var(--coral-dark); border-color: var(--coral); }
+
+  .intro { text-align: center; padding: 4px 8px 18px; }
+  .intro h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 24px;
+    margin: 0 0 8px;
+  }
+  .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0 auto; max-width: 38ch; }
+
+  .no-device-msg {
+    display: none;
+    background: var(--foam);
+    border-left: 4px solid var(--coral);
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--ink);
+    margin: 0 0 18px;
+  }
+
+  /* ---------- Wizard progress ---------- */
+  .wizard-step-label {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .wizard-progress { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 18px; }
+  .wizard-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); transition: width 0.15s, background 0.15s; }
+  .wizard-dot.done { background: var(--coral); }
+  .wizard-dot.active { background: var(--navy); width: 22px; border-radius: 999px; }
+
+  /* ---------- Step panel ---------- */
+  .step-panel {
+    display: none;
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
+    padding: 20px 18px;
+  }
+  .step-panel.active { display: block; }
+  .panel-title { font-family: var(--heading); font-size: 19px; font-weight: 700; margin: 0 0 6px; }
+  .panel-desc { font-size: 13px; color: var(--ink-soft); margin: 0 0 16px; }
+
+  /* ---------- Single-choice list (Screen Cycle, Sunset Reminder) ---------- */
+  .choice-list { display: flex; flex-direction: column; gap: 8px; }
+  .choice-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    padding: 13px 14px;
+    cursor: pointer;
+    background: #fff;
+  }
+  .choice-row.selected { background: var(--foam); border-color: var(--navy); box-shadow: 2px 2px 0 var(--navy); }
+  .choice-radio {
+    flex-shrink: 0;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    border: 2px solid var(--ink);
+    position: relative;
+  }
+  .choice-row.selected .choice-radio { border-color: var(--navy); }
+  .choice-row.selected .choice-radio::after {
+    content: "";
+    position: absolute; inset: 3px;
+    border-radius: 50%;
+    background: var(--navy);
+  }
+  .choice-label { font-weight: 600; font-size: 14.5px; }
+
+  /* ---------- Screens toggle list ---------- */
+  .toggle-list { display: flex; flex-direction: column; }
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 13px 2px;
+    border-bottom: 1px solid var(--line);
+  }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-label { font-weight: 600; font-size: 14.5px; }
+  .toggle-sub { display: block; font-size: 11.5px; font-weight: 500; color: var(--ink-soft); margin-top: 2px; }
+
+  .segmented {
+    display: flex;
+    flex-shrink: 0;
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .segmented-btn {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    padding: 7px 13px;
+    border: none;
+    background: #fff;
+    color: var(--ink-soft);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .segmented-btn + .segmented-btn { border-left: 2px solid var(--ink); }
+  .segmented-btn.active { background: var(--navy); color: #fff; }
+
+  /* ---------- Review (step 3) ---------- */
+  .review-table-wrap {
+    overflow-x: auto;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    margin-top: 18px;
+  }
+  .review-table { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
+  .review-table th, .review-table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+  }
+  .review-table tr:last-child td { border-bottom: none; }
+  .review-table th {
+    font-family: var(--body);
+    font-weight: 700;
+    color: var(--ink-soft);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--foam);
+  }
+
+  /* ---------- Nav ---------- */
+  .wizard-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; }
+  .nav-back {
+    background: none;
+    border: none;
+    color: var(--coral-dark);
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 14px;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 8px 4px;
+    visibility: hidden;
+  }
+  .nav-back.visible { visibility: visible; }
+  .nav-next {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 15px;
+    padding: 13px 24px;
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+    background: var(--coral);
+    color: #fff;
+    box-shadow: 3px 3px 0 var(--ink);
+    cursor: pointer;
+    margin-left: auto;
+  }
+  .nav-next:active { transform: translateY(1px); box-shadow: 2px 2px 0 var(--ink); }
+  .nav-next:disabled { background: var(--driftwood); cursor: default; box-shadow: none; opacity: 0.6; }
+
+  .status-msg {
+    text-align: center;
+    margin-top: 14px;
+    font-size: 14.5px;
+    min-height: 20px;
+    color: var(--ink-soft);
+  }
+  .status-msg.success { color: var(--good); font-weight: 700; }
+  .status-msg.error { color: var(--coral-dark); font-weight: 700; }
+
+  /* ---------- Saved confirmation ---------- */
+  .saved-card { display: none; text-align: center; padding: 10px 20px 30px; }
+  .saved-card.visible { display: block; }
+  .saved-card svg.check { width: 60px; height: 60px; margin: 0 auto 12px; display: block; }
+  .saved-card h2 { font-family: var(--heading); font-size: 24px; margin: 0 0 10px; }
+  .saved-card p { color: var(--ink-soft); font-size: 15px; max-width: 34ch; margin: 0 auto; }
+  .saved-table-wrap { margin-top: 18px; text-align: left; }
+  .saved-table td:first-child {
+    font-weight: 700;
+    color: var(--ink-soft);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    width: 46%;
+  }
+
+  footer {
+    text-align: center;
+    padding: 30px 20px 10px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  footer a { color: var(--navy); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <svg class="brand-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="50" cy="50" r="46" fill="none" stroke="#1F3347" stroke-width="3.5"/>
+    <path d="M18 60 C28 54 34 66 44 60 C52 55 58 66 68 60 C74 56 78 60 82 58" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M18 68 C28 62 34 74 44 68 C52 63 58 74 68 68 C74 64 78 68 82 66" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
+    <circle cx="50" cy="30" r="6" fill="none" stroke="#1F3347" stroke-width="3"/>
+    <line x1="50" y1="36" x2="50" y2="48" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
+  </svg>
+  <h1 class="brand">WAVE CLOCK</h1>
+  <span class="device-tag" id="deviceTag">Checking your device&hellip;</span>
+</header>
+
+<div class="wrap">
+
+  <div class="intro" id="introBlock">
+    <h2 id="introHeading">Wave Clock settings</h2>
+    <p id="introSub">Matches the same menu on your Wave Clock&rsquo;s screen.</p>
+  </div>
+
+  <p class="no-device-msg" id="noDeviceMsg">This link is missing your device ID, so there&rsquo;s nothing to save to &mdash; scan the QR code on your Wave Clock to get a working link.</p>
+
+  <div id="wizard">
+    <p class="wizard-step-label" id="wizardStepLabel">Step 1 of 3</p>
+    <div class="wizard-progress" id="wizardProgress">
+      <span class="wizard-dot" data-step="1"></span>
+      <span class="wizard-dot" data-step="2"></span>
+      <span class="wizard-dot" data-step="3"></span>
+    </div>
+
+    <!-- Step 1: Screen Cycle -->
+    <div class="step-panel" id="panelCycle">
+      <h3 class="panel-title">Screen Cycle</h3>
+      <p class="panel-desc">How often your Wave Clock automatically rotates between its screens.</p>
+      <div class="choice-list" id="cycleChoices">
+        <div class="choice-row" data-value="OFF"><span class="choice-radio"></span><span class="choice-label">Off</span></div>
+        <div class="choice-row" data-value="1MIN"><span class="choice-radio"></span><span class="choice-label">1 Minute</span></div>
+        <div class="choice-row" data-value="5MIN"><span class="choice-radio"></span><span class="choice-label">5 Minutes</span></div>
+      </div>
+      <div class="wizard-nav">
+        <button type="button" class="nav-back" id="backCycle">Back</button>
+        <button type="button" class="nav-next" id="nextCycle">Next</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Screens -->
+    <div class="step-panel" id="panelScreens">
+      <h3 class="panel-title">Screens</h3>
+      <p class="panel-desc">Turn any screen on or off, and choose how the Sunset Screen appears.</p>
+      <div class="toggle-list" id="screensList">
+        <div class="toggle-row" data-field="showWaveForecast">
+          <span class="toggle-label">Wave Forecast</span>
+          <div class="segmented"><button type="button" class="segmented-btn" data-value="true">Yes</button><button type="button" class="segmented-btn" data-value="false">No</button></div>
+        </div>
+        <div class="toggle-row" data-field="showWeatherForecast">
+          <span class="toggle-label">Weather Forecast</span>
+          <div class="segmented"><button type="button" class="segmented-btn" data-value="true">Yes</button><button type="button" class="segmented-btn" data-value="false">No</button></div>
+        </div>
+        <div class="toggle-row" data-field="showBeach">
+          <span class="toggle-label">Beach Screen</span>
+          <div class="segmented"><button type="button" class="segmented-btn" data-value="true">Yes</button><button type="button" class="segmented-btn" data-value="false">No</button></div>
+        </div>
+        <div class="toggle-row" data-field="showLifeguard">
+          <span class="toggle-label">Lifeguard Report</span>
+          <div class="segmented"><button type="button" class="segmented-btn" data-value="true">Yes</button><button type="button" class="segmented-btn" data-value="false">No</button></div>
+        </div>
+        <div class="toggle-row" data-field="showCustomScreen">
+          <span class="toggle-label">Custom Design</span>
+          <div class="segmented"><button type="button" class="segmented-btn" data-value="true">Yes</button><button type="button" class="segmented-btn" data-value="false">No</button></div>
+        </div>
+        <div class="toggle-row" data-field="sunsetAllDay">
+          <span class="toggle-label">Sunset Screen<span class="toggle-sub">Still appears via the Sunset Reminder even on Sunset Only</span></span>
+          <div class="segmented"><button type="button" class="segmented-btn" data-value="true">All Day</button><button type="button" class="segmented-btn" data-value="false">Sunset Only</button></div>
+        </div>
+      </div>
+      <div class="wizard-nav">
+        <button type="button" class="nav-back visible" id="backScreens">Back</button>
+        <button type="button" class="nav-next" id="nextScreens">Next</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Sunset Reminder -->
+    <div class="step-panel" id="panelReminder">
+      <h3 class="panel-title">Sunset Reminder</h3>
+      <p class="panel-desc">A one-time reminder screen before sunset, if you&rsquo;d like a heads up.</p>
+      <div class="choice-list" id="reminderChoices">
+        <div class="choice-row" data-value="NONE"><span class="choice-radio"></span><span class="choice-label">None</span></div>
+        <div class="choice-row" data-value="30MIN"><span class="choice-radio"></span><span class="choice-label">30 Minutes Before</span></div>
+        <div class="choice-row" data-value="60MIN"><span class="choice-radio"></span><span class="choice-label">60 Minutes Before</span></div>
+      </div>
+
+      <div class="review-table-wrap">
+        <table class="review-table" id="reviewTable"></table>
+      </div>
+
+      <div class="wizard-nav">
+        <button type="button" class="nav-back visible" id="backReminder">Back</button>
+        <button type="button" class="nav-next" id="saveBtn">Save Settings</button>
+      </div>
+      <p class="status-msg" id="statusMsg"></p>
+    </div>
+  </div>
+
+  <div class="saved-card" id="savedCard">
+    <svg class="check" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="50" r="46" fill="none" stroke="#3E7A5C" stroke-width="4"/>
+      <path d="M30 52 L44 66 L72 36" fill="none" stroke="#3E7A5C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <h2>Settings saved!</h2>
+    <p>Your Wave Clock will pick up these settings on its own within a minute or two &mdash; or right away if you press the reset button in the top-left corner of the board.</p>
+    <div class="review-table-wrap saved-table-wrap">
+      <table class="review-table saved-table" id="savedTable"></table>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <p><a href="../manage/">Back to device menu</a></p>
+  <p><a href="../index.html">waveclock.net</a></p>
+</footer>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getStorage, ref, uploadBytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+  // Same Firebase project/bucket already used by /design/ and /location/ --
+  // device firmware polls this same bucket, just a different path
+  // (settings/{id}.json instead of designs/{id}.bin or locations/{id}.json).
+  const firebaseConfig = {
+    apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
+    authDomain: "waveclock.firebaseapp.com",
+    projectId: "waveclock",
+    storageBucket: "waveclock.firebasestorage.app",
+    messagingSenderId: "668302334840",
+    appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
+  };
+  const app = initializeApp(firebaseConfig);
+  const storage = getStorage(app);
+
+  const params = new URLSearchParams(window.location.search);
+  const deviceId = params.get("id");
+  const deviceTag = document.getElementById("deviceTag");
+  const noDeviceMsg = document.getElementById("noDeviceMsg");
+  const wizard = document.getElementById("wizard");
+  const introHeading = document.getElementById("introHeading");
+  const introSub = document.getElementById("introSub");
+  const statusMsg = document.getElementById("statusMsg");
+  const savedCard = document.getElementById("savedCard");
+  const savedTable = document.getElementById("savedTable");
+  const reviewTable = document.getElementById("reviewTable");
+  const wizardStepLabel = document.getElementById("wizardStepLabel");
+  const wizardDots = Array.from(document.querySelectorAll(".wizard-dot"));
+  const saveBtn = document.getElementById("saveBtn");
+
+  if (!deviceId) {
+    deviceTag.textContent = "No device ID found in link";
+    deviceTag.classList.add("error");
+    noDeviceMsg.style.display = "block";
+    wizard.style.display = "none";
+  } else {
+    deviceTag.textContent = "Configuring " + deviceId;
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // ================= State =================
+  const state = {
+    cycleMode: "1MIN",
+    showWaveForecast: true,
+    showWeatherForecast: true,
+    showBeach: true,
+    showLifeguard: true,
+    showCustomScreen: false,
+    sunsetAllDay: false,
+    sunsetReminder: "NONE"
+  };
+  let hasInteracted = false;
+
+  const CYCLE_LABELS = { OFF: "Off", "1MIN": "1 Minute", "5MIN": "5 Minutes" };
+  const REMINDER_LABELS = { NONE: "None", "30MIN": "30 Minutes Before", "60MIN": "60 Minutes Before" };
+  const SCREEN_FIELDS = [
+    { field: "showWaveForecast", label: "Wave Forecast" },
+    { field: "showWeatherForecast", label: "Weather Forecast" },
+    { field: "showBeach", label: "Beach Screen" },
+    { field: "showLifeguard", label: "Lifeguard Report" },
+    { field: "showCustomScreen", label: "Custom Design" }
+  ];
+
+  // ================= Step navigation =================
+  const panels = [
+    document.getElementById("panelCycle"),
+    document.getElementById("panelScreens"),
+    document.getElementById("panelReminder")
+  ];
+  let currentStep = 1;
+
+  function showStep(n) {
+    currentStep = n;
+    panels.forEach((p, i) => p.classList.toggle("active", i === n - 1));
+    wizardStepLabel.textContent = "Step " + n + " of 3";
+    wizardDots.forEach((dot, i) => {
+      const stepNum = i + 1;
+      dot.classList.toggle("active", stepNum === n);
+      dot.classList.toggle("done", stepNum < n);
+    });
+    if (n === 3) renderReview();
+    window.scrollTo({ top: wizard.offsetTop - 10, behavior: "smooth" });
+  }
+
+  document.getElementById("nextCycle").addEventListener("click", () => showStep(2));
+  document.getElementById("backScreens").addEventListener("click", () => showStep(1));
+  document.getElementById("nextScreens").addEventListener("click", () => showStep(3));
+  document.getElementById("backReminder").addEventListener("click", () => showStep(2));
+
+  // ================= Step 1: Screen Cycle =================
+  function renderCycleChoices() {
+    document.querySelectorAll("#cycleChoices .choice-row").forEach((row) => {
+      row.classList.toggle("selected", row.dataset.value === state.cycleMode);
+    });
+  }
+  document.querySelectorAll("#cycleChoices .choice-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      hasInteracted = true;
+      state.cycleMode = row.dataset.value;
+      renderCycleChoices();
+    });
+  });
+
+  // ================= Step 2: Screens =================
+  function renderScreensList() {
+    document.querySelectorAll("#screensList .toggle-row").forEach((row) => {
+      const field = row.dataset.field;
+      const value = state[field];
+      row.querySelectorAll(".segmented-btn").forEach((btn) => {
+        btn.classList.toggle("active", (btn.dataset.value === "true") === !!value);
+      });
+    });
+  }
+  document.querySelectorAll("#screensList .segmented-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      hasInteracted = true;
+      const row = btn.closest(".toggle-row");
+      state[row.dataset.field] = btn.dataset.value === "true";
+      renderScreensList();
+    });
+  });
+
+  // ================= Step 3: Sunset Reminder =================
+  function renderReminderChoices() {
+    document.querySelectorAll("#reminderChoices .choice-row").forEach((row) => {
+      row.classList.toggle("selected", row.dataset.value === state.sunsetReminder);
+    });
+  }
+  document.querySelectorAll("#reminderChoices .choice-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      hasInteracted = true;
+      state.sunsetReminder = row.dataset.value;
+      renderReminderChoices();
+      renderReview();
+    });
+  });
+
+  function renderReview() {
+    const rows = [
+      { label: "Screen Cycle", value: CYCLE_LABELS[state.cycleMode] },
+      ...SCREEN_FIELDS.map((f) => ({ label: f.label, value: state[f.field] ? "Yes" : "No" })),
+      { label: "Sunset Screen", value: state.sunsetAllDay ? "All Day" : "Sunset Only" },
+      { label: "Sunset Reminder", value: REMINDER_LABELS[state.sunsetReminder] }
+    ];
+    reviewTable.innerHTML = "<thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>" +
+      rows.map((r) => "<tr><td>" + escapeHtml(r.label) + "</td><td>" + escapeHtml(r.value) + "</td></tr>").join("") +
+      "</tbody>";
+  }
+
+  function renderAll() {
+    renderCycleChoices();
+    renderScreensList();
+    renderReminderChoices();
+    if (currentStep === 3) renderReview();
+  }
+
+  // ================= Load existing settings =================
+  function withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))
+    ]);
+  }
+
+  async function loadExistingSettings() {
+    if (!deviceId) return;
+    try {
+      const path = encodeURIComponent("settings/" + deviceId + ".json");
+      const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + path + "?alt=media";
+      const resp = await withTimeout(fetch(url), 12000);
+      if (resp.status === 404) return; // no saved settings yet -- keep defaults
+      if (!resp.ok) throw new Error("Existing-settings fetch failed: " + resp.status);
+      const existing = await resp.json();
+      if (hasInteracted || !existing || typeof existing !== "object") return;
+      Object.keys(state).forEach((key) => {
+        if (key in existing) state[key] = existing[key];
+      });
+      renderAll();
+    } catch (err) {
+      console.error("Couldn't load existing settings (starting from defaults):", err);
+    }
+  }
+  loadExistingSettings();
+
+  // ================= Save =================
+  function setStatus(text, kind) {
+    statusMsg.textContent = text;
+    statusMsg.className = "status-msg" + (kind ? " " + kind : "");
+  }
+
+  saveBtn.addEventListener("click", async () => {
+    if (!deviceId) return;
+    saveBtn.disabled = true;
+    setStatus("Saving…");
+    try {
+      const payload = {
+        cycleMode: state.cycleMode,
+        showWaveForecast: state.showWaveForecast,
+        showWeatherForecast: state.showWeatherForecast,
+        showBeach: state.showBeach,
+        showLifeguard: state.showLifeguard,
+        showCustomScreen: state.showCustomScreen,
+        sunsetAllDay: state.sunsetAllDay,
+        sunsetReminder: state.sunsetReminder
+      };
+      const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+      const storageRef = ref(storage, "settings/" + deviceId + ".json");
+      await uploadBytes(storageRef, blob);
+
+      setStatus("");
+      introHeading.textContent = "Your settings are set";
+      introSub.style.display = "none";
+      const savedRows = [
+        { label: "Screen Cycle", value: CYCLE_LABELS[state.cycleMode] },
+        ...SCREEN_FIELDS.map((f) => ({ label: f.label, value: state[f.field] ? "Yes" : "No" })),
+        { label: "Sunset Screen", value: state.sunsetAllDay ? "All Day" : "Sunset Only" },
+        { label: "Sunset Reminder", value: REMINDER_LABELS[state.sunsetReminder] }
+      ];
+      savedTable.innerHTML = "<tbody>" + savedRows.map((r) => "<tr><td>" + escapeHtml(r.label) + "</td><td>" + escapeHtml(r.value) + "</td></tr>").join("") + "</tbody>";
+      savedCard.classList.add("visible");
+      wizard.style.display = "none";
+      savedCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
+      console.error(err);
+      if (err && err.code === "storage/unauthorized") {
+        setStatus("Saving isn't allowed for this yet — the Storage rules need to permit writes to settings/, not just designs/ and locations/.", "error");
+      } else {
+        setStatus("Something went wrong saving — try again in a moment.", "error");
+      }
+      saveBtn.disabled = false;
+    }
+  });
+
+  renderAll();
+  showStep(1);
+</script>
+
+</body>
+</html>
