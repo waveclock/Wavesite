@@ -703,7 +703,13 @@
     return allStationsCache;
   }
 
-  function selectStation(s) {
+  const STATION_FOCUS_ZOOM = 15;
+
+  // source is "map" or "list" -- picking a marker brings that station to
+  // the top of the list (it's easy to lose track of which pin you tapped
+  // in a scrolling list); picking a list row zooms the map to it (so you
+  // can see exactly where it sits relative to the coastline).
+  function selectStation(s, source) {
     selectedStation = s;
     stationListWrap.querySelectorAll(".station-row").forEach((r) => {
       r.classList.toggle("selected", r.dataset.stationId === String(s.id));
@@ -712,6 +718,18 @@
       if (m._stationId) m.setIcon(m._stationId === s.id ? selectedIcon : stationIcon);
     });
     stepStation.classList.add("done");
+
+    if (source === "map") {
+      const list = stationListWrap.querySelector(".station-list");
+      const row = list && list.querySelector('[data-station-id="' + s.id + '"]');
+      if (row && list.firstElementChild !== row) {
+        list.insertBefore(row, list.firstElementChild);
+        row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    } else if (source === "list" && map) {
+      map.setView([s.lat, s.lon], STATION_FOCUS_ZOOM);
+    }
+
     renderSaveState();
   }
 
@@ -753,7 +771,7 @@
       stations.forEach((s) => {
         const marker = L.marker([s.lat, s.lon], { icon: stationIcon }).addTo(map);
         marker._stationId = s.id;
-        marker.on("click", () => selectStation(s));
+        marker.on("click", () => selectStation(s, "map"));
         markers.push(marker);
       });
     } catch (err) {
@@ -798,7 +816,7 @@
             '<div class="station-name">' + escapeHtml(s.name) + (s.state ? ", " + escapeHtml(s.state) : "") + "</div>" +
             '<div class="station-meta">' + s.distance.toFixed(1) + " mi away &middot; Station " + escapeHtml(s.id) + "</div>" +
           "</div>";
-        row.addEventListener("click", () => selectStation(s));
+        row.addEventListener("click", () => selectStation(s, "list"));
         list.appendChild(row);
       });
       stationListWrap.appendChild(list);
@@ -940,19 +958,40 @@
     zoneMapEl.style.display = "none";
   }
 
-  function selectMarineZone(id) {
+  // source is "map" or "list" -- same reorder/zoom pairing as the tide
+  // station picker above.
+  function selectMarineZone(id, source) {
     selectedMarineZoneId = id;
     zoneListWrap.querySelectorAll(".station-row").forEach((r) => {
       r.classList.toggle("selected", r.dataset.zoneId === id);
     });
     zoneLayers.forEach((layer) => layer.setStyle(zoneStyle(layer._zoneId === id)));
     stepZone.classList.add("done");
+
+    if (source === "map") {
+      const list = zoneListWrap.querySelector(".station-list");
+      const row = list && list.querySelector('[data-zone-id="' + id + '"]');
+      if (row && list.firstElementChild !== row) {
+        list.insertBefore(row, list.firstElementChild);
+        row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    } else if (source === "list" && zoneMapInstance) {
+      const layer = zoneLayers.find((l) => l._zoneId === id);
+      if (layer) {
+        try {
+          zoneMapInstance.fitBounds(layer.getBounds(), { padding: [20, 20] });
+        } catch (err) {
+          // no valid bounds for this layer, leave the map view as-is
+        }
+      }
+    }
+
     renderSaveState();
   }
 
   function renderZoneMap(candidates, selectedId) {
     clearZoneMap();
-    if (typeof L === "undefined" || !candidates.length) return;
+    if (typeof L === "undefined" || !candidates.length || !selectedTown) return;
     try {
       zoneMapEl.style.display = "block";
       zoneMapInstance = L.map(zoneMapEl, { zoomControl: true, attributionControl: true });
@@ -961,11 +1000,19 @@
         attribution: "&copy; OpenStreetMap contributors"
       }).addTo(zoneMapInstance);
 
+      const townIcon = L.divIcon({ className: "town-marker", html: "<span></span>", iconSize: [14, 14] });
+      const townMarker = L.marker([selectedTown.lat, selectedTown.lon], { icon: townIcon }).addTo(zoneMapInstance);
+
       let combinedBounds = null;
+      try {
+        combinedBounds = L.latLngBounds([[selectedTown.lat, selectedTown.lon]]);
+      } catch (err) {
+        combinedBounds = null;
+      }
       candidates.forEach((z) => {
         const layer = L.geoJSON(z.geojson, { style: zoneStyle(z.id === selectedId) }).addTo(zoneMapInstance);
         layer._zoneId = z.id;
-        layer.on("click", () => selectMarineZone(z.id));
+        layer.on("click", () => selectMarineZone(z.id, "map"));
         zoneLayers.push(layer);
         try {
           const b = layer.getBounds();
@@ -997,7 +1044,7 @@
           '<div class="station-name">' + escapeHtml(z.name) + "</div>" +
           '<div class="station-meta">Zone ' + escapeHtml(z.id) + (z.id === suggestedMarineZoneId ? " &middot; Suggested" : "") + "</div>" +
         "</div>";
-      row.addEventListener("click", () => selectMarineZone(z.id));
+      row.addEventListener("click", () => selectMarineZone(z.id, "list"));
       list.appendChild(row);
     });
     zoneListWrap.appendChild(list);
