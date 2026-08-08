@@ -885,16 +885,19 @@
   // polygon at all. This now calls NWS's dedicated zone-lookup endpoint
   // with type=marine, which does real point-in-polygon against actual
   // marine zone boundaries. The town's own coordinate is still on land
-  // (no marine zone contains it), so this still needs an offshore point;
-  // it tries a few increasing eastward nudges (0.05 up to 0.35 degrees)
-  // until one actually lands inside a marine zone. Still
-  // coastline-direction-specific (nudging "east" assumes an
-  // Atlantic-facing point) -- fine for the coast this targets today,
-  // would need rethinking for a Gulf or Pacific coordinate.
+  // (no marine zone contains it), so this still needs an offshore point.
+  //
+  // An earlier version of this only nudged east, which assumed an
+  // Atlantic-facing point -- broke entirely for e.g. San Diego, where
+  // "east" heads further inland rather than into the Pacific. This now
+  // tries multiple compass directions (east first, since that's still
+  // the fast path for the NJ/DE/MD coast most real usage is on today) at
+  // a few increasing distances, so it resolves correctly regardless of
+  // which way the coastline actually faces.
   //
   // Rather than silently trusting whichever zone that auto-detection
-  // lands on, this fetches the real polygon for it plus its along-shore
-  // neighbors and shows them on a map so the customer can see the actual
+  // lands on, this fetches the real polygon for it plus nearby neighbors
+  // and shows them on a map so the customer can see the actual
   // boundaries and override the pick if it's wrong -- since this was
   // already the shakiest, hardest-to-verify part of the whole page, a
   // visual confirmation step beats trusting a single heuristic silently.
@@ -915,7 +918,30 @@
   }
 
   const MARINE_ZONE_ID_PATTERN = /^[A-Z]{2,3}Z\d{3}$/;
-  const MARINE_OFFSET_ATTEMPTS = [0.05, 0.1, 0.2, 0.35];
+  // Distances to try, in km, at each compass bearing below.
+  const MARINE_ZONE_SEARCH_KM = [5, 15, 35];
+  // East first (fast path for today's actual NJ/DE/MD usage), then the
+  // other cardinal directions, then diagonals -- covers any coastline
+  // orientation without assuming one.
+  const MARINE_ZONE_SEARCH_BEARINGS = [90, 270, 0, 180, 45, 135, 225, 315];
+
+  function offsetLatLon(lat, lon, km, bearingDeg) {
+    const R = 6371;
+    const bearing = (bearingDeg * Math.PI) / 180;
+    const lat1 = (lat * Math.PI) / 180;
+    const lon1 = (lon * Math.PI) / 180;
+    const angularDist = km / R;
+    const lat2 = Math.asin(
+      Math.sin(lat1) * Math.cos(angularDist) + Math.cos(lat1) * Math.sin(angularDist) * Math.cos(bearing)
+    );
+    const lon2 =
+      lon1 +
+      Math.atan2(
+        Math.sin(bearing) * Math.sin(angularDist) * Math.cos(lat1),
+        Math.cos(angularDist) - Math.sin(lat1) * Math.sin(lat2)
+      );
+    return { lat: (lat2 * 180) / Math.PI, lon: (lon2 * 180) / Math.PI };
+  }
 
   async function fetchMarineZoneIdAtPoint(lat, lon) {
     const resp = await fetch(`https://api.weather.gov/zones?type=marine&point=${lat.toFixed(4)},${lon.toFixed(4)}`);
@@ -927,12 +953,15 @@
   }
 
   async function fetchMarineZoneIdWithRetries(lat, lon) {
-    for (const offset of MARINE_OFFSET_ATTEMPTS) {
-      try {
-        const id = await fetchMarineZoneIdAtPoint(lat, lon + offset);
-        if (id) return { id, offset };
-      } catch (err) {
-        // try the next, larger offset
+    for (const km of MARINE_ZONE_SEARCH_KM) {
+      for (const bearing of MARINE_ZONE_SEARCH_BEARINGS) {
+        const p = offsetLatLon(lat, lon, km, bearing);
+        try {
+          const id = await fetchMarineZoneIdAtPoint(p.lat, p.lon);
+          if (id) return { id, point: p };
+        } catch (err) {
+          // try the next bearing/distance
+        }
       }
     }
     return null;
@@ -947,19 +976,20 @@
   }
 
   // Finds the zone at the town's own offshore point (the "suggested" one),
-  // then samples a couple of points along the coast north and south of it
-  // at the same offshore distance to pick up 1-2 neighboring zones, so
-  // there's something to compare against on the map rather than a single
-  // unverifiable answer.
+  // then samples a few points around THAT confirmed-offshore point (not
+  // the town) to pick up 1-3 neighboring zones -- sampling around a point
+  // already known to be in the water, rather than assuming a compass axis
+  // the coastline runs along, works regardless of coastline orientation.
   async function fetchMarineZoneCandidates(town) {
     const suggested = await fetchMarineZoneIdWithRetries(town.lat, town.lon);
     if (!suggested) throw new Error("No marine zone found near this point");
 
     const idSet = new Set([suggested.id]);
-    const neighborLats = [town.lat - 0.25, town.lat + 0.25];
-    for (const lat of neighborLats) {
+    const neighborBearings = [0, 90, 180, 270];
+    for (const bearing of neighborBearings) {
+      const p = offsetLatLon(suggested.point.lat, suggested.point.lon, 20, bearing);
       try {
-        const id = await fetchMarineZoneIdAtPoint(lat, town.lon + suggested.offset);
+        const id = await fetchMarineZoneIdAtPoint(p.lat, p.lon);
         if (id) idSet.add(id);
       } catch (err) {
         // skip this neighbor if it fails, the suggested zone still stands
