@@ -94,6 +94,25 @@
     margin: 0 0 18px;
   }
 
+  .status-card {
+    display: none;
+    background: var(--foam);
+    border: 2px solid var(--navy);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin: 0 0 18px;
+    text-align: center;
+  }
+  .status-card-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+    margin: 0 0 4px;
+  }
+  .status-card-value { font-family: var(--heading); font-weight: 700; font-size: 15px; margin: 0; color: var(--ink); }
+
   /* ---------- Hub cards ---------- */
   .hub-list { display: flex; flex-direction: column; gap: 14px; }
   .hub-card {
@@ -159,6 +178,11 @@
 
   <p class="no-device-msg" id="noDeviceMsg">This link is missing your device ID, so there&rsquo;s nothing to manage &mdash; scan the QR code on your Wave Clock to get a working link.</p>
 
+  <div class="status-card" id="statusCard">
+    <p class="status-card-label">Currently on your Wave Clock</p>
+    <p class="status-card-value" id="statusCardValue"></p>
+  </div>
+
   <div class="hub-list">
     <a class="hub-card" id="locationCard" href="../location/">
       <span class="hub-icon">
@@ -221,6 +245,46 @@
     document.getElementById("designCard")
   ];
 
+  // ================= Device status (optional, best-effort) =================
+  // device-status/{id}.json is written by the device itself (firmware,
+  // separate later round) and combines both location and settings state
+  // in one file, so this hub page can show a quick "what's on it right
+  // now" summary with a single read instead of fetching locations/ and
+  // settings/ separately. A missing file (device hasn't reported in yet,
+  // or the firmware round hasn't shipped) is the normal case, not an
+  // error -- the status card just stays hidden.
+  const STORAGE_BUCKET = "waveclock.firebasestorage.app";
+  const CYCLE_LABELS = { OFF: "cycle off", "1MIN": "cycling every 1 min", "5MIN": "cycling every 5 min" };
+  const statusCard = document.getElementById("statusCard");
+  const statusCardValue = document.getElementById("statusCardValue");
+
+  function withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))
+    ]);
+  }
+
+  async function loadDeviceStatus() {
+    try {
+      const path = encodeURIComponent("device-status/" + deviceId + ".json");
+      const url = "https://firebasestorage.googleapis.com/v0/b/" + STORAGE_BUCKET + "/o/" + path + "?alt=media";
+      const resp = await withTimeout(fetch(url), 8000);
+      if (!resp.ok) return; // 404 or otherwise -- nothing to show yet
+      const status = await resp.json();
+      const parts = [];
+      if (status && status.location && status.location.name) parts.push(status.location.name);
+      if (status && status.settings && CYCLE_LABELS[status.settings.cycleMode]) {
+        parts.push(CYCLE_LABELS[status.settings.cycleMode]);
+      }
+      if (!parts.length) return;
+      statusCardValue.textContent = parts.join(" · ");
+      statusCard.style.display = "block";
+    } catch (err) {
+      console.error("Couldn't load device status (non-critical):", err);
+    }
+  }
+
   if (!deviceId) {
     deviceTag.textContent = "No device ID found in link";
     deviceTag.classList.add("error");
@@ -230,6 +294,7 @@
     cards.forEach((card) => {
       card.href = card.getAttribute("href") + "?id=" + encodeURIComponent(deviceId);
     });
+    loadDeviceStatus();
   }
 </script>
 

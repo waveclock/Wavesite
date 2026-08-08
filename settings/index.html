@@ -256,6 +256,8 @@
   .saved-card svg.check { width: 60px; height: 60px; margin: 0 auto 12px; display: block; }
   .saved-card h2 { font-family: var(--heading); font-size: 24px; margin: 0 0 10px; }
   .saved-card p { color: var(--ink-soft); font-size: 15px; max-width: 34ch; margin: 0 auto; }
+  .confirm-status { margin-top: 10px !important; font-size: 13px !important; font-style: italic; }
+  .confirm-status.confirmed { font-style: normal; font-weight: 700; color: var(--good) !important; }
   .saved-table-wrap { margin-top: 18px; text-align: left; }
   .saved-table td:first-child {
     font-weight: 700;
@@ -386,6 +388,7 @@
     </svg>
     <h2>Settings saved!</h2>
     <p>Your Wave Clock will pick up these settings on its own within a minute or two &mdash; or right away if you press the reset button in the top-left corner of the board.</p>
+    <p class="confirm-status" id="confirmStatus" style="display:none;"></p>
     <div class="review-table-wrap saved-table-wrap">
       <table class="review-table saved-table" id="savedTable"></table>
     </div>
@@ -568,23 +571,47 @@
     ]);
   }
 
+  // Plain fetch() against Firebase Storage's public REST download URL --
+  // same approach already proven reliable on /location/. Returns null for
+  // a 404 (nothing saved at that path yet, not an error).
+  async function fetchJsonFromStorage(path, timeoutMs) {
+    const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + encodeURIComponent(path) + "?alt=media";
+    const resp = await withTimeout(fetch(url), timeoutMs);
+    if (resp.status === 404) return null;
+    if (!resp.ok) throw new Error("fetch failed: " + resp.status);
+    return resp.json();
+  }
+
+  // device-status/{id}.json is written by the device itself (firmware,
+  // not this round's scope) and reflects what's actually applied right
+  // now -- preferred pre-fill source over settings/{id}.json, which is
+  // only ever what the website last *submitted* and may not have been
+  // picked up yet. Falls back to settings/{id}.json (e.g. before the
+  // device has ever reported status) so a returning customer still sees
+  // their last picks instead of blank defaults.
   async function loadExistingSettings() {
     if (!deviceId) return;
+    let source = null;
     try {
-      const path = encodeURIComponent("settings/" + deviceId + ".json");
-      const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + path + "?alt=media";
-      const resp = await withTimeout(fetch(url), 12000);
-      if (resp.status === 404) return; // no saved settings yet -- keep defaults
-      if (!resp.ok) throw new Error("Existing-settings fetch failed: " + resp.status);
-      const existing = await resp.json();
-      if (hasInteracted || !existing || typeof existing !== "object") return;
-      Object.keys(state).forEach((key) => {
-        if (key in existing) state[key] = existing[key];
-      });
-      renderAll();
+      const deviceStatus = await fetchJsonFromStorage("device-status/" + deviceId + ".json", 8000);
+      if (deviceStatus && deviceStatus.settings && typeof deviceStatus.settings === "object") {
+        source = deviceStatus.settings;
+      }
     } catch (err) {
-      console.error("Couldn't load existing settings (starting from defaults):", err);
+      console.error("Couldn't load device-status (falling back to last-submitted settings):", err);
     }
+    if (!source) {
+      try {
+        source = await fetchJsonFromStorage("settings/" + deviceId + ".json", 12000);
+      } catch (err) {
+        console.error("Couldn't load existing settings (starting from defaults):", err);
+      }
+    }
+    if (hasInteracted || !source || typeof source !== "object") return;
+    Object.keys(state).forEach((key) => {
+      if (key in source) state[key] = source[key];
+    });
+    renderAll();
   }
   loadExistingSettings();
 
@@ -592,6 +619,46 @@
   function setStatus(text, kind) {
     statusMsg.textContent = text;
     statusMsg.className = "status-msg" + (kind ? " " + kind : "");
+  }
+
+  const confirmStatusEl = document.getElementById("confirmStatus");
+  // Fields device-status/{id}.json is expected to echo back once applied.
+  // sunsetReminder isn't part of that confirmed shape (it's a one-time
+  // trigger, not persistent state to reflect), so it's excluded here --
+  // matching just these means "the device has this saved settings file
+  // applied," which is the confirmation this is meant to give.
+  const CONFIRMABLE_FIELDS = ["cycleMode", "showWaveForecast", "showWeatherForecast", "showBeach", "showLifeguard", "showCustomScreen", "sunsetAllDay"];
+
+  function settingsMatch(deviceSettings, submitted) {
+    return CONFIRMABLE_FIELDS.every((key) => deviceSettings[key] === submitted[key]);
+  }
+
+  // Polls device-status/{id}.json for up to a minute after a save, looking
+  // for the device to echo back exactly what was just submitted. This is
+  // a nice-to-have: until the firmware round ships this file, every poll
+  // will simply find nothing and time out silently, leaving the generic
+  // "should show up soon" wording in place -- never treated as an error.
+  async function pollForDeviceConfirmation(payload) {
+    if (!deviceId) return;
+    confirmStatusEl.textContent = "Checking your Wave Clock for confirmation…";
+    confirmStatusEl.className = "confirm-status";
+    confirmStatusEl.style.display = "block";
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+      await sleep(5000);
+      try {
+        const status = await fetchJsonFromStorage("device-status/" + deviceId + ".json", 8000);
+        if (status && status.settings && settingsMatch(status.settings, payload)) {
+          confirmStatusEl.textContent = "✓ Applied to your device!";
+          confirmStatusEl.className = "confirm-status confirmed";
+          return;
+        }
+      } catch (err) {
+        // keep trying silently -- a single failed poll doesn't mean much
+      }
+    }
+    confirmStatusEl.style.display = "none";
   }
 
   saveBtn.addEventListener("click", async () => {
@@ -626,6 +693,7 @@
       savedCard.classList.add("visible");
       wizard.style.display = "none";
       savedCard.scrollIntoView({ behavior: "smooth", block: "start" });
+      pollForDeviceConfirmation(payload);
     } catch (err) {
       console.error(err);
       if (err && err.code === "storage/unauthorized") {
