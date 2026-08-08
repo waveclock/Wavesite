@@ -1639,10 +1639,12 @@
       savedDetail.textContent = 'Shows as "' + displayName + '" · ' + selectedTown.name + (selectedTown.state ? ", " + selectedTown.state : "") + " · " + selectedStation.name + " (Station " + selectedStation.id + ") · Zone " + selectedMarineZoneId;
       savedCard.classList.add("visible");
       stepTown.style.display = "none";
+      stepName.style.display = "none";
       stepStation.style.display = "none";
       stepZone.style.display = "none";
       stepReview.style.display = "none";
       saveBtn.style.display = "none";
+      if (debugExistingSettingsEl) debugExistingSettingsEl.style.display = "none";
       savedCard.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
       console.error(err);
