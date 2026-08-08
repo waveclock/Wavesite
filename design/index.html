@@ -82,6 +82,36 @@
     color: var(--foam);
   }
 
+  .current-board {
+    display: none;
+    background: var(--foam);
+    border: 2px solid var(--navy);
+    border-radius: 8px;
+    padding: 12px 14px 14px;
+    margin: 18px 0 0;
+    text-align: center;
+  }
+  .current-board.visible { display: block; }
+  .current-board-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+    margin: 0 0 8px;
+  }
+  .current-board-frame {
+    width: 100%;
+    max-width: 400px;
+    margin: 0 auto;
+    aspect-ratio: 792 / 272;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    background: #fff;
+  }
+  .current-board-frame img { width: 100%; height: 100%; display: block; object-fit: contain; }
+
   .canvas-stage {
     display: flex;
     justify-content: center;
@@ -439,6 +469,13 @@
     <span class="device-tag" id="deviceTag">Loading device&hellip;</span>
   </header>
 
+  <div class="current-board" id="currentBoardCard">
+    <p class="current-board-label">Currently on your board</p>
+    <div class="current-board-frame">
+      <img id="currentBoardImg" alt="What's currently showing on your Wave Clock">
+    </div>
+  </div>
+
   <div class="canvas-stage">
     <div class="device-frame">
       <div class="quick-toolbar" id="quickToolbar">
@@ -550,6 +587,8 @@
   const deviceId = params.get("id");
   const deviceTag = document.getElementById("deviceTag");
   const publishBtn = document.getElementById("publishBtn");
+  const currentBoardCard = document.getElementById("currentBoardCard");
+  const currentBoardImg = document.getElementById("currentBoardImg");
 
   if (!deviceId) {
     deviceTag.textContent = "No device ID found in link";
@@ -558,6 +597,33 @@
   } else {
     deviceTag.textContent = "Designing for " + deviceId;
   }
+
+  function withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))
+    ]);
+  }
+
+  // A snapshot of whatever was last published, saved alongside the .bin
+  // (see publishBtn handler below) so a returning customer can see what's
+  // actually on their board right now before they start drawing over it.
+  // A missing file just means nothing's been published yet -- not an error.
+  async function loadCurrentBoardPreview() {
+    if (!deviceId) return;
+    try {
+      const path = encodeURIComponent("designs/" + deviceId + ".png");
+      const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + path + "?alt=media";
+      const resp = await withTimeout(fetch(url), 10000);
+      if (!resp.ok) return; // 404 or otherwise -- nothing published yet
+      const blob = await resp.blob();
+      currentBoardImg.src = URL.createObjectURL(blob);
+      currentBoardCard.classList.add("visible");
+    } catch (err) {
+      console.error("Couldn't load current-board preview (non-critical):", err);
+    }
+  }
+  loadCurrentBoardPreview();
 
   // ================= Canvas setup =================
   // Three layers, bottom to top: layersCanvas is a full re-render of the
@@ -1792,6 +1858,23 @@
     return out;
   }
 
+  // The composite canvas is always drawn black-ink-on-white regardless of
+  // the Invert Colors toggle -- inversion is applied live only via a CSS
+  // filter on-screen (see .canvas-inner.inverted) and, separately, in
+  // packTo1Bit's threshold check for the actual published .bin. This
+  // preview needs its own pixels flipped the same way so the saved PNG
+  // matches what the device will actually show.
+  function getPublishPreviewCanvas(compositeCanvas) {
+    if (!inverted) return compositeCanvas;
+    const out = document.createElement("canvas");
+    out.width = compositeCanvas.width;
+    out.height = compositeCanvas.height;
+    const ctx = out.getContext("2d");
+    ctx.filter = "invert(1)";
+    ctx.drawImage(compositeCanvas, 0, 0);
+    return out;
+  }
+
   function packTo1Bit(sourceCanvas) {
     const width = sourceCanvas.width;
     const height = sourceCanvas.height;
@@ -1823,10 +1906,27 @@
     setStatus("Publishing…");
 
     try {
-      const packed = packTo1Bit(getCompositeCanvas());
+      const composite = getCompositeCanvas();
+      const packed = packTo1Bit(composite);
       const blob = new Blob([packed], { type: "application/octet-stream" });
       const storageRef = ref(storage, "designs/" + deviceId + ".bin");
+
+      const previewCanvas = getPublishPreviewCanvas(composite);
+      const pngBlob = await new Promise((resolve) => previewCanvas.toBlob(resolve, "image/png"));
+      const previewRef = ref(storage, "designs/" + deviceId + ".png");
+
       await uploadBytes(storageRef, blob);
+      if (pngBlob) {
+        try {
+          await uploadBytes(previewRef, pngBlob);
+          currentBoardImg.src = URL.createObjectURL(pngBlob);
+          currentBoardCard.classList.add("visible");
+        } catch (previewErr) {
+          // The design itself published fine -- losing the recoverable
+          // preview image isn't worth failing the whole publish over.
+          console.error("Design published, but saving the preview image failed:", previewErr);
+        }
+      }
       setStatus("Published! It'll appear on your Wave Clock within the hour.", "success");
     } catch (err) {
       console.error(err);
