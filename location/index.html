@@ -199,9 +199,7 @@
   }
 
   .display-name-field {
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--line);
+    margin-bottom: 14px;
   }
   .display-name-field label {
     display: block;
@@ -233,6 +231,32 @@
   .display-name-hint { font-size: 11.5px; color: var(--ink-soft); }
   .display-name-count { font-size: 11.5px; color: var(--ink-soft); font-weight: 700; flex-shrink: 0; white-space: nowrap; }
   .display-name-count.limit { color: var(--coral-dark); }
+
+  .name-view-value {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 0.02em;
+    text-align: center;
+    padding: 14px 16px;
+    background: var(--foam);
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    margin-bottom: 14px;
+  }
+  .name-actions { display: flex; align-items: center; gap: 16px; }
+  .save-btn-small {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 14px;
+    padding: 10px 22px;
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+    background: var(--coral);
+    color: #fff;
+    cursor: pointer;
+  }
+  .save-btn-small:active { transform: translateY(1px); }
 
   /* ---------- Stations ---------- */
   .station-note {
@@ -403,20 +427,40 @@
         <span class="selected-town-name" id="selectedTownName"></span>
         <button type="button" class="change-btn" id="changeTownBtn">Change</button>
       </div>
-      <div class="display-name-field">
-        <label for="displayName">Type the name to show on your Wave Clock</label>
-        <input type="text" id="displayName" maxlength="17" autocomplete="off">
-        <div class="display-name-meta">
-          <span class="display-name-hint">17 characters max &mdash; this is exactly what appears on the device screen.</span>
-          <span class="display-name-count" id="displayNameCount">0/17</span>
-        </div>
+    </div>
+  </div>
+
+  <div class="step disabled" id="stepName">
+    <div class="step-head">
+      <span class="step-num">2</span>
+      <h3>Confirm your Wave Clock name</h3>
+      <span class="step-check">&#10003; Confirmed</span>
+    </div>
+
+    <p class="zone-help">This is exactly what shows on your Wave Clock screen.</p>
+
+    <div class="name-view" id="nameView">
+      <div class="name-view-value" id="nameViewValue"></div>
+    </div>
+
+    <div class="display-name-field" id="nameEditField" style="display:none;">
+      <label for="displayName">Type the name to show on your Wave Clock</label>
+      <input type="text" id="displayName" maxlength="17" autocomplete="off">
+      <div class="display-name-meta">
+        <span class="display-name-hint">17 characters max &mdash; this is exactly what appears on the device screen.</span>
+        <span class="display-name-count" id="displayNameCount">0/17</span>
       </div>
+    </div>
+
+    <div class="name-actions">
+      <button type="button" class="save-btn-small" id="confirmNameBtn">Confirm</button>
+      <button type="button" class="change-btn" id="changeNameBtn">Change</button>
     </div>
   </div>
 
   <div class="step disabled" id="stepStation">
     <div class="step-head">
-      <span class="step-num">2</span>
+      <span class="step-num">3</span>
       <h3>Pick your tide station</h3>
       <span class="step-check">&#10003; Picked</span>
     </div>
@@ -434,7 +478,7 @@
 
   <div class="step disabled" id="stepZone">
     <div class="step-head">
-      <span class="step-num">3</span>
+      <span class="step-num">4</span>
       <h3>Confirm your forecast zone</h3>
       <span class="step-check">&#10003; Picked</span>
     </div>
@@ -554,22 +598,74 @@
   const selectedTownCard = document.getElementById("selectedTownCard");
   const selectedTownName = document.getElementById("selectedTownName");
   const changeTownBtn = document.getElementById("changeTownBtn");
-  const displayNameInput = document.getElementById("displayName");
-  const displayNameCount = document.getElementById("displayNameCount");
   const searchRow = document.querySelector(".search-row");
   const stepTown = document.getElementById("stepTown");
   const stepStation = document.getElementById("stepStation");
   const stepZone = document.getElementById("stepZone");
 
-  const DISPLAY_NAME_MAX = 17;
-
   let selectedTown = null;
   let selectedStation = null;
 
+  function selectTownFromResult(town) {
+    selectedTown = town;
+    townSearch.value = "";
+    searchResultsWrap.innerHTML = "";
+    selectedTownName.textContent = town.name + (town.state ? ", " + town.state : "");
+    selectedTownCard.style.display = "block";
+    searchRow.style.display = "none";
+    stepTown.classList.add("done");
+    selectedStation = null;
+    resetNameStep(town);
+    renderSaveState();
+    loadStations(town);
+    loadZones(town);
+    loadMarineDataCheck(town);
+    selectedTownCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  changeTownBtn.addEventListener("click", () => {
+    selectedTown = null;
+    selectedStation = null;
+    selectedTownCard.style.display = "none";
+    searchRow.style.display = "";
+    stepTown.classList.remove("done");
+    disableNameStep();
+    stepStation.classList.remove("done");
+    stepStation.classList.add("disabled");
+    stepZone.classList.remove("done");
+    stepZone.classList.add("disabled");
+    clearMap();
+    clearZoneMap();
+    stationListWrap.innerHTML = '<p class="station-status" id="stationStatus">Pick your location above to see nearby stations.</p>';
+    zoneListWrap.innerHTML = '<p class="station-status" id="zoneStatus">Pick your location above to see forecast zone options.</p>';
+    srfZoneResult = null;
+    marineZoneCandidates = [];
+    selectedMarineZoneId = null;
+    marineDataCheck = null;
+    renderMarineWarning();
+    renderSaveState();
+  });
+
+  // ================= Step 2: confirm display name =================
   // The device screen only fits DISPLAY_NAME_MAX characters, so this
-  // defaults to the matched town name (truncated if needed) but stays
-  // fully editable -- e.g. "North Wildwood" fits, but something like
-  // "North Myrtle Beach" doesn't and needs shortening by the customer.
+  // starts from the matched town name (truncated if needed) but is fully
+  // editable -- e.g. "North Wildwood" fits, but something like "North
+  // Myrtle Beach" doesn't and needs shortening. Its own step with an
+  // explicit Confirm rather than just an inline field, since it's easy
+  // to overlook otherwise and a typo here is the one mistake on this
+  // page that's embarrassing rather than just inconvenient.
+  const stepName = document.getElementById("stepName");
+  const nameView = document.getElementById("nameView");
+  const nameViewValue = document.getElementById("nameViewValue");
+  const nameEditField = document.getElementById("nameEditField");
+  const displayNameInput = document.getElementById("displayName");
+  const displayNameCount = document.getElementById("displayNameCount");
+  const confirmNameBtn = document.getElementById("confirmNameBtn");
+  const changeNameBtn = document.getElementById("changeNameBtn");
+
+  const DISPLAY_NAME_MAX = 17;
+  let confirmedDisplayName = null;
+
   function deriveDisplayName(name) {
     return (name || "").toUpperCase().slice(0, DISPLAY_NAME_MAX);
   }
@@ -588,54 +684,63 @@
       displayNameInput.setSelectionRange(pos, pos);
     }
     updateDisplayNameCount();
-    renderSaveState();
   });
 
-  function selectTownFromResult(town) {
-    selectedTown = town;
-    townSearch.value = "";
-    searchResultsWrap.innerHTML = "";
-    selectedTownName.textContent = town.name + (town.state ? ", " + town.state : "");
-    displayNameInput.value = deriveDisplayName(town.name);
+  function enterNameEditMode(prefill) {
+    nameView.style.display = "none";
+    nameEditField.style.display = "block";
+    changeNameBtn.style.display = "none";
+    displayNameInput.value = prefill;
     updateDisplayNameCount();
-    selectedTownCard.style.display = "block";
-    searchRow.style.display = "none";
-    stepTown.classList.add("done");
-    stepStation.classList.remove("disabled");
-    stepZone.classList.remove("disabled");
-    selectedStation = null;
-    renderSaveState();
-    loadStations(town);
-    loadZones(town);
-    loadMarineDataCheck(town);
-    // Scroll to the confirmation card itself (not straight to step 2) so
-    // the customer actually sees the display-name field and gets a chance
-    // to rename it before continuing -- jumping straight to step 2 meant
-    // it was scrolled past unseen.
-    selectedTownCard.scrollIntoView({ behavior: "smooth", block: "start" });
+    displayNameInput.focus();
   }
 
-  changeTownBtn.addEventListener("click", () => {
-    selectedTown = null;
-    selectedStation = null;
-    selectedTownCard.style.display = "none";
-    searchRow.style.display = "";
-    stepTown.classList.remove("done");
-    stepStation.classList.remove("done");
-    stepStation.classList.add("disabled");
-    stepZone.classList.remove("done");
-    stepZone.classList.add("disabled");
-    clearMap();
-    clearZoneMap();
-    stationListWrap.innerHTML = '<p class="station-status" id="stationStatus">Pick your location above to see nearby stations.</p>';
-    zoneListWrap.innerHTML = '<p class="station-status" id="zoneStatus">Pick your location above to see forecast zone options.</p>';
-    srfZoneResult = null;
-    marineZoneCandidates = [];
-    selectedMarineZoneId = null;
-    marineDataCheck = null;
-    renderMarineWarning();
+  function showNameConfirmed(value) {
+    confirmedDisplayName = value;
+    nameViewValue.textContent = value;
+    nameView.style.display = "block";
+    nameEditField.style.display = "none";
+    changeNameBtn.style.display = "inline-block";
+    stepName.classList.add("done");
+    stepStation.classList.remove("disabled");
+    stepZone.classList.remove("disabled");
     renderSaveState();
+  }
+
+  confirmNameBtn.addEventListener("click", () => {
+    const editing = nameEditField.style.display !== "none";
+    const candidate = editing ? displayNameInput.value.trim() : nameViewValue.textContent;
+    if (!candidate || candidate.length > DISPLAY_NAME_MAX) return;
+    const firstConfirm = !stepName.classList.contains("done");
+    showNameConfirmed(candidate);
+    if (firstConfirm) {
+      stepStation.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   });
+
+  changeNameBtn.addEventListener("click", () => {
+    enterNameEditMode(confirmedDisplayName || nameViewValue.textContent);
+  });
+
+  function resetNameStep(town) {
+    confirmedDisplayName = null;
+    nameViewValue.textContent = deriveDisplayName(town.name);
+    nameView.style.display = "block";
+    nameEditField.style.display = "none";
+    changeNameBtn.style.display = "inline-block";
+    stepName.classList.remove("done");
+    stepName.classList.remove("disabled");
+  }
+
+  function disableNameStep() {
+    confirmedDisplayName = null;
+    nameView.style.display = "block";
+    nameEditField.style.display = "none";
+    changeNameBtn.style.display = "inline-block";
+    nameViewValue.textContent = "";
+    stepName.classList.remove("done");
+    stepName.classList.add("disabled");
+  }
 
   let searchTimer = null;
   let searchAbort = null;
@@ -712,7 +817,7 @@
     '<path d="M5 14.5c1.5-2 3-2 4.5 0s3 2 4.5 0 3-2 4.5 0" fill="none" stroke="#1F3347" stroke-width="1.3" stroke-linecap="round"/>' +
     '</svg>';
 
-  // ================= Step 2: nearby NOAA tide stations + map =================
+  // ================= Step 3: nearby NOAA tide stations + map =================
   const stationListWrap = document.getElementById("stationListWrap");
   const stationMapEl = document.getElementById("stationMap");
   let allStationsCache = null;
@@ -871,7 +976,7 @@
     }
   }
 
-  // ================= NWS forecast zones (srfZone / cwfZone) =================
+  // ================= Step 4: NWS forecast zones (srfZone / cwfZone) =================
   // srfZone: the NWS public/land forecast zone for the town itself (e.g.
   // NJZ024), used for rip current risk on the Beach Day / Lifeguard
   // screens. Resolved live via api.weather.gov/points, which reliably
@@ -1293,13 +1398,9 @@
   const savedCard = document.getElementById("savedCard");
   const savedDetail = document.getElementById("savedDetail");
 
-  function displayNameIsValid() {
-    const val = displayNameInput.value.trim();
-    return val.length > 0 && val.length <= DISPLAY_NAME_MAX;
-  }
-
   function renderSaveState() {
-    const ready = deviceId && selectedTown && selectedStation && displayNameIsValid() && srfZoneResult && selectedMarineZoneId;
+    const nameOk = confirmedDisplayName && confirmedDisplayName.length > 0 && confirmedDisplayName.length <= DISPLAY_NAME_MAX;
+    const ready = deviceId && selectedTown && selectedStation && nameOk && srfZoneResult && selectedMarineZoneId;
     saveBtn.disabled = !ready;
   }
 
@@ -1310,9 +1411,9 @@
 
   saveBtn.addEventListener("click", async () => {
     if (!deviceId || !selectedTown || !selectedStation) return;
-    const displayName = displayNameInput.value.trim();
+    const displayName = confirmedDisplayName;
     if (!displayName || displayName.length > DISPLAY_NAME_MAX) {
-      setStatus("Give it a display name of " + DISPLAY_NAME_MAX + " characters or fewer.", "error");
+      setStatus("Confirm a display name of " + DISPLAY_NAME_MAX + " characters or fewer first.", "error");
       return;
     }
     saveBtn.disabled = true;
