@@ -641,21 +641,30 @@
       renderSaveState();
       return;
     }
+    const startedAt = performance.now();
     try {
-      const bytes = await withTimeout(getBytes(ref(storage, "locations/" + deviceId + ".json")), 6000);
+      const bytes = await withTimeout(getBytes(ref(storage, "locations/" + deviceId + ".json")), 15000);
       existingSettings = JSON.parse(new TextDecoder().decode(bytes));
-      showDebug("read OK for locations/" + deviceId + ".json — " + JSON.stringify(existingSettings));
+      const elapsed = Math.round(performance.now() - startedAt);
+      showDebug("read OK in " + elapsed + "ms for locations/" + deviceId + ".json — " + JSON.stringify(existingSettings));
     } catch (err) {
       existingSettings = null;
-      // storage/object-not-found is the expected, silent case for a
-      // device that's never been set up before -- anything else means
-      // the read genuinely failed (permissions, network, malformed
-      // file) and is worth being able to see.
-      if (!err || (err.code !== "storage/object-not-found" && err.message !== "timed out")) {
-        console.error("Couldn't check for existing location settings:", err);
-        showDebug("read FAILED for locations/" + deviceId + ".json — code: " + (err && err.code) + ", message: " + (err && err.message));
+      const elapsed = Math.round(performance.now() - startedAt);
+      const timedOut = err && err.message === "timed out";
+      // storage/object-not-found is the only case that actually confirms
+      // there's no file -- a timeout means the read never finished in
+      // time, which tells us nothing about whether a file exists. Those
+      // two were previously shown as the same "expected" message, which
+      // was misleading: a timeout after 6s turned out to be what was
+      // actually happening on a real device, not a clean not-found.
+      if (err && err.code === "storage/object-not-found") {
+        showDebug("confirmed no existing file in " + elapsed + "ms for locations/" + deviceId + ".json (storage/object-not-found) — expected for a new device");
+      } else if (timedOut) {
+        showDebug("TIMED OUT after " + elapsed + "ms reading locations/" + deviceId + ".json — the read never completed, this does NOT mean the file doesn't exist");
+        console.error("Existing-settings read timed out after " + elapsed + "ms");
       } else {
-        showDebug("no existing file for locations/" + deviceId + ".json (code: " + (err && err.code) + ") — expected for a new device");
+        console.error("Couldn't check for existing location settings:", err);
+        showDebug("read FAILED after " + elapsed + "ms for locations/" + deviceId + ".json — code: " + (err && err.code) + ", message: " + (err && err.message));
       }
     }
     existingSettingsChecked = true;
