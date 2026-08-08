@@ -257,9 +257,9 @@
     overflow: hidden;
     background: var(--foam);
   }
-  .town-marker span {
-    display: block; width: 14px; height: 14px; border-radius: 50%;
-    background: var(--coral); border: 2px solid #fff; box-shadow: 0 0 0 2px var(--ink);
+  .town-marker svg {
+    display: block;
+    filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
   }
   .station-marker span {
     display: block; width: 12px; height: 12px; border-radius: 50%;
@@ -593,7 +593,11 @@
     renderSaveState();
     loadStations(town);
     loadZones(town);
-    stepStation.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Scroll to the confirmation card itself (not straight to step 2) so
+    // the customer actually sees the display-name field and gets a chance
+    // to rename it before continuing -- jumping straight to step 2 meant
+    // it was scrolled past unseen.
+    selectedTownCard.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   changeTownBtn.addEventListener("click", () => {
@@ -672,6 +676,13 @@
     }
     searchTimer = setTimeout(() => runSearch(q), 350);
   });
+
+  // A star, not a dot, so the town's own marker reads as clearly different
+  // from the round station/zone pins on both maps below.
+  const TOWN_MARKER_HTML =
+    '<svg viewBox="0 0 24 24" width="20" height="20">' +
+    '<path d="M12 2 L14.35 8.76 L21.51 8.91 L15.8 13.24 L17.88 20.09 L12 16 L6.12 20.09 L8.2 13.24 L2.49 8.91 L9.65 8.76 Z" ' +
+    'fill="#C97456" stroke="#1F3347" stroke-width="1.4" stroke-linejoin="round"/></svg>';
 
   // ================= Step 2: nearby NOAA tide stations + map =================
   const stationListWrap = document.getElementById("stationListWrap");
@@ -766,7 +777,7 @@
         attribution: "&copy; OpenStreetMap contributors"
       }).addTo(map);
 
-      townIcon = L.divIcon({ className: "town-marker", html: "<span></span>", iconSize: [14, 14] });
+      townIcon = L.divIcon({ className: "town-marker", html: TOWN_MARKER_HTML, iconSize: [20, 20] });
       stationIcon = L.divIcon({ className: "station-marker", html: "<span></span>", iconSize: [12, 12] });
       selectedIcon = L.divIcon({ className: "station-marker station-marker-selected", html: "<span></span>", iconSize: [17, 17] });
 
@@ -1005,7 +1016,7 @@
         attribution: "&copy; OpenStreetMap contributors"
       }).addTo(zoneMapInstance);
 
-      const townIcon = L.divIcon({ className: "town-marker", html: "<span></span>", iconSize: [14, 14] });
+      const townIcon = L.divIcon({ className: "town-marker", html: TOWN_MARKER_HTML, iconSize: [20, 20] });
       const townMarker = L.marker([selectedTown.lat, selectedTown.lon], { icon: townIcon }).addTo(zoneMapInstance);
 
       let combinedBounds = null;
