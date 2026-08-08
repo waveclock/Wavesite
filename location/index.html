@@ -1127,22 +1127,32 @@
 
   // ================= Marine (wave/swell) data availability =================
   // The device pulls wave height/period/swell from Open-Meteo's Marine API
-  // using the saved lat/lon directly -- that model only covers open water,
-  // so a point right at the water's edge (or in a back bay) can fall
-  // outside its usable grid even though the tide station and forecast
-  // zone picked above are both still perfectly valid (those come from
-  // different data sources entirely). This checks the exact selected
-  // point, and if it comes back empty, searches outward in a ring pattern
-  // for the nearest point that does have data, so the customer gets an
-  // honest, specific distance instead of a silent gap or a generic error.
-  // This doesn't block Save -- it's informational, not a requirement.
-  // Not verified against the live Open-Meteo API from this sandbox
-  // (network access to external hosts is blocked here); the assumption
-  // that an out-of-domain point returns no usable current.wave_height
-  // (rather than, say, a zero or a different error shape) needs
-  // confirming once this is live.
+  // using the saved lat/lon directly -- that model only covers open water
+  // at roughly 25km grid resolution, so a point right at the water's edge
+  // (or in a back bay) can fall outside its usable grid even though the
+  // tide station and forecast zone picked above are both still perfectly
+  // valid (those come from different data sources entirely).
+  //
+  // Two independent checks, since either can fail on its own:
+  // 1. Distance check -- Open-Meteo always returns the actual grid-point
+  //    latitude/longitude it resolved the request to (not just an echo of
+  //    what was requested), since its models are grid-based. Comparing
+  //    that against what was actually asked for (real haversine distance,
+  //    not a flat approximation -- errors compound at this resolution)
+  //    tells us how far the model had to reach. A few km is normal at
+  //    this grid resolution; ~25km or more suggests the nearby grid cells
+  //    are land or otherwise uncovered.
+  // 2. Data validity check -- distance alone doesn't catch every failure
+  //    mode: a request can resolve to a nearby-looking grid point while
+  //    hourly.wave_height is still null/empty for it. Checked separately.
+  //
+  // This doesn't block Save -- it's informational, not a requirement. Not
+  // verified against the live Open-Meteo API from this sandbox (network
+  // access to external hosts is blocked here) -- the assumption that the
+  // response always includes top-level latitude/longitude fields for the
+  // resolved grid point needs confirming once this is live.
   const marineWarningEl = document.getElementById("marineWarning");
-  let marineDataCheck = null; // null while unknown/loading, else { available, point, distanceKm }
+  let marineDataCheck = null; // null while unknown/loading, else { available, hasValidData, farGrid, distanceKm, point }
   let marineDataMarker = null;
 
   function haversineKm(lat1, lon1, lat2, lon2) {
@@ -1156,63 +1166,31 @@
     return R * 2 * Math.asin(Math.sqrt(a));
   }
 
-  function offsetLatLon(lat, lon, km, bearingDeg) {
-    const R = 6371;
-    const bearing = (bearingDeg * Math.PI) / 180;
-    const lat1 = (lat * Math.PI) / 180;
-    const lon1 = (lon * Math.PI) / 180;
-    const angularDist = km / R;
-    const lat2 = Math.asin(
-      Math.sin(lat1) * Math.cos(angularDist) + Math.cos(lat1) * Math.sin(angularDist) * Math.cos(bearing)
-    );
-    const lon2 =
-      lon1 +
-      Math.atan2(
-        Math.sin(bearing) * Math.sin(angularDist) * Math.cos(lat1),
-        Math.cos(angularDist) - Math.sin(lat1) * Math.sin(lat2)
-      );
-    return { lat: (lat2 * 180) / Math.PI, lon: (lon2 * 180) / Math.PI };
-  }
+  const MARINE_DISTANCE_WARNING_KM = 25;
 
-  async function fetchMarineWaveHeight(lat, lon) {
+  async function fetchMarineDataCheck(lat, lon) {
     const resp = await fetch(
-      `https://marine-api.open-meteo.com/v1/marine?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=wave_height`
+      `https://marine-api.open-meteo.com/v1/marine?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&hourly=wave_height`
     );
-    if (!resp.ok) return null;
+    if (!resp.ok) throw new Error("Marine data request failed: " + resp.status);
     const data = await resp.json();
-    const val = data.current && data.current.wave_height;
-    return typeof val === "number" && !isNaN(val) ? val : null;
-  }
 
-  const MARINE_DATA_SEARCH_RINGS_KM = [5, 15, 40];
-  const MARINE_DATA_SEARCH_BEARINGS = [0, 45, 90, 135, 180, 225, 270, 315];
+    const returnedLat = data.latitude;
+    const returnedLon = data.longitude;
+    const hasCoords = typeof returnedLat === "number" && typeof returnedLon === "number";
+    const distanceKm = hasCoords ? haversineKm(lat, lon, returnedLat, returnedLon) : null;
+    const farGrid = distanceKm !== null && distanceKm >= MARINE_DISTANCE_WARNING_KM;
 
-  async function findNearestMarineDataPoint(lat, lon) {
-    try {
-      const direct = await fetchMarineWaveHeight(lat, lon);
-      if (direct !== null) return { available: true, point: null, distanceKm: null };
-    } catch (err) {
-      throw err; // couldn't even check the exact point -- treat as unknown, not "unavailable"
-    }
+    const waveHeights = (data.hourly && data.hourly.wave_height) || [];
+    const hasValidData = waveHeights.some((v) => typeof v === "number" && !isNaN(v));
 
-    for (const km of MARINE_DATA_SEARCH_RINGS_KM) {
-      const candidates = MARINE_DATA_SEARCH_BEARINGS.map((b) => offsetLatLon(lat, lon, km, b));
-      const results = await Promise.all(
-        candidates.map(async (c) => {
-          try {
-            const val = await fetchMarineWaveHeight(c.lat, c.lon);
-            return { c, ok: val !== null };
-          } catch (err) {
-            return { c, ok: false };
-          }
-        })
-      );
-      const hit = results.find((r) => r.ok);
-      if (hit) {
-        return { available: false, point: hit.c, distanceKm: haversineKm(lat, lon, hit.c.lat, hit.c.lon) };
-      }
-    }
-    return { available: false, point: null, distanceKm: null };
+    return {
+      available: hasValidData && !farGrid,
+      hasValidData,
+      farGrid,
+      distanceKm,
+      point: hasCoords ? { lat: returnedLat, lon: returnedLon } : null
+    };
   }
 
   function renderMarineWarning() {
@@ -1221,15 +1199,22 @@
       marineWarningEl.textContent = "";
       return;
     }
-    if (marineDataCheck.distanceKm !== null) {
-      marineWarningEl.textContent =
-        "Wave/swell data may not be available at this exact spot. The nearest usable ocean data point we found is about " +
-        Math.max(1, Math.round(marineDataCheck.distanceKm)) +
-        "km away. Your tide station and rip current zone are unaffected — you can still save.";
+    const tail = " Your tide station and rip current zone are unaffected — you can still save.";
+    let text;
+    if (!marineDataCheck.hasValidData) {
+      text =
+        marineDataCheck.distanceKm !== null
+          ? "Wave/swell data doesn't appear to be available near this spot — the nearest ocean model grid point is about " +
+            Math.round(marineDataCheck.distanceKm) +
+            "km away and still doesn't have usable data."
+          : "Wave/swell data doesn't appear to be available at this spot right now.";
     } else {
-      marineWarningEl.textContent =
-        "Wave/swell data may not be available at this exact spot, and we couldn't find a nearby ocean data point either. Your tide station and rip current zone are unaffected — you can still save.";
+      text =
+        "Wave/swell data may not be available at this exact spot. The nearest usable ocean data point we found is about " +
+        Math.round(marineDataCheck.distanceKm) +
+        "km away.";
     }
+    marineWarningEl.textContent = text + tail;
     marineWarningEl.style.display = "block";
   }
 
@@ -1264,7 +1249,7 @@
     marineDataCheck = null;
     renderMarineWarning();
     try {
-      marineDataCheck = await findNearestMarineDataPoint(town.lat, town.lon);
+      marineDataCheck = await fetchMarineDataCheck(town.lat, town.lon);
     } catch (err) {
       console.error("Marine data availability check failed:", err);
       marineDataCheck = null; // couldn't verify either way -- stay silent rather than guess
