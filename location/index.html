@@ -703,12 +703,12 @@
     return allStationsCache;
   }
 
-  const STATION_FOCUS_ZOOM = 15;
-
   // source is "map" or "list" -- picking a marker brings that station to
   // the top of the list (it's easy to lose track of which pin you tapped
-  // in a scrolling list); picking a list row zooms the map to it (so you
-  // can see exactly where it sits relative to the coastline).
+  // in a scrolling list); picking a list row recenters the map on the
+  // midpoint between the town and that station, at the same zoom level,
+  // so both stay visible together rather than zooming in on the station
+  // alone and losing the town off-screen.
   function selectStation(s, source) {
     selectedStation = s;
     stationListWrap.querySelectorAll(".station-row").forEach((r) => {
@@ -726,8 +726,10 @@
         list.insertBefore(row, list.firstElementChild);
         row.scrollIntoView({ behavior: "smooth", block: "nearest" });
       }
-    } else if (source === "list" && map) {
-      map.setView([s.lat, s.lon], STATION_FOCUS_ZOOM);
+    } else if (source === "list" && map && selectedTown) {
+      const midLat = (selectedTown.lat + s.lat) / 2;
+      const midLon = (selectedTown.lon + s.lon) / 2;
+      map.setView([midLat, midLon], map.getZoom());
     }
 
     renderSaveState();
@@ -745,9 +747,12 @@
   // Town-level zoom on load rather than fitting every pulled-in station
   // into view -- with up to 40 stations now loaded (see loadStations),
   // fitting bounds to all of them would zoom out far past the town
-  // itself. Starting close and letting people pan out to find the
-  // farther ones reads better on a phone.
-  const MAP_INITIAL_ZOOM = 13;
+  // itself. Wide enough to show the town and its closer-in stations
+  // together at a glance, with the farther ones a pan away; this same
+  // zoom level is kept fixed when recentering on a selected station (see
+  // selectStation) so the town and whichever station is picked stay
+  // visible together instead of the view tightening around just one pin.
+  const MAP_INITIAL_ZOOM = 11;
 
   function renderStationMap(town, stations) {
     clearMap();
