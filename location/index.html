@@ -573,7 +573,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getStorage, ref, uploadBytes, getBytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+  import { getStorage, ref, uploadBytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
   // Same Firebase project/bucket already used by the /design/ page's
   // uploads -- device firmware polls this same bucket, just a different
@@ -643,8 +643,26 @@
     }
     const startedAt = performance.now();
     try {
-      const bytes = await withTimeout(getBytes(ref(storage, "locations/" + deviceId + ".json")), 15000);
-      existingSettings = JSON.parse(new TextDecoder().decode(bytes));
+      // Plain fetch() against Firebase Storage's public REST download URL,
+      // instead of the SDK's getBytes() -- the SDK read consistently hung
+      // for the full timeout on a real device even though uploadBytes()
+      // (writes, same bucket) worked reliably every time, which points at
+      // something specific to the SDK's read path rather than the bucket,
+      // rules, or network in general. fetch() is the same approach already
+      // used reliably everywhere else on this page (NOAA, NWS, Open-Meteo,
+      // Nominatim), so this sidesteps whatever that SDK-specific issue is.
+      const path = encodeURIComponent("locations/" + deviceId + ".json");
+      const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + path + "?alt=media";
+      const resp = await withTimeout(fetch(url), 15000);
+      if (resp.status === 404) {
+        const err = new Error("Object not found");
+        err.code = "storage/object-not-found";
+        throw err;
+      }
+      if (!resp.ok) {
+        throw new Error("Existing-settings fetch failed: " + resp.status);
+      }
+      existingSettings = await resp.json();
       const elapsed = Math.round(performance.now() - startedAt);
       showDebug("read OK in " + elapsed + "ms for locations/" + deviceId + ".json — " + JSON.stringify(existingSettings));
     } catch (err) {
