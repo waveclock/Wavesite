@@ -77,6 +77,23 @@
   }
   .device-tag.error { color: var(--coral-dark); border-color: var(--coral); }
 
+  /* Temporary on-screen debug output for diagnosing the existing-settings
+     read on a phone with no easy console access -- remove once resolved. */
+  .debug-box {
+    display: none;
+    margin: 10px 20px 0;
+    padding: 10px 12px;
+    border: 1px dashed #999;
+    border-radius: 6px;
+    background: #fffbe6;
+    color: #555;
+    font-family: monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    word-break: break-all;
+    text-align: left;
+  }
+
   .intro { text-align: center; padding: 4px 8px 20px; }
   .intro h2 {
     font-family: var(--heading);
@@ -426,6 +443,8 @@
   <span class="device-tag" id="deviceTag">Checking your device&hellip;</span>
 </header>
 
+<p class="debug-box" id="debugExistingSettings" style="display:none;"></p>
+
 <div class="wrap">
 
   <div class="intro">
@@ -604,20 +623,39 @@
     ]);
   }
 
+  // TEMPORARY: shows the existing-settings read result directly on the
+  // page, since debugging this from an iPhone with no easy console access
+  // otherwise means plugging into a Mac for Web Inspector. Remove once
+  // the read issue is confirmed resolved.
+  const debugExistingSettingsEl = document.getElementById("debugExistingSettings");
+  function showDebug(text) {
+    if (!debugExistingSettingsEl) return;
+    debugExistingSettingsEl.textContent = "DEBUG: " + text;
+    debugExistingSettingsEl.style.display = "block";
+  }
+
   async function loadExistingSettings() {
-    if (deviceId) {
-      try {
-        const bytes = await withTimeout(getBytes(ref(storage, "locations/" + deviceId + ".json")), 6000);
-        existingSettings = JSON.parse(new TextDecoder().decode(bytes));
-      } catch (err) {
-        existingSettings = null;
-        // storage/object-not-found is the expected, silent case for a
-        // device that's never been set up before -- anything else means
-        // the read genuinely failed (permissions, network, malformed
-        // file) and is worth being able to see in the console.
-        if (!err || (err.code !== "storage/object-not-found" && err.message !== "timed out")) {
-          console.error("Couldn't check for existing location settings:", err);
-        }
+    if (!deviceId) {
+      showDebug("no device ID in link, skipped existing-settings check");
+      existingSettingsChecked = true;
+      renderSaveState();
+      return;
+    }
+    try {
+      const bytes = await withTimeout(getBytes(ref(storage, "locations/" + deviceId + ".json")), 6000);
+      existingSettings = JSON.parse(new TextDecoder().decode(bytes));
+      showDebug("read OK for locations/" + deviceId + ".json — " + JSON.stringify(existingSettings));
+    } catch (err) {
+      existingSettings = null;
+      // storage/object-not-found is the expected, silent case for a
+      // device that's never been set up before -- anything else means
+      // the read genuinely failed (permissions, network, malformed
+      // file) and is worth being able to see.
+      if (!err || (err.code !== "storage/object-not-found" && err.message !== "timed out")) {
+        console.error("Couldn't check for existing location settings:", err);
+        showDebug("read FAILED for locations/" + deviceId + ".json — code: " + (err && err.code) + ", message: " + (err && err.message));
+      } else {
+        showDebug("no existing file for locations/" + deviceId + ".json (code: " + (err && err.code) + ") — expected for a new device");
       }
     }
     existingSettingsChecked = true;
