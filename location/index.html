@@ -418,10 +418,18 @@
     padding: 30px 20px;
   }
   .saved-card.visible { display: block; }
-  .saved-card .saved-brand-mark { width: 46px; height: 46px; margin: 0 auto 8px; display: block; }
   .saved-card h2 { font-family: var(--heading); font-size: 24px; margin: 0 0 10px; }
   .saved-card p { color: var(--ink-soft); font-size: 15px; max-width: 34ch; margin: 0 auto; }
-  .saved-card .saved-detail { margin-top: 18px; font-size: 13px; color: var(--driftwood); }
+  .saved-table-wrap { margin-top: 18px; text-align: left; }
+  .saved-table td { white-space: normal; }
+  .saved-table td:first-child {
+    font-weight: 700;
+    color: var(--ink-soft);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    width: 36%;
+  }
 
   /* ---------- Celebration: stick-figure surfer ---------- */
   .surf-scene {
@@ -474,8 +482,8 @@
 <div class="wrap">
 
   <div class="intro">
-    <h2>Set your location</h2>
-    <p>Pick your spot and your tide station &mdash; it'll show up on your Wave Clock in a minute or two.</p>
+    <h2 id="introHeading">Set your location</h2>
+    <p id="introSub">Pick your spot and your tide station &mdash; it'll show up on your Wave Clock in a minute or two.</p>
   </div>
 
   <div class="step" id="stepTown">
@@ -582,13 +590,6 @@
   <p class="status-msg error" id="noDeviceMsg" style="display:none;">This link is missing your device ID, so there's nothing to save to &mdash; scan the QR code on your Wave Clock to get a working link.</p>
 
   <div class="saved-card" id="savedCard">
-    <svg class="saved-brand-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="50" cy="50" r="46" fill="none" stroke="#1F3347" stroke-width="3.5"/>
-      <path d="M18 60 C28 54 34 66 44 60 C52 55 58 66 68 60 C74 56 78 60 82 58" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
-      <path d="M18 68 C28 62 34 74 44 68 C52 63 58 74 68 68 C74 64 78 68 82 66" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
-      <circle cx="50" cy="30" r="6" fill="none" stroke="#1F3347" stroke-width="3"/>
-      <line x1="50" y1="36" x2="50" y2="48" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
-    </svg>
     <div class="surf-scene" aria-hidden="true">
       <svg viewBox="0 0 220 90" xmlns="http://www.w3.org/2000/svg">
         <path class="surf-wave surf-wave-back" d="M0 50 C 9 44,18 44,27 50 C 36 56,45 56,54 50 C 63 44,72 44,81 50 C 90 56,99 56,108 50 C 117 44,126 44,135 50 C 144 56,153 56,162 50 C 171 44,180 44,189 50 C 198 56,207 56,216 50 C 225 44,234 44,243 50 C 252 56,261 56,270 50" fill="none" stroke="#2C4A63" stroke-width="3" stroke-linecap="round"/>
@@ -604,7 +605,9 @@
     </div>
     <h2>Saved!</h2>
     <p>Your Wave Clock will pick up these new town settings on its own within a minute or two &mdash; or right away if you press the reset button in the top-left corner of the board.</p>
-    <p class="saved-detail" id="savedDetail"></p>
+    <div class="review-table-wrap saved-table-wrap">
+      <table class="review-table saved-table" id="savedTable"></table>
+    </div>
   </div>
 
 </div>
@@ -1627,7 +1630,9 @@
   // ================= Save =================
   const statusMsg = document.getElementById("statusMsg");
   const savedCard = document.getElementById("savedCard");
-  const savedDetail = document.getElementById("savedDetail");
+  const savedTable = document.getElementById("savedTable");
+  const introHeading = document.getElementById("introHeading");
+  const introSub = document.getElementById("introSub");
   const stepReview = document.getElementById("stepReview");
   const reviewTable = document.getElementById("reviewTable");
 
@@ -1724,7 +1729,15 @@
       await uploadBytes(storageRef, blob);
 
       setStatus("");
-      savedDetail.textContent = 'Shows as "' + displayName + '" · ' + selectedTown.name + (selectedTown.state ? ", " + selectedTown.state : "") + " · " + selectedStation.name + " (Station " + selectedStation.id + ") · Zone " + selectedMarineZoneId;
+      introHeading.textContent = "Your location is set";
+      introSub.style.display = "none";
+      const savedRows = [
+        { label: "Location", value: selectedTown.name + (selectedTown.state ? ", " + selectedTown.state : "") },
+        { label: "Nickname", value: displayName },
+        { label: "Tide buoy", value: selectedStation.name + " (Station " + selectedStation.id + ")" },
+        { label: "Marine zone", value: selectedMarineZoneId }
+      ];
+      savedTable.innerHTML = "<tbody>" + savedRows.map((r) => "<tr><td>" + escapeHtml(r.label) + "</td><td>" + escapeHtml(r.value) + "</td></tr>").join("") + "</tbody>";
       savedCard.classList.add("visible");
       stepTown.style.display = "none";
       stepName.style.display = "none";
