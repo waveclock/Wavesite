@@ -248,6 +248,18 @@
 
   .zone-help { font-size: 13px; color: var(--ink-soft); margin: 0 0 14px; }
 
+  .marine-warning {
+    display: none;
+    background: var(--foam);
+    border-left: 4px solid var(--coral);
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 0 0 14px;
+  }
+
   .station-map {
     display: none;
     height: 200px;
@@ -429,6 +441,8 @@
 
     <p class="zone-help">This is the offshore area used for swell and wave forecasts on your Wave Clock. We've picked one for you, but double-check it's the water you actually mean &mdash; tap a different shaded area or the list below to change it.</p>
 
+    <p class="marine-warning" id="marineWarning" style="display:none;"></p>
+
     <div class="station-map" id="zoneMap"></div>
 
     <div id="zoneListWrap">
@@ -593,6 +607,7 @@
     renderSaveState();
     loadStations(town);
     loadZones(town);
+    loadMarineDataCheck(town);
     // Scroll to the confirmation card itself (not straight to step 2) so
     // the customer actually sees the display-name field and gets a chance
     // to rename it before continuing -- jumping straight to step 2 meant
@@ -617,6 +632,8 @@
     srfZoneResult = null;
     marineZoneCandidates = [];
     selectedMarineZoneId = null;
+    marineDataCheck = null;
+    renderMarineWarning();
     renderSaveState();
   });
 
@@ -683,6 +700,17 @@
     '<svg viewBox="0 0 24 24" width="20" height="20">' +
     '<path d="M12 2 L14.35 8.76 L21.51 8.91 L15.8 13.24 L17.88 20.09 L12 16 L6.12 20.09 L8.2 13.24 L2.49 8.91 L9.65 8.76 Z" ' +
     'fill="#C97456" stroke="#1F3347" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+
+  // Marks where usable Open-Meteo marine (wave/swell) data was actually
+  // found, when it isn't available at the town's own coordinate -- a wave
+  // glyph rather than a plain dot so it doesn't get confused with the
+  // town star or the zone polygons on the same map.
+  const MARINE_DATA_MARKER_HTML =
+    '<svg viewBox="0 0 24 24" width="20" height="20">' +
+    '<circle cx="12" cy="12" r="10" fill="#D9A441" stroke="#1F3347" stroke-width="1.4"/>' +
+    '<path d="M5 10.5c1.5-2 3-2 4.5 0s3 2 4.5 0 3-2 4.5 0" fill="none" stroke="#1F3347" stroke-width="1.3" stroke-linecap="round"/>' +
+    '<path d="M5 14.5c1.5-2 3-2 4.5 0s3 2 4.5 0 3-2 4.5 0" fill="none" stroke="#1F3347" stroke-width="1.3" stroke-linecap="round"/>' +
+    '</svg>';
 
   // ================= Step 2: nearby NOAA tide stations + map =================
   const stationListWrap = document.getElementById("stationListWrap");
@@ -971,6 +999,7 @@
       zoneMapInstance = null;
     }
     zoneLayers = [];
+    marineDataMarker = null;
     zoneMapEl.style.display = "none";
   }
 
@@ -1040,6 +1069,7 @@
       if (combinedBounds) {
         zoneMapInstance.fitBounds(combinedBounds, { padding: [20, 20] });
       }
+      updateMarineDataMarker();
     } catch (err) {
       console.error("Zone map failed to load:", err);
       clearZoneMap();
@@ -1093,6 +1123,139 @@
       zoneListWrap.innerHTML = '<p class="station-status error">Couldn\'t figure out your offshore forecast zone &mdash; check your connection and try again.</p>';
     }
     renderSaveState();
+  }
+
+  // ================= Marine (wave/swell) data availability =================
+  // The device pulls wave height/period/swell from Open-Meteo's Marine API
+  // using the saved lat/lon directly -- that model only covers open water
+  // at roughly 25km grid resolution, so a point right at the water's edge
+  // (or in a back bay) can fall outside its usable grid even though the
+  // tide station and forecast zone picked above are both still perfectly
+  // valid (those come from different data sources entirely).
+  //
+  // Two independent checks, since either can fail on its own:
+  // 1. Distance check -- Open-Meteo always returns the actual grid-point
+  //    latitude/longitude it resolved the request to (not just an echo of
+  //    what was requested), since its models are grid-based. Comparing
+  //    that against what was actually asked for (real haversine distance,
+  //    not a flat approximation -- errors compound at this resolution)
+  //    tells us how far the model had to reach. A few km is normal at
+  //    this grid resolution; ~25km or more suggests the nearby grid cells
+  //    are land or otherwise uncovered.
+  // 2. Data validity check -- distance alone doesn't catch every failure
+  //    mode: a request can resolve to a nearby-looking grid point while
+  //    hourly.wave_height is still null/empty for it. Checked separately.
+  //
+  // This doesn't block Save -- it's informational, not a requirement. Not
+  // verified against the live Open-Meteo API from this sandbox (network
+  // access to external hosts is blocked here) -- the assumption that the
+  // response always includes top-level latitude/longitude fields for the
+  // resolved grid point needs confirming once this is live.
+  const marineWarningEl = document.getElementById("marineWarning");
+  let marineDataCheck = null; // null while unknown/loading, else { available, hasValidData, farGrid, distanceKm, point }
+  let marineDataMarker = null;
+
+  function haversineKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.asin(Math.sqrt(a));
+  }
+
+  const MARINE_DISTANCE_WARNING_KM = 25;
+
+  async function fetchMarineDataCheck(lat, lon) {
+    const resp = await fetch(
+      `https://marine-api.open-meteo.com/v1/marine?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&hourly=wave_height`
+    );
+    if (!resp.ok) throw new Error("Marine data request failed: " + resp.status);
+    const data = await resp.json();
+
+    const returnedLat = data.latitude;
+    const returnedLon = data.longitude;
+    const hasCoords = typeof returnedLat === "number" && typeof returnedLon === "number";
+    const distanceKm = hasCoords ? haversineKm(lat, lon, returnedLat, returnedLon) : null;
+    const farGrid = distanceKm !== null && distanceKm >= MARINE_DISTANCE_WARNING_KM;
+
+    const waveHeights = (data.hourly && data.hourly.wave_height) || [];
+    const hasValidData = waveHeights.some((v) => typeof v === "number" && !isNaN(v));
+
+    return {
+      available: hasValidData && !farGrid,
+      hasValidData,
+      farGrid,
+      distanceKm,
+      point: hasCoords ? { lat: returnedLat, lon: returnedLon } : null
+    };
+  }
+
+  function renderMarineWarning() {
+    if (!marineDataCheck || marineDataCheck.available) {
+      marineWarningEl.style.display = "none";
+      marineWarningEl.textContent = "";
+      return;
+    }
+    const tail = " Your tide station and rip current zone are unaffected — you can still save.";
+    let text;
+    if (!marineDataCheck.hasValidData) {
+      text =
+        marineDataCheck.distanceKm !== null
+          ? "Wave/swell data doesn't appear to be available near this spot — the nearest ocean model grid point is about " +
+            Math.round(marineDataCheck.distanceKm) +
+            "km away and still doesn't have usable data."
+          : "Wave/swell data doesn't appear to be available at this spot right now.";
+    } else {
+      text =
+        "Wave/swell data may not be available at this exact spot. The nearest usable ocean data point we found is about " +
+        Math.round(marineDataCheck.distanceKm) +
+        "km away.";
+    }
+    marineWarningEl.textContent = text + tail;
+    marineWarningEl.style.display = "block";
+  }
+
+  // Adds/updates the ocean-data-point marker on the zone map. Called both
+  // when the map itself is (re)built and when the check finishes, since
+  // either can resolve first.
+  function updateMarineDataMarker() {
+    if (marineDataMarker) {
+      try {
+        marineDataMarker.remove();
+      } catch (err) {
+        // map may already be gone
+      }
+      marineDataMarker = null;
+    }
+    if (!zoneMapInstance || typeof L === "undefined") return;
+    if (!marineDataCheck || marineDataCheck.available || !marineDataCheck.point) return;
+
+    const icon = L.divIcon({ className: "marine-data-marker", html: MARINE_DATA_MARKER_HTML, iconSize: [20, 20] });
+    marineDataMarker = L.marker([marineDataCheck.point.lat, marineDataCheck.point.lon], { icon: icon }).addTo(zoneMapInstance);
+
+    try {
+      const bounds = zoneMapInstance.getBounds();
+      bounds.extend([marineDataCheck.point.lat, marineDataCheck.point.lon]);
+      zoneMapInstance.fitBounds(bounds, { padding: [30, 30] });
+    } catch (err) {
+      // no valid bounds yet, leave the map view as-is
+    }
+  }
+
+  async function loadMarineDataCheck(town) {
+    marineDataCheck = null;
+    renderMarineWarning();
+    try {
+      marineDataCheck = await fetchMarineDataCheck(town.lat, town.lon);
+    } catch (err) {
+      console.error("Marine data availability check failed:", err);
+      marineDataCheck = null; // couldn't verify either way -- stay silent rather than guess
+    }
+    renderMarineWarning();
+    updateMarineDataMarker();
   }
 
   // ================= Save =================
