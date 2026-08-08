@@ -478,7 +478,7 @@
   <div class="step disabled" id="stepName">
     <div class="step-head">
       <span class="step-num">2</span>
-      <h3>Confirm your Wave Clock name</h3>
+      <h3>Confirm your Wave Clock town nickname</h3>
       <span class="step-check">&#10003; Confirmed</span>
     </div>
 
@@ -489,7 +489,7 @@
     </div>
 
     <div class="display-name-field" id="nameEditField" style="display:none;">
-      <label for="displayName">Type the name to show on your Wave Clock</label>
+      <label for="displayName">Type the nickname to show on your Wave Clock</label>
       <input type="text" id="displayName" maxlength="17" autocomplete="off">
       <div class="display-name-meta">
         <span class="display-name-hint">17 characters max &mdash; this is exactly what appears on the device screen.</span>
@@ -1591,7 +1591,7 @@
   const reviewTable = document.getElementById("reviewTable");
 
   const REVIEW_FIELDS = [
-    { key: "name", label: "Display name" },
+    { key: "name", label: "Town nickname" },
     { key: "stationId", label: "Tide station" },
     { key: "lat", label: "Latitude" },
     { key: "lon", label: "Longitude" },
@@ -1648,7 +1648,7 @@
     if (!deviceId || !selectedTown || !selectedStation) return;
     const displayName = confirmedDisplayName;
     if (!displayName || displayName.length > DISPLAY_NAME_MAX) {
-      setStatus("Confirm a display name of " + DISPLAY_NAME_MAX + " characters or fewer first.", "error");
+      setStatus("Confirm a town nickname of " + DISPLAY_NAME_MAX + " characters or fewer first.", "error");
       return;
     }
     saveBtn.disabled = true;
