@@ -334,6 +334,7 @@
     overflow: hidden;
     background: var(--foam);
   }
+  .town-preview-map { margin-top: 12px; margin-bottom: 0; height: 160px; }
   .town-marker svg {
     display: block;
     filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
@@ -470,6 +471,7 @@
         <span class="selected-town-name" id="selectedTownName"></span>
         <button type="button" class="change-btn" id="changeTownBtn">Change</button>
       </div>
+      <div class="station-map town-preview-map" id="townMap"></div>
     </div>
   </div>
 
@@ -714,15 +716,26 @@
     Wyoming: "WY"
   };
 
-  function buildTownLabel(address, fallbackDisplayName) {
-    address = address || {};
-    const cityLike = address.city || address.town || address.village || address.hamlet ||
-      address.suburb || address.municipality || address.county;
+  // Takes a full Nominatim search result (not just its address breakdown).
+  // Nominatim's own top-level `name` field is exactly what was matched --
+  // e.g. searching "La Jolla" returns a result with name="La Jolla", but
+  // its address breakdown has city="San Diego" (since La Jolla is a
+  // neighborhood within San Diego, not its own incorporated city).
+  // Preferring address.city over the result's own name meant a search
+  // for a well-known neighborhood silently showed its parent city
+  // instead -- confusing when that's not what was typed or intended.
+  function buildTownLabel(result) {
+    result = result || {};
+    const address = result.address || {};
     const state = address.state || "";
     const stateAbbr = STATE_ABBR[state] || state;
-    if (cityLike && stateAbbr) return { short: cityLike, full: cityLike + ", " + stateAbbr, state: stateAbbr };
-    if (cityLike) return { short: cityLike, full: cityLike, state: "" };
-    const parts = (fallbackDisplayName || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const shortName =
+      result.name ||
+      address.city || address.town || address.village || address.hamlet ||
+      address.neighbourhood || address.suburb || address.municipality || address.county;
+    if (shortName && stateAbbr) return { short: shortName, full: shortName + ", " + stateAbbr, state: stateAbbr };
+    if (shortName) return { short: shortName, full: shortName, state: "" };
+    const parts = (result.display_name || "").split(",").map((s) => s.trim()).filter(Boolean);
     const short = parts[0] || "Your Location";
     return { short: short, full: parts.slice(0, 2).join(", ") || short, state: stateAbbr };
   }
@@ -741,6 +754,7 @@
   const selectedTownCard = document.getElementById("selectedTownCard");
   const selectedTownName = document.getElementById("selectedTownName");
   const changeTownBtn = document.getElementById("changeTownBtn");
+  const townMapEl = document.getElementById("townMap");
   const searchRow = document.querySelector(".search-row");
   const stepTown = document.getElementById("stepTown");
   const stepStation = document.getElementById("stepStation");
@@ -748,6 +762,37 @@
 
   let selectedTown = null;
   let selectedStation = null;
+  let townMapInstance = null;
+
+  function clearTownMap() {
+    if (townMapInstance) {
+      townMapInstance.remove();
+      townMapInstance = null;
+    }
+    townMapEl.style.display = "none";
+  }
+
+  // A quick, zoomed-in look at the matched spot -- lets someone confirm
+  // "yes, that's the beach I mean" before continuing, especially useful
+  // for a search match that could plausibly be ambiguous (a common town
+  // name, a neighborhood vs. its parent city, etc.).
+  function renderTownMap(town) {
+    clearTownMap();
+    if (typeof L === "undefined") return;
+    try {
+      townMapEl.style.display = "block";
+      townMapInstance = L.map(townMapEl, { zoomControl: true, attributionControl: true }).setView([town.lat, town.lon], 14);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(townMapInstance);
+      const icon = L.divIcon({ className: "town-marker", html: TOWN_MARKER_HTML, iconSize: [20, 20] });
+      L.marker([town.lat, town.lon], { icon: icon }).addTo(townMapInstance);
+    } catch (err) {
+      console.error("Town preview map failed to load:", err);
+      clearTownMap();
+    }
+  }
 
   function selectTownFromResult(town) {
     selectedTown = town;
@@ -758,6 +803,7 @@
     searchRow.style.display = "none";
     stepTown.classList.add("done");
     selectedStation = null;
+    renderTownMap(town);
     resetNameStep(town);
     renderSaveState();
     loadStations(town);
@@ -771,6 +817,7 @@
     selectedStation = null;
     selectedTownCard.style.display = "none";
     searchRow.style.display = "";
+    clearTownMap();
     stepTown.classList.remove("done");
     disableNameStep();
     stepStation.classList.remove("done");
@@ -896,7 +943,7 @@
     const list = document.createElement("div");
     list.className = "search-results";
     results.forEach((r) => {
-      const label = buildTownLabel(r.address, r.display_name);
+      const label = buildTownLabel(r);
       const lat = parseFloat(r.lat);
       const lon = parseFloat(r.lon);
       if (isNaN(lat) || isNaN(lon)) return;
