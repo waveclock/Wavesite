@@ -261,7 +261,9 @@
     border-radius: 8px;
     margin-bottom: 14px;
   }
-  .name-actions { display: flex; align-items: center; gap: 16px; }
+  .name-actions { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; }
+  .name-actions .save-btn-small { grid-column: 2; justify-self: center; }
+  .name-actions .change-btn { grid-column: 3; justify-self: end; }
   .save-btn-small {
     font-family: var(--body);
     font-weight: 700;
@@ -416,10 +418,33 @@
     padding: 30px 20px;
   }
   .saved-card.visible { display: block; }
-  .saved-card svg { width: 64px; height: 64px; margin: 0 auto 14px; display: block; }
+  .saved-card .saved-brand-mark { width: 46px; height: 46px; margin: 0 auto 8px; display: block; }
   .saved-card h2 { font-family: var(--heading); font-size: 24px; margin: 0 0 10px; }
   .saved-card p { color: var(--ink-soft); font-size: 15px; max-width: 34ch; margin: 0 auto; }
   .saved-card .saved-detail { margin-top: 18px; font-size: 13px; color: var(--driftwood); }
+
+  /* ---------- Celebration: stick-figure surfer ---------- */
+  .surf-scene {
+    width: 100%;
+    max-width: 260px;
+    margin: 4px auto 10px;
+    overflow: hidden;
+  }
+  .surf-scene svg { width: 100%; height: auto; display: block; overflow: visible; }
+  @media (prefers-reduced-motion: reduce) {
+    .surf-wave, .surfer { animation: none !important; }
+  }
+  .surf-wave { animation: surf-wave-scroll 4s linear infinite; }
+  .surf-wave-back { animation-duration: 5.6s; opacity: 0.35; }
+  @keyframes surf-wave-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-54px); }
+  }
+  .surfer { animation: surf-ride 1.5s ease-in-out infinite; }
+  @keyframes surf-ride {
+    0%, 100% { transform: translate(60px, 27px) rotate(-5deg); }
+    50% { transform: translate(60px, 21px) rotate(5deg); }
+  }
 
   footer {
     text-align: center;
@@ -557,12 +582,28 @@
   <p class="status-msg error" id="noDeviceMsg" style="display:none;">This link is missing your device ID, so there's nothing to save to &mdash; scan the QR code on your Wave Clock to get a working link.</p>
 
   <div class="saved-card" id="savedCard">
-    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="50" cy="50" r="46" fill="none" stroke="#3E7A5C" stroke-width="4"/>
-      <path d="M30 52 L44 66 L72 36" fill="none" stroke="#3E7A5C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <svg class="saved-brand-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="50" r="46" fill="none" stroke="#1F3347" stroke-width="3.5"/>
+      <path d="M18 60 C28 54 34 66 44 60 C52 55 58 66 68 60 C74 56 78 60 82 58" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
+      <path d="M18 68 C28 62 34 74 44 68 C52 63 58 74 68 68 C74 64 78 68 82 66" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
+      <circle cx="50" cy="30" r="6" fill="none" stroke="#1F3347" stroke-width="3"/>
+      <line x1="50" y1="36" x2="50" y2="48" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
     </svg>
+    <div class="surf-scene" aria-hidden="true">
+      <svg viewBox="0 0 220 90" xmlns="http://www.w3.org/2000/svg">
+        <path class="surf-wave surf-wave-back" d="M0 50 C 9 44,18 44,27 50 C 36 56,45 56,54 50 C 63 44,72 44,81 50 C 90 56,99 56,108 50 C 117 44,126 44,135 50 C 144 56,153 56,162 50 C 171 44,180 44,189 50 C 198 56,207 56,216 50 C 225 44,234 44,243 50 C 252 56,261 56,270 50" fill="none" stroke="#2C4A63" stroke-width="3" stroke-linecap="round"/>
+        <path class="surf-wave surf-wave-front" d="M0 60 C 9 53,18 53,27 60 C 36 67,45 67,54 60 C 63 53,72 53,81 60 C 90 67,99 67,108 60 C 117 53,126 53,135 60 C 144 67,153 67,162 60 C 171 53,180 53,189 60 C 198 67,207 67,216 60 C 225 53,234 53,243 60 C 252 67,261 67,270 60" fill="none" stroke="#C97456" stroke-width="3.2" stroke-linecap="round"/>
+        <g class="surfer">
+          <ellipse cx="0" cy="26" rx="19" ry="4.5" fill="#D9A441" stroke="#1F3347" stroke-width="2"/>
+          <path d="M-6 25 L-4 13 M6 25 L4 13" stroke="#1F3347" stroke-width="3" stroke-linecap="round" fill="none"/>
+          <line x1="0" y1="13" x2="-2" y2="-1" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
+          <path d="M-2 3 L-14 -3 M-2 3 L10 -7" stroke="#1F3347" stroke-width="3" stroke-linecap="round" fill="none"/>
+          <circle cx="-3" cy="-7" r="6" fill="none" stroke="#1F3347" stroke-width="3"/>
+        </g>
+      </svg>
+    </div>
     <h2>Saved!</h2>
-    <p>Your Wave Clock checks in every so often on its own &mdash; this'll show up on the device within a minute or two.</p>
+    <p>Your Wave Clock will pick up these new town settings on its own within a minute or two &mdash; or right away if you press the reset button in the top-left corner of the board.</p>
     <p class="saved-detail" id="savedDetail"></p>
   </div>
 
