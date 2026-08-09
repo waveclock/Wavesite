@@ -965,8 +965,10 @@
     stationListWrap.innerHTML = '<p class="station-status" id="stationStatus">Pick your location above to see nearby stations.</p>';
     zoneListWrap.innerHTML = '<p class="station-status" id="zoneStatus">Pick your location above to see forecast zone options.</p>';
     srfZoneResult = null;
+    srfOfficeResult = null;
     marineZoneCandidates = [];
     selectedMarineZoneId = null;
+    coastFacingDirectionResult = null;
     zoneSkipped = false;
     updateZoneSkipUI();
     marineDataCheck = null;
@@ -1337,6 +1339,14 @@
   // This hasn't been verified against a real NWS response from this
   // sandbox (network access to weather.gov is blocked here).
   let srfZoneResult = null;
+  // The NWS Weather Forecast Office (e.g. "kphi", "kakq") responsible for
+  // issuing Surf Zone Forecast / Coastal Waters Forecast bulletins at this
+  // point. Every NJ/DE town happens to share one office (Mount Holly/
+  // Philadelphia), which is why this was previously safe to hardcode --
+  // but it genuinely varies (Ocean City, MD is issued by Wakefield, VA),
+  // so this is resolved per-point from the same NWS /points response
+  // srfZone already comes from, not derived from the zone code or assumed.
+  let srfOfficeResult = null;
   let marineZoneCandidates = []; // [{ id, name, geojson }]
   let suggestedMarineZoneId = null;
   let selectedMarineZoneId = null;
@@ -1355,7 +1365,76 @@
     const data = await resp.json();
     const zoneUrl = data.properties && data.properties.forecastZone;
     if (!zoneUrl) throw new Error("No forecast zone in NWS response");
-    return zoneUrl.split("/").pop();
+    const cwa = data.properties && data.properties.cwa;
+    return {
+      srfZone: zoneUrl.split("/").pop(),
+      srfOffice: cwa ? "k" + String(cwa).toLowerCase() : null
+    };
+  }
+
+  // ================= coastFacingDirection =================
+  // The compass direction the coast/ocean actually faces at this specific
+  // town -- varies by real coastline shape, not by state or region (the
+  // NC coast alone bends through several facings around Cape Hatteras and
+  // Cape Lookout). Approximated here as the bearing from the town's own
+  // coordinate to the centroid of its confirmed marine (CWF) zone polygon
+  // -- the same zone the customer already reviews on the map in Step 4 --
+  // snapped to the nearest of 8 compass directions. This is a geometric
+  // approximation, not manually verified per town; it can be off for
+  // unusual coastline shapes (bays, inlets, barrier islands) and should
+  // be revisited if a verified per-town/per-zone data source becomes
+  // available.
+  const COMPASS_DIRECTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+  function bearingDeg(lat1, lon1, lat2, lon2) {
+    const toRad = (d) => (d * Math.PI) / 180;
+    const toDeg = (r) => (r * 180) / Math.PI;
+    const phi1 = toRad(lat1), phi2 = toRad(lat2);
+    const dLambda = toRad(lon2 - lon1);
+    const y = Math.sin(dLambda) * Math.cos(phi2);
+    const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLambda);
+    return (toDeg(Math.atan2(y, x)) + 360) % 360;
+  }
+
+  function bearingToCompass(bearing) {
+    return COMPASS_DIRECTIONS[Math.round(bearing / 45) % 8];
+  }
+
+  // Plain average of every polygon vertex -- not a true area-weighted
+  // centroid, but precise enough once the resulting bearing is snapped to
+  // one of 8 compass directions.
+  function geojsonCentroid(geojson) {
+    // fetchMarineZoneGeometry() stores the whole GeoJSON Feature (not a
+    // bare geometry) in zone.geojson -- Leaflet's L.geoJSON() happily
+    // accepts either shape, but this needs the raw geometry underneath.
+    const geom = geojson && geojson.type === "Feature" ? geojson.geometry : geojson;
+    if (!geom) return null;
+    const pts = [];
+    function collect(rings) {
+      rings.forEach((ring) => ring.forEach(([lon, lat]) => pts.push([lat, lon])));
+    }
+    if (geom.type === "Polygon") {
+      collect(geom.coordinates);
+    } else if (geom.type === "MultiPolygon") {
+      geom.coordinates.forEach((poly) => collect(poly));
+    }
+    if (!pts.length) return null;
+    const sum = pts.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1]], [0, 0]);
+    return { lat: sum[0] / pts.length, lon: sum[1] / pts.length };
+  }
+
+  let coastFacingDirectionResult = null;
+
+  function updateCoastFacingDirection() {
+    if (zoneSkipped || !selectedTown || !selectedMarineZoneId) {
+      coastFacingDirectionResult = null;
+      return;
+    }
+    const zone = marineZoneCandidates.find((z) => z.id === selectedMarineZoneId);
+    const centroid = zone && zone.geojson ? geojsonCentroid(zone.geojson) : null;
+    coastFacingDirectionResult = centroid
+      ? bearingToCompass(bearingDeg(selectedTown.lat, selectedTown.lon, centroid.lat, centroid.lon))
+      : null;
   }
 
   const MARINE_ZONE_ID_PATTERN = /^[A-Z]{2,3}Z\d{3}$/;
@@ -1480,6 +1559,7 @@
     zoneSkipped = false;
     updateZoneSkipUI();
     selectedMarineZoneId = id;
+    updateCoastFacingDirection();
     zoneListWrap.querySelectorAll(".station-row").forEach((r) => {
       r.classList.toggle("selected", r.dataset.zoneId === id);
     });
@@ -1583,6 +1663,7 @@
     // "none chosen" rather than leaving a stale highlighted zone that no
     // longer matches what's about to be saved.
     selectedMarineZoneId = null;
+    updateCoastFacingDirection();
     zoneListWrap.querySelectorAll(".station-row").forEach((r) => r.classList.remove("selected"));
     zoneLayers.forEach((layer) => layer.setStyle(zoneStyle(false)));
     stepZone.classList.add("done");
@@ -1592,9 +1673,11 @@
 
   async function loadZones(town) {
     srfZoneResult = null;
+    srfOfficeResult = null;
     marineZoneCandidates = [];
     suggestedMarineZoneId = null;
     selectedMarineZoneId = null;
+    coastFacingDirectionResult = null;
     zoneSkipped = false;
     zoneUnavailable = false;
     updateZoneSkipUI();
@@ -1602,7 +1685,9 @@
     zoneListWrap.innerHTML = '<p class="station-status" id="zoneStatus">Figuring out your offshore forecast zone&hellip;</p>';
 
     try {
-      srfZoneResult = await fetchZoneForPoint(town.lat, town.lon);
+      const point = await fetchZoneForPoint(town.lat, town.lon);
+      srfZoneResult = point.srfZone;
+      srfOfficeResult = point.srfOffice;
     } catch (err) {
       console.error("srfZone lookup failed:", err);
     }
@@ -1612,6 +1697,7 @@
       marineZoneCandidates = result.zones;
       suggestedMarineZoneId = result.suggestedId;
       selectedMarineZoneId = result.suggestedId;
+      updateCoastFacingDirection();
       renderZoneMap(marineZoneCandidates, selectedMarineZoneId);
       renderZoneList(marineZoneCandidates, selectedMarineZoneId);
       stepZone.classList.add("done");
@@ -1773,7 +1859,9 @@
     { key: "lat", label: "Latitude" },
     { key: "lon", label: "Longitude" },
     { key: "srfZone", label: "Surf zone" },
-    { key: "cwfZone", label: "Marine zone" }
+    { key: "cwfZone", label: "Marine zone" },
+    { key: "srfOffice", label: "Forecast office" },
+    { key: "coastFacingDirection", label: "Coast faces" }
   ];
 
   // "none" (lowercase, matching the firmware-confirmed value) when the
@@ -1783,6 +1871,8 @@
   // toggling zoneSkipped off just reveals the real values again.
   function effectiveSrfZone() { return zoneSkipped ? "none" : srfZoneResult; }
   function effectiveMarineZone() { return zoneSkipped ? "none" : selectedMarineZoneId; }
+  function effectiveSrfOffice() { return zoneSkipped ? "none" : (srfOfficeResult || "none"); }
+  function effectiveCoastFacingDirection() { return zoneSkipped ? "none" : (coastFacingDirectionResult || "none"); }
   function zoneDisplayValue(v) { return v === "none" ? "None (no wave/surf data)" : v; }
 
   function renderReviewTable(ready) {
@@ -1799,16 +1889,19 @@
       lat: selectedTown.lat,
       lon: selectedTown.lon,
       srfZone: effectiveSrfZone(),
-      cwfZone: effectiveMarineZone()
+      cwfZone: effectiveMarineZone(),
+      srfOffice: effectiveSrfOffice(),
+      coastFacingDirection: effectiveCoastFacingDirection()
     };
     const hasOld = existingSettings && typeof existingSettings === "object";
+    const ZONE_STYLE_FIELDS = ["srfZone", "cwfZone", "srfOffice", "coastFacingDirection"];
 
     let html = "<thead><tr><th>Field</th>" + (hasOld ? "<th>Current</th>" : "") + "<th>New</th></tr></thead><tbody>";
     REVIEW_FIELDS.forEach((f) => {
       const newVal = newSettings[f.key];
       const oldVal = hasOld ? existingSettings[f.key] : undefined;
       const changed = hasOld && String(oldVal) !== String(newVal);
-      const displayVal = f.key === "srfZone" || f.key === "cwfZone" ? zoneDisplayValue(newVal) : newVal;
+      const displayVal = ZONE_STYLE_FIELDS.includes(f.key) ? zoneDisplayValue(newVal) : newVal;
       html += "<tr><td>" + escapeHtml(f.label) + "</td>";
       if (hasOld) {
         html += "<td>" + escapeHtml(oldVal !== undefined && oldVal !== null ? String(oldVal) : "—") + "</td>";
@@ -1840,7 +1933,7 @@
   }
 
   // Fields device-status/{id}.json echoes back for location once applied.
-  const CONFIRMABLE_FIELDS = ["name", "stationId", "lat", "lon", "srfZone", "cwfZone"];
+  const CONFIRMABLE_FIELDS = ["name", "stationId", "lat", "lon", "srfZone", "cwfZone", "srfOffice", "coastFacingDirection"];
 
   // Tolerant comparison instead of strict === -- a device's own JSON
   // serialization (likely embedded C/C++ firmware) commonly doesn't
@@ -1948,7 +2041,9 @@
         lat: selectedTown.lat,
         lon: selectedTown.lon,
         srfZone: effectiveSrfZone(),
-        cwfZone: effectiveMarineZone()
+        cwfZone: effectiveMarineZone(),
+        srfOffice: effectiveSrfOffice(),
+        coastFacingDirection: effectiveCoastFacingDirection()
       };
       const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
       const storageRef = ref(storage, "locations/" + deviceId + ".json");
