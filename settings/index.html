@@ -268,6 +268,23 @@
     width: 46%;
   }
 
+  .post-save-cta { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .post-save-cta-text { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 12px; max-width: 34ch; margin-left: auto; margin-right: auto; }
+  .secondary-btn {
+    display: inline-block;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 14px;
+    padding: 11px 24px;
+    border-radius: 999px;
+    border: 2px solid var(--navy);
+    background: #fff;
+    color: var(--navy);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .secondary-btn:active { transform: translateY(1px); }
+
   footer {
     text-align: center;
     padding: 30px 20px 10px;
@@ -280,13 +297,7 @@
 <body>
 
 <header class="top">
-  <svg class="brand-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="50" cy="50" r="46" fill="none" stroke="#1F3347" stroke-width="3.5"/>
-    <path d="M18 60 C28 54 34 66 44 60 C52 55 58 66 68 60 C74 56 78 60 82 58" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
-    <path d="M18 68 C28 62 34 74 44 68 C52 63 58 74 68 68 C74 64 78 68 82 66" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
-    <circle cx="50" cy="30" r="6" fill="none" stroke="#1F3347" stroke-width="3"/>
-    <line x1="50" y1="36" x2="50" y2="48" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
-  </svg>
+  <img src="../logo.png" alt="WaveClock.net logo" class="brand-mark">
   <h1 class="brand">WAVE CLOCK</h1>
   <span class="device-tag" id="deviceTag">Checking your device&hellip;</span>
 </header>
@@ -392,6 +403,10 @@
     <div class="review-table-wrap saved-table-wrap">
       <table class="review-table saved-table" id="savedTable"></table>
     </div>
+    <div class="post-save-cta">
+      <p class="post-save-cta-text">Want to also update your Wave Clock&rsquo;s Custom Screen design?</p>
+      <a class="secondary-btn" id="updateDesignLink" href="../design/">Update Custom Screen</a>
+    </div>
   </div>
 
 </div>
@@ -434,6 +449,7 @@
   const wizardDots = Array.from(document.querySelectorAll(".wizard-dot"));
   const saveBtn = document.getElementById("saveBtn");
   const backToManageLink = document.getElementById("backToManageLink");
+  const updateDesignLink = document.getElementById("updateDesignLink");
 
   if (!deviceId) {
     deviceTag.textContent = "No device ID found in link";
@@ -704,6 +720,7 @@
         { label: "Sunset Reminder", value: REMINDER_LABELS[state.sunsetReminder] }
       ];
       savedTable.innerHTML = "<tbody>" + savedRows.map((r) => "<tr><td>" + escapeHtml(r.label) + "</td><td>" + escapeHtml(r.value) + "</td></tr>").join("") + "</tbody>";
+      updateDesignLink.href = "../design/?id=" + encodeURIComponent(deviceId);
       savedCard.classList.add("visible");
       wizard.style.display = "none";
       savedCard.scrollIntoView({ behavior: "smooth", block: "start" });

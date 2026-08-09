@@ -103,6 +103,25 @@
   }
   .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0; max-width: 38ch; margin: 0 auto; }
 
+  .current-location-card {
+    display: none;
+    background: var(--foam);
+    border: 2px solid var(--navy);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin: 0 0 18px;
+    text-align: center;
+  }
+  .current-location-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+    margin: 0 0 4px;
+  }
+  .current-location-value { font-family: var(--heading); font-weight: 700; font-size: 15px; margin: 0; color: var(--ink); }
+
   .step {
     background: #fff;
     border: 2px solid var(--ink);
@@ -422,6 +441,8 @@
   .saved-card.visible { display: block; }
   .saved-card h2 { font-family: var(--heading); font-size: 24px; margin: 0 0 10px; }
   .saved-card p { color: var(--ink-soft); font-size: 15px; max-width: 34ch; margin: 0 auto; }
+  .confirm-status { margin-top: 10px !important; font-size: 13px !important; font-style: italic; }
+  .confirm-status.confirmed { font-style: normal; font-weight: 700; color: var(--good) !important; }
   .saved-table-wrap { margin-top: 18px; text-align: left; }
   .saved-table td { white-space: normal; }
   .saved-table td:first-child {
@@ -485,13 +506,7 @@
 <body>
 
 <header class="top">
-  <svg class="brand-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="50" cy="50" r="46" fill="none" stroke="#1F3347" stroke-width="3.5"/>
-    <path d="M18 60 C28 54 34 66 44 60 C52 55 58 66 68 60 C74 56 78 60 82 58" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
-    <path d="M18 68 C28 62 34 74 44 68 C52 63 58 74 68 68 C74 64 78 68 82 66" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
-    <circle cx="50" cy="30" r="6" fill="none" stroke="#1F3347" stroke-width="3"/>
-    <line x1="50" y1="36" x2="50" y2="48" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
-  </svg>
+  <img src="../logo.png" alt="WaveClock.net logo" class="brand-mark">
   <h1 class="brand">WAVE CLOCK</h1>
   <span class="device-tag" id="deviceTag">Checking your device&hellip;</span>
 </header>
@@ -503,6 +518,11 @@
   <div class="intro">
     <h2 id="introHeading">Set your location</h2>
     <p id="introSub">Pick your spot and your tide station &mdash; it'll show up on your Wave Clock in a minute or two.</p>
+  </div>
+
+  <div class="current-location-card" id="currentLocationCard" style="display:none;">
+    <p class="current-location-label">Currently set to</p>
+    <p class="current-location-value" id="currentLocationValue"></p>
   </div>
 
   <div id="wizard">
@@ -634,6 +654,7 @@
     </div>
     <h2>WaveClock Updating Location&hellip;</h2>
     <p>Your Wave Clock will pick up these new town settings on its own within a minute or two &mdash; or right away if you open the Update Online Setting screen on your Wave Clock.</p>
+    <p class="confirm-status" id="confirmStatus" style="display:none;"></p>
     <div class="review-table-wrap saved-table-wrap">
       <table class="review-table saved-table" id="savedTable"></table>
     </div>
@@ -718,6 +739,17 @@
     debugExistingSettingsEl.style.display = "block";
   }
 
+  const currentLocationCard = document.getElementById("currentLocationCard");
+  const currentLocationValue = document.getElementById("currentLocationValue");
+  function renderCurrentLocationCard() {
+    if (!existingSettings || !existingSettings.name) {
+      currentLocationCard.style.display = "none";
+      return;
+    }
+    currentLocationValue.textContent = existingSettings.name;
+    currentLocationCard.style.display = "block";
+  }
+
   // Plain fetch() against Firebase Storage's public REST download URL,
   // instead of the SDK's getBytes() -- the SDK read consistently hung for
   // the full timeout on a real device even though uploadBytes() (writes,
@@ -759,6 +791,7 @@
         const elapsed = Math.round(performance.now() - startedAt);
         showDebug("read OK in " + elapsed + "ms from device-status/" + deviceId + ".json — " + JSON.stringify(existingSettings));
         existingSettingsChecked = true;
+        renderCurrentLocationCard();
         renderSaveState();
         return;
       }
@@ -789,6 +822,7 @@
       }
     }
     existingSettingsChecked = true;
+    renderCurrentLocationCard();
     renderSaveState();
   }
   loadExistingSettings();
@@ -1796,6 +1830,55 @@
     statusMsg.className = "status-msg" + (kind ? " " + kind : "");
   }
 
+  const confirmStatusEl = document.getElementById("confirmStatus");
+  // Fields device-status/{id}.json echoes back for location once applied.
+  const CONFIRMABLE_FIELDS = ["name", "stationId", "lat", "lon", "srfZone", "cwfZone"];
+
+  function locationMatch(deviceLocation, submitted) {
+    return CONFIRMABLE_FIELDS.every((key) => deviceLocation[key] === submitted[key]);
+  }
+
+  // Confirmed device behavior: picked up within ~20s if the device's own
+  // Setup QR screen is open, otherwise within ~5min via a background sync
+  // that runs regardless of what screen it's on. Polls fast at first to
+  // catch the common ~20s case quickly, then backs off to avoid hammering
+  // the bucket for the rest of a multi-minute wait. Deadline is padded to
+  // 7 minutes to safely clear the slower case with margin -- if that's
+  // hit, this says so honestly rather than claiming success or just going
+  // silent. Until the firmware round ships this file, every poll simply
+  // finds nothing and lands on that same honest message -- never treated
+  // as an error.
+  const CONFIRMATION_DEADLINE_MS = 7 * 60 * 1000;
+  const FAST_POLL_WINDOW_MS = 60 * 1000;
+  const FAST_POLL_INTERVAL_MS = 5000;
+  const SLOW_POLL_INTERVAL_MS = 15000;
+
+  async function pollForDeviceConfirmation(payload) {
+    if (!deviceId) return;
+    confirmStatusEl.textContent = "Checking your Wave Clock for confirmation…";
+    confirmStatusEl.className = "confirm-status";
+    confirmStatusEl.style.display = "block";
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const startedAt = Date.now();
+    const deadline = startedAt + CONFIRMATION_DEADLINE_MS;
+    while (Date.now() < deadline) {
+      const elapsed = Date.now() - startedAt;
+      await sleep(elapsed < FAST_POLL_WINDOW_MS ? FAST_POLL_INTERVAL_MS : SLOW_POLL_INTERVAL_MS);
+      try {
+        const status = await fetchJsonFromStorage("device-status/" + deviceId + ".json", 8000);
+        if (status && status.location && locationMatch(status.location, payload)) {
+          confirmStatusEl.textContent = "✓ Applied to your device!";
+          confirmStatusEl.className = "confirm-status confirmed";
+          return;
+        }
+      } catch (err) {
+        // keep trying silently -- a single failed poll doesn't mean much
+      }
+    }
+    confirmStatusEl.textContent = "Saved — may take a few minutes, or open the Update Online Setting screen on your Wave Clock to apply instantly.";
+    confirmStatusEl.className = "confirm-status";
+  }
+
   saveBtn.addEventListener("click", async () => {
     if (!deviceId || !selectedTown || !selectedStation) return;
     const displayName = confirmedDisplayName;
@@ -1838,6 +1921,7 @@
       statusMsg.style.display = "none";
       introHeading.textContent = "Your location is set";
       introSub.style.display = "none";
+      currentLocationCard.style.display = "none";
       const savedRows = [
         { label: "Location", value: selectedTown.name + (selectedTown.state ? ", " + selectedTown.state : "") },
         { label: "Nickname", value: displayName },
@@ -1855,6 +1939,7 @@
       saveBtn.style.display = "none";
       if (debugExistingSettingsEl) debugExistingSettingsEl.style.display = "none";
       savedCard.scrollIntoView({ behavior: "smooth", block: "start" });
+      pollForDeviceConfirmation(payload);
     } catch (err) {
       console.error(err);
       if (err && err.code === "storage/unauthorized") {
