@@ -655,6 +655,7 @@
     <h2>WaveClock Updating Location&hellip;</h2>
     <p>Your Wave Clock will update its town settings in a minute or two. To speed up the process, open the Update Online Setting screen on your Wave Clock.</p>
     <p class="confirm-status" id="confirmStatus" style="display:none;"></p>
+    <p class="debug-box" id="debugConfirmPoll" style="display:none;"></p>
     <div class="review-table-wrap saved-table-wrap">
       <table class="review-table saved-table" id="savedTable"></table>
     </div>
@@ -1831,11 +1832,42 @@
   }
 
   const confirmStatusEl = document.getElementById("confirmStatus");
+  const debugConfirmPollEl = document.getElementById("debugConfirmPoll");
+  function showConfirmDebug(text) {
+    if (!debugConfirmPollEl) return;
+    debugConfirmPollEl.textContent = "DEBUG: " + text;
+    debugConfirmPollEl.style.display = "block";
+  }
+
   // Fields device-status/{id}.json echoes back for location once applied.
   const CONFIRMABLE_FIELDS = ["name", "stationId", "lat", "lon", "srfZone", "cwfZone"];
 
+  // Tolerant comparison instead of strict === -- a device's own JSON
+  // serialization (likely embedded C/C++ firmware) commonly doesn't
+  // preserve JS types exactly: a numeric-looking ID like stationId can
+  // come back as a bare number instead of a string, lat/lon can
+  // round-trip through fewer decimal places than what was submitted, and
+  // booleans can come back as "true"/"false" strings instead of real
+  // booleans. Comparing loosely avoids a real match being permanently
+  // missed over a type or precision difference the device never actually
+  // got wrong. toBool() specifically avoids the trap of treating the
+  // *string* "false" as truthy, which plain Boolean("false") would.
+  function toBool(v) {
+    if (typeof v === "boolean") return v;
+    if (typeof v === "string") return v.toLowerCase() === "true";
+    return !!v;
+  }
+  function looseEquals(a, b) {
+    if (typeof a === "boolean" || typeof b === "boolean") return toBool(a) === toBool(b);
+    if (typeof a === "number" || typeof b === "number") {
+      const na = Number(a), nb = Number(b);
+      if (!Number.isNaN(na) && !Number.isNaN(nb)) return Math.abs(na - nb) < 0.0001;
+    }
+    return String(a) === String(b);
+  }
+
   function locationMatch(deviceLocation, submitted) {
-    return CONFIRMABLE_FIELDS.every((key) => deviceLocation[key] === submitted[key]);
+    return CONFIRMABLE_FIELDS.every((key) => looseEquals(deviceLocation[key], submitted[key]));
   }
 
   // Confirmed device behavior: picked up within ~20s if the device's own
@@ -1866,13 +1898,18 @@
       await sleep(elapsed < FAST_POLL_WINDOW_MS ? FAST_POLL_INTERVAL_MS : SLOW_POLL_INTERVAL_MS);
       try {
         const status = await fetchJsonFromStorage("device-status/" + deviceId + ".json", 8000);
-        if (status && status.location && locationMatch(status.location, payload)) {
+        const matched = !!(status && status.location && locationMatch(status.location, payload));
+        showConfirmDebug("poll at " + Math.round((Date.now() - startedAt) / 1000) + "s — device-status.location: " + JSON.stringify(status && status.location) + " — expected: " + JSON.stringify(payload) + " — matched: " + matched);
+        if (matched) {
           confirmStatusEl.textContent = "✓ Applied to your device!";
           confirmStatusEl.className = "confirm-status confirmed";
           return;
         }
       } catch (err) {
-        // keep trying silently -- a single failed poll doesn't mean much
+        // keep trying, but note it -- a single failed poll doesn't mean
+        // much, but a pattern of them (e.g. every poll failing the same
+        // way) is worth seeing rather than staying invisible.
+        showConfirmDebug("poll at " + Math.round((Date.now() - startedAt) / 1000) + "s — fetch FAILED: " + (err && err.message) + " (code: " + (err && err.code) + ")");
       }
     }
     confirmStatusEl.textContent = "Saved — may take a few minutes, or open the Update Online Setting screen on your Wave Clock to apply instantly.";
