@@ -103,6 +103,25 @@
   }
   .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0; max-width: 38ch; margin: 0 auto; }
 
+  .current-location-card {
+    display: none;
+    background: var(--foam);
+    border: 2px solid var(--navy);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin: 0 0 18px;
+    text-align: center;
+  }
+  .current-location-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+    margin: 0 0 4px;
+  }
+  .current-location-value { font-family: var(--heading); font-weight: 700; font-size: 15px; margin: 0; color: var(--ink); }
+
   .step {
     background: #fff;
     border: 2px solid var(--ink);
@@ -422,6 +441,8 @@
   .saved-card.visible { display: block; }
   .saved-card h2 { font-family: var(--heading); font-size: 24px; margin: 0 0 10px; }
   .saved-card p { color: var(--ink-soft); font-size: 15px; max-width: 34ch; margin: 0 auto; }
+  .confirm-status { margin-top: 10px !important; font-size: 13px !important; font-style: italic; }
+  .confirm-status.confirmed { font-style: normal; font-weight: 700; color: var(--good) !important; }
   .saved-table-wrap { margin-top: 18px; text-align: left; }
   .saved-table td { white-space: normal; }
   .saved-table td:first-child {
@@ -432,6 +453,23 @@
     letter-spacing: 0.04em;
     width: 36%;
   }
+
+  .post-save-cta { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .post-save-cta-text { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 12px; max-width: 34ch; margin-left: auto; margin-right: auto; }
+  .secondary-btn {
+    display: inline-block;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 14px;
+    padding: 11px 24px;
+    border-radius: 999px;
+    border: 2px solid var(--navy);
+    background: #fff;
+    color: var(--navy);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .secondary-btn:active { transform: translateY(1px); }
 
   /* ---------- Celebration: stick-figure surfer ---------- */
   .surf-scene {
@@ -468,13 +506,7 @@
 <body>
 
 <header class="top">
-  <svg class="brand-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="50" cy="50" r="46" fill="none" stroke="#1F3347" stroke-width="3.5"/>
-    <path d="M18 60 C28 54 34 66 44 60 C52 55 58 66 68 60 C74 56 78 60 82 58" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
-    <path d="M18 68 C28 62 34 74 44 68 C52 63 58 74 68 68 C74 64 78 68 82 66" fill="none" stroke="#1F3347" stroke-width="3.2" stroke-linecap="round"/>
-    <circle cx="50" cy="30" r="6" fill="none" stroke="#1F3347" stroke-width="3"/>
-    <line x1="50" y1="36" x2="50" y2="48" stroke="#1F3347" stroke-width="3" stroke-linecap="round"/>
-  </svg>
+  <img src="../logo.png" alt="WaveClock.net logo" class="brand-mark">
   <h1 class="brand">WAVE CLOCK</h1>
   <span class="device-tag" id="deviceTag">Checking your device&hellip;</span>
 </header>
@@ -487,6 +519,13 @@
     <h2 id="introHeading">Set your location</h2>
     <p id="introSub">Pick your spot and your tide station &mdash; it'll show up on your Wave Clock in a minute or two.</p>
   </div>
+
+  <div class="current-location-card" id="currentLocationCard" style="display:none;">
+    <p class="current-location-label">Currently set to</p>
+    <p class="current-location-value" id="currentLocationValue"></p>
+  </div>
+
+  <div id="wizard">
 
   <div class="step" id="stepTown">
     <div class="step-head">
@@ -594,6 +633,9 @@
 
   <button class="save-btn" id="saveBtn" disabled>Save to my Wave Clock</button>
   <p class="status-msg" id="statusMsg"></p>
+
+  </div>
+
   <p class="status-msg error" id="noDeviceMsg" style="display:none;">This link is missing your device ID, so there's nothing to save to &mdash; scan the QR code on your Wave Clock to get a working link.</p>
 
   <div class="saved-card" id="savedCard">
@@ -611,15 +653,21 @@
       </svg>
     </div>
     <h2>WaveClock Updating Location&hellip;</h2>
-    <p>Your Wave Clock will pick up these new town settings on its own within a minute or two &mdash; or right away if you press the reset button in the top-left corner of the board.</p>
+    <p>Your Wave Clock will pick up these new town settings on its own within a minute or two &mdash; or right away if you open the Update Online Setting screen on your Wave Clock.</p>
+    <p class="confirm-status" id="confirmStatus" style="display:none;"></p>
     <div class="review-table-wrap saved-table-wrap">
       <table class="review-table saved-table" id="savedTable"></table>
+    </div>
+    <div class="post-save-cta">
+      <p class="post-save-cta-text">Want to also update your Wave Clock&rsquo;s settings &mdash; like which screens show or your sunset reminder?</p>
+      <a class="secondary-btn" id="updateSettingsLink" href="../settings/">Update Settings</a>
     </div>
   </div>
 
 </div>
 
 <footer>
+  <p><a href="../manage/" id="backToManageLink">Back to device menu</a></p>
   <p>Wrong device? Scan the QR code on your Wave Clock again.</p>
   <p><a href="../index.html">waveclock.net</a></p>
 </footer>
@@ -647,13 +695,17 @@
   const deviceTag = document.getElementById("deviceTag");
   const saveBtn = document.getElementById("saveBtn");
   const noDeviceMsg = document.getElementById("noDeviceMsg");
+  const wizard = document.getElementById("wizard");
+  const backToManageLink = document.getElementById("backToManageLink");
 
   if (!deviceId) {
     deviceTag.textContent = "No device ID found in link";
     deviceTag.classList.add("error");
     noDeviceMsg.style.display = "block";
+    wizard.style.display = "none";
   } else {
     deviceTag.textContent = "Setting up " + deviceId;
+    if (backToManageLink) backToManageLink.href = "../manage/?id=" + encodeURIComponent(deviceId);
   }
 
   // Fetched once up front (reads are public per the Storage rules, same
@@ -687,6 +739,43 @@
     debugExistingSettingsEl.style.display = "block";
   }
 
+  const currentLocationCard = document.getElementById("currentLocationCard");
+  const currentLocationValue = document.getElementById("currentLocationValue");
+  function renderCurrentLocationCard() {
+    if (!existingSettings || !existingSettings.name) {
+      currentLocationCard.style.display = "none";
+      return;
+    }
+    currentLocationValue.textContent = existingSettings.name;
+    currentLocationCard.style.display = "block";
+  }
+
+  // Plain fetch() against Firebase Storage's public REST download URL,
+  // instead of the SDK's getBytes() -- the SDK read consistently hung for
+  // the full timeout on a real device even though uploadBytes() (writes,
+  // same bucket) worked reliably every time, which points at something
+  // specific to the SDK's read path rather than the bucket, rules, or
+  // network in general. fetch() is the same approach already used
+  // reliably everywhere else on this page (NOAA, NWS, Open-Meteo,
+  // Nominatim), so this sidesteps whatever that SDK-specific issue is.
+  async function fetchJsonFromStorage(path, timeoutMs) {
+    const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + encodeURIComponent(path) + "?alt=media";
+    const resp = await withTimeout(fetch(url), timeoutMs);
+    if (resp.status === 404) {
+      const err = new Error("Object not found");
+      err.code = "storage/object-not-found";
+      throw err;
+    }
+    if (!resp.ok) throw new Error("fetch failed: " + resp.status);
+    return resp.json();
+  }
+
+  // device-status/{id}.json is written by the device itself and reflects
+  // what's actually applied right now -- preferred over locations/{id}.json
+  // (which is only ever what the website last *submitted*, and may not
+  // have been picked up yet). Falls back to locations/{id}.json so a
+  // returning customer still sees a comparison before the device has ever
+  // reported status (e.g. during the gap before that firmware round ships).
   async function loadExistingSettings() {
     if (!deviceId) {
       showDebug("no device ID in link, skipped existing-settings check");
@@ -696,40 +785,34 @@
     }
     const startedAt = performance.now();
     try {
-      // Plain fetch() against Firebase Storage's public REST download URL,
-      // instead of the SDK's getBytes() -- the SDK read consistently hung
-      // for the full timeout on a real device even though uploadBytes()
-      // (writes, same bucket) worked reliably every time, which points at
-      // something specific to the SDK's read path rather than the bucket,
-      // rules, or network in general. fetch() is the same approach already
-      // used reliably everywhere else on this page (NOAA, NWS, Open-Meteo,
-      // Nominatim), so this sidesteps whatever that SDK-specific issue is.
-      const path = encodeURIComponent("locations/" + deviceId + ".json");
-      const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + path + "?alt=media";
-      const resp = await withTimeout(fetch(url), 15000);
-      if (resp.status === 404) {
-        const err = new Error("Object not found");
-        err.code = "storage/object-not-found";
-        throw err;
+      const deviceStatus = await fetchJsonFromStorage("device-status/" + deviceId + ".json", 15000);
+      if (deviceStatus && deviceStatus.location && typeof deviceStatus.location === "object") {
+        existingSettings = deviceStatus.location;
+        const elapsed = Math.round(performance.now() - startedAt);
+        showDebug("read OK in " + elapsed + "ms from device-status/" + deviceId + ".json — " + JSON.stringify(existingSettings));
+        existingSettingsChecked = true;
+        renderCurrentLocationCard();
+        renderSaveState();
+        return;
       }
-      if (!resp.ok) {
-        throw new Error("Existing-settings fetch failed: " + resp.status);
-      }
-      existingSettings = await resp.json();
+    } catch (err) {
+      // device-status not available yet (404, timeout, etc.) -- fall back
+      // to the legacy source below rather than treating this as final.
+    }
+
+    try {
+      existingSettings = await fetchJsonFromStorage("locations/" + deviceId + ".json", 15000);
       const elapsed = Math.round(performance.now() - startedAt);
-      showDebug("read OK in " + elapsed + "ms for locations/" + deviceId + ".json — " + JSON.stringify(existingSettings));
+      showDebug("read OK in " + elapsed + "ms from locations/" + deviceId + ".json (device-status unavailable) — " + JSON.stringify(existingSettings));
     } catch (err) {
       existingSettings = null;
       const elapsed = Math.round(performance.now() - startedAt);
       const timedOut = err && err.message === "timed out";
       // storage/object-not-found is the only case that actually confirms
       // there's no file -- a timeout means the read never finished in
-      // time, which tells us nothing about whether a file exists. Those
-      // two were previously shown as the same "expected" message, which
-      // was misleading: a timeout after 6s turned out to be what was
-      // actually happening on a real device, not a clean not-found.
+      // time, which tells us nothing about whether a file exists.
       if (err && err.code === "storage/object-not-found") {
-        showDebug("confirmed no existing file in " + elapsed + "ms for locations/" + deviceId + ".json (storage/object-not-found) — expected for a new device");
+        showDebug("confirmed no existing settings in " + elapsed + "ms (checked device-status/ and locations/) — expected for a new device");
       } else if (timedOut) {
         showDebug("TIMED OUT after " + elapsed + "ms reading locations/" + deviceId + ".json — the read never completed, this does NOT mean the file doesn't exist");
         console.error("Existing-settings read timed out after " + elapsed + "ms");
@@ -739,6 +822,7 @@
       }
     }
     existingSettingsChecked = true;
+    renderCurrentLocationCard();
     renderSaveState();
   }
   loadExistingSettings();
@@ -1256,12 +1340,13 @@
   let suggestedMarineZoneId = null;
   let selectedMarineZoneId = null;
   // Explicit customer choice to proceed with no forecast zone at all --
-  // e.g. their spot doesn't have a usable marine zone, or the lookup
-  // failed outright and they don't want to be stuck unable to save.
-  // Layered independently of srfZoneResult/selectedMarineZoneId (rather
-  // than overwriting them) so undoing it just clears this flag without
+  // only offered when zoneUnavailable is true (the lookup found nothing
+  // usable), not as a general opt-out when real zones exist. Layered
+  // independently of srfZoneResult/selectedMarineZoneId (rather than
+  // overwriting them) so undoing it just clears this flag without
   // needing to remember/restore whatever was found before.
   let zoneSkipped = false;
+  let zoneUnavailable = false;
 
   async function fetchZoneForPoint(lat, lon) {
     const resp = await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`);
@@ -1487,7 +1572,7 @@
   const zoneNoneWarningEl = document.getElementById("zoneNoneWarning");
 
   function updateZoneSkipUI() {
-    skipZoneBtn.style.display = zoneSkipped ? "none" : "";
+    skipZoneBtn.style.display = (zoneUnavailable && !zoneSkipped) ? "" : "none";
     zoneNoneWarningEl.style.display = zoneSkipped ? "block" : "none";
   }
 
@@ -1510,6 +1595,7 @@
     suggestedMarineZoneId = null;
     selectedMarineZoneId = null;
     zoneSkipped = false;
+    zoneUnavailable = false;
     updateZoneSkipUI();
     clearZoneMap();
     zoneListWrap.innerHTML = '<p class="station-status" id="zoneStatus">Figuring out your offshore forecast zone&hellip;</p>';
@@ -1530,8 +1616,10 @@
       stepZone.classList.add("done");
     } catch (err) {
       console.error("Marine zone lookup failed:", err);
-      zoneListWrap.innerHTML = '<p class="station-status error">Couldn\'t figure out your offshore forecast zone &mdash; check your connection and try again.</p>';
+      zoneUnavailable = true;
+      zoneListWrap.innerHTML = '<p class="station-status error">A forecast zone isn\'t available for this location.</p>';
     }
+    updateZoneSkipUI();
     renderSaveState();
   }
 
@@ -1672,6 +1760,7 @@
   const statusMsg = document.getElementById("statusMsg");
   const savedCard = document.getElementById("savedCard");
   const savedTable = document.getElementById("savedTable");
+  const updateSettingsLink = document.getElementById("updateSettingsLink");
   const introHeading = document.getElementById("introHeading");
   const introSub = document.getElementById("introSub");
   const stepReview = document.getElementById("stepReview");
@@ -1741,6 +1830,55 @@
     statusMsg.className = "status-msg" + (kind ? " " + kind : "");
   }
 
+  const confirmStatusEl = document.getElementById("confirmStatus");
+  // Fields device-status/{id}.json echoes back for location once applied.
+  const CONFIRMABLE_FIELDS = ["name", "stationId", "lat", "lon", "srfZone", "cwfZone"];
+
+  function locationMatch(deviceLocation, submitted) {
+    return CONFIRMABLE_FIELDS.every((key) => deviceLocation[key] === submitted[key]);
+  }
+
+  // Confirmed device behavior: picked up within ~20s if the device's own
+  // Setup QR screen is open, otherwise within ~5min via a background sync
+  // that runs regardless of what screen it's on. Polls fast at first to
+  // catch the common ~20s case quickly, then backs off to avoid hammering
+  // the bucket for the rest of a multi-minute wait. Deadline is padded to
+  // 7 minutes to safely clear the slower case with margin -- if that's
+  // hit, this says so honestly rather than claiming success or just going
+  // silent. Until the firmware round ships this file, every poll simply
+  // finds nothing and lands on that same honest message -- never treated
+  // as an error.
+  const CONFIRMATION_DEADLINE_MS = 7 * 60 * 1000;
+  const FAST_POLL_WINDOW_MS = 60 * 1000;
+  const FAST_POLL_INTERVAL_MS = 5000;
+  const SLOW_POLL_INTERVAL_MS = 15000;
+
+  async function pollForDeviceConfirmation(payload) {
+    if (!deviceId) return;
+    confirmStatusEl.textContent = "Checking your Wave Clock for confirmation…";
+    confirmStatusEl.className = "confirm-status";
+    confirmStatusEl.style.display = "block";
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const startedAt = Date.now();
+    const deadline = startedAt + CONFIRMATION_DEADLINE_MS;
+    while (Date.now() < deadline) {
+      const elapsed = Date.now() - startedAt;
+      await sleep(elapsed < FAST_POLL_WINDOW_MS ? FAST_POLL_INTERVAL_MS : SLOW_POLL_INTERVAL_MS);
+      try {
+        const status = await fetchJsonFromStorage("device-status/" + deviceId + ".json", 8000);
+        if (status && status.location && locationMatch(status.location, payload)) {
+          confirmStatusEl.textContent = "✓ Applied to your device!";
+          confirmStatusEl.className = "confirm-status confirmed";
+          return;
+        }
+      } catch (err) {
+        // keep trying silently -- a single failed poll doesn't mean much
+      }
+    }
+    confirmStatusEl.textContent = "Saved — may take a few minutes, or open the Update Online Setting screen on your Wave Clock to apply instantly.";
+    confirmStatusEl.className = "confirm-status";
+  }
+
   saveBtn.addEventListener("click", async () => {
     if (!deviceId || !selectedTown || !selectedStation) return;
     const displayName = confirmedDisplayName;
@@ -1760,7 +1898,7 @@
     }
 
     if (!zoneSkipped && (!srfZoneResult || !selectedMarineZoneId)) {
-      setStatus("Couldn't confirm your forecast zone — check your connection and try again.", "error");
+      setStatus("Couldn't confirm your forecast zone — pick one above, or continue without one.", "error");
       saveBtn.disabled = false;
       return;
     }
@@ -1783,6 +1921,7 @@
       statusMsg.style.display = "none";
       introHeading.textContent = "Your location is set";
       introSub.style.display = "none";
+      currentLocationCard.style.display = "none";
       const savedRows = [
         { label: "Location", value: selectedTown.name + (selectedTown.state ? ", " + selectedTown.state : "") },
         { label: "Nickname", value: displayName },
@@ -1790,6 +1929,7 @@
         { label: "Marine zone", value: zoneDisplayValue(effectiveMarineZone()) }
       ];
       savedTable.innerHTML = "<tbody>" + savedRows.map((r) => "<tr><td>" + escapeHtml(r.label) + "</td><td>" + escapeHtml(r.value) + "</td></tr>").join("") + "</tbody>";
+      updateSettingsLink.href = "../settings/?id=" + encodeURIComponent(deviceId);
       savedCard.classList.add("visible");
       stepTown.style.display = "none";
       stepName.style.display = "none";
@@ -1799,6 +1939,7 @@
       saveBtn.style.display = "none";
       if (debugExistingSettingsEl) debugExistingSettingsEl.style.display = "none";
       savedCard.scrollIntoView({ behavior: "smooth", block: "start" });
+      pollForDeviceConfirmation(payload);
     } catch (err) {
       console.error(err);
       if (err && err.code === "storage/unauthorized") {
