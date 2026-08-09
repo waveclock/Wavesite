@@ -327,6 +327,8 @@
     margin: 0 0 14px;
   }
 
+  .zone-skip-row { margin-top: 12px; text-align: center; }
+
   .station-map {
     display: none;
     height: 200px;
@@ -570,6 +572,11 @@
     <div id="zoneListWrap">
       <p class="station-status" id="zoneStatus">Pick your location above to see forecast zone options.</p>
     </div>
+
+    <div class="zone-skip-row">
+      <button type="button" class="change-btn" id="skipZoneBtn">Continue without a forecast zone</button>
+    </div>
+    <p class="marine-warning" id="zoneNoneWarning" style="display:none;">You won&rsquo;t see wave, swell, or rip current data on your Wave Clock until you come back and pick a real forecast zone above. Your tide station and town nickname are unaffected.</p>
   </div>
 
   <div class="step disabled" id="stepReview">
@@ -875,6 +882,8 @@
     srfZoneResult = null;
     marineZoneCandidates = [];
     selectedMarineZoneId = null;
+    zoneSkipped = false;
+    updateZoneSkipUI();
     marineDataCheck = null;
     renderMarineWarning();
     renderSaveState();
@@ -1246,6 +1255,13 @@
   let marineZoneCandidates = []; // [{ id, name, geojson }]
   let suggestedMarineZoneId = null;
   let selectedMarineZoneId = null;
+  // Explicit customer choice to proceed with no forecast zone at all --
+  // e.g. their spot doesn't have a usable marine zone, or the lookup
+  // failed outright and they don't want to be stuck unable to save.
+  // Layered independently of srfZoneResult/selectedMarineZoneId (rather
+  // than overwriting them) so undoing it just clears this flag without
+  // needing to remember/restore whatever was found before.
+  let zoneSkipped = false;
 
   async function fetchZoneForPoint(lat, lon) {
     const resp = await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`);
@@ -1375,6 +1391,8 @@
   // source is "map" or "list" -- same reorder/zoom pairing as the tide
   // station picker above.
   function selectMarineZone(id, source) {
+    zoneSkipped = false;
+    updateZoneSkipUI();
     selectedMarineZoneId = id;
     zoneListWrap.querySelectorAll(".station-row").forEach((r) => {
       r.classList.toggle("selected", r.dataset.zoneId === id);
@@ -1465,11 +1483,34 @@
     zoneListWrap.appendChild(list);
   }
 
+  const skipZoneBtn = document.getElementById("skipZoneBtn");
+  const zoneNoneWarningEl = document.getElementById("zoneNoneWarning");
+
+  function updateZoneSkipUI() {
+    skipZoneBtn.style.display = zoneSkipped ? "none" : "";
+    zoneNoneWarningEl.style.display = zoneSkipped ? "block" : "none";
+  }
+
+  skipZoneBtn.addEventListener("click", () => {
+    zoneSkipped = true;
+    // Clear any real-zone selection so the map/list visually reflect
+    // "none chosen" rather than leaving a stale highlighted zone that no
+    // longer matches what's about to be saved.
+    selectedMarineZoneId = null;
+    zoneListWrap.querySelectorAll(".station-row").forEach((r) => r.classList.remove("selected"));
+    zoneLayers.forEach((layer) => layer.setStyle(zoneStyle(false)));
+    stepZone.classList.add("done");
+    updateZoneSkipUI();
+    renderSaveState();
+  });
+
   async function loadZones(town) {
     srfZoneResult = null;
     marineZoneCandidates = [];
     suggestedMarineZoneId = null;
     selectedMarineZoneId = null;
+    zoneSkipped = false;
+    updateZoneSkipUI();
     clearZoneMap();
     zoneListWrap.innerHTML = '<p class="station-status" id="zoneStatus">Figuring out your offshore forecast zone&hellip;</p>';
 
@@ -1645,6 +1686,15 @@
     { key: "cwfZone", label: "Marine zone" }
   ];
 
+  // "none" (lowercase, matching the firmware-confirmed value) when the
+  // customer explicitly chose to skip the forecast zone step -- otherwise
+  // whatever was actually found/picked. Layered on top of
+  // srfZoneResult/selectedMarineZoneId rather than overwriting them so
+  // toggling zoneSkipped off just reveals the real values again.
+  function effectiveSrfZone() { return zoneSkipped ? "none" : srfZoneResult; }
+  function effectiveMarineZone() { return zoneSkipped ? "none" : selectedMarineZoneId; }
+  function zoneDisplayValue(v) { return v === "none" ? "None (no wave/surf data)" : v; }
+
   function renderReviewTable(ready) {
     if (!ready || !existingSettingsChecked) {
       stepReview.classList.add("disabled");
@@ -1658,8 +1708,8 @@
       stationId: selectedStation.id,
       lat: selectedTown.lat,
       lon: selectedTown.lon,
-      srfZone: srfZoneResult,
-      cwfZone: selectedMarineZoneId
+      srfZone: effectiveSrfZone(),
+      cwfZone: effectiveMarineZone()
     };
     const hasOld = existingSettings && typeof existingSettings === "object";
 
@@ -1668,11 +1718,12 @@
       const newVal = newSettings[f.key];
       const oldVal = hasOld ? existingSettings[f.key] : undefined;
       const changed = hasOld && String(oldVal) !== String(newVal);
+      const displayVal = f.key === "srfZone" || f.key === "cwfZone" ? zoneDisplayValue(newVal) : newVal;
       html += "<tr><td>" + escapeHtml(f.label) + "</td>";
       if (hasOld) {
         html += "<td>" + escapeHtml(oldVal !== undefined && oldVal !== null ? String(oldVal) : "—") + "</td>";
       }
-      html += '<td class="' + (changed ? "changed" : "") + '">' + escapeHtml(String(newVal)) + "</td></tr>";
+      html += '<td class="' + (changed ? "changed" : "") + '">' + escapeHtml(String(displayVal)) + "</td></tr>";
     });
     html += "</tbody>";
     reviewTable.innerHTML = html;
@@ -1680,7 +1731,7 @@
 
   function renderSaveState() {
     const nameOk = confirmedDisplayName && confirmedDisplayName.length > 0 && confirmedDisplayName.length <= DISPLAY_NAME_MAX;
-    const ready = deviceId && selectedTown && selectedStation && nameOk && srfZoneResult && selectedMarineZoneId;
+    const ready = deviceId && selectedTown && selectedStation && nameOk && effectiveSrfZone() && effectiveMarineZone();
     saveBtn.disabled = !ready;
     renderReviewTable(ready);
   }
@@ -1699,7 +1750,7 @@
     }
     saveBtn.disabled = true;
 
-    if (!srfZoneResult || !selectedMarineZoneId) {
+    if (!zoneSkipped && (!srfZoneResult || !selectedMarineZoneId)) {
       setStatus("Still working out your forecast zone — one more second…");
       try {
         await loadZones(selectedTown);
@@ -1708,7 +1759,7 @@
       }
     }
 
-    if (!srfZoneResult || !selectedMarineZoneId) {
+    if (!zoneSkipped && (!srfZoneResult || !selectedMarineZoneId)) {
       setStatus("Couldn't confirm your forecast zone — check your connection and try again.", "error");
       saveBtn.disabled = false;
       return;
@@ -1721,8 +1772,8 @@
         stationId: selectedStation.id,
         lat: selectedTown.lat,
         lon: selectedTown.lon,
-        srfZone: srfZoneResult,
-        cwfZone: selectedMarineZoneId
+        srfZone: effectiveSrfZone(),
+        cwfZone: effectiveMarineZone()
       };
       const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
       const storageRef = ref(storage, "locations/" + deviceId + ".json");
@@ -1736,7 +1787,7 @@
         { label: "Location", value: selectedTown.name + (selectedTown.state ? ", " + selectedTown.state : "") },
         { label: "Nickname", value: displayName },
         { label: "Tide buoy", value: selectedStation.name + " (Station " + selectedStation.id + ")" },
-        { label: "Marine zone", value: selectedMarineZoneId }
+        { label: "Marine zone", value: zoneDisplayValue(effectiveMarineZone()) }
       ];
       savedTable.innerHTML = "<tbody>" + savedRows.map((r) => "<tr><td>" + escapeHtml(r.label) + "</td><td>" + escapeHtml(r.value) + "</td></tr>").join("") + "</tbody>";
       savedCard.classList.add("visible");
