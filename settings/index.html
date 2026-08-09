@@ -622,31 +622,42 @@
   }
 
   const confirmStatusEl = document.getElementById("confirmStatus");
-  // Fields device-status/{id}.json is expected to echo back once applied.
-  // sunsetReminder isn't part of that confirmed shape (it's a one-time
-  // trigger, not persistent state to reflect), so it's excluded here --
-  // matching just these means "the device has this saved settings file
-  // applied," which is the confirmation this is meant to give.
-  const CONFIRMABLE_FIELDS = ["cycleMode", "showWaveForecast", "showWeatherForecast", "showBeach", "showLifeguard", "showCustomScreen", "sunsetAllDay"];
+  // Fields device-status/{id}.json echoes back once applied -- confirmed
+  // firmware-complete (the device echoes the whole settings object, not a
+  // partial summary), so every field written to settings/{id}.json is
+  // checked here, sunsetReminder included.
+  const CONFIRMABLE_FIELDS = ["cycleMode", "showWaveForecast", "showWeatherForecast", "showBeach", "showLifeguard", "showCustomScreen", "sunsetAllDay", "sunsetReminder"];
 
   function settingsMatch(deviceSettings, submitted) {
     return CONFIRMABLE_FIELDS.every((key) => deviceSettings[key] === submitted[key]);
   }
 
-  // Polls device-status/{id}.json for up to a minute after a save, looking
-  // for the device to echo back exactly what was just submitted. This is
-  // a nice-to-have: until the firmware round ships this file, every poll
-  // will simply find nothing and time out silently, leaving the generic
-  // "should show up soon" wording in place -- never treated as an error.
+  // Confirmed device behavior: picked up within ~20s if the device's own
+  // Setup QR screen is open, otherwise within ~5min via a background sync
+  // that runs regardless of what screen it's on. Polls fast at first to
+  // catch the common ~20s case quickly, then backs off to avoid hammering
+  // the bucket for the rest of a multi-minute wait. Deadline is padded to
+  // 7 minutes to safely clear the slower case with margin -- if that's
+  // hit, this says so honestly rather than claiming success or just going
+  // silent. Until the firmware round ships this file, every poll simply
+  // finds nothing and lands on that same honest message -- never treated
+  // as an error.
+  const CONFIRMATION_DEADLINE_MS = 7 * 60 * 1000;
+  const FAST_POLL_WINDOW_MS = 60 * 1000;
+  const FAST_POLL_INTERVAL_MS = 5000;
+  const SLOW_POLL_INTERVAL_MS = 15000;
+
   async function pollForDeviceConfirmation(payload) {
     if (!deviceId) return;
     confirmStatusEl.textContent = "Checking your Wave Clock for confirmation…";
     confirmStatusEl.className = "confirm-status";
     confirmStatusEl.style.display = "block";
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    const deadline = Date.now() + 60000;
+    const startedAt = Date.now();
+    const deadline = startedAt + CONFIRMATION_DEADLINE_MS;
     while (Date.now() < deadline) {
-      await sleep(5000);
+      const elapsed = Date.now() - startedAt;
+      await sleep(elapsed < FAST_POLL_WINDOW_MS ? FAST_POLL_INTERVAL_MS : SLOW_POLL_INTERVAL_MS);
       try {
         const status = await fetchJsonFromStorage("device-status/" + deviceId + ".json", 8000);
         if (status && status.settings && settingsMatch(status.settings, payload)) {
@@ -658,7 +669,8 @@
         // keep trying silently -- a single failed poll doesn't mean much
       }
     }
-    confirmStatusEl.style.display = "none";
+    confirmStatusEl.textContent = "Saved — may take a few minutes, or scan your device's QR code to apply instantly.";
+    confirmStatusEl.className = "confirm-status";
   }
 
   saveBtn.addEventListener("click", async () => {
