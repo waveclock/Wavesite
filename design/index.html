@@ -458,6 +458,8 @@
     font-size: 12px;
     color: var(--ink-soft);
   }
+  footer p { margin: 0 0 6px; }
+  footer a { color: var(--navy); }
 </style>
 </head>
 <body>
@@ -468,6 +470,10 @@
     <p class="subtitle">Draw something, write something &mdash; whatever you want to see every time it cycles by.</p>
     <span class="device-tag" id="deviceTag">Loading device&hellip;</span>
   </header>
+
+  <p class="status error" id="noDeviceMsg" style="display:none;">This link is missing your device ID, so there's nothing to design for &mdash; scan the QR code on your Wave Clock to get a working link.</p>
+
+  <div id="editor">
 
   <div class="current-board" id="currentBoardCard">
     <p class="current-board-label">Currently on your board</p>
@@ -562,9 +568,14 @@
 
   <button class="publish-btn" id="publishBtn">Publish to My Wave Clock</button>
   <p class="status" id="statusMsg"></p>
-  <p class="publish-note">Takes about an hour to show up &mdash; or hit the reset button on the back of your WaveClock to push it now.</p>
+  <p class="publish-note">Takes about an hour to show up &mdash; or open the Update Online Setting screen on your Wave Clock to push it now.</p>
 
-  <footer>waveclock.net &middot; Designed in Ocean City, NJ</footer>
+  </div>
+
+  <footer>
+    <p><a href="../manage/" id="backToManageLink">Back to device menu</a></p>
+    <p>waveclock.net &middot; Designed in Ocean City, NJ</p>
+  </footer>
 </div>
 
 <script type="module">
@@ -589,13 +600,19 @@
   const publishBtn = document.getElementById("publishBtn");
   const currentBoardCard = document.getElementById("currentBoardCard");
   const currentBoardImg = document.getElementById("currentBoardImg");
+  const noDeviceMsg = document.getElementById("noDeviceMsg");
+  const editor = document.getElementById("editor");
+  const backToManageLink = document.getElementById("backToManageLink");
 
   if (!deviceId) {
     deviceTag.textContent = "No device ID found in link";
     deviceTag.classList.add("error");
     publishBtn.disabled = true;
+    noDeviceMsg.style.display = "block";
+    editor.style.display = "none";
   } else {
     deviceTag.textContent = "Designing for " + deviceId;
+    if (backToManageLink) backToManageLink.href = "../manage/?id=" + encodeURIComponent(deviceId);
   }
 
   function withTimeout(promise, ms) {

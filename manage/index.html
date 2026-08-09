@@ -129,6 +129,7 @@
     cursor: pointer;
   }
   .hub-card:active { transform: translateY(1px); box-shadow: 2px 2px 0 rgba(20,48,45,0.10); }
+  .hub-card-disabled { opacity: 0.45; cursor: default; pointer-events: none; }
   .hub-icon {
     flex-shrink: 0;
     width: 48px;
@@ -289,6 +290,11 @@
     deviceTag.textContent = "No device ID found in link";
     deviceTag.classList.add("error");
     noDeviceMsg.style.display = "block";
+    cards.forEach((card) => {
+      card.classList.add("hub-card-disabled");
+      card.removeAttribute("href");
+      card.setAttribute("aria-disabled", "true");
+    });
   } else {
     deviceTag.textContent = "Managing " + deviceId;
     cards.forEach((card) => {
