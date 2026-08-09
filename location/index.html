@@ -1933,7 +1933,7 @@
   }
 
   // Fields device-status/{id}.json echoes back for location once applied.
-  const CONFIRMABLE_FIELDS = ["name", "stationId", "lat", "lon", "srfZone", "cwfZone"];
+  const CONFIRMABLE_FIELDS = ["name", "stationId", "lat", "lon", "srfZone", "cwfZone", "srfOffice", "coastFacingDirection"];
 
   // Tolerant comparison instead of strict === -- a device's own JSON
   // serialization (likely embedded C/C++ firmware) commonly doesn't
