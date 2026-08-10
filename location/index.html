@@ -943,8 +943,9 @@
     resetNameStep(town);
     renderSaveState();
     loadStations(town);
-    loadZones(town);
+    zonesLoadPromise = loadZones(town);
     loadMarineDataCheck(town);
+    loadCoastFacingDirection(town);
     selectedTownCard.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -969,6 +970,8 @@
     marineZoneCandidates = [];
     selectedMarineZoneId = null;
     coastFacingDirectionResult = null;
+    coastFacingDirectionChecked = false;
+    coastFacingDirectionSource = null;
     zoneSkipped = false;
     updateZoneSkipUI();
     marineDataCheck = null;
@@ -1339,6 +1342,13 @@
   // This hasn't been verified against a real NWS response from this
   // sandbox (network access to weather.gov is blocked here).
   let srfZoneResult = null;
+  // Tracks the in-flight loadZones() call so loadCoastFacingDirection()'s
+  // last-resort fallback (which reads the marine zone loadZones() fills
+  // in) can wait for it to settle first -- an outright Overpass failure
+  // can resolve much faster than the zone lookup's own multi-bearing
+  // retries, so without this the fallback could run before there's
+  // anything to fall back to yet.
+  let zonesLoadPromise = null;
   // The NWS Weather Forecast Office (e.g. "kphi", "kakq") responsible for
   // issuing Surf Zone Forecast / Coastal Waters Forecast bulletins at this
   // point. Every NJ/DE town happens to share one office (Mount Holly/
@@ -1376,14 +1386,36 @@
   // The compass direction the coast/ocean actually faces at this specific
   // town -- varies by real coastline shape, not by state or region (the
   // NC coast alone bends through several facings around Cape Hatteras and
-  // Cape Lookout). Approximated here as the bearing from the town's own
-  // coordinate to the centroid of its confirmed marine (CWF) zone polygon
-  // -- the same zone the customer already reviews on the map in Step 4 --
-  // snapped to the nearest of 8 compass directions. This is a geometric
-  // approximation, not manually verified per town; it can be off for
-  // unusual coastline shapes (bays, inlets, barrier islands) and should
-  // be revisited if a verified per-town/per-zone data source becomes
-  // available.
+  // Cape Lookout).
+  //
+  // Earlier version approximated this as the bearing from the town to the
+  // centroid of its NWS marine (CWF) zone -- too coarse: those zones are
+  // large administrative areas that don't track local shoreline shape, so
+  // it missed exactly the local bends this field exists to capture.
+  //
+  // This instead samples real OpenStreetMap natural=coastline geometry
+  // within a small radius of the town's own coordinate via the Overpass
+  // API. Seaward direction is derived from OSM's coastline digitization
+  // convention: a coastline way is drawn so the sea is always on the
+  // RIGHT side of the way's own node order (see
+  // https://wiki.openstreetmap.org/wiki/Tag:natural%3Dcoastline) -- so
+  // each segment's seaward bearing is that segment's own travel bearing
+  // + 90 degrees. This is computed per segment and then circular-mean
+  // averaged (length-weighted, so a long run of coast isn't diluted by a
+  // handful of short/noisy segments like jetties), rather than averaging
+  // raw travel bearings first and adding 90 once at the end -- different
+  // coastline ways in the same area aren't guaranteed to be digitized in
+  // the same overall direction, only individually consistent with "sea
+  // on the right," so per-segment seaward bearing is the correct
+  // quantity to average.
+  //
+  // Overpass's public instances have no SLA and are prone to
+  // timeouts/rate limits, so this tries multiple mirrors and, if nothing
+  // useful comes back, a wider search radius before falling back to the
+  // coarser zone-centroid estimate as a last resort -- the field is
+  // required and should never be left blank. Every result is still a
+  // best-effort computation over crowdsourced map data, not verified
+  // per-town data -- worth spot-checking as real towns come through.
   const COMPASS_DIRECTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
   function bearingDeg(lat1, lon1, lat2, lon2) {
@@ -1402,7 +1434,7 @@
 
   // Plain average of every polygon vertex -- not a true area-weighted
   // centroid, but precise enough once the resulting bearing is snapped to
-  // one of 8 compass directions.
+  // one of 8 compass directions. Used only by the last-resort fallback.
   function geojsonCentroid(geojson) {
     // fetchMarineZoneGeometry() stores the whole GeoJSON Feature (not a
     // bare geometry) in zone.geojson -- Leaflet's L.geoJSON() happily
@@ -1424,17 +1456,125 @@
   }
 
   let coastFacingDirectionResult = null;
+  let coastFacingDirectionChecked = false;
+  let coastFacingDirectionSource = null; // "osm" | "fallback" | null
 
-  function updateCoastFacingDirection() {
-    if (zoneSkipped || !selectedTown || !selectedMarineZoneId) {
-      coastFacingDirectionResult = null;
-      return;
+  const OVERPASS_ENDPOINTS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
+  ];
+  // Tried in order: a tight radius first (accurate local shape), then a
+  // wider one only if nothing useful came back at all.
+  const COASTLINE_SEARCH_RADII_KM = [3, 8];
+
+  async function fetchOverpassCoastline(lat, lon, radiusKm) {
+    const dLat = radiusKm / 111.32;
+    const dLon = radiusKm / (111.32 * Math.cos((lat * Math.PI) / 180));
+    const south = lat - dLat, north = lat + dLat, west = lon - dLon, east = lon + dLon;
+    const query = `[out:json][timeout:20];way["natural"="coastline"](${south},${west},${north},${east});out body;>;out skel qt;`;
+
+    let lastError = null;
+    for (const url of OVERPASS_ENDPOINTS) {
+      try {
+        const resp = await withTimeout(
+          fetch(url, {
+            method: "POST",
+            body: "data=" + encodeURIComponent(query),
+            headers: { "Content-Type": "application/x-www-form-urlencoded" }
+          }),
+          8000
+        );
+        if (!resp.ok) { lastError = new Error("HTTP " + resp.status); continue; }
+        const data = await resp.json();
+        if (data && Array.isArray(data.elements) && data.elements.length) return data;
+        lastError = new Error("no coastline elements in range");
+      } catch (err) {
+        lastError = err;
+      }
     }
+    throw lastError || new Error("all Overpass mirrors failed");
+  }
+
+  // Length-weighted circular mean of each segment's own seaward bearing
+  // (segment travel bearing + 90, per OSM's sea-on-the-right convention).
+  function coastlineBearingFromOsm(osmData) {
+    const nodes = {};
+    osmData.elements.forEach((el) => {
+      if (el.type === "node") nodes[el.id] = [el.lat, el.lon];
+    });
+    let sumSin = 0, sumCos = 0, totalLengthKm = 0, segmentCount = 0;
+    osmData.elements.forEach((el) => {
+      if (el.type !== "way" || !el.nodes || el.nodes.length < 2) return;
+      for (let i = 0; i < el.nodes.length - 1; i++) {
+        const a = nodes[el.nodes[i]], b = nodes[el.nodes[i + 1]];
+        if (!a || !b) continue;
+        const lengthKm = haversineKm(a[0], a[1], b[0], b[1]);
+        if (lengthKm <= 0) continue;
+        const seawardRad = ((bearingDeg(a[0], a[1], b[0], b[1]) + 90) * Math.PI) / 180;
+        sumSin += Math.sin(seawardRad) * lengthKm;
+        sumCos += Math.cos(seawardRad) * lengthKm;
+        totalLengthKm += lengthKm;
+        segmentCount++;
+      }
+    });
+    if (!segmentCount || totalLengthKm <= 0) return null;
+    const meanBearing = ((Math.atan2(sumSin, sumCos) * 180) / Math.PI + 360) % 360;
+    return { bearing: meanBearing, segmentCount, totalLengthKm };
+  }
+
+  // Last-resort fallback (see comment above) -- only useful once a marine
+  // zone has actually loaded; if that hasn't resolved either, this stays
+  // null and the effective saved value falls back to "none" like any
+  // other unavailable zone field.
+  function coastFacingDirectionFallback() {
+    if (!selectedTown || !selectedMarineZoneId) return null;
     const zone = marineZoneCandidates.find((z) => z.id === selectedMarineZoneId);
     const centroid = zone && zone.geojson ? geojsonCentroid(zone.geojson) : null;
-    coastFacingDirectionResult = centroid
-      ? bearingToCompass(bearingDeg(selectedTown.lat, selectedTown.lon, centroid.lat, centroid.lon))
-      : null;
+    return centroid ? bearingToCompass(bearingDeg(selectedTown.lat, selectedTown.lon, centroid.lat, centroid.lon)) : null;
+  }
+
+  async function loadCoastFacingDirection(town) {
+    coastFacingDirectionResult = null;
+    coastFacingDirectionChecked = false;
+    coastFacingDirectionSource = null;
+    renderSaveState();
+
+    for (const radiusKm of COASTLINE_SEARCH_RADII_KM) {
+      try {
+        const osmData = await fetchOverpassCoastline(town.lat, town.lon, radiusKm);
+        const result = coastlineBearingFromOsm(osmData);
+        if (result) {
+          coastFacingDirectionResult = bearingToCompass(result.bearing);
+          coastFacingDirectionSource = "osm";
+          console.log(
+            "coastFacingDirection from OSM coastline: " + coastFacingDirectionResult +
+            " (" + result.segmentCount + " segments, " + result.totalLengthKm.toFixed(2) + "km, search radius " + radiusKm + "km)"
+          );
+          coastFacingDirectionChecked = true;
+          renderSaveState();
+          return;
+        }
+      } catch (err) {
+        console.error("OSM coastline lookup failed at radius " + radiusKm + "km:", err);
+      }
+    }
+
+    // Wait for the marine zone lookup to settle before falling back to
+    // it -- see the zonesLoadPromise comment above for why.
+    if (zonesLoadPromise) {
+      try { await zonesLoadPromise; } catch (err) { /* loadZones() doesn't itself throw, but guard anyway */ }
+    }
+    const fallback = coastFacingDirectionFallback();
+    coastFacingDirectionResult = fallback;
+    coastFacingDirectionSource = fallback ? "fallback" : null;
+    if (fallback) {
+      console.warn("coastFacingDirection: OSM coastline lookup failed, used marine-zone-centroid fallback instead: " + fallback);
+    } else {
+      console.error("coastFacingDirection: OSM coastline lookup failed and no fallback available -- saving as none");
+    }
+    coastFacingDirectionChecked = true;
+    renderSaveState();
   }
 
   const MARINE_ZONE_ID_PATTERN = /^[A-Z]{2,3}Z\d{3}$/;
@@ -1559,7 +1699,6 @@
     zoneSkipped = false;
     updateZoneSkipUI();
     selectedMarineZoneId = id;
-    updateCoastFacingDirection();
     zoneListWrap.querySelectorAll(".station-row").forEach((r) => {
       r.classList.toggle("selected", r.dataset.zoneId === id);
     });
@@ -1663,7 +1802,6 @@
     // "none chosen" rather than leaving a stale highlighted zone that no
     // longer matches what's about to be saved.
     selectedMarineZoneId = null;
-    updateCoastFacingDirection();
     zoneListWrap.querySelectorAll(".station-row").forEach((r) => r.classList.remove("selected"));
     zoneLayers.forEach((layer) => layer.setStyle(zoneStyle(false)));
     stepZone.classList.add("done");
@@ -1677,7 +1815,6 @@
     marineZoneCandidates = [];
     suggestedMarineZoneId = null;
     selectedMarineZoneId = null;
-    coastFacingDirectionResult = null;
     zoneSkipped = false;
     zoneUnavailable = false;
     updateZoneSkipUI();
@@ -1697,7 +1834,6 @@
       marineZoneCandidates = result.zones;
       suggestedMarineZoneId = result.suggestedId;
       selectedMarineZoneId = result.suggestedId;
-      updateCoastFacingDirection();
       renderZoneMap(marineZoneCandidates, selectedMarineZoneId);
       renderZoneList(marineZoneCandidates, selectedMarineZoneId);
       stepZone.classList.add("done");
@@ -1901,7 +2037,13 @@
       const newVal = newSettings[f.key];
       const oldVal = hasOld ? existingSettings[f.key] : undefined;
       const changed = hasOld && String(oldVal) !== String(newVal);
-      const displayVal = ZONE_STYLE_FIELDS.includes(f.key) ? zoneDisplayValue(newVal) : newVal;
+      let displayVal = ZONE_STYLE_FIELDS.includes(f.key) ? zoneDisplayValue(newVal) : newVal;
+      // Flags when coastFacingDirection came from the coarser last-resort
+      // fallback (OSM coastline lookup failed) rather than the primary
+      // method, so this is easy to spot while reviewing incoming towns.
+      if (f.key === "coastFacingDirection" && coastFacingDirectionSource === "fallback") {
+        displayVal = displayVal + " (estimated)";
+      }
       html += "<tr><td>" + escapeHtml(f.label) + "</td>";
       if (hasOld) {
         html += "<td>" + escapeHtml(oldVal !== undefined && oldVal !== null ? String(oldVal) : "—") + "</td>";
@@ -1914,7 +2056,7 @@
 
   function renderSaveState() {
     const nameOk = confirmedDisplayName && confirmedDisplayName.length > 0 && confirmedDisplayName.length <= DISPLAY_NAME_MAX;
-    const ready = deviceId && selectedTown && selectedStation && nameOk && effectiveSrfZone() && effectiveMarineZone();
+    const ready = deviceId && selectedTown && selectedStation && nameOk && effectiveSrfZone() && effectiveMarineZone() && (zoneSkipped || coastFacingDirectionChecked);
     saveBtn.disabled = !ready;
     renderReviewTable(ready);
   }
