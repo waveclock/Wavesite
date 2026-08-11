@@ -77,23 +77,6 @@
   }
   .device-tag.error { color: var(--coral-dark); border-color: var(--coral); }
 
-  /* Temporary on-screen debug output for diagnosing the existing-settings
-     read on a phone with no easy console access -- remove once resolved. */
-  .debug-box {
-    display: none;
-    margin: 10px 20px 0;
-    padding: 10px 12px;
-    border: 1px dashed #999;
-    border-radius: 6px;
-    background: #fffbe6;
-    color: #555;
-    font-family: monospace;
-    font-size: 11px;
-    line-height: 1.4;
-    word-break: break-all;
-    text-align: left;
-  }
-
   .intro { text-align: center; padding: 4px 8px 20px; }
   .intro h2 {
     font-family: var(--heading);
@@ -511,8 +494,6 @@
   <span class="device-tag" id="deviceTag">Checking your device&hellip;</span>
 </header>
 
-<p class="debug-box" id="debugExistingSettings" style="display:none;"></p>
-
 <div class="wrap">
 
   <div class="intro">
@@ -655,7 +636,6 @@
     <h2>WaveClock Updating Location&hellip;</h2>
     <p>Your Wave Clock will update its town settings in a minute or two. To speed up the process, open the Update Online Setting screen on your Wave Clock.</p>
     <p class="confirm-status" id="confirmStatus" style="display:none;"></p>
-    <p class="debug-box" id="debugConfirmPoll" style="display:none;"></p>
     <div class="review-table-wrap saved-table-wrap">
       <table class="review-table saved-table" id="savedTable"></table>
     </div>
@@ -729,17 +709,6 @@
     ]);
   }
 
-  // TEMPORARY: shows the existing-settings read result directly on the
-  // page, since debugging this from an iPhone with no easy console access
-  // otherwise means plugging into a Mac for Web Inspector. Remove once
-  // the read issue is confirmed resolved.
-  const debugExistingSettingsEl = document.getElementById("debugExistingSettings");
-  function showDebug(text) {
-    if (!debugExistingSettingsEl) return;
-    debugExistingSettingsEl.textContent = "DEBUG: " + text;
-    debugExistingSettingsEl.style.display = "block";
-  }
-
   const currentLocationCard = document.getElementById("currentLocationCard");
   const currentLocationValue = document.getElementById("currentLocationValue");
   function renderCurrentLocationCard() {
@@ -779,18 +748,14 @@
   // reported status (e.g. during the gap before that firmware round ships).
   async function loadExistingSettings() {
     if (!deviceId) {
-      showDebug("no device ID in link, skipped existing-settings check");
       existingSettingsChecked = true;
       renderSaveState();
       return;
     }
-    const startedAt = performance.now();
     try {
       const deviceStatus = await fetchJsonFromStorage("device-status/" + deviceId + ".json", 15000);
       if (deviceStatus && deviceStatus.location && typeof deviceStatus.location === "object") {
         existingSettings = deviceStatus.location;
-        const elapsed = Math.round(performance.now() - startedAt);
-        showDebug("read OK in " + elapsed + "ms from device-status/" + deviceId + ".json — " + JSON.stringify(existingSettings));
         existingSettingsChecked = true;
         renderCurrentLocationCard();
         renderSaveState();
@@ -803,23 +768,17 @@
 
     try {
       existingSettings = await fetchJsonFromStorage("locations/" + deviceId + ".json", 15000);
-      const elapsed = Math.round(performance.now() - startedAt);
-      showDebug("read OK in " + elapsed + "ms from locations/" + deviceId + ".json (device-status unavailable) — " + JSON.stringify(existingSettings));
     } catch (err) {
       existingSettings = null;
-      const elapsed = Math.round(performance.now() - startedAt);
-      const timedOut = err && err.message === "timed out";
       // storage/object-not-found is the only case that actually confirms
       // there's no file -- a timeout means the read never finished in
       // time, which tells us nothing about whether a file exists.
       if (err && err.code === "storage/object-not-found") {
-        showDebug("confirmed no existing settings in " + elapsed + "ms (checked device-status/ and locations/) — expected for a new device");
-      } else if (timedOut) {
-        showDebug("TIMED OUT after " + elapsed + "ms reading locations/" + deviceId + ".json — the read never completed, this does NOT mean the file doesn't exist");
-        console.error("Existing-settings read timed out after " + elapsed + "ms");
+        // expected for a new device -- not an error
+      } else if (err && err.message === "timed out") {
+        console.error("Existing-settings read timed out");
       } else {
         console.error("Couldn't check for existing location settings:", err);
-        showDebug("read FAILED after " + elapsed + "ms for locations/" + deviceId + ".json — code: " + (err && err.code) + ", message: " + (err && err.message));
       }
     }
     existingSettingsChecked = true;
@@ -2067,12 +2026,6 @@
   }
 
   const confirmStatusEl = document.getElementById("confirmStatus");
-  const debugConfirmPollEl = document.getElementById("debugConfirmPoll");
-  function showConfirmDebug(text) {
-    if (!debugConfirmPollEl) return;
-    debugConfirmPollEl.textContent = "DEBUG: " + text;
-    debugConfirmPollEl.style.display = "block";
-  }
 
   // Fields device-status/{id}.json echoes back for location once applied.
   const CONFIRMABLE_FIELDS = ["name", "stationId", "lat", "lon", "srfZone", "cwfZone", "srfOffice", "coastFacingDirection"];
@@ -2133,18 +2086,13 @@
       await sleep(elapsed < FAST_POLL_WINDOW_MS ? FAST_POLL_INTERVAL_MS : SLOW_POLL_INTERVAL_MS);
       try {
         const status = await fetchJsonFromStorage("device-status/" + deviceId + ".json", 8000);
-        const matched = !!(status && status.location && locationMatch(status.location, payload));
-        showConfirmDebug("poll at " + Math.round((Date.now() - startedAt) / 1000) + "s — device-status.location: " + JSON.stringify(status && status.location) + " — expected: " + JSON.stringify(payload) + " — matched: " + matched);
-        if (matched) {
+        if (status && status.location && locationMatch(status.location, payload)) {
           confirmStatusEl.textContent = "✓ Applied to your device!";
           confirmStatusEl.className = "confirm-status confirmed";
           return;
         }
       } catch (err) {
-        // keep trying, but note it -- a single failed poll doesn't mean
-        // much, but a pattern of them (e.g. every poll failing the same
-        // way) is worth seeing rather than staying invisible.
-        showConfirmDebug("poll at " + Math.round((Date.now() - startedAt) / 1000) + "s — fetch FAILED: " + (err && err.message) + " (code: " + (err && err.code) + ")");
+        // keep trying silently -- a single failed poll doesn't mean much
       }
     }
     confirmStatusEl.textContent = "Saved — may take a few minutes, or open the Update Online Setting screen on your Wave Clock to apply instantly.";
@@ -2211,7 +2159,6 @@
       stepZone.style.display = "none";
       stepReview.style.display = "none";
       saveBtn.style.display = "none";
-      if (debugExistingSettingsEl) debugExistingSettingsEl.style.display = "none";
       savedCard.scrollIntoView({ behavior: "smooth", block: "start" });
       pollForDeviceConfirmation(payload);
     } catch (err) {
