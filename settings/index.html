@@ -259,24 +259,6 @@
   .confirm-status { margin-top: 10px !important; font-size: 13px !important; font-style: italic; }
   .confirm-status.confirmed { font-style: normal; font-weight: 700; color: var(--good) !important; }
 
-  /* Temporary on-screen debug output for diagnosing the device-status
-     confirmation poll on a phone with no easy console access -- remove
-     once resolved. */
-  .debug-box {
-    display: none;
-    margin: 10px 0 0;
-    padding: 10px 12px;
-    border: 1px dashed #999;
-    border-radius: 6px;
-    background: #fffbe6;
-    color: #555;
-    font-family: monospace;
-    font-size: 11px;
-    line-height: 1.4;
-    word-break: break-all;
-    text-align: left;
-  }
-
   .saved-table-wrap { margin-top: 18px; text-align: left; }
   .saved-table td:first-child {
     font-weight: 700;
@@ -419,7 +401,6 @@
     <h2>Settings saved!</h2>
     <p>Your Wave Clock will update its settings in a minute or two. To speed up the process, open the Update Online Setting screen on your Wave Clock.</p>
     <p class="confirm-status" id="confirmStatus" style="display:none;"></p>
-    <p class="debug-box" id="debugConfirmPoll" style="display:none;"></p>
     <div class="review-table-wrap saved-table-wrap">
       <table class="review-table saved-table" id="savedTable"></table>
     </div>
@@ -660,12 +641,6 @@
   }
 
   const confirmStatusEl = document.getElementById("confirmStatus");
-  const debugConfirmPollEl = document.getElementById("debugConfirmPoll");
-  function showConfirmDebug(text) {
-    if (!debugConfirmPollEl) return;
-    debugConfirmPollEl.textContent = "DEBUG: " + text;
-    debugConfirmPollEl.style.display = "block";
-  }
 
   // Fields device-status/{id}.json echoes back once applied -- confirmed
   // firmware-complete (the device echoes the whole settings object, not a
@@ -728,18 +703,13 @@
       await sleep(elapsed < FAST_POLL_WINDOW_MS ? FAST_POLL_INTERVAL_MS : SLOW_POLL_INTERVAL_MS);
       try {
         const status = await fetchJsonFromStorage("device-status/" + deviceId + ".json", 8000);
-        const matched = !!(status && status.settings && settingsMatch(status.settings, payload));
-        showConfirmDebug("poll at " + Math.round((Date.now() - startedAt) / 1000) + "s — device-status.settings: " + JSON.stringify(status && status.settings) + " — expected: " + JSON.stringify(payload) + " — matched: " + matched);
-        if (matched) {
+        if (status && status.settings && settingsMatch(status.settings, payload)) {
           confirmStatusEl.textContent = "✓ Applied to your device!";
           confirmStatusEl.className = "confirm-status confirmed";
           return;
         }
       } catch (err) {
-        // keep trying, but note it -- a single failed poll doesn't mean
-        // much, but a pattern of them (e.g. every poll failing the same
-        // way) is worth seeing rather than staying invisible.
-        showConfirmDebug("poll at " + Math.round((Date.now() - startedAt) / 1000) + "s — fetch FAILED: " + (err && err.message) + " (code: " + (err && err.code) + ")");
+        // keep trying silently -- a single failed poll doesn't mean much
       }
     }
     confirmStatusEl.textContent = "Saved — may take a few minutes, or open the Update Online Setting screen on your Wave Clock to apply instantly.";
