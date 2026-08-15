@@ -926,6 +926,7 @@
     zoneListWrap.innerHTML = '<p class="station-status" id="zoneStatus">Pick your location above to see forecast zone options.</p>';
     srfZoneResult = null;
     srfOfficeResult = null;
+    srfProductPrefixResult = null;
     marineZoneCandidates = [];
     selectedMarineZoneId = null;
     coastFacingDirectionResult = null;
@@ -1316,6 +1317,12 @@
   // so this is resolved per-point from the same NWS /points response
   // srfZone already comes from, not derived from the zone code or assumed.
   let srfOfficeResult = null;
+  // The WMO collective ID prefix (e.g. "fzus52") on the office's actual
+  // Surf Zone Forecast product -- this varies by office/region and isn't
+  // derivable from srfOffice itself, so it's read live off the office's
+  // latest real SRF product via the NWS Products API rather than kept in
+  // a hand-maintained table.
+  let srfProductPrefixResult = null;
   let marineZoneCandidates = []; // [{ id, name, geojson }]
   let suggestedMarineZoneId = null;
   let selectedMarineZoneId = null;
@@ -1339,6 +1346,20 @@
       srfZone: zoneUrl.split("/").pop(),
       srfOffice: cwa ? "k" + String(cwa).toLowerCase() : null
     };
+  }
+
+  // Reads the WMO collective ID off the office's most recent real Surf
+  // Zone Forecast product, e.g. "FZUS52" for KMLB -- office/region product
+  // prefixes aren't a fixed 1:1 rule (they're assigned per NWS region), so
+  // this asks the office's own live product for it instead of guessing.
+  async function fetchSrfProductPrefix(officeId) {
+    const resp = await fetch(`https://api.weather.gov/products/types/SRF/locations/${officeId}`);
+    if (!resp.ok) throw new Error("NWS SRF product lookup failed: " + resp.status);
+    const data = await resp.json();
+    const products = data["@graph"] || [];
+    const wmoId = products.length && products[0].wmoCollectiveId;
+    if (!wmoId) throw new Error("No Surf Zone Forecast product found for office " + officeId);
+    return String(wmoId).toLowerCase();
   }
 
   // ================= coastFacingDirection =================
@@ -1771,6 +1792,7 @@
   async function loadZones(town) {
     srfZoneResult = null;
     srfOfficeResult = null;
+    srfProductPrefixResult = null;
     marineZoneCandidates = [];
     suggestedMarineZoneId = null;
     selectedMarineZoneId = null;
@@ -1786,6 +1808,14 @@
       srfOfficeResult = point.srfOffice;
     } catch (err) {
       console.error("srfZone lookup failed:", err);
+    }
+
+    if (srfOfficeResult) {
+      try {
+        srfProductPrefixResult = await fetchSrfProductPrefix(srfOfficeResult.slice(1).toUpperCase());
+      } catch (err) {
+        console.error("srfProductPrefix lookup failed:", err);
+      }
     }
 
     try {
@@ -1956,7 +1986,8 @@
     { key: "srfZone", label: "Surf zone" },
     { key: "cwfZone", label: "Marine zone" },
     { key: "srfOffice", label: "Forecast office" },
-    { key: "coastFacingDirection", label: "Coast faces" }
+    { key: "coastFacingDirection", label: "Coast faces" },
+    { key: "srfProductPrefix", label: "Forecast product ID" }
   ];
 
   // "none" (lowercase, matching the firmware-confirmed value) when the
@@ -1968,6 +1999,7 @@
   function effectiveMarineZone() { return zoneSkipped ? "none" : selectedMarineZoneId; }
   function effectiveSrfOffice() { return zoneSkipped ? "none" : (srfOfficeResult || "none"); }
   function effectiveCoastFacingDirection() { return zoneSkipped ? "none" : (coastFacingDirectionResult || "none"); }
+  function effectiveSrfProductPrefix() { return zoneSkipped ? "none" : (srfProductPrefixResult || "none"); }
   function zoneDisplayValue(v) { return v === "none" ? "None (no wave/surf data)" : v; }
 
   function renderReviewTable(ready) {
@@ -1986,10 +2018,11 @@
       srfZone: effectiveSrfZone(),
       cwfZone: effectiveMarineZone(),
       srfOffice: effectiveSrfOffice(),
-      coastFacingDirection: effectiveCoastFacingDirection()
+      coastFacingDirection: effectiveCoastFacingDirection(),
+      srfProductPrefix: effectiveSrfProductPrefix()
     };
     const hasOld = existingSettings && typeof existingSettings === "object";
-    const ZONE_STYLE_FIELDS = ["srfZone", "cwfZone", "srfOffice", "coastFacingDirection"];
+    const ZONE_STYLE_FIELDS = ["srfZone", "cwfZone", "srfOffice", "coastFacingDirection", "srfProductPrefix"];
 
     let html = "<thead><tr><th>Field</th>" + (hasOld ? "<th>Current</th>" : "") + "<th>New</th></tr></thead><tbody>";
     REVIEW_FIELDS.forEach((f) => {
@@ -2133,7 +2166,8 @@
         srfZone: effectiveSrfZone(),
         cwfZone: effectiveMarineZone(),
         srfOffice: effectiveSrfOffice(),
-        coastFacingDirection: effectiveCoastFacingDirection()
+        coastFacingDirection: effectiveCoastFacingDirection(),
+        srfProductPrefix: effectiveSrfProductPrefix()
       };
       const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
       const storageRef = ref(storage, "locations/" + deviceId + ".json");
