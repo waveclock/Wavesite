@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fundraiser — Wave Clock</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="description" content="Raise money for your team, club, or cause: sellers earn $10 per Wave Clock sold, customers save $5.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://waveclock.net/fundraiser.html">
+<meta property="og:title" content="Fundraiser — Wave Clock">
+<meta property="og:description" content="Raise money for your team, club, or cause: sellers earn $10 per Wave Clock sold, customers save $5.">
+<meta property="og:image" content="https://waveclock.net/social_preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Fundraiser — Wave Clock">
+<meta name="twitter:description" content="Raise money for your team, club, or cause: sellers earn $10 per Wave Clock sold, customers save $5.">
+<meta name="twitter:image" content="https://waveclock.net/social_preview.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+    --script: 'Caveat', cursive;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 28px;
+  }
+
+  section { padding: 64px 0; }
+  .section-foam { background: var(--foam); }
+
+  .kicker {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--navy);
+    margin: 0 0 10px;
+  }
+
+  h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: clamp(26px, 3.4vw, 38px);
+    margin: 0 0 14px;
+    color: var(--ink);
+  }
+
+  .lede {
+    max-width: 62ch;
+    color: var(--ink-soft);
+    font-size: 17px;
+    margin-bottom: 8px;
+  }
+
+  .cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 15px;
+    padding: 14px 26px;
+    border-radius: 999px;
+    text-decoration: none;
+    border: 2px solid var(--ink);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+
+  .btn-primary {
+    background: var(--coral);
+    color: var(--foam);
+    border-color: var(--coral-dark);
+    box-shadow: 3px 3px 0 var(--coral-dark);
+  }
+  .btn-primary:hover { box-shadow: 5px 5px 0 var(--coral-dark); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink);
+  }
+  .btn-ghost:hover { background: rgba(20,48,45,0.06); }
+
+  /* ---------- Split earn/save cards ---------- */
+  .split-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 32px;
+  }
+  @media (max-width: 720px) { .split-grid { grid-template-columns: 1fr; } }
+
+  .split-card {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 26px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
+  }
+  .split-card .amount {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 40px;
+    color: var(--coral-dark);
+    margin: 0 0 6px;
+  }
+  .split-card h3 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 19px;
+    margin: 0 0 10px;
+    color: var(--ink);
+  }
+  .split-card p {
+    color: var(--ink-soft);
+    font-size: 15px;
+    margin: 0;
+  }
+
+  /* ---------- Numbered steps ---------- */
+  .step-list { margin-top: 28px; display: flex; flex-direction: column; gap: 16px; }
+  .step-item {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 18px 22px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
+  }
+  .step-number {
+    display: inline-block;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--coral-dark);
+    margin-bottom: 4px;
+  }
+  .step-item h3 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 18px;
+    margin: 0 0 6px;
+    color: var(--ink);
+  }
+  .step-item p { color: var(--ink-soft); font-size: 15px; margin: 0; }
+
+  .note-box {
+    margin-top: 32px;
+    background: var(--foam);
+    border: 2px dashed var(--driftwood);
+    border-radius: 4px;
+    padding: 18px 22px;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  .note-box b { color: var(--ink); }
+
+  /* ---------- Footer ---------- */
+  footer {
+    padding: 40px 0 50px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  .footer-name {
+    font-family: var(--script);
+    font-size: 28px;
+    color: var(--ink);
+    display: block;
+    margin-top: 6px;
+  }
+  .footer-name a { text-decoration: none; }
+  .footer-name a:hover { text-decoration: underline; }
+
+  ::selection { background: var(--wax); color: var(--ink); }
+</style>
+</head>
+<body>
+
+<section>
+  <div class="wrap">
+    <div class="cta-row" style="margin-top:48px;">
+      <a class="btn btn-ghost" href="index.html">&larr; Back to Wave Clock</a>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top:0;">
+  <div class="wrap">
+    <p class="kicker">Raise money for your team, club, or cause</p>
+    <h2>The Wave Clock Fundraiser</h2>
+    <p class="lede">Sell Wave Clocks to your community, earn money for your organization, and give your supporters a discount for buying through you.</p>
+
+    <div class="split-grid">
+      <div class="split-card">
+        <div class="amount">$10</div>
+        <h3>You earn, per Wave Clock sold</h3>
+        <p>Share your code with supporters. Every Wave Clock bought with it puts $10 toward your team or cause.</p>
+      </div>
+      <div class="split-card">
+        <div class="amount">$5</div>
+        <h3>Your supporters save</h3>
+        <p>Anyone who buys using your code gets $5 off the regular $106 price &mdash; a real discount, not just a good feeling.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section-foam">
+  <div class="wrap">
+    <p class="kicker">How it works</p>
+    <h2>Getting started</h2>
+
+    <div class="step-list">
+      <div class="step-item">
+        <span class="step-number">Step 1</span>
+        <h3>Request a code</h3>
+        <p>Email <a href="mailto:hello@waveclock.net?subject=Fundraiser%20code%20request">hello@waveclock.net</a> with your team or organization's name. We'll set you up with your own discount code.</p>
+      </div>
+      <div class="step-item">
+        <span class="step-number">Step 2</span>
+        <h3>Share it</h3>
+        <p>Pass your code along to supporters &mdash; text, email, a flyer, whatever works. They enter it at checkout on the order page.</p>
+      </div>
+      <div class="step-item">
+        <span class="step-number">Step 3</span>
+        <h3>Get paid</h3>
+        <p>We tally up sales made with your code and send your team $10 for each one.</p>
+      </div>
+    </div>
+
+    <div class="note-box">
+      <b>Heads up:</b> this program is brand new, so it's run by hand for now &mdash; codes and payouts are set up individually rather than through an automated dashboard. If you're organizing a fundraiser for a sports team, school club, or similar group, reach out and we'll get you going.
+    </div>
+
+    <div class="cta-row">
+      <a class="btn btn-primary" href="mailto:hello@waveclock.net?subject=Fundraiser%20code%20request">Request a fundraiser code &rarr;</a>
+      <a class="btn btn-ghost" href="index.html#buy">See the Wave Clock &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>WAVE CLOCK</p>
+    <p>Designed in OCNJ<span class="footer-name"><a href="index.html">waveclock.net</a></span></p>
+    <p><a href="index.html">&larr; Back to Wave Clock</a></p>
+    <p><a href="faq.html">Shipping, returns &amp; FAQs &rarr;</a></p>
+    <p><a href="guide.html">User guide &rarr;</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
