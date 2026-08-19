@@ -151,49 +151,61 @@ community knowledge and has since been confirmed reachable live (see the
 CORS note below), though a full live schedule response hasn't been
 diffed field-by-field against what was assumed while building this.
 
-**ESPN started returning an HTML block page instead of JSON -- confirmed
-live, still not fully understood**: right after the live-preview proxies
-shipped, every `espnProxy` request for "teams"/"schedule" started failing
-with an HTML response ("Couldn't reach ESPN," logged underneath as a
-`SyntaxError` trying to parse `"<HTML><HEA..."` as JSON) -- confirmed via
-the function's own logs (Firebase Console -> Functions -> espnProxy ->
-Logs), while direct browser access to the same ESPN URL, and this same
-Cloud Function's `logo` requests to ESPN's separate CDN domain
-(`a.espncdn.com`), both kept working throughout.
+**ESPN started returning an HTML block page instead of JSON, then started
+working again on its own -- still not fully understood**: right after the
+live-preview proxies shipped, every `espnProxy` request for "teams"/
+"schedule" started failing with an HTML response ("Couldn't reach ESPN,"
+logged underneath as a `SyntaxError` trying to parse `"<HTML><HEA..."` as
+JSON) -- confirmed via the function's own logs (Firebase Console ->
+Functions -> espnProxy -> Logs), while direct browser access to the same
+ESPN URL, and this same Cloud Function's `logo` requests to ESPN's
+separate CDN domain (`a.espncdn.com`), both kept working throughout.
 
-First guess was a missing `User-Agent` (Node's default `fetch()` doesn't
-send a browser-like one) reading as bot traffic, so one was added. That
-did NOT fix it -- confirmed live, redeployed, still failing. It was then
-removed again specifically for the ESPN "teams"/"schedule" calls (see
-`fetchNextGame` in `lib/dynamic.js` and the `try` block in
-`espnProxyHandler`'s `index.js`), on a different theory: a `User-Agent`
-that *claims* to be a real Chrome browser without the rest of what a real
-Chrome request looks like (TLS/HTTP2 fingerprint, cookies, `sec-ch-ua`)
-can read as an impersonation attempt to a sophisticated bot-detection
-system -- a stronger red flag than sending no `User-Agent` at all. That
-theory is plausible but NOT confirmed either -- the logo CDN gets the
-same header and was never affected, which argues against headers being
-the whole story. `OUTBOUND_FETCH_HEADERS` is still sent on the logo
-fetch (never confirmed to cause a problem there), just not on the ESPN
-schedule/teams fetch or the RSS feed fetch.
+Several things were tried in sequence -- adding a `User-Agent` (didn't
+help), removing it again (didn't help either, but access returned shortly
+after, unprompted, and has stayed working since). None of the header
+changes cleanly explain the fix; the working theory is that it resolved
+itself (a rolling rate limit, or an IP reassignment from Google's shared
+egress pool) rather than anything in this code. Because of that, and
+because there's no live evidence this specific endpoint has a
+`User-Agent` problem, `fetchNextGame` (in `lib/dynamic.js`) and
+`espnProxyHandler`'s "teams"/"schedule" branch (in `index.js`)
+deliberately do NOT send `OUTBOUND_FETCH_HEADERS` -- it's currently
+working without it, so it's left alone rather than risked.
 
-**The same thing happened to the News feature's Google News RSS fetch**:
-after the Team tool's ESPN issue above, the News tool's live preview
-showed no headlines either, failing with a `503` from
-`news.google.com/rss/search` -- confirmed live via the same steps
-(Firebase Console -> Functions -> newsProxy -> Logs), and confirmed the
-exact same URL worked fine from a direct browser hit. Same fix applied
-on the same theory: `fetchHeadlines` also no longer sends
-`OUTBOUND_FETCH_HEADERS`. Also unconfirmed as a permanent fix, same
-caveats as above.
+**The same shape of problem hit the News feature's RSS fetch, but the fix
+here was different and more concrete**: the News tool's live preview
+showed no headlines, failing first with a `503` from Google News RSS,
+then a `403` from a completely unrelated, ordinary feed (NPR) used to
+rule out "is this a Google News-specific problem" -- both confirmed via
+the `newsProxy` logs, and both URLs worked fine from a direct browser
+hit. Waiting (the thing that apparently fixed the ESPN case) did NOT fix
+this one.
 
-Root cause is still unresolved. Two things have also been ruled out live:
-redeploying the *same* code again didn't restore access (so it isn't
-purely "wait for a fresh IP"), and briefly reverting to an earlier,
-working deploy DID restore access, then broke again when the newer code
-was reintroduced -- which doesn't cleanly fit "it's just IP luck,
-unrelated to our code" either. If this recurs, the Logs tab is the
-fastest way to see ESPN's actual response rather than guessing further.
+Chasing this further, the actual bug was found by testing directly
+rather than guessing: `fetchHeadlines` had ALSO had its `User-Agent`
+header removed (same reasoning applied as ESPN, same lack of result), but
+"removing the header" was never actually verified to mean "no suspicious
+header" -- it just means Node's `fetch()` falls back to its OWN defaults.
+A local test (a bare Node HTTP server, hit with a header-less `fetch()`)
+confirmed those defaults are `User-Agent: node` and `Accept-Language: *`
+-- neither of which any real browser has ever sent, and `User-Agent: node`
+in particular is about as plain a "this is a script" signal as exists.
+So the "remove the header" experiment never actually tested a clean
+request; it just swapped one bot signature for a different, more obvious
+one. Fixed by giving `fetchHeadlines` a real `User-Agent` +
+`Accept-Language` (see `OUTBOUND_FETCH_HEADERS`) -- `Accept` is
+deliberately left alone, since Node's own default (`*/*`) already
+matches what a real browser's `fetch()` sends.
+
+This fix is scoped to the RSS fetch only. ESPN's "teams"/"schedule" fetch
+is currently working without any custom headers, so it's left exactly as
+is -- there's no live evidence it has the same problem, and no reason to
+risk a currently-working path to test a theory. If it breaks again, the
+same local-header-probe approach (see the script referenced in this
+PR's history, or just spin up a throwaway `http.createServer` and hit it
+with a bare `fetch()`) is the fastest way to find out exactly what Node
+is sending by default, rather than guessing.
 
 **ESPN blocks direct browser calls (CORS) -- confirmed live, and fixed**:
 design-v2's Team tool originally called `site.api.espn.com` straight from

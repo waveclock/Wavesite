@@ -197,7 +197,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       /ESPN schedule fetch failed/
     );
   });
-  await test("fetchNextGame does NOT send a custom User-Agent -- confirmed live: site.api.espn.com started blocking requests right when one was added, while ESPN's logo CDN (same header) kept working", async () => {
+  await test("fetchNextGame does NOT send a custom User-Agent -- this endpoint is currently working live without one, left alone while fixing the still-broken RSS fetch", async () => {
     let capturedOptions = null;
     const fetchImpl = async (url, options) => {
       capturedOptions = options;
@@ -639,14 +639,14 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       /RSS feed fetch failed/
     );
   });
-  await test("fetchHeadlines does NOT send a custom User-Agent -- confirmed live: Google News RSS returned a 503 for this exact URL, while a direct browser hit to it worked fine", async () => {
+  await test("fetchHeadlines sends the same real browser User-Agent + Accept-Language as ESPN requests", async () => {
     let capturedOptions = null;
     const fetchImpl = async (url, options) => {
       capturedOptions = options;
       return { ok: true, status: 200, async text() { return SAMPLE_RSS; } };
     };
     await fetchHeadlines({ location: "Ocean City, NJ" }, 3, fetchImpl);
-    assert.strictEqual(capturedOptions, undefined);
+    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
   });
   await test("fetchHeadlines parses a real fetched response", async () => {
     const headlines = await fetchHeadlines({ location: "Ocean City, NJ" }, 3, fakeFetchText(SAMPLE_RSS));

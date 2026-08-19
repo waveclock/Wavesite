@@ -18,21 +18,24 @@
 const { createCanvas, loadImage, registerFont } = require("canvas");
 const path = require("path");
 
-// A missing/generic User-Agent on a server-to-server fetch reads as bot/
-// script traffic to some APIs and CDNs -- confirmed live: ESPN's
-// unofficial site API started returning an HTML block page ("Couldn't
-// reach ESPN" in the proxy, with the underlying error logged as a
-// SyntaxError trying to parse "<HTML><HEA..." as JSON) instead of its
-// normal JSON response, right after this stopped being a hand-tested
-// direct browser hit and became a server-to-server fetch with no
-// browser-like headers. A realistic User-Agent plus an explicit Accept
-// header is a common, low-risk way to stop looking like a script --
-// applied to every outbound fetch this file makes (ESPN's schedule/teams
-// API, ESPN's logo CDN, and the News feed fetch), since any of them could
-// hit the same kind of block.
+// Node's built-in fetch() has its OWN default headers when none are
+// given -- verified directly (a local Node server, hit with a bare
+// fetch(url), logging exactly what arrived): it sends
+// "user-agent: node" and "accept-language: *". Neither is something any
+// real browser has ever sent; "user-agent: node" in particular is about
+// as plain a "this is a script" signal as exists, and is a common,
+// basic thing for a site/CDN to block on by default -- no sophisticated
+// fingerprinting required. An EARLIER attempt at this fix (adding a fake
+// Chrome User-Agent) didn't help, and was then removed entirely on the
+// theory that a mismatched fake-browser header was worse than sending
+// none -- but "sending none" was never actually tested: Node's own
+// defaults were still there the whole time, unexamined. `Accept` is left
+// alone here since Node's own default ("*/*") already matches what a
+// real browser's fetch() sends by default too -- that one was never the
+// problem.
 const OUTBOUND_FETCH_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Accept": "application/json, text/xml, application/xml, image/*, */*"
+  "Accept-Language": "en-US,en;q=0.9"
 };
 
 const CANVAS_WIDTH = 792;
@@ -217,16 +220,11 @@ async function findNextGame(events, teamId, now) {
 // defaults to the platform global (Node 20's built-in fetch in the actual
 // Cloud Function, or a browser's fetch in design-v2).
 //
-// Deliberately NOT sending OUTBOUND_FETCH_HEADERS here (unlike the logo/
-// RSS fetches below) -- confirmed live: this specific endpoint
-// (site.api.espn.com) started blocking requests right when that header
-// was added, while ESPN's logo CDN (a.espncdn.com, same headers, same
-// IP) kept working the whole time. A User-Agent that CLAIMS to be Chrome
-// without the rest of what a real Chrome request looks like (TLS/HTTP2
-// fingerprint, cookies, sec-ch-ua) can read as an impersonation attempt
-// to some bot detection, which is a stronger red flag than sending none
-// at all -- plausible enough, and cheap enough to test, that this is
-// worth trying plain (headerless) again for this one endpoint.
+// Deliberately NOT sending OUTBOUND_FETCH_HEADERS here -- this endpoint
+// is currently working live without it (headers were tried, then pulled
+// off again, then it started working -- see the README timeline), so
+// leaving it alone rather than risking a currently-working path while
+// fixing a different, still-broken one (the RSS fetch below).
 async function fetchNextGame(sport, league, teamId, now, fetchImpl) {
   const doFetch = fetchImpl || fetch;
   const resp = await doFetch(espnScheduleUrl(sport, league, teamId));
@@ -387,15 +385,9 @@ function parseRssHeadlines(xmlText, maxItems) {
 // convention as fetchNextGame. Throws on a non-ok response so the caller
 // treats it as "try again on the next scheduled run," not "no news" --
 // same reasoning as a failed ESPN fetch.
-//
-// Deliberately NOT sending OUTBOUND_FETCH_HEADERS here -- confirmed live:
-// Google News RSS returned a 503 for this exact URL while a direct
-// browser hit to the same URL worked fine, the same "works in a browser,
-// fails from the server" shape as the ESPN issue. Same reasoning as
-// fetchNextGame above for pulling the header back off this one call site.
 async function fetchHeadlines(meta, maxItems, fetchImpl) {
   const doFetch = fetchImpl || fetch;
-  const resp = await doFetch(newsFeedUrl(meta));
+  const resp = await doFetch(newsFeedUrl(meta), { headers: OUTBOUND_FETCH_HEADERS });
   if (!resp.ok) throw new Error("RSS feed fetch failed: " + resp.status);
   const xmlText = await resp.text();
   return parseRssHeadlines(xmlText, maxItems);
