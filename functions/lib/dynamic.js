@@ -81,8 +81,17 @@ function formatCountdownText(daysLeft, label) {
 
 const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
 
+// Confirmed live: without an explicit seasontype, ESPN's schedule
+// endpoint defaults to seasontype=1 (Preseason) -- fine for NFL (which
+// has real preseason games), but college football doesn't play a
+// preseason at all, so that bucket is just empty (events: []), which
+// read as "no upcoming games" even mid-season. seasontype=2 (Regular
+// Season) is what a "next game" lookup actually wants across every sport
+// here. Known gap: this won't surface playoff/bowl games once a team's
+// regular season has ended (those are seasontype=3) -- acceptable for
+// now, not worth a second request just for that edge case yet.
 function espnScheduleUrl(sport, league, teamId) {
-  return ESPN_BASE + "/" + sport + "/" + league + "/teams/" + teamId + "/schedule";
+  return ESPN_BASE + "/" + sport + "/" + league + "/teams/" + teamId + "/schedule?seasontype=2";
 }
 
 function espnTeamsUrl(sport, league) {
