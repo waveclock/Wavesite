@@ -151,23 +151,6 @@ community knowledge and has since been confirmed reachable live (see the
 CORS note below), though a full live schedule response hasn't been
 diffed field-by-field against what was assumed while building this.
 
-**ESPN started returning an HTML block page instead of JSON -- confirmed
-live, and fixed**: right after the live-preview proxies shipped, every
-`espnProxy` request started failing with an HTML response ("Couldn't
-reach ESPN," logged underneath as a `SyntaxError` trying to parse
-`"<HTML><HEA..."` as JSON) -- confirmed via the function's own logs
-(Firebase Console -> Functions -> espnProxy -> Logs). The fetch calls
-themselves hadn't changed; the likely trigger is that they never sent a
-`User-Agent` (Node's default `fetch()` doesn't send a browser-like one),
-which can read as bot/script traffic to a site that isn't built for
-programmatic use. Fixed by sending a realistic browser User-Agent (see
-`OUTBOUND_FETCH_HEADERS` in `lib/dynamic.js`) on every outbound fetch
-this codebase makes to ESPN, ESPN's logo CDN, and the News feed --
-applied everywhere rather than just where it broke, since any of them
-could hit the same kind of block. Not verified against a live response
-since the fix shipped -- if it recurs, the Logs tab is the fastest way to
-see ESPN's actual response rather than guessing.
-
 **ESPN blocks direct browser calls (CORS) -- confirmed live, and fixed**:
 design-v2's Team tool originally called `site.api.espn.com` straight from
 the browser for its live preview. That failed in production ("Couldn't

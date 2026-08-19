@@ -18,23 +18,6 @@
 const { createCanvas, loadImage, registerFont } = require("canvas");
 const path = require("path");
 
-// A missing/generic User-Agent on a server-to-server fetch reads as bot/
-// script traffic to some APIs and CDNs -- confirmed live: ESPN's
-// unofficial site API started returning an HTML block page ("Couldn't
-// reach ESPN" in the proxy, with the underlying error logged as a
-// SyntaxError trying to parse "<HTML><HEA..." as JSON) instead of its
-// normal JSON response, right after this stopped being a hand-tested
-// direct browser hit and became a server-to-server fetch with no
-// browser-like headers. A realistic User-Agent plus an explicit Accept
-// header is a common, low-risk way to stop looking like a script --
-// applied to every outbound fetch this file makes (ESPN's schedule/teams
-// API, ESPN's logo CDN, and the News feed fetch), since any of them could
-// hit the same kind of block.
-const OUTBOUND_FETCH_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Accept": "application/json, text/xml, application/xml, image/*, */*"
-};
-
 const CANVAS_WIDTH = 792;
 const CANVAS_HEIGHT = 272;
 const BIT_THRESHOLD = 180;
@@ -218,7 +201,7 @@ async function findNextGame(events, teamId, now) {
 // Cloud Function, or a browser's fetch in design-v2).
 async function fetchNextGame(sport, league, teamId, now, fetchImpl) {
   const doFetch = fetchImpl || fetch;
-  const resp = await doFetch(espnScheduleUrl(sport, league, teamId), { headers: OUTBOUND_FETCH_HEADERS });
+  const resp = await doFetch(espnScheduleUrl(sport, league, teamId));
   if (!resp.ok) throw new Error("ESPN schedule fetch failed: " + resp.status);
   const data = await resp.json();
   return findNextGame(data.events, teamId, now);
@@ -378,7 +361,7 @@ function parseRssHeadlines(xmlText, maxItems) {
 // same reasoning as a failed ESPN fetch.
 async function fetchHeadlines(meta, maxItems, fetchImpl) {
   const doFetch = fetchImpl || fetch;
-  const resp = await doFetch(newsFeedUrl(meta), { headers: OUTBOUND_FETCH_HEADERS });
+  const resp = await doFetch(newsFeedUrl(meta));
   if (!resp.ok) throw new Error("RSS feed fetch failed: " + resp.status);
   const xmlText = await resp.text();
   return parseRssHeadlines(xmlText, maxItems);
@@ -600,7 +583,7 @@ async function fetchDitheredLogo(url, size, fetchImpl) {
   if (!url) return null;
   try {
     const doFetch = fetchImpl || fetch;
-    const resp = await doFetch(url, { headers: OUTBOUND_FETCH_HEADERS });
+    const resp = await doFetch(url);
     if (!resp.ok) return null;
     const buf = Buffer.from(await resp.arrayBuffer());
     const img = await loadImage(buf);
@@ -762,7 +745,6 @@ module.exports = {
   CANVAS_HEIGHT,
   LOGO_SIZE,
   FONT_FAMILY,
-  OUTBOUND_FETCH_HEADERS,
   daysUntil,
   formatCountdownText,
   formatTeamText,
