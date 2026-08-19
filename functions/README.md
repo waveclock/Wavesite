@@ -173,9 +173,19 @@ can read as an impersonation attempt to a sophisticated bot-detection
 system -- a stronger red flag than sending no `User-Agent` at all. That
 theory is plausible but NOT confirmed either -- the logo CDN gets the
 same header and was never affected, which argues against headers being
-the whole story. `OUTBOUND_FETCH_HEADERS` is still sent on the logo and
-RSS-feed fetches (never confirmed to cause a problem there), just not on
-the ESPN schedule/teams fetch specifically.
+the whole story. `OUTBOUND_FETCH_HEADERS` is still sent on the logo
+fetch (never confirmed to cause a problem there), just not on the ESPN
+schedule/teams fetch or the RSS feed fetch.
+
+**The same thing happened to the News feature's Google News RSS fetch**:
+after the Team tool's ESPN issue above, the News tool's live preview
+showed no headlines either, failing with a `503` from
+`news.google.com/rss/search` -- confirmed live via the same steps
+(Firebase Console -> Functions -> newsProxy -> Logs), and confirmed the
+exact same URL worked fine from a direct browser hit. Same fix applied
+on the same theory: `fetchHeadlines` also no longer sends
+`OUTBOUND_FETCH_HEADERS`. Also unconfirmed as a permanent fix, same
+caveats as above.
 
 Root cause is still unresolved. Two things have also been ruled out live:
 redeploying the *same* code again didn't restore access (so it isn't
