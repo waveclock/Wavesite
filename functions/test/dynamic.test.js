@@ -11,6 +11,8 @@ const {
   fetchNextGame,
   extractLogoUrl,
   extractVenueName,
+  gameDayBannerTitle,
+  fitBannerFontSize,
   packTo1Bit,
   invertedCopy,
   drawGameDayCard,
@@ -18,10 +20,20 @@ const {
   ditherAtkinson,
   ditheredLogoCanvas,
   fetchDitheredLogo,
+  isPrivateOrLinkLocalHostname,
+  isSafeFetchUrl,
+  newsFeedUrl,
+  parseRssHeadlines,
+  fetchHeadlines,
+  formatNewsFallbackText,
+  truncateToWidth,
+  drawNewsCard,
+  formatShortDate,
   renderDynamicDesign,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
-  LOGO_SIZE
+  LOGO_SIZE,
+  OUTBOUND_FETCH_HEADERS
 } = require("../lib/dynamic");
 
 let passed = 0, failed = 0;
@@ -71,6 +83,23 @@ function fakeFetchJson(payload, ok) {
     async json() { return payload; }
   });
 }
+
+function fakeFetchText(text, ok) {
+  return async () => ({
+    ok: ok !== false,
+    status: ok === false ? 503 : 200,
+    async text() { return text; }
+  });
+}
+
+const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+<title>Example Feed</title>
+<item><title><![CDATA[Boardwalk reconstruction to begin after Labor Day]]></title><link>https://example.com/1</link></item>
+<item><title>Council approves &amp; celebrates new beach tag pricing</title><link>https://example.com/2</link></item>
+<item><title>Local surf shop wins &quot;small business&quot; award &#39;again&#39;</title><link>https://example.com/3</link></item>
+<item><title>A fourth headline that should be cut off by maxItems</title><link>https://example.com/4</link></item>
+</channel></rss>`;
 
 (async () => {
   console.log("daysUntil / formatCountdownText");
@@ -167,6 +196,17 @@ function fakeFetchJson(payload, ok) {
       () => fetchNextGame("football", "nfl", "21", new Date(), fakeFetchJson({}, false)),
       /ESPN schedule fetch failed/
     );
+  });
+  await test("fetchNextGame sends a browser-like User-Agent (ESPN has been seen returning an HTML block page without one)", async () => {
+    let capturedOptions = null;
+    const fetchImpl = async (url, options) => {
+      capturedOptions = options;
+      return { ok: true, status: 200, async json() { return { events: [] }; } };
+    };
+    await fetchNextGame("football", "nfl", "21", new Date(), fetchImpl);
+    assert.ok(capturedOptions && capturedOptions.headers, "expected a headers object to be sent");
+    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
+    assert.ok(/Mozilla/.test(OUTBOUND_FETCH_HEADERS["User-Agent"]));
   });
 
   console.log("packTo1Bit");
@@ -388,18 +428,71 @@ function fakeFetchJson(payload, ok) {
     assert.ok(out);
     assert.strictEqual(out.width, 60);
   });
+  await test("fetchDitheredLogo sends the same browser-like User-Agent as ESPN requests", async () => {
+    const src = createCanvas(10, 10);
+    src.getContext("2d").fillRect(0, 0, 10, 10);
+    const pngBuffer = src.toBuffer("image/png");
+    let capturedOptions = null;
+    const fetchImpl = async (url, options) => {
+      capturedOptions = options;
+      return { ok: true, async arrayBuffer() { return pngBuffer.buffer.slice(pngBuffer.byteOffset, pngBuffer.byteOffset + pngBuffer.byteLength); } };
+    };
+    await fetchDitheredLogo("https://a.espncdn.com/logo.png", 60, fetchImpl);
+    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
+  });
 
-  console.log("drawGameDayCard");
-  await test("draws a border, headline, and days label onto an otherwise-blank canvas", () => {
+  console.log("gameDayBannerTitle / fitBannerFontSize");
+  await test("builds a '{LEAGUE} GAME DAY' banner title for each mapped league", () => {
+    assert.strictEqual(gameDayBannerTitle("football", "nfl"), "NFL GAME DAY");
+    assert.strictEqual(gameDayBannerTitle("football", "college-football"), "COLLEGE FOOTBALL GAME DAY");
+    assert.strictEqual(gameDayBannerTitle("basketball", "nba"), "NBA GAME DAY");
+    assert.strictEqual(gameDayBannerTitle("baseball", "mlb"), "MLB GAME DAY");
+    assert.strictEqual(gameDayBannerTitle("hockey", "nhl"), "NHL GAME DAY");
+  });
+  await test("falls back to a bare 'GAME DAY' for an unmapped sport/league", () => {
+    assert.strictEqual(gameDayBannerTitle("football", "xfl"), "GAME DAY");
+  });
+  await test("fitBannerFontSize returns the max size when the text already fits", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");
-    drawGameDayCard(ctx, { headline: "ME VS OPP", daysLabel: "IN 3 DAYS", dateTimeLabel: null, venue: null, myLogo: null, oppLogo: null });
+    const size = fitBannerFontSize(ctx, "NFL GAME DAY", 700, "sans-serif", 24, 14);
+    assert.strictEqual(size, 24);
+  });
+  await test("fitBannerFontSize shrinks a long title until it fits, never truncating it", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    const text = "COLLEGE FOOTBALL GAME DAY";
+    const size = fitBannerFontSize(ctx, text, 300, "sans-serif", 24, 14);
+    ctx.font = size + "px sans-serif";
+    assert.ok(size < 24);
+    assert.ok(size >= 14);
+    assert.ok(ctx.measureText(text).width <= 300);
+  });
+  await test("fitBannerFontSize stops at minSize even if the text still doesn't fit", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    const size = fitBannerFontSize(ctx, "AN IMPOSSIBLY LONG BANNER TITLE THAT NEVER FITS", 10, "sans-serif", 24, 14);
+    assert.strictEqual(size, 14);
+  });
+
+  console.log("drawGameDayCard");
+  await test("draws a title banner, headline, and days label onto an otherwise-blank canvas", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    drawGameDayCard(ctx, { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLabel: "IN 3 DAYS", dateTimeLabel: null, venue: null, myLogo: null, oppLogo: null });
     const d = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
     let sawInk = false;
     for (let i = 0; i < d.length; i += 4) {
       if (d[i] < 250) { sawInk = true; break; }
     }
-    assert.ok(sawInk, "expected the border/headline/days-label to leave some non-white pixels");
+    assert.ok(sawInk, "expected the banner/headline/days-label to leave some non-white pixels");
+  });
+  await test("falls back to a bare 'GAME DAY' banner when bannerTitle is missing", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawGameDayCard(ctx, { headline: "ME VS OPP", daysLabel: "IN 3 DAYS", dateTimeLabel: null, venue: null, myLogo: null, oppLogo: null });
+    });
   });
   await test("draws provided logo canvases without throwing, and skips date/venue lines cleanly when absent", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -407,6 +500,7 @@ function fakeFetchJson(payload, ok) {
     const logo = ditheredLogoCanvas(whiteCanvas(20, 20), LOGO_SIZE);
     assert.doesNotThrow(() => {
       drawGameDayCard(ctx, {
+        bannerTitle: "COLLEGE FOOTBALL GAME DAY",
         headline: "ME VS OPP", daysLabel: "TODAY!",
         dateTimeLabel: "SAT OCT 24 · 1:30 PM ET", venue: "Beaver Stadium",
         myLogo: logo, oppLogo: logo
@@ -445,6 +539,15 @@ function fakeFetchJson(payload, ok) {
     assert.strictEqual(result.nextGame.venue, "Lincoln Financial Field");
     assert.ok(result.binBuffer.some((b) => b !== 0));
   });
+  await test("renders the long 'COLLEGE FOOTBALL GAME DAY' banner title without throwing", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date(Date.UTC(2026, 8, 1));
+    const schedule = espnSchedule("213", [{ date: "2026-09-08T17:00Z", homeAway: "home", opponentAbbrev: "OSU" }]);
+    const meta = { type: "team", sport: "football", league: "college-football", teamId: "213", x: 396, y: 136, size: 48, fontKey: "block", outline: true, inverted: false };
+    const result = await renderDynamicDesign(base, meta, now, fakeFetchJson(schedule));
+    assert.ok(result);
+    assert.ok(result.binBuffer.some((b) => b !== 0));
+  });
   await test("hasMyLogo/hasOppLogo are false (card still renders) when logos are missing from the schedule", async () => {
     const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
     const now = new Date(Date.UTC(2026, 8, 1));
@@ -455,6 +558,179 @@ function fakeFetchJson(payload, ok) {
     assert.strictEqual(result.hasMyLogo, false);
     assert.strictEqual(result.hasOppLogo, false);
     assert.strictEqual(result.nextGame.venue, null);
+  });
+
+  console.log("isPrivateOrLinkLocalHostname / isSafeFetchUrl (SSRF guard)");
+  await test("flags loopback, RFC1918, and link-local IPv4 literals as private", () => {
+    assert.strictEqual(isPrivateOrLinkLocalHostname("127.0.0.1"), true);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("10.0.0.5"), true);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("172.16.0.1"), true);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("172.31.255.255"), true);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("192.168.1.1"), true);
+  });
+  await test("flags the cloud metadata endpoint specifically (169.254.169.254)", () => {
+    assert.strictEqual(isPrivateOrLinkLocalHostname("169.254.169.254"), true);
+  });
+  await test("flags localhost and 0.0.0.0 by name", () => {
+    assert.strictEqual(isPrivateOrLinkLocalHostname("localhost"), true);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("LOCALHOST"), true);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("0.0.0.0"), true);
+  });
+  await test("does not flag ordinary public hostnames or IPs", () => {
+    assert.strictEqual(isPrivateOrLinkLocalHostname("news.google.com"), false);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("8.8.8.8"), false);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("172.32.0.1"), false); // just outside the RFC1918 172.16-31 range
+  });
+  await test("isSafeFetchUrl accepts ordinary http(s) URLs", () => {
+    assert.strictEqual(isSafeFetchUrl("https://example.com/feed.xml"), true);
+    assert.strictEqual(isSafeFetchUrl("http://example.com/feed.xml"), true);
+  });
+  await test("isSafeFetchUrl rejects non-http(s) protocols and unparseable strings", () => {
+    assert.strictEqual(isSafeFetchUrl("file:///etc/passwd"), false);
+    assert.strictEqual(isSafeFetchUrl("ftp://example.com/feed.xml"), false);
+    assert.strictEqual(isSafeFetchUrl("not a url"), false);
+  });
+  await test("isSafeFetchUrl rejects the cloud metadata endpoint even with a path/port", () => {
+    assert.strictEqual(isSafeFetchUrl("http://169.254.169.254/computeMetadata/v1/"), false);
+    assert.strictEqual(isSafeFetchUrl("http://169.254.169.254:80/latest/meta-data/"), false);
+  });
+
+  console.log("newsFeedUrl");
+  await test("builds a Google News search URL from a free-text location", () => {
+    const url = newsFeedUrl({ location: "Ocean City, NJ" });
+    assert.strictEqual(url, "https://news.google.com/rss/search?q=Ocean%20City%2C%20NJ&hl=en-US&gl=US&ceid=US:en");
+  });
+  await test("a custom feedUrl always overrides the location search", () => {
+    const url = newsFeedUrl({ location: "Ocean City, NJ", feedUrl: "https://example.com/feed.xml" });
+    assert.strictEqual(url, "https://example.com/feed.xml");
+  });
+  await test("an empty/missing location still builds a (empty-query) search URL rather than throwing", () => {
+    const url = newsFeedUrl({});
+    assert.strictEqual(url, "https://news.google.com/rss/search?q=&hl=en-US&gl=US&ceid=US:en");
+  });
+  await test("an unsafe custom feedUrl (SSRF attempt) is ignored, falling back to the location search", () => {
+    const url = newsFeedUrl({ location: "Ocean City, NJ", feedUrl: "http://169.254.169.254/computeMetadata/v1/" });
+    assert.strictEqual(url, "https://news.google.com/rss/search?q=Ocean%20City%2C%20NJ&hl=en-US&gl=US&ceid=US:en");
+  });
+
+  console.log("parseRssHeadlines");
+  await test("extracts titles from both CDATA-wrapped and plain-encoded <item>s, decoding entities", () => {
+    const headlines = parseRssHeadlines(SAMPLE_RSS, 3);
+    assert.deepStrictEqual(headlines, [
+      "Boardwalk reconstruction to begin after Labor Day",
+      "Council approves & celebrates new beach tag pricing",
+      "Local surf shop wins \"small business\" award 'again'"
+    ]);
+  });
+  await test("respects maxItems even when the feed has more entries", () => {
+    const headlines = parseRssHeadlines(SAMPLE_RSS, 2);
+    assert.strictEqual(headlines.length, 2);
+  });
+  await test("returns an empty array for a feed with no <item>s", () => {
+    assert.deepStrictEqual(parseRssHeadlines("<rss><channel><title>Empty</title></channel></rss>", 3), []);
+  });
+  await test("skips an <item> with no <title> instead of pushing a blank/garbled headline", () => {
+    const xml = "<rss><channel><item><link>https://example.com/no-title</link></item></channel></rss>";
+    assert.deepStrictEqual(parseRssHeadlines(xml, 3), []);
+  });
+
+  console.log("fetchHeadlines / formatNewsFallbackText");
+  await test("fetchHeadlines throws on a non-ok response (caller should skip-and-retry, not clean up)", async () => {
+    await assert.rejects(
+      () => fetchHeadlines({ location: "Nowhere" }, 3, fakeFetchText("", false)),
+      /RSS feed fetch failed/
+    );
+  });
+  await test("fetchHeadlines sends the same browser-like User-Agent as ESPN requests", async () => {
+    let capturedOptions = null;
+    const fetchImpl = async (url, options) => {
+      capturedOptions = options;
+      return { ok: true, status: 200, async text() { return SAMPLE_RSS; } };
+    };
+    await fetchHeadlines({ location: "Ocean City, NJ" }, 3, fetchImpl);
+    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
+  });
+  await test("fetchHeadlines parses a real fetched response", async () => {
+    const headlines = await fetchHeadlines({ location: "Ocean City, NJ" }, 3, fakeFetchText(SAMPLE_RSS));
+    assert.strictEqual(headlines.length, 3);
+  });
+  await test("fallback text includes the location when present, and degrades gracefully without one", () => {
+    assert.strictEqual(formatNewsFallbackText({ location: "Ocean City, NJ" }), "OCEAN CITY, NJ: NO HEADLINES FOUND");
+    assert.strictEqual(formatNewsFallbackText({}), "NO HEADLINES FOUND");
+  });
+
+  console.log("truncateToWidth / drawNewsCard / formatShortDate");
+  await test("truncateToWidth leaves short text untouched", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    ctx.font = "16px sans-serif";
+    assert.strictEqual(truncateToWidth(ctx, "short", 1000), "short");
+  });
+  await test("truncateToWidth shortens long text and appends an ellipsis", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    ctx.font = "26px sans-serif";
+    const result = truncateToWidth(ctx, "A very long headline that will not fit in a small width", 200);
+    assert.ok(result.endsWith("…"));
+    assert.ok(ctx.measureText(result).width <= 200);
+  });
+  await test("formatShortDate renders a short Eastern-time month/day", () => {
+    const now = new Date(Date.UTC(2026, 7, 19, 12, 0, 0)); // 2026-08-19
+    assert.strictEqual(formatShortDate(now), "AUG 19");
+  });
+  await test("drawNewsCard draws a title banner, header, and headlines onto an otherwise-blank canvas", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    drawNewsCard(ctx, { headerLabel: "OCEAN CITY, NJ", headlines: ["Headline one", "Headline two"], updatedLabel: "UPDATED AUG 19" });
+    const d = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
+    let sawInk = false;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] < 250) { sawInk = true; break; }
+    }
+    assert.ok(sawInk, "expected the border/header/headlines to leave some non-white pixels");
+  });
+  await test("drawNewsCard tolerates a missing headerLabel/updatedLabel without throwing", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => drawNewsCard(ctx, { headerLabel: "", headlines: ["Only one headline"], updatedLabel: null }));
+  });
+
+  console.log("renderDynamicDesign (type: news)");
+  await test("renders a news card from real fetched headlines", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date(Date.UTC(2026, 7, 19));
+    const meta = { type: "news", location: "Ocean City, NJ", x: 396, y: 136, size: 48, fontKey: "serif", outline: false, inverted: false };
+    const result = await renderDynamicDesign(base, meta, now, fakeFetchText(SAMPLE_RSS));
+    assert.ok(result);
+    assert.strictEqual(result.headlines.length, 3);
+    assert.ok(result.binBuffer.some((b) => b !== 0));
+    const decoded = await loadImage(result.pngBuffer);
+    assert.strictEqual(decoded.width, CANVAS_WIDTH);
+    assert.strictEqual(decoded.height, CANVAS_HEIGHT);
+  });
+  await test("an empty feed (reachable, but no headlines) renders the fallback text, does NOT return null", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date(Date.UTC(2026, 7, 19));
+    const meta = { type: "news", location: "Nowhere", x: 396, y: 136, size: 48, fontKey: "serif", outline: false, inverted: false };
+    const emptyRss = "<rss><channel></channel></rss>";
+    const result = await renderDynamicDesign(base, meta, now, fakeFetchText(emptyRss));
+    assert.ok(result, "news layers should never return null -- they're perpetual, not cleaned up");
+    assert.strictEqual(result.content, "NOWHERE: NO HEADLINES FOUND");
+  });
+  await test("a real feed-fetch failure throws instead of returning null (must not be cleaned up)", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date(Date.UTC(2026, 7, 19));
+    const meta = { type: "news", location: "Ocean City, NJ", x: 396, y: 136, size: 48, fontKey: "serif", outline: false, inverted: false };
+    await assert.rejects(() => renderDynamicDesign(base, meta, now, fakeFetchText("", false)));
+  });
+  await test("a custom feedUrl is used instead of the location search", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date(Date.UTC(2026, 7, 19));
+    let requestedUrl = null;
+    const fetchImpl = async (url) => { requestedUrl = url; return { ok: true, async text() { return SAMPLE_RSS; } }; };
+    const meta = { type: "news", location: "Ocean City, NJ", feedUrl: "https://example.com/custom-feed.xml", x: 396, y: 136, size: 48, fontKey: "serif", outline: false, inverted: false };
+    await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.strictEqual(requestedUrl, "https://example.com/custom-feed.xml");
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");
