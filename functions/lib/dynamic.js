@@ -2,14 +2,17 @@
 // job -- kept dependency-free (besides `canvas`) and separate from
 // index.js so it can be unit-tested without a live Firebase project (see
 // test/). Covers both dynamic-layer types published from design-v2:
-// "countdown" (a target date) and "team" (a sports team's next game).
+// "countdown" (a target date) and "team" (a sports team's next game,
+// rendered as a full "Game Day" card with logos when a game is found).
 //
-// IMPORTANT: daysUntil(), formatCountdownText(), and formatTeamText() are
+// IMPORTANT: daysUntil(), formatCountdownText(), formatTeamText(),
+// findNextGame(), the dithering functions, and drawGameDayCard() are
 // deliberately duplicated (not shared via a build step) in
 // design-v2/index.html, which is the browser-side code that first
-// renders/previews this same text at publish time. If any of these change
-// here, they must change there too, or what a customer previewed at
-// publish time won't match what the board shows once this job redraws it.
+// renders/previews this same content at publish time. If any of these
+// change here, they must change there too, or what a customer previewed
+// at publish time won't match what the board shows once this job
+// redraws it.
 "use strict";
 
 const { createCanvas, loadImage, registerFont } = require("canvas");
@@ -18,12 +21,17 @@ const path = require("path");
 const CANVAS_WIDTH = 792;
 const CANVAS_HEIGHT = 272;
 const BIT_THRESHOLD = 180;
+const LOGO_SIZE = 175;
+const LOGO_MARGIN = 28;
 
 // fontKey (stored in designs/{id}-dynamic.json, set by the "Serif" /
-// "Block" / "Pixel" buttons in design-v2) -> the family name registered
-// below. Kept as a stable short key rather than storing a raw CSS
-// font-family string, since browser font-family syntax ("'Bungee',
-// sans-serif") isn't what registerFont() needs here.
+// "Block" / "Pixel" buttons in design-v2's Countdown tool) -> the family
+// name registered below. Kept as a stable short key rather than storing a
+// raw CSS font-family string, since browser font-family syntax ("'Bungee',
+// sans-serif") isn't what registerFont() needs here. The Game Day card
+// (Team tool) doesn't use fontKey at all -- it's a fixed layout, always
+// Block for the headline and Serif for everything else, matching the
+// approved mockup.
 const FONT_FAMILY = {
   serif: "WC Countdown Serif",
   block: "WC Countdown Block",
@@ -70,12 +78,12 @@ function formatCountdownText(daysLeft, label) {
 // supported, no key required, same URL shape across every league:
 //   GET https://site.api.espn.com/apis/site/v2/sports/{sport}/{league}/teams/{teamId}/schedule
 // Response shape (consistent across ESPN's whole site-API surface, widely
-// relied on by community tooling, but never verified against a LIVE
-// response from this codebase's own test environment -- network egress to
-// ESPN was blocked in the sandbox this was built in. Worth a live
-// smoke-test after this is deployed):
-//   { events: [ { date: "2026-09-14T17:00Z", competitions: [ { competitors: [
-//       { homeAway: "home"|"away", team: { id, abbreviation, shortDisplayName } },
+// relied on by community tooling; the events/competitors/date/homeAway
+// fields below ARE confirmed against live responses -- logo and venue
+// field names are NOT, hence extractLogoUrl/extractVenueName trying a
+// few plausible shapes and degrading to null rather than guessing wrong):
+//   { events: [ { date: "2026-09-14T17:00Z", competitions: [ { venue: {...}, competitors: [
+//       { homeAway: "home"|"away", team: { id, abbreviation, shortDisplayName, logo, logos } },
 //       { homeAway: "home"|"away", team: { ... } }
 //   ] } ] } ] }
 
@@ -98,21 +106,38 @@ function espnTeamsUrl(sport, league) {
   return ESPN_BASE + "/" + sport + "/" + league + "/teams?limit=400";
 }
 
+// Unverified field names (see comment above) -- tries the shapes seen in
+// ESPN's teams-list responses (a "logos" array of {href}) and a simpler
+// possible "logo" string, falls back to null (no logo drawn) rather than
+// guessing wrong and breaking image loading.
+function extractLogoUrl(team) {
+  if (!team) return null;
+  if (typeof team.logo === "string" && team.logo) return team.logo;
+  if (Array.isArray(team.logos) && team.logos[0] && team.logos[0].href) return team.logos[0].href;
+  return null;
+}
+
+function extractVenueName(comp) {
+  const v = comp && comp.venue;
+  if (!v) return null;
+  return v.fullName || v.name || null;
+}
+
 // Finds the earliest event whose calendar date is today-or-later. Returns
-// { nextGame: { homeAway, opponentAbbrev, dayUTC } | null, myAbbrev }.
-// myAbbrev is captured from ANY event that includes this team -- even a
-// past one -- specifically so a genuinely-empty upcoming schedule can
-// still be labeled with the team's own name ("PHI: NO UPCOMING GAMES")
-// instead of a bare, unattributed message. nextGame being null is a real,
-// steady-state off-season case, NOT an error -- callers should render it
-// normally, not treat it as a failure. Throws only on an actual
-// fetch/parse failure, which callers should treat as "try again next
-// run," not "the season is over."
+// { nextGame: {...} | null, myAbbrev, myLogo }. myAbbrev/myLogo are
+// captured from ANY event that includes this team -- even a past one --
+// specifically so a genuinely-empty upcoming schedule can still be
+// labeled with the team's own name instead of a bare, unattributed
+// message. nextGame being null is a real, steady-state off-season case,
+// NOT an error -- callers should render it normally, not treat it as a
+// failure. Throws only on an actual fetch/parse failure, which callers
+// should treat as "try again next run," not "the season is over."
 async function findNextGame(events, teamId, now) {
   const at = now || new Date();
   const todayUTC = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate());
   let best = null;
   let myAbbrev = null;
+  let myLogo = null;
   for (const ev of events || []) {
     if (!ev) continue;
     const comp = ev.competitions && ev.competitions[0];
@@ -123,6 +148,7 @@ async function findNextGame(events, teamId, now) {
     if (!myAbbrev) {
       myAbbrev = (me.team.abbreviation || me.team.shortDisplayName || me.team.displayName || "").toUpperCase() || null;
     }
+    if (!myLogo) myLogo = extractLogoUrl(me.team);
 
     if (!ev.date) continue;
     const evDate = new Date(ev.date);
@@ -136,11 +162,14 @@ async function findNextGame(events, teamId, now) {
       best = {
         dayUTC: evDayUTC,
         homeAway: me.homeAway,
-        opponentAbbrev: (opp.team.abbreviation || opp.team.shortDisplayName || opp.team.displayName || "TBD").toUpperCase()
+        opponentAbbrev: (opp.team.abbreviation || opp.team.shortDisplayName || opp.team.displayName || "TBD").toUpperCase(),
+        opponentLogo: extractLogoUrl(opp.team),
+        venue: extractVenueName(comp),
+        gameDateISO: ev.date
       };
     }
   }
-  return { nextGame: best, myAbbrev };
+  return { nextGame: best, myAbbrev, myLogo };
 }
 
 // `fetchImpl` is injectable so tests never make a real network call --
@@ -154,6 +183,9 @@ async function fetchNextGame(sport, league, teamId, now, fetchImpl) {
   return findNextGame(data.events, teamId, now);
 }
 
+// Plain single-line fallback -- used for the off-season case (no card,
+// nothing to show logos/date/venue for) and kept around as the simplest
+// possible rendering of a game.
 function formatTeamText(nextGame, myAbbrev) {
   if (!nextGame) return myAbbrev ? myAbbrev + ": NO UPCOMING GAMES" : "NO UPCOMING GAMES";
   const prefix = myAbbrev ? myAbbrev + " " : "";
@@ -162,6 +194,29 @@ function formatTeamText(nextGame, myAbbrev) {
   if (daysLeft <= 0) return prefix + vsOrAt + " " + nextGame.opponentAbbrev + " TODAY!";
   const unit = daysLeft === 1 ? "DAY" : "DAYS";
   return prefix + vsOrAt + " " + nextGame.opponentAbbrev + " IN " + daysLeft + " " + unit;
+}
+
+// "SAT OCT 26 · 3:30 PM ET" -- always shown in Eastern time regardless of
+// the device's own location, matching how US sports broadcasts/schedules
+// conventionally list game times. Returns null on an unparseable date
+// rather than showing garbage text.
+function formatGameDateTime(isoString) {
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short", month: "short", day: "numeric",
+    hour: "numeric", minute: "2-digit", hour12: true
+  }).formatToParts(d);
+  const get = (type) => (parts.find((p) => p.type === type) || {}).value || "";
+  const weekday = get("weekday").toUpperCase();
+  const month = get("month").toUpperCase();
+  const day = get("day");
+  const hour = get("hour");
+  const minute = get("minute");
+  const dayPeriod = get("dayPeriod").toUpperCase();
+  if (!weekday || !month || !day || !hour || !minute) return null;
+  return weekday + " " + month + " " + day + " · " + hour + ":" + minute + " " + dayPeriod + " ET";
 }
 
 // ================= Shared rendering/packing =================
@@ -226,7 +281,139 @@ function drawDynamicText(ctx, content, meta) {
   }
 }
 
-async function compositeAndPack(basePngBuffer, content, meta) {
+// ================= Logo dithering =================
+// Same Atkinson dither used by design-v2's "Normal Photo" tool (see
+// stageDither/ditherAtkinson there) -- team logos are photo-like assets
+// (gradients, fine detail, color-only contrast) that don't survive a
+// naive black/white threshold, same reasoning as why photos get dithered
+// instead of thresholded.
+
+function toGrayscale(imgData, width, height) {
+  const gray = new Float32Array(width * height);
+  for (let i = 0; i < width * height; i++) {
+    const r = imgData[i * 4], g = imgData[i * 4 + 1], b = imgData[i * 4 + 2];
+    gray[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+  }
+  return gray;
+}
+
+function ditherAtkinson(gray, width, height) {
+  const buf = Float32Array.from(gray);
+  const bits = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      const oldVal = buf[i];
+      const newVal = oldVal < 128 ? 0 : 255;
+      bits[i] = newVal === 0 ? 1 : 0;
+      const err = (oldVal - newVal) / 8;
+      if (x + 1 < width) buf[i + 1] += err;
+      if (x + 2 < width) buf[i + 2] += err;
+      if (y + 1 < height) {
+        if (x > 0) buf[i + width - 1] += err;
+        buf[i + width] += err;
+        if (x + 1 < width) buf[i + width + 1] += err;
+      }
+      if (y + 2 < height) buf[i + 2 * width] += err;
+    }
+  }
+  return bits;
+}
+
+// Pads sourceImage onto a white size x size square (preserving aspect
+// ratio, same as design-v2 does for clip art) and dithers it. Returns an
+// opaque white/black canvas -- unlike the client's version (which keeps
+// ink-only pixels transparent so it can be layered over other content),
+// this one doesn't need transparency since it's drawn directly onto the
+// Game Day card's already-white background.
+function ditheredLogoCanvas(sourceImage, size) {
+  const padded = createCanvas(size, size);
+  const pctx = padded.getContext("2d");
+  pctx.fillStyle = "#fff";
+  pctx.fillRect(0, 0, size, size);
+  const pad = size * 0.08;
+  const scale = Math.min((size - pad * 2) / sourceImage.width, (size - pad * 2) / sourceImage.height);
+  const w = sourceImage.width * scale, h = sourceImage.height * scale;
+  pctx.drawImage(sourceImage, (size - w) / 2, (size - h) / 2, w, h);
+
+  const imgData = pctx.getImageData(0, 0, size, size).data;
+  const gray = toGrayscale(imgData, size, size);
+  const bits = ditherAtkinson(gray, size, size);
+
+  const out = createCanvas(size, size);
+  const octx = out.getContext("2d");
+  const id = octx.createImageData(size, size);
+  for (let i = 0; i < size * size; i++) {
+    const on = !!bits[i];
+    const v = on ? 0 : 255;
+    id.data[i * 4] = v; id.data[i * 4 + 1] = v; id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255;
+  }
+  octx.putImageData(id, 0, 0);
+  return out;
+}
+
+// Fetches + dithers one team logo. Returns null on ANY failure (missing
+// URL, network error, bad status, decode error) -- a broken/missing logo
+// should never take down the whole card, just leave that side blank
+// rather than showing a broken-image glyph or throwing.
+async function fetchDitheredLogo(url, size, fetchImpl) {
+  if (!url) return null;
+  try {
+    const doFetch = fetchImpl || fetch;
+    const resp = await doFetch(url);
+    if (!resp.ok) return null;
+    const buf = Buffer.from(await resp.arrayBuffer());
+    const img = await loadImage(buf);
+    return ditheredLogoCanvas(img, size);
+  } catch (err) {
+    return null;
+  }
+}
+
+// ================= Game Day card =================
+// Full-screen layout (border, header, optional logos either side,
+// matchup headline, days-left, optional date/venue) -- NOT a positioned
+// stamp like drawDynamicText. meta.x/y/size/fontKey/outline don't apply
+// here; the card always fills the whole canvas at fixed positions,
+// matching the approved mockup. Missing optional fields (no logo found,
+// unparseable date, no venue in the response) are simply skipped rather
+// than leaving a gap or showing "undefined" -- later lines shift up to
+// fill the space.
+function drawGameDayCard(ctx, card) {
+  ctx.fillStyle = "#000";
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(10, 10, CANVAS_WIDTH - 20, CANVAS_HEIGHT - 20);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(10, 52);
+  ctx.lineTo(CANVAS_WIDTH - 10, 52);
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
+  ctx.fillText("N E X T   G A M E", CANVAS_WIDTH / 2, 36);
+
+  const bodyMidY = 52 + (CANVAS_HEIGHT - 20 - 52) / 2;
+  if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
+  if (card.oppLogo) ctx.drawImage(card.oppLogo, CANVAS_WIDTH - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
+
+  ctx.font = "42px \"" + FONT_FAMILY.block + "\"";
+  ctx.fillText(card.headline, CANVAS_WIDTH / 2, 116);
+
+  const lines = [{ text: card.daysLabel, font: "bold 24px \"" + FONT_FAMILY.serif + "\"", gap: 38 }];
+  if (card.dateTimeLabel) lines.push({ text: card.dateTimeLabel, font: "italic 23px \"" + FONT_FAMILY.serif + "\"", gap: 32 });
+  if (card.venue) lines.push({ text: card.venue, font: "bold 20px \"" + FONT_FAMILY.serif + "\"", gap: 28 });
+
+  let y = 152;
+  for (const line of lines) {
+    ctx.font = line.font;
+    ctx.fillText(line.text, CANVAS_WIDTH / 2, y);
+    y += line.gap;
+  }
+}
+
+async function compositeAndPack(basePngBuffer, drawFn, meta) {
   const baseImage = await loadImage(basePngBuffer);
   const composite = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
   const ctx = composite.getContext("2d");
@@ -234,12 +421,12 @@ async function compositeAndPack(basePngBuffer, content, meta) {
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   ctx.drawImage(baseImage, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-  drawDynamicText(ctx, content, meta);
+  drawFn(ctx);
 
   const binBuffer = packTo1Bit(composite, !!meta.inverted);
   const previewCanvas = meta.inverted ? invertedCopy(composite) : composite;
   const pngBuffer = previewCanvas.toBuffer("image/png");
-  return { binBuffer, pngBuffer, content };
+  return { binBuffer, pngBuffer };
 }
 
 // Builds the finished .bin + .png for one device from its base.png buffer
@@ -250,7 +437,8 @@ async function compositeAndPack(basePngBuffer, content, meta) {
 // it up and stop touching this device" (see index.js).
 //
 // Throws on a genuine failure (bad meta.type, or -- for "team" -- an ESPN
-// fetch/parse error). Callers should treat a throw as "leave the device
+// schedule fetch/parse error; a failed LOGO fetch does NOT throw, see
+// fetchDitheredLogo). Callers should treat a throw as "leave the device
 // alone and try again on the next scheduled run," NOT as "clean up" --
 // unlike a concluded countdown, a team's schedule is perpetual/renews
 // every season, so a transient fetch failure is never a reason to give up
@@ -262,18 +450,49 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     const daysLeft = daysUntil(meta.targetDate, now);
     if (daysLeft < 0) return null;
     const content = formatCountdownText(daysLeft, meta.label);
-    const result = await compositeAndPack(basePngBuffer, content, meta);
-    return Object.assign(result, { daysLeft });
+    const result = await compositeAndPack(basePngBuffer, (ctx) => drawDynamicText(ctx, content, meta), meta);
+    return Object.assign(result, { daysLeft, content });
   }
 
   if (meta.type === "team") {
-    const { nextGame: rawNextGame, myAbbrev } = await fetchNextGame(meta.sport, meta.league, meta.teamId, now, fetchImpl);
-    const nextGame = rawNextGame && Object.assign({}, rawNextGame, {
-      daysLeft: Math.round((rawNextGame.dayUTC - Date.UTC((now || new Date()).getUTCFullYear(), (now || new Date()).getUTCMonth(), (now || new Date()).getUTCDate())) / 86400000)
+    const { nextGame: rawNextGame, myAbbrev, myLogo: myLogoUrl } = await fetchNextGame(meta.sport, meta.league, meta.teamId, now, fetchImpl);
+
+    if (!rawNextGame) {
+      // Off-season: no game to build a card around -- fall back to the
+      // simple centered message rather than an empty/broken-looking card.
+      const content = formatTeamText(null, myAbbrev);
+      const result = await compositeAndPack(basePngBuffer, (ctx) => drawDynamicText(ctx, content, meta), meta);
+      return Object.assign(result, { nextGame: null, myAbbrev, content });
+    }
+
+    const at = now || new Date();
+    const todayUTC = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate());
+    const daysLeft = Math.round((rawNextGame.dayUTC - todayUTC) / 86400000);
+    const vsOrAt = rawNextGame.homeAway === "home" ? "VS" : "@";
+
+    const [myLogoCanvas, oppLogoCanvas] = await Promise.all([
+      fetchDitheredLogo(myLogoUrl, LOGO_SIZE, fetchImpl),
+      fetchDitheredLogo(rawNextGame.opponentLogo, LOGO_SIZE, fetchImpl)
+    ]);
+
+    const headline = (myAbbrev || "") + " " + vsOrAt + " " + rawNextGame.opponentAbbrev;
+    const daysLabel = daysLeft <= 0 ? "TODAY!" : "IN " + daysLeft + " " + (daysLeft === 1 ? "DAY" : "DAYS");
+    const card = {
+      headline,
+      daysLabel,
+      dateTimeLabel: formatGameDateTime(rawNextGame.gameDateISO),
+      venue: rawNextGame.venue,
+      myLogo: myLogoCanvas,
+      oppLogo: oppLogoCanvas
+    };
+
+    const result = await compositeAndPack(basePngBuffer, (ctx) => drawGameDayCard(ctx, card), meta);
+    const nextGame = Object.assign({}, rawNextGame, { daysLeft });
+    return Object.assign(result, {
+      nextGame, myAbbrev,
+      content: headline + " " + daysLabel,
+      hasMyLogo: !!myLogoCanvas, hasOppLogo: !!oppLogoCanvas
     });
-    const content = formatTeamText(nextGame, myAbbrev);
-    const result = await compositeAndPack(basePngBuffer, content, meta);
-    return Object.assign(result, { nextGame, myAbbrev });
   }
 
   throw new Error("Unknown dynamic layer type: " + meta.type);
@@ -282,17 +501,26 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
 module.exports = {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
+  LOGO_SIZE,
   FONT_FAMILY,
   daysUntil,
   formatCountdownText,
   formatTeamText,
+  formatGameDateTime,
   findNextGame,
   fetchNextGame,
   espnScheduleUrl,
   espnTeamsUrl,
+  extractLogoUrl,
+  extractVenueName,
   packTo1Bit,
   invertedCopy,
   drawDynamicText,
+  drawGameDayCard,
+  toGrayscale,
+  ditherAtkinson,
+  ditheredLogoCanvas,
+  fetchDitheredLogo,
   renderDynamicDesign,
   ensureFontsRegistered
 };

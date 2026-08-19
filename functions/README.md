@@ -33,10 +33,15 @@ Each run:
 2. For each device, downloads `-dynamic.json` + `-base.png` and dispatches
    on `type` (see `lib/dynamic.js`):
    - **countdown**: computes days-remaining and draws the text.
-   - **team**: fetches the team's schedule from ESPN's unofficial site API
-     and draws "VS/@ {OPPONENT} IN N DAYS" for the earliest upcoming game
-     (or "NO UPCOMING GAMES" in the off-season -- a normal, steady state,
-     not an error).
+   - **team**: fetches the team's schedule from ESPN's unofficial site API.
+     If a game is found, draws the full **Game Day card** -- bordered
+     full-screen layout with both teams' logos (fetched and Atkinson-
+     dithered server-side), the matchup ("PHI VS DAL"), days-remaining
+     ("IN 5 DAYS" / "TODAY!"), and (when available) the game's date/time
+     in Eastern and the venue name. In the off-season (no upcoming games)
+     it falls back to the plain "{TEAM}: NO UPCOMING GAMES" text -- a
+     normal, steady state, not an error, and there's no card to build
+     around.
 3. Re-packs to the device's 1-bit format and overwrites `.bin` / `.png`.
 4. **Countdown** only: once the target date has passed, deletes
    `-dynamic.json` / `-base.png` (so this device stops being picked up)
@@ -48,6 +53,30 @@ Each run:
    fetch failure throws instead of returning null, which the caller treats
    as "leave this device alone and try again tomorrow," never as "give up
    on it."
+
+## The Game Day card
+
+The Team layer's live preview in `design-v2` only ever shows a plain text
+line ("PHI VS DAL IN 5 DAYS") and that's also what gets published on day
+one -- deliberately kept simple, since building the full bordered card
+in the browser would mean drawing real ESPN logo images onto the same
+canvas that gets packed into the device's `.bin`, which requires
+CORS-clean pixel access (`getImageData`) and would need routing team-logo
+image fetches through another proxy the same way `espnProxy` already does
+for the schedule/teams JSON. Not worth the extra moving part for a
+same-day cosmetic difference: this **daily** Cloud Function is what draws
+the real card, so within a day of publishing, the board upgrades itself
+from the plain text line to the full card automatically -- no republish
+needed. `design-v2` does show a small illustrative preview box (team
+logos as plain `<img>` tags, not on the canvas) once a game is found, so
+the customer can see roughly what it'll look like once it updates.
+
+Logo URLs come from ESPN's `logo` / `logos[0].href` team fields (see
+`extractLogoUrl` in `lib/dynamic.js`) -- unverified field names, same
+caveat as the rest of this API, degrades to no logo (not a broken image
+or a thrown error) if either team has none. A failed logo fetch (network
+error, 404, bad image data) is likewise swallowed to "no logo for that
+side," never a reason to fail the whole card.
 
 ## Known tradeoffs
 

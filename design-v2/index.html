@@ -372,6 +372,41 @@
     min-height: 14px;
   }
 
+  .gameday-preview {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin: 0 0 10px;
+    background: #fff;
+  }
+  .gameday-preview.hidden { display: none; }
+  .gameday-preview-logo {
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+  .gameday-preview-info {
+    flex: 1;
+    text-align: center;
+    min-width: 0;
+  }
+  .gameday-preview-headline {
+    margin: 0;
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.03em;
+  }
+  .gameday-preview-meta {
+    margin: 2px 0 0;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+  }
+
   .clipart-results {
     display: flex;
     gap: 8px;
@@ -639,6 +674,14 @@
       <button class="tool-btn" id="teamFontPixelBtn" data-font="'Press Start 2P', monospace" data-key="pixel">Pixel</button>
     </div>
     <p class="clipart-status" id="teamStatus">Pick a team to see when they play next.</p>
+    <div class="gameday-preview hidden" id="gamedayPreview">
+      <img class="gameday-preview-logo" id="gamedayPreviewMyLogo" alt="">
+      <div class="gameday-preview-info">
+        <p class="gameday-preview-headline" id="gamedayPreviewHeadline"></p>
+        <p class="gameday-preview-meta" id="gamedayPreviewMeta"></p>
+      </div>
+      <img class="gameday-preview-logo" id="gamedayPreviewOppLogo" alt="">
+    </div>
   </div>
 
   <div class="tool-panel hidden" id="layersPanel">
@@ -824,15 +867,39 @@
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  // Returns { nextGame: {homeAway,opponentAbbrev,daysLeft} | null, myAbbrev }.
-  // myAbbrev is captured from ANY event including this team -- even a past
-  // one -- so a genuinely-empty upcoming schedule can still be labeled
-  // with the team's own name instead of a bare, unattributed message.
+  // Unverified field names (mirrors functions/lib/dynamic.js's comment):
+  // tries the shapes seen in ESPN's teams-list responses (a "logos" array
+  // of {href}) and a simpler possible "logo" string, falls back to null
+  // (no logo shown) rather than guessing wrong and breaking image loading.
+  function extractLogoUrl(team) {
+    if (!team) return null;
+    if (typeof team.logo === "string" && team.logo) return team.logo;
+    if (Array.isArray(team.logos) && team.logos[0] && team.logos[0].href) return team.logos[0].href;
+    return null;
+  }
+
+  function extractVenueName(comp) {
+    const v = comp && comp.venue;
+    if (!v) return null;
+    return v.fullName || v.name || null;
+  }
+
+  // Returns { nextGame: {homeAway,opponentAbbrev,opponentLogo,venue,
+  // gameDateISO,daysLeft} | null, myAbbrev, myLogo }. myAbbrev/myLogo are
+  // captured from ANY event including this team -- even a past one -- so
+  // a genuinely-empty upcoming schedule can still be labeled with the
+  // team's own name instead of a bare, unattributed message. Only used
+  // here to build the illustrative Game Day preview box below the League/
+  // Team pickers -- the canvas itself (and what actually gets published on
+  // day one) still just draws the plain formatTeamText line; the daily
+  // Cloud Function is what draws the real bordered card with dithered
+  // logos, starting from its first run after publish.
   function findNextGame(events, teamId) {
     const now = new Date();
     const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
     let best = null;
     let myAbbrev = null;
+    let myLogo = null;
     for (const ev of events || []) {
       if (!ev) continue;
       const comp = ev.competitions && ev.competitions[0];
@@ -843,6 +910,7 @@
       if (!myAbbrev) {
         myAbbrev = (me.team.abbreviation || me.team.shortDisplayName || me.team.displayName || "").toUpperCase() || null;
       }
+      if (!myLogo) myLogo = extractLogoUrl(me.team);
 
       if (!ev.date) continue;
       const evDate = new Date(ev.date);
@@ -855,12 +923,22 @@
         best = {
           dayUTC: evDayUTC,
           homeAway: me.homeAway,
-          opponentAbbrev: (opp.team.abbreviation || opp.team.shortDisplayName || opp.team.displayName || "TBD").toUpperCase()
+          opponentAbbrev: (opp.team.abbreviation || opp.team.shortDisplayName || opp.team.displayName || "TBD").toUpperCase(),
+          opponentLogo: extractLogoUrl(opp.team),
+          venue: extractVenueName(comp),
+          gameDateISO: ev.date
         };
       }
     }
-    const nextGame = best ? { homeAway: best.homeAway, opponentAbbrev: best.opponentAbbrev, daysLeft: Math.round((best.dayUTC - todayUTC) / 86400000) } : null;
-    return { nextGame, myAbbrev };
+    const nextGame = best ? {
+      homeAway: best.homeAway,
+      opponentAbbrev: best.opponentAbbrev,
+      opponentLogo: best.opponentLogo,
+      venue: best.venue,
+      gameDateISO: best.gameDateISO,
+      daysLeft: Math.round((best.dayUTC - todayUTC) / 86400000)
+    } : null;
+    return { nextGame, myAbbrev, myLogo };
   }
 
   async function fetchNextGame(sport, league, teamId) {
@@ -868,6 +946,28 @@
     if (!resp.ok) throw new Error("ESPN schedule fetch failed: " + resp.status);
     const data = await resp.json();
     return findNextGame(data.events, teamId);
+  }
+
+  // "SAT OCT 26 · 3:30 PM ET" -- always Eastern time, matching US sports
+  // broadcast convention, regardless of the visitor's own timezone. Used
+  // only for the illustrative preview box; see comment above findNextGame.
+  function formatGameDateTime(isoString) {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return null;
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short", month: "short", day: "numeric",
+      hour: "numeric", minute: "2-digit", hour12: true
+    }).formatToParts(d);
+    const get = (type) => (parts.find((p) => p.type === type) || {}).value || "";
+    const weekday = get("weekday").toUpperCase();
+    const month = get("month").toUpperCase();
+    const day = get("day");
+    const hour = get("hour");
+    const minute = get("minute");
+    const dayPeriod = get("dayPeriod").toUpperCase();
+    if (!weekday || !month || !day || !hour || !minute) return null;
+    return weekday + " " + month + " " + day + " · " + hour + ":" + minute + " " + dayPeriod + " ET";
   }
 
   function formatTeamText(nextGame, myAbbrev) {
@@ -1891,6 +1991,36 @@
     populateTeamSelect(sport, league);
   });
 
+  const gamedayPreview = document.getElementById("gamedayPreview");
+  const gamedayPreviewMyLogo = document.getElementById("gamedayPreviewMyLogo");
+  const gamedayPreviewOppLogo = document.getElementById("gamedayPreviewOppLogo");
+  const gamedayPreviewHeadline = document.getElementById("gamedayPreviewHeadline");
+  const gamedayPreviewMeta = document.getElementById("gamedayPreviewMeta");
+
+  function setPreviewLogo(imgEl, url) {
+    imgEl.onerror = () => { imgEl.style.visibility = "hidden"; };
+    imgEl.style.visibility = url ? "visible" : "hidden";
+    imgEl.src = url || "";
+  }
+
+  // Illustrative only -- a plain <img>, not drawn onto the canvas, so it
+  // doesn't need CORS headers from ESPN's logo CDN the way canvas pixel
+  // access would. Shows the customer what the daily-updated card will look
+  // like once the Cloud Function draws it for real.
+  function showGamedayPreview(myAbbrev, myLogo, nextGame) {
+    setPreviewLogo(gamedayPreviewMyLogo, myLogo);
+    setPreviewLogo(gamedayPreviewOppLogo, nextGame.opponentLogo);
+    const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
+    gamedayPreviewHeadline.textContent = (myAbbrev || "") + " " + vsOrAt + " " + nextGame.opponentAbbrev;
+    const metaParts = [formatGameDateTime(nextGame.gameDateISO), nextGame.venue].filter(Boolean);
+    gamedayPreviewMeta.textContent = metaParts.join(" · ");
+    gamedayPreview.classList.remove("hidden");
+  }
+
+  function hideGamedayPreview() {
+    gamedayPreview.classList.add("hidden");
+  }
+
   teamNameSelect.addEventListener("change", async () => {
     const teamId = teamNameSelect.value;
     const leagueVal = teamLeagueSelect.value;
@@ -1908,14 +2038,20 @@
       stagedObject.previewContent = null;
     }
     redrawOverlay();
+    hideGamedayPreview();
 
     const token = ++teamFetchToken;
     teamStatus.textContent = "Loading " + teamName + "'s schedule…";
     try {
-      const { nextGame, myAbbrev } = await fetchNextGame(sport, league, teamId);
+      const { nextGame, myAbbrev, myLogo } = await fetchNextGame(sport, league, teamId);
       if (token !== teamFetchToken || !stagedObject || stagedObject.kind !== "team" || stagedObject.teamId !== teamId) return; // superseded by a newer selection
       stagedObject.previewContent = formatTeamText(nextGame, myAbbrev);
-      teamStatus.textContent = "Updates on its own once a day after you publish — no need to redesign it.";
+      if (nextGame) {
+        showGamedayPreview(myAbbrev, myLogo, nextGame);
+        teamStatus.textContent = "Shows as text at first — becomes a full Game Day card with both team logos once it updates on its own (about once a day).";
+      } else {
+        teamStatus.textContent = "Updates on its own once a day after you publish — no need to redesign it.";
+      }
       redrawOverlay();
     } catch (err) {
       console.error("Couldn't load schedule for team " + teamId + ":", err);
@@ -2205,6 +2341,7 @@
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     canvasTextInput.value = "";
     canvasTextInput.style.display = "none";
+    hideGamedayPreview();
     setControlsEnabled(true);
   }
 

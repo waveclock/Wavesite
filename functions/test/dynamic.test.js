@@ -6,13 +6,22 @@ const {
   daysUntil,
   formatCountdownText,
   formatTeamText,
+  formatGameDateTime,
   findNextGame,
   fetchNextGame,
+  extractLogoUrl,
+  extractVenueName,
   packTo1Bit,
   invertedCopy,
+  drawGameDayCard,
+  toGrayscale,
+  ditherAtkinson,
+  ditheredLogoCanvas,
+  fetchDitheredLogo,
   renderDynamicDesign,
   CANVAS_WIDTH,
-  CANVAS_HEIGHT
+  CANVAS_HEIGHT,
+  LOGO_SIZE
 } = require("../lib/dynamic");
 
 let passed = 0, failed = 0;
@@ -273,6 +282,179 @@ function fakeFetchJson(payload, ok) {
     const now = new Date(Date.UTC(2026, 8, 1));
     const meta = { type: "team", sport: "football", league: "nfl", teamId: "21", x: 396, y: 136, size: 48, fontKey: "serif", outline: false, inverted: false };
     await assert.rejects(() => renderDynamicDesign(base, meta, now, fakeFetchJson({}, false)));
+  });
+
+  console.log("formatGameDateTime");
+  await test("formats an ISO date in Eastern time, matching US broadcast convention", () => {
+    // 2026-10-24 17:30Z = 1:30 PM ET (EDT, UTC-4) that day.
+    const text = formatGameDateTime("2026-10-24T17:30Z");
+    assert.strictEqual(text, "SAT OCT 24 · 1:30 PM ET");
+  });
+  await test("returns null for an unparseable date instead of showing garbage", () => {
+    assert.strictEqual(formatGameDateTime("not-a-date"), null);
+  });
+
+  console.log("extractLogoUrl / extractVenueName");
+  await test("prefers a plain .logo string when present", () => {
+    assert.strictEqual(extractLogoUrl({ logo: "https://example.com/a.png", logos: [{ href: "https://example.com/b.png" }] }), "https://example.com/a.png");
+  });
+  await test("falls back to logos[0].href", () => {
+    assert.strictEqual(extractLogoUrl({ logos: [{ href: "https://example.com/b.png" }] }), "https://example.com/b.png");
+  });
+  await test("returns null when no team or no logo field is present", () => {
+    assert.strictEqual(extractLogoUrl(null), null);
+    assert.strictEqual(extractLogoUrl({}), null);
+  });
+  await test("reads venue.fullName, falling back to venue.name, then null", () => {
+    assert.strictEqual(extractVenueName({ venue: { fullName: "Beaver Stadium" } }), "Beaver Stadium");
+    assert.strictEqual(extractVenueName({ venue: { name: "The Vault" } }), "The Vault");
+    assert.strictEqual(extractVenueName({ venue: {} }), null);
+    assert.strictEqual(extractVenueName({}), null);
+  });
+
+  console.log("findNextGame (logo/venue capture for the Game Day card)");
+  await test("captures myLogo, opponentLogo, venue, and gameDateISO on the chosen game", async () => {
+    const now = new Date(Date.UTC(2026, 8, 1));
+    const events = [{
+      date: "2026-09-07T17:00Z",
+      competitions: [{
+        venue: { fullName: "Beaver Stadium" },
+        competitors: [
+          { homeAway: "home", team: { id: "213", abbreviation: "PSU", logo: "https://example.com/psu.png" } },
+          { homeAway: "away", team: { id: "99", abbreviation: "OPP", logo: "https://example.com/opp.png" } }
+        ]
+      }]
+    }];
+    const { nextGame, myAbbrev, myLogo } = await findNextGame(events, "213", now);
+    assert.ok(nextGame);
+    assert.strictEqual(myAbbrev, "PSU");
+    assert.strictEqual(myLogo, "https://example.com/psu.png");
+    assert.strictEqual(nextGame.opponentLogo, "https://example.com/opp.png");
+    assert.strictEqual(nextGame.venue, "Beaver Stadium");
+    assert.strictEqual(nextGame.gameDateISO, "2026-09-07T17:00Z");
+  });
+
+  console.log("dithering (toGrayscale / ditherAtkinson / ditheredLogoCanvas / fetchDitheredLogo)");
+  await test("toGrayscale collapses RGB to luminance, ignoring alpha", () => {
+    const imgData = new Uint8ClampedArray([0, 0, 0, 255, 255, 255, 255, 128]);
+    const gray = toGrayscale(imgData, 2, 1);
+    assert.strictEqual(gray[0], 0);
+    assert.strictEqual(gray[1], 255);
+  });
+  await test("ditherAtkinson maps a solid black square to all-on bits, solid white to all-off", () => {
+    const black = new Float32Array(16).fill(0);
+    const bitsBlack = ditherAtkinson(black, 4, 4);
+    assert.ok(Array.from(bitsBlack).every((b) => b === 1));
+    const white = new Float32Array(16).fill(255);
+    const bitsWhite = ditherAtkinson(white, 4, 4);
+    assert.ok(Array.from(bitsWhite).every((b) => b === 0));
+  });
+  await test("ditheredLogoCanvas returns an opaque size x size canvas with some ink from a non-white source", () => {
+    const src = createCanvas(40, 40);
+    const sctx = src.getContext("2d");
+    sctx.fillStyle = "#000";
+    sctx.fillRect(0, 0, 40, 40);
+    const out = ditheredLogoCanvas(src, 60);
+    assert.strictEqual(out.width, 60);
+    assert.strictEqual(out.height, 60);
+    const d = out.getContext("2d").getImageData(0, 0, 60, 60).data;
+    let sawBlack = false, sawOpaque = true;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] === 0) sawBlack = true;
+      if (d[i + 3] !== 255) sawOpaque = false;
+    }
+    assert.ok(sawBlack, "expected some black pixels from a solid-black source logo");
+    assert.ok(sawOpaque, "expected a fully opaque canvas (no transparency needed server-side)");
+  });
+  await test("fetchDitheredLogo returns null for a missing URL without fetching", async () => {
+    const result = await fetchDitheredLogo(null, LOGO_SIZE, async () => { throw new Error("should never be called"); });
+    assert.strictEqual(result, null);
+  });
+  await test("fetchDitheredLogo returns null (not a throw) on a failed fetch", async () => {
+    const result = await fetchDitheredLogo("https://example.com/missing.png", LOGO_SIZE, async () => ({ ok: false, status: 404 }));
+    assert.strictEqual(result, null);
+  });
+  await test("fetchDitheredLogo decodes, dithers, and sizes a real image buffer", async () => {
+    const src = createCanvas(40, 40);
+    const sctx = src.getContext("2d");
+    sctx.fillStyle = "#000";
+    sctx.fillRect(0, 0, 40, 40);
+    const pngBuffer = src.toBuffer("image/png");
+    const fakeFetch = async () => ({
+      ok: true,
+      async arrayBuffer() { return pngBuffer.buffer.slice(pngBuffer.byteOffset, pngBuffer.byteOffset + pngBuffer.byteLength); }
+    });
+    const out = await fetchDitheredLogo("https://example.com/logo.png", 60, fakeFetch);
+    assert.ok(out);
+    assert.strictEqual(out.width, 60);
+  });
+
+  console.log("drawGameDayCard");
+  await test("draws a border, headline, and days label onto an otherwise-blank canvas", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    drawGameDayCard(ctx, { headline: "ME VS OPP", daysLabel: "IN 3 DAYS", dateTimeLabel: null, venue: null, myLogo: null, oppLogo: null });
+    const d = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
+    let sawInk = false;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] < 250) { sawInk = true; break; }
+    }
+    assert.ok(sawInk, "expected the border/headline/days-label to leave some non-white pixels");
+  });
+  await test("draws provided logo canvases without throwing, and skips date/venue lines cleanly when absent", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    const logo = ditheredLogoCanvas(whiteCanvas(20, 20), LOGO_SIZE);
+    assert.doesNotThrow(() => {
+      drawGameDayCard(ctx, {
+        headline: "ME VS OPP", daysLabel: "TODAY!",
+        dateTimeLabel: "SAT OCT 24 · 1:30 PM ET", venue: "Beaver Stadium",
+        myLogo: logo, oppLogo: logo
+      });
+    });
+  });
+
+  console.log("renderDynamicDesign (type: team, Game Day card with logos)");
+  await test("hasMyLogo/hasOppLogo are true when both logos fetch successfully, card includes date/venue", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date(Date.UTC(2026, 8, 1));
+    const logoSrc = createCanvas(10, 10);
+    logoSrc.getContext("2d").fillRect(0, 0, 10, 10);
+    const logoPng = logoSrc.toBuffer("image/png");
+    const schedule = {
+      events: [{
+        date: "2026-09-08T17:00Z",
+        competitions: [{
+          venue: { fullName: "Lincoln Financial Field" },
+          competitors: [
+            { homeAway: "home", team: { id: "21", abbreviation: "ME", logo: "https://example.com/me.png" } },
+            { homeAway: "away", team: { id: "99", abbreviation: "COWBOYS", logo: "https://example.com/opp.png" } }
+          ]
+        }]
+      }]
+    };
+    const meta = { type: "team", sport: "football", league: "nfl", teamId: "21", x: 396, y: 136, size: 48, fontKey: "block", outline: true, inverted: false };
+    const fetchImpl = async (url) => {
+      if (String(url).includes("espn.com")) return { ok: true, status: 200, async json() { return schedule; } };
+      return { ok: true, async arrayBuffer() { return logoPng.buffer.slice(logoPng.byteOffset, logoPng.byteOffset + logoPng.byteLength); } };
+    };
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.ok(result);
+    assert.strictEqual(result.hasMyLogo, true);
+    assert.strictEqual(result.hasOppLogo, true);
+    assert.strictEqual(result.nextGame.venue, "Lincoln Financial Field");
+    assert.ok(result.binBuffer.some((b) => b !== 0));
+  });
+  await test("hasMyLogo/hasOppLogo are false (card still renders) when logos are missing from the schedule", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date(Date.UTC(2026, 8, 1));
+    const schedule = espnSchedule("21", [{ date: "2026-09-08T17:00Z", homeAway: "home", opponentAbbrev: "COWBOYS" }]);
+    const meta = { type: "team", sport: "football", league: "nfl", teamId: "21", x: 396, y: 136, size: 48, fontKey: "block", outline: true, inverted: false };
+    const result = await renderDynamicDesign(base, meta, now, fakeFetchJson(schedule));
+    assert.ok(result);
+    assert.strictEqual(result.hasMyLogo, false);
+    assert.strictEqual(result.hasOppLogo, false);
+    assert.strictEqual(result.nextGame.venue, null);
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");
