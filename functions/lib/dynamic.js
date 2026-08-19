@@ -216,9 +216,20 @@ async function findNextGame(events, teamId, now) {
 // `fetchImpl` is injectable so tests never make a real network call --
 // defaults to the platform global (Node 20's built-in fetch in the actual
 // Cloud Function, or a browser's fetch in design-v2).
+//
+// Deliberately NOT sending OUTBOUND_FETCH_HEADERS here (unlike the logo/
+// RSS fetches below) -- confirmed live: this specific endpoint
+// (site.api.espn.com) started blocking requests right when that header
+// was added, while ESPN's logo CDN (a.espncdn.com, same headers, same
+// IP) kept working the whole time. A User-Agent that CLAIMS to be Chrome
+// without the rest of what a real Chrome request looks like (TLS/HTTP2
+// fingerprint, cookies, sec-ch-ua) can read as an impersonation attempt
+// to some bot detection, which is a stronger red flag than sending none
+// at all -- plausible enough, and cheap enough to test, that this is
+// worth trying plain (headerless) again for this one endpoint.
 async function fetchNextGame(sport, league, teamId, now, fetchImpl) {
   const doFetch = fetchImpl || fetch;
-  const resp = await doFetch(espnScheduleUrl(sport, league, teamId), { headers: OUTBOUND_FETCH_HEADERS });
+  const resp = await doFetch(espnScheduleUrl(sport, league, teamId));
   if (!resp.ok) throw new Error("ESPN schedule fetch failed: " + resp.status);
   const data = await resp.json();
   return findNextGame(data.events, teamId, now);
