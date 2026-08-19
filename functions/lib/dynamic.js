@@ -89,28 +89,39 @@ function espnTeamsUrl(sport, league) {
   return ESPN_BASE + "/" + sport + "/" + league + "/teams?limit=400";
 }
 
-// Finds the earliest event whose calendar date is today-or-later, and
-// returns { homeAway, opponentAbbrev } or null if the team has no
-// upcoming games on its schedule (a real, steady-state off-season case --
-// NOT an error). Throws only on an actual fetch/parse failure, which
-// callers should treat as "try again next run," not "the season is over."
+// Finds the earliest event whose calendar date is today-or-later. Returns
+// { nextGame: { homeAway, opponentAbbrev, dayUTC } | null, myAbbrev }.
+// myAbbrev is captured from ANY event that includes this team -- even a
+// past one -- specifically so a genuinely-empty upcoming schedule can
+// still be labeled with the team's own name ("PHI: NO UPCOMING GAMES")
+// instead of a bare, unattributed message. nextGame being null is a real,
+// steady-state off-season case, NOT an error -- callers should render it
+// normally, not treat it as a failure. Throws only on an actual
+// fetch/parse failure, which callers should treat as "try again next
+// run," not "the season is over."
 async function findNextGame(events, teamId, now) {
   const at = now || new Date();
   const todayUTC = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate());
   let best = null;
+  let myAbbrev = null;
   for (const ev of events || []) {
-    if (!ev || !ev.date) continue;
-    const evDate = new Date(ev.date);
-    if (isNaN(evDate.getTime())) continue;
-    const evDayUTC = Date.UTC(evDate.getUTCFullYear(), evDate.getUTCMonth(), evDate.getUTCDate());
-    if (evDayUTC < todayUTC) continue; // already happened
-
+    if (!ev) continue;
     const comp = ev.competitions && ev.competitions[0];
     const competitors = comp && comp.competitors;
     if (!competitors) continue;
     const me = competitors.find((c) => c && c.team && String(c.team.id) === String(teamId));
+    if (!me) continue;
+    if (!myAbbrev) {
+      myAbbrev = (me.team.abbreviation || me.team.shortDisplayName || me.team.displayName || "").toUpperCase() || null;
+    }
+
+    if (!ev.date) continue;
+    const evDate = new Date(ev.date);
+    if (isNaN(evDate.getTime())) continue;
+    const evDayUTC = Date.UTC(evDate.getUTCFullYear(), evDate.getUTCMonth(), evDate.getUTCDate());
+    if (evDayUTC < todayUTC) continue; // already happened
     const opp = competitors.find((c) => c && c.team && String(c.team.id) !== String(teamId));
-    if (!me || !opp) continue;
+    if (!opp) continue;
 
     if (!best || evDayUTC < best.dayUTC) {
       best = {
@@ -120,7 +131,7 @@ async function findNextGame(events, teamId, now) {
       };
     }
   }
-  return best;
+  return { nextGame: best, myAbbrev };
 }
 
 // `fetchImpl` is injectable so tests never make a real network call --
@@ -134,13 +145,14 @@ async function fetchNextGame(sport, league, teamId, now, fetchImpl) {
   return findNextGame(data.events, teamId, now);
 }
 
-function formatTeamText(nextGame) {
-  if (!nextGame) return "NO UPCOMING GAMES";
+function formatTeamText(nextGame, myAbbrev) {
+  if (!nextGame) return myAbbrev ? myAbbrev + ": NO UPCOMING GAMES" : "NO UPCOMING GAMES";
+  const prefix = myAbbrev ? myAbbrev + " " : "";
   const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
   const daysLeft = nextGame.daysLeft;
-  if (daysLeft <= 0) return vsOrAt + " " + nextGame.opponentAbbrev + " TODAY!";
+  if (daysLeft <= 0) return prefix + vsOrAt + " " + nextGame.opponentAbbrev + " TODAY!";
   const unit = daysLeft === 1 ? "DAY" : "DAYS";
-  return vsOrAt + " " + nextGame.opponentAbbrev + " IN " + daysLeft + " " + unit;
+  return prefix + vsOrAt + " " + nextGame.opponentAbbrev + " IN " + daysLeft + " " + unit;
 }
 
 // ================= Shared rendering/packing =================
@@ -246,13 +258,13 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
   }
 
   if (meta.type === "team") {
-    const rawNextGame = await fetchNextGame(meta.sport, meta.league, meta.teamId, now, fetchImpl);
+    const { nextGame: rawNextGame, myAbbrev } = await fetchNextGame(meta.sport, meta.league, meta.teamId, now, fetchImpl);
     const nextGame = rawNextGame && Object.assign({}, rawNextGame, {
       daysLeft: Math.round((rawNextGame.dayUTC - Date.UTC((now || new Date()).getUTCFullYear(), (now || new Date()).getUTCMonth(), (now || new Date()).getUTCDate())) / 86400000)
     });
-    const content = formatTeamText(nextGame);
+    const content = formatTeamText(nextGame, myAbbrev);
     const result = await compositeAndPack(basePngBuffer, content, meta);
-    return Object.assign(result, { nextGame });
+    return Object.assign(result, { nextGame, myAbbrev });
   }
 
   throw new Error("Unknown dynamic layer type: " + meta.type);

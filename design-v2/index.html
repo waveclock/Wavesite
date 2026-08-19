@@ -824,22 +824,33 @@
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  // Returns { nextGame: {homeAway,opponentAbbrev,daysLeft} | null, myAbbrev }.
+  // myAbbrev is captured from ANY event including this team -- even a past
+  // one -- so a genuinely-empty upcoming schedule can still be labeled
+  // with the team's own name instead of a bare, unattributed message.
   function findNextGame(events, teamId) {
     const now = new Date();
     const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
     let best = null;
+    let myAbbrev = null;
     for (const ev of events || []) {
-      if (!ev || !ev.date) continue;
-      const evDate = new Date(ev.date);
-      if (isNaN(evDate.getTime())) continue;
-      const evDayUTC = Date.UTC(evDate.getUTCFullYear(), evDate.getUTCMonth(), evDate.getUTCDate());
-      if (evDayUTC < todayUTC) continue;
+      if (!ev) continue;
       const comp = ev.competitions && ev.competitions[0];
       const competitors = comp && comp.competitors;
       if (!competitors) continue;
       const me = competitors.find((c) => c && c.team && String(c.team.id) === String(teamId));
+      if (!me) continue;
+      if (!myAbbrev) {
+        myAbbrev = (me.team.abbreviation || me.team.shortDisplayName || me.team.displayName || "").toUpperCase() || null;
+      }
+
+      if (!ev.date) continue;
+      const evDate = new Date(ev.date);
+      if (isNaN(evDate.getTime())) continue;
+      const evDayUTC = Date.UTC(evDate.getUTCFullYear(), evDate.getUTCMonth(), evDate.getUTCDate());
+      if (evDayUTC < todayUTC) continue;
       const opp = competitors.find((c) => c && c.team && String(c.team.id) !== String(teamId));
-      if (!me || !opp) continue;
+      if (!opp) continue;
       if (!best || evDayUTC < best.dayUTC) {
         best = {
           dayUTC: evDayUTC,
@@ -848,9 +859,8 @@
         };
       }
     }
-    if (!best) return null;
-    const daysLeft = Math.round((best.dayUTC - todayUTC) / 86400000);
-    return { homeAway: best.homeAway, opponentAbbrev: best.opponentAbbrev, daysLeft };
+    const nextGame = best ? { homeAway: best.homeAway, opponentAbbrev: best.opponentAbbrev, daysLeft: Math.round((best.dayUTC - todayUTC) / 86400000) } : null;
+    return { nextGame, myAbbrev };
   }
 
   async function fetchNextGame(sport, league, teamId) {
@@ -860,12 +870,13 @@
     return findNextGame(data.events, teamId);
   }
 
-  function formatTeamText(nextGame) {
-    if (!nextGame) return "NO UPCOMING GAMES";
+  function formatTeamText(nextGame, myAbbrev) {
+    if (!nextGame) return myAbbrev ? myAbbrev + ": NO UPCOMING GAMES" : "NO UPCOMING GAMES";
+    const prefix = myAbbrev ? myAbbrev + " " : "";
     const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
-    if (nextGame.daysLeft <= 0) return vsOrAt + " " + nextGame.opponentAbbrev + " TODAY!";
+    if (nextGame.daysLeft <= 0) return prefix + vsOrAt + " " + nextGame.opponentAbbrev + " TODAY!";
     const unit = nextGame.daysLeft === 1 ? "DAY" : "DAYS";
-    return vsOrAt + " " + nextGame.opponentAbbrev + " IN " + nextGame.daysLeft + " " + unit;
+    return prefix + vsOrAt + " " + nextGame.opponentAbbrev + " IN " + nextGame.daysLeft + " " + unit;
   }
 
   function drawText(ctx, content, obj) {
@@ -1901,9 +1912,9 @@
     const token = ++teamFetchToken;
     teamStatus.textContent = "Loading " + teamName + "'s schedule…";
     try {
-      const nextGame = await fetchNextGame(sport, league, teamId);
+      const { nextGame, myAbbrev } = await fetchNextGame(sport, league, teamId);
       if (token !== teamFetchToken || !stagedObject || stagedObject.kind !== "team" || stagedObject.teamId !== teamId) return; // superseded by a newer selection
-      stagedObject.previewContent = formatTeamText(nextGame);
+      stagedObject.previewContent = formatTeamText(nextGame, myAbbrev);
       teamStatus.textContent = "Updates on its own once a day after you publish — no need to redesign it.";
       redrawOverlay();
     } catch (err) {
