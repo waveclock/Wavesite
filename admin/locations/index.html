@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wave Clocks by Location</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="../../favicon.png">
+<link rel="apple-touch-icon" href="../../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+    --good: #3E7A5C;
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 20px; }
+
+  header.top {
+    text-align: center;
+    padding: 28px 20px 22px;
+    background:
+      radial-gradient(ellipse 500px 260px at 50% -20%, rgba(44,74,99,0.14), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 100%);
+  }
+  .brand-mark { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }
+  h1.brand {
+    font-family: var(--display);
+    font-size: 22px;
+    margin: 0;
+    color: var(--ink);
+    text-shadow: 2px 2px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+
+  .intro { text-align: center; padding: 4px 8px 22px; }
+  .intro h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 24px;
+    margin: 0 0 8px;
+  }
+  .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0 auto; max-width: 42ch; }
+
+  /* ---------- Summary stats ---------- */
+  .stat-row { display: flex; gap: 12px; margin: 0 0 22px; }
+  .stat-tile {
+    flex: 1;
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 3px 3px 0 rgba(20,48,45,0.10);
+    padding: 14px 12px;
+    text-align: center;
+  }
+  .stat-value { font-family: var(--heading); font-weight: 700; font-size: 26px; line-height: 1; color: var(--ink); }
+  .stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); margin-top: 6px; }
+
+  /* ---------- Status / error banners ---------- */
+  .banner {
+    display: none;
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-size: 13px;
+    margin: 0 0 18px;
+    line-height: 1.5;
+  }
+  .banner.error { background: var(--foam); border-left: 4px solid var(--coral); color: var(--ink); }
+  .banner.error code { background: rgba(31,51,71,0.08); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .banner.loading { background: var(--foam); border-left: 4px solid var(--navy); color: var(--ink-soft); }
+
+  /* ---------- Location bar list (table equivalent: label + value are both always visible) ---------- */
+  .loc-card {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 12px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
+    padding: 18px 18px 10px;
+    display: none;
+  }
+  .loc-row { margin: 0 0 14px; }
+  .loc-row-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    margin: 0 0 5px;
+  }
+  .loc-name { font-family: var(--heading); font-weight: 600; font-size: 14.5px; color: var(--ink); }
+  .loc-count { font-family: var(--heading); font-weight: 700; font-size: 14.5px; color: var(--ink); flex-shrink: 0; }
+  .loc-track {
+    background: var(--foam);
+    border-radius: 5px;
+    height: 10px;
+    overflow: hidden;
+  }
+  .loc-fill {
+    height: 100%;
+    border-radius: 5px;
+    background: var(--navy);
+    width: 0;
+    transition: width 0.5s ease;
+  }
+  .loc-row.no-location .loc-name { color: var(--ink-soft); font-style: italic; font-family: var(--body); font-weight: 500; }
+  .loc-row.no-location .loc-fill { background: var(--driftwood); }
+  .loc-row.load-error .loc-name { color: var(--coral-dark); font-family: var(--body); font-weight: 500; }
+  .loc-row.load-error .loc-fill { background: var(--coral); }
+
+  .empty-msg { text-align: center; color: var(--ink-soft); font-size: 13.5px; padding: 10px 0 18px; display: none; }
+
+  .refresh-row { text-align: center; margin: 22px 0 0; }
+  .refresh-btn {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 13.5px;
+    color: var(--navy);
+    background: #fff;
+    border: 2px solid var(--navy);
+    border-radius: 999px;
+    padding: 9px 20px;
+    cursor: pointer;
+  }
+  .refresh-btn:active { transform: translateY(1px); }
+  .refresh-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .as-of { text-align: center; font-size: 11.5px; color: var(--ink-soft); margin: 10px 0 0; }
+
+  footer {
+    text-align: center;
+    padding: 30px 20px 10px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  footer a { color: var(--navy); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <img src="../../logo.png" alt="WaveClock.net logo" class="brand-mark">
+  <h1 class="brand">WAVE CLOCK</h1>
+</header>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h2>Wave Clocks by Location</h2>
+    <p>Live count of registered devices, grouped by the location each one currently reports.</p>
+  </div>
+
+  <div class="banner loading" id="loadingBanner">Reading device-status files&hellip;</div>
+  <div class="banner error" id="errorBanner"></div>
+
+  <div class="stat-row" id="statRow" style="display:none;">
+    <div class="stat-tile">
+      <div class="stat-value" id="deviceCountValue">&ndash;</div>
+      <div class="stat-label">Devices</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-value" id="locationCountValue">&ndash;</div>
+      <div class="stat-label">Locations</div>
+    </div>
+  </div>
+
+  <div class="loc-card" id="locCard"></div>
+  <p class="empty-msg" id="emptyMsg">No device-status files found yet.</p>
+
+  <div class="refresh-row">
+    <button class="refresh-btn" id="refreshBtn">Refresh</button>
+  </div>
+  <p class="as-of" id="asOf"></p>
+
+</div>
+
+<footer>
+  <p><a href="../../index.html">waveclock.net</a></p>
+</footer>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getStorage, ref, listAll } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+  // Same Firebase project/bucket used by /design/, /location/, /settings/ --
+  // this page just reads across every device-status/{id}.json instead of
+  // one device at a time, to answer "how many clocks per location."
+  const firebaseConfig = {
+    apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
+    authDomain: "waveclock.firebaseapp.com",
+    projectId: "waveclock",
+    storageBucket: "waveclock.firebasestorage.app",
+    messagingSenderId: "668302334840",
+    appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
+  };
+  const app = initializeApp(firebaseConfig);
+  const storage = getStorage(app);
+
+  const loadingBanner = document.getElementById("loadingBanner");
+  const errorBanner = document.getElementById("errorBanner");
+  const statRow = document.getElementById("statRow");
+  const deviceCountValue = document.getElementById("deviceCountValue");
+  const locationCountValue = document.getElementById("locationCountValue");
+  const locCard = document.getElementById("locCard");
+  const emptyMsg = document.getElementById("emptyMsg");
+  const refreshBtn = document.getElementById("refreshBtn");
+  const asOf = document.getElementById("asOf");
+
+  const NO_LOCATION_LABEL = "No location set yet";
+  const LOAD_ERROR_LABEL = "Couldn't read status file";
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))
+    ]);
+  }
+
+  async function fetchJsonFromStorage(path, timeoutMs) {
+    const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + encodeURIComponent(path) + "?alt=media";
+    const resp = await withTimeout(fetch(url), timeoutMs);
+    if (!resp.ok) throw new Error("fetch failed: " + resp.status);
+    return resp.json();
+  }
+
+  // Fetches with limited concurrency so a folder of a few hundred devices
+  // doesn't fire a few hundred simultaneous requests at once.
+  async function mapWithConcurrency(items, limit, worker) {
+    const results = new Array(items.length);
+    let next = 0;
+    async function run() {
+      while (next < items.length) {
+        const i = next++;
+        results[i] = await worker(items[i], i);
+      }
+    }
+    const workers = Array.from({ length: Math.min(limit, items.length) }, run);
+    await Promise.all(workers);
+    return results;
+  }
+
+  function render(counts, total) {
+    const entries = Object.entries(counts).filter(([label]) => label !== NO_LOCATION_LABEL && label !== LOAD_ERROR_LABEL);
+    entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const noLocationCount = counts[NO_LOCATION_LABEL] || 0;
+    const errorCount = counts[LOAD_ERROR_LABEL] || 0;
+
+    deviceCountValue.textContent = String(total);
+    locationCountValue.textContent = String(entries.length);
+    statRow.style.display = total ? "flex" : "none";
+
+    if (!total) {
+      locCard.style.display = "none";
+      emptyMsg.style.display = "block";
+      return;
+    }
+    emptyMsg.style.display = "none";
+
+    const maxCount = entries.length ? entries[0][1] : 1;
+    const rowHtml = (label, count, extraClass) => {
+      const pct = Math.max(4, Math.round((count / maxCount) * 100));
+      return (
+        '<div class="loc-row' + (extraClass ? " " + extraClass : "") + '">' +
+          '<div class="loc-row-head"><span class="loc-name">' + escapeHtml(label) + '</span><span class="loc-count">' + count + '</span></div>' +
+          '<div class="loc-track"><div class="loc-fill" style="width:' + pct + '%"></div></div>' +
+        '</div>'
+      );
+    };
+
+    let html = entries.map(([label, count]) => rowHtml(label, count)).join("");
+    if (noLocationCount) html += rowHtml(NO_LOCATION_LABEL, noLocationCount, "no-location");
+    if (errorCount) html += rowHtml(LOAD_ERROR_LABEL, errorCount, "load-error");
+    locCard.innerHTML = html;
+    locCard.style.display = "block";
+  }
+
+  async function load() {
+    refreshBtn.disabled = true;
+    loadingBanner.style.display = "block";
+    errorBanner.style.display = "none";
+    statRow.style.display = "none";
+    locCard.style.display = "none";
+    emptyMsg.style.display = "none";
+
+    try {
+      const folderRef = ref(storage, "device-status");
+      const listing = await listAll(folderRef);
+      const files = listing.items.filter((item) => item.name.endsWith(".json"));
+
+      const counts = {};
+      let total = 0;
+
+      await mapWithConcurrency(files, 12, async (item) => {
+        let label;
+        try {
+          const status = await fetchJsonFromStorage("device-status/" + item.name, 10000);
+          const name = status && status.location && status.location.name;
+          label = (typeof name === "string" && name.trim()) ? name.trim() : NO_LOCATION_LABEL;
+        } catch (err) {
+          console.error("Couldn't read " + item.name + ":", err);
+          label = LOAD_ERROR_LABEL;
+        }
+        counts[label] = (counts[label] || 0) + 1;
+        total += 1;
+      });
+
+      loadingBanner.style.display = "none";
+      render(counts, total);
+      asOf.textContent = "Updated " + new Date().toLocaleString();
+    } catch (err) {
+      console.error("Couldn't list device-status/:", err);
+      loadingBanner.style.display = "none";
+      let msg;
+      if (err && err.code === "storage/unauthorized") {
+        msg = "Can't list device files yet &mdash; the Storage rules need to permit <code>list</code> on <code>device-status/</code>, not just <code>get</code> on individual files.";
+      } else {
+        msg = "Something went wrong loading device data &mdash; try refreshing in a moment.";
+      }
+      errorBanner.innerHTML = msg;
+      errorBanner.style.display = "block";
+    } finally {
+      refreshBtn.disabled = false;
+    }
+  }
+
+  refreshBtn.addEventListener("click", load);
+  load();
+</script>
+
+</body>
+</html>
