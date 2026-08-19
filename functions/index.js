@@ -13,7 +13,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onRequest } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
-const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES } = require("./lib/dynamic");
+const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -167,7 +167,7 @@ async function espnProxyHandler(req, res) {
       return;
     }
     try {
-      const imgResp = await fetch(url);
+      const imgResp = await fetch(url, { headers: OUTBOUND_FETCH_HEADERS });
       if (!imgResp.ok) {
         res.status(imgResp.status).json({ error: "ESPN CDN returned " + imgResp.status });
         return;
@@ -206,7 +206,7 @@ async function espnProxyHandler(req, res) {
   }
 
   try {
-    const espnResp = await fetch(url);
+    const espnResp = await fetch(url, { headers: OUTBOUND_FETCH_HEADERS });
     const data = await espnResp.json();
     res.status(espnResp.status).json(data);
   } catch (err) {

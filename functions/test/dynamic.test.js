@@ -32,7 +32,8 @@ const {
   renderDynamicDesign,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
-  LOGO_SIZE
+  LOGO_SIZE,
+  OUTBOUND_FETCH_HEADERS
 } = require("../lib/dynamic");
 
 let passed = 0, failed = 0;
@@ -195,6 +196,17 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       () => fetchNextGame("football", "nfl", "21", new Date(), fakeFetchJson({}, false)),
       /ESPN schedule fetch failed/
     );
+  });
+  await test("fetchNextGame sends a browser-like User-Agent (ESPN has been seen returning an HTML block page without one)", async () => {
+    let capturedOptions = null;
+    const fetchImpl = async (url, options) => {
+      capturedOptions = options;
+      return { ok: true, status: 200, async json() { return { events: [] }; } };
+    };
+    await fetchNextGame("football", "nfl", "21", new Date(), fetchImpl);
+    assert.ok(capturedOptions && capturedOptions.headers, "expected a headers object to be sent");
+    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
+    assert.ok(/Mozilla/.test(OUTBOUND_FETCH_HEADERS["User-Agent"]));
   });
 
   console.log("packTo1Bit");
@@ -416,6 +428,18 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.ok(out);
     assert.strictEqual(out.width, 60);
   });
+  await test("fetchDitheredLogo sends the same browser-like User-Agent as ESPN requests", async () => {
+    const src = createCanvas(10, 10);
+    src.getContext("2d").fillRect(0, 0, 10, 10);
+    const pngBuffer = src.toBuffer("image/png");
+    let capturedOptions = null;
+    const fetchImpl = async (url, options) => {
+      capturedOptions = options;
+      return { ok: true, async arrayBuffer() { return pngBuffer.buffer.slice(pngBuffer.byteOffset, pngBuffer.byteOffset + pngBuffer.byteLength); } };
+    };
+    await fetchDitheredLogo("https://a.espncdn.com/logo.png", 60, fetchImpl);
+    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
+  });
 
   console.log("gameDayBannerTitle / fitBannerFontSize");
   await test("builds a '{LEAGUE} GAME DAY' banner title for each mapped league", () => {
@@ -616,6 +640,15 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       () => fetchHeadlines({ location: "Nowhere" }, 3, fakeFetchText("", false)),
       /RSS feed fetch failed/
     );
+  });
+  await test("fetchHeadlines sends the same browser-like User-Agent as ESPN requests", async () => {
+    let capturedOptions = null;
+    const fetchImpl = async (url, options) => {
+      capturedOptions = options;
+      return { ok: true, status: 200, async text() { return SAMPLE_RSS; } };
+    };
+    await fetchHeadlines({ location: "Ocean City, NJ" }, 3, fetchImpl);
+    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
   });
   await test("fetchHeadlines parses a real fetched response", async () => {
     const headlines = await fetchHeadlines({ location: "Ocean City, NJ" }, 3, fakeFetchText(SAMPLE_RSS));
