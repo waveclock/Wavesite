@@ -107,39 +107,51 @@ function fakeFetchJson(payload, ok) {
       { date: "2026-09-14T17:00Z", homeAway: "away", opponentAbbrev: "LATE" },
       { date: "2026-09-07T17:00Z", homeAway: "home", opponentAbbrev: "NEXT" }
     ]);
-    const next = await findNextGame(schedule.events, "5", now);
-    assert.ok(next);
-    assert.strictEqual(next.opponentAbbrev, "NEXT");
-    assert.strictEqual(next.homeAway, "home");
+    const { nextGame, myAbbrev } = await findNextGame(schedule.events, "5", now);
+    assert.ok(nextGame);
+    assert.strictEqual(nextGame.opponentAbbrev, "NEXT");
+    assert.strictEqual(nextGame.homeAway, "home");
+    assert.strictEqual(myAbbrev, "ME");
   });
-  await test("returns null when every game is in the past (off-season)", async () => {
+  await test("nextGame is null when every game is in the past (off-season), but myAbbrev is still captured", async () => {
     const now = new Date(Date.UTC(2026, 8, 1));
     const schedule = espnSchedule("5", [
       { date: "2026-01-10T17:00Z", homeAway: "home", opponentAbbrev: "OLD" }
     ]);
-    const next = await findNextGame(schedule.events, "5", now);
-    assert.strictEqual(next, null);
+    const { nextGame, myAbbrev } = await findNextGame(schedule.events, "5", now);
+    assert.strictEqual(nextGame, null);
+    assert.strictEqual(myAbbrev, "ME");
   });
   await test("today's game counts as upcoming (0 days)", async () => {
     const now = new Date(Date.UTC(2026, 8, 1, 3, 0, 0));
     const schedule = espnSchedule("5", [
       { date: "2026-09-01T23:00Z", homeAway: "away", opponentAbbrev: "TON" }
     ]);
-    const next = await findNextGame(schedule.events, "5", now);
-    assert.ok(next);
-    assert.strictEqual(next.opponentAbbrev, "TON");
+    const { nextGame } = await findNextGame(schedule.events, "5", now);
+    assert.ok(nextGame);
+    assert.strictEqual(nextGame.opponentAbbrev, "TON");
   });
-  await test("format: home game", () => {
-    assert.strictEqual(formatTeamText({ homeAway: "home", opponentAbbrev: "EAGLES", daysLeft: 5 }), "VS EAGLES IN 5 DAYS");
+  await test("myAbbrev is null when the team never appears in the schedule at all", async () => {
+    const now = new Date(Date.UTC(2026, 8, 1));
+    const { nextGame, myAbbrev } = await findNextGame([], "5", now);
+    assert.strictEqual(nextGame, null);
+    assert.strictEqual(myAbbrev, null);
   });
-  await test("format: away game", () => {
-    assert.strictEqual(formatTeamText({ homeAway: "away", opponentAbbrev: "CHIEFS", daysLeft: 1 }), "@ CHIEFS IN 1 DAY");
+  await test("format: home game, with team prefix", () => {
+    assert.strictEqual(formatTeamText({ homeAway: "home", opponentAbbrev: "EAGLES", daysLeft: 5 }, "PHI"), "PHI VS EAGLES IN 5 DAYS");
   });
-  await test("format: game today", () => {
-    assert.strictEqual(formatTeamText({ homeAway: "home", opponentAbbrev: "EAGLES", daysLeft: 0 }), "VS EAGLES TODAY!");
+  await test("format: away game, with team prefix", () => {
+    assert.strictEqual(formatTeamText({ homeAway: "away", opponentAbbrev: "CHIEFS", daysLeft: 1 }, "KC"), "KC @ CHIEFS IN 1 DAY");
   });
-  await test("format: no upcoming games", () => {
-    assert.strictEqual(formatTeamText(null), "NO UPCOMING GAMES");
+  await test("format: game today, with team prefix", () => {
+    assert.strictEqual(formatTeamText({ homeAway: "home", opponentAbbrev: "EAGLES", daysLeft: 0 }, "PHI"), "PHI VS EAGLES TODAY!");
+  });
+  await test("format: no upcoming games, with team prefix", () => {
+    assert.strictEqual(formatTeamText(null, "PHI"), "PHI: NO UPCOMING GAMES");
+  });
+  await test("format: no team prefix available falls back to the old bare format", () => {
+    assert.strictEqual(formatTeamText({ homeAway: "home", opponentAbbrev: "EAGLES", daysLeft: 5 }, null), "VS EAGLES IN 5 DAYS");
+    assert.strictEqual(formatTeamText(null, null), "NO UPCOMING GAMES");
   });
   await test("fetchNextGame throws on a non-ok response (caller should skip-and-retry, not clean up)", async () => {
     await assert.rejects(
@@ -243,17 +255,18 @@ function fakeFetchJson(payload, ok) {
     const meta = { type: "team", sport: "football", league: "nfl", teamId: "21", x: 396, y: 136, size: 48, fontKey: "block", outline: true, inverted: false };
     const result = await renderDynamicDesign(base, meta, now, fakeFetchJson(schedule));
     assert.ok(result);
-    assert.strictEqual(result.content, "VS COWBOYS IN 7 DAYS");
+    assert.strictEqual(result.content, "ME VS COWBOYS IN 7 DAYS");
+    assert.strictEqual(result.myAbbrev, "ME");
     assert.ok(result.binBuffer.some((b) => b !== 0));
   });
-  await test("off-season (no upcoming games) renders normally, does NOT return null", async () => {
+  await test("off-season (no upcoming games) renders normally with the team labeled, does NOT return null", async () => {
     const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
     const now = new Date(Date.UTC(2026, 8, 1));
     const schedule = espnSchedule("21", [{ date: "2026-01-10T17:00Z", homeAway: "home", opponentAbbrev: "OLD" }]);
     const meta = { type: "team", sport: "football", league: "nfl", teamId: "21", x: 396, y: 136, size: 48, fontKey: "serif", outline: false, inverted: false };
     const result = await renderDynamicDesign(base, meta, now, fakeFetchJson(schedule));
     assert.ok(result, "team layers should never return null -- they're perpetual, not cleaned up");
-    assert.strictEqual(result.content, "NO UPCOMING GAMES");
+    assert.strictEqual(result.content, "ME: NO UPCOMING GAMES");
   });
   await test("a real ESPN failure throws instead of returning null (must not be cleaned up)", async () => {
     const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
