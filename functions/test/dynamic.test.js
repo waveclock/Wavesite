@@ -639,14 +639,14 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       /RSS feed fetch failed/
     );
   });
-  await test("fetchHeadlines sends the same browser-like User-Agent as ESPN requests", async () => {
+  await test("fetchHeadlines does NOT send a custom User-Agent -- confirmed live: Google News RSS returned a 503 for this exact URL, while a direct browser hit to it worked fine", async () => {
     let capturedOptions = null;
     const fetchImpl = async (url, options) => {
       capturedOptions = options;
       return { ok: true, status: 200, async text() { return SAMPLE_RSS; } };
     };
     await fetchHeadlines({ location: "Ocean City, NJ" }, 3, fetchImpl);
-    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
+    assert.strictEqual(capturedOptions, undefined);
   });
   await test("fetchHeadlines parses a real fetched response", async () => {
     const headlines = await fetchHeadlines({ location: "Ocean City, NJ" }, 3, fakeFetchText(SAMPLE_RSS));

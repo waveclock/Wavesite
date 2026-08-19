@@ -387,9 +387,15 @@ function parseRssHeadlines(xmlText, maxItems) {
 // convention as fetchNextGame. Throws on a non-ok response so the caller
 // treats it as "try again on the next scheduled run," not "no news" --
 // same reasoning as a failed ESPN fetch.
+//
+// Deliberately NOT sending OUTBOUND_FETCH_HEADERS here -- confirmed live:
+// Google News RSS returned a 503 for this exact URL while a direct
+// browser hit to the same URL worked fine, the same "works in a browser,
+// fails from the server" shape as the ESPN issue. Same reasoning as
+// fetchNextGame above for pulling the header back off this one call site.
 async function fetchHeadlines(meta, maxItems, fetchImpl) {
   const doFetch = fetchImpl || fetch;
-  const resp = await doFetch(newsFeedUrl(meta), { headers: OUTBOUND_FETCH_HEADERS });
+  const resp = await doFetch(newsFeedUrl(meta));
   if (!resp.ok) throw new Error("RSS feed fetch failed: " + resp.status);
   const xmlText = await resp.text();
   return parseRssHeadlines(xmlText, maxItems);
