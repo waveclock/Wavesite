@@ -372,40 +372,6 @@
     min-height: 14px;
   }
 
-  .gameday-preview {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    border: 2px solid var(--ink);
-    border-radius: 10px;
-    padding: 10px 12px;
-    margin: 0 0 10px;
-    background: #fff;
-  }
-  .gameday-preview.hidden { display: none; }
-  .gameday-preview-logo {
-    width: 44px;
-    height: 44px;
-    object-fit: contain;
-    flex-shrink: 0;
-  }
-  .gameday-preview-info {
-    flex: 1;
-    text-align: center;
-    min-width: 0;
-  }
-  .gameday-preview-headline {
-    margin: 0;
-    font-family: var(--heading);
-    font-weight: 700;
-    font-size: 15px;
-    letter-spacing: 0.03em;
-  }
-  .gameday-preview-meta {
-    margin: 2px 0 0;
-    font-size: 11.5px;
-    color: var(--ink-soft);
-  }
 
   .clipart-results {
     display: flex;
@@ -592,7 +558,7 @@
       <input type="range" id="sensitivitySlider" min="10" max="150" value="50">
     </div>
     <div class="staging-bar-row">
-      <span>Drag to move &middot; Size</span>
+      <span id="stagingDragSizeLabel">Drag to move &middot; Size</span>
       <input type="range" id="stagingSizeSlider" min="20" max="800" value="64">
       <button class="commit-btn" id="commitBtn" title="Place it">&#10003;</button>
       <button class="cancel-btn" id="cancelStageBtn" title="Cancel">&#10005;</button>
@@ -677,14 +643,6 @@
       <button class="tool-btn" id="teamFontPixelBtn" data-font="'Press Start 2P', monospace" data-key="pixel">Pixel</button>
     </div>
     <p class="clipart-status" id="teamStatus">Pick a team to see when they play next.</p>
-    <div class="gameday-preview hidden" id="gamedayPreview">
-      <img class="gameday-preview-logo" id="gamedayPreviewMyLogo" alt="">
-      <div class="gameday-preview-info">
-        <p class="gameday-preview-headline" id="gamedayPreviewHeadline"></p>
-        <p class="gameday-preview-meta" id="gamedayPreviewMeta"></p>
-      </div>
-      <img class="gameday-preview-logo" id="gamedayPreviewOppLogo" alt="">
-    </div>
   </div>
 
   <div class="tool-panel hidden" id="newsPanel">
@@ -992,6 +950,141 @@
     return weekday + " " + month + " " + day + " · " + hour + ":" + minute + " " + dayPeriod + " ET";
   }
 
+  // ================= Game Day card (live preview) =================
+  // Mirrors functions/lib/dynamic.js's drawGameDayCard/gameDayBannerTitle/
+  // fitBannerFontSize/ditheredLogoCanvas exactly -- same deliberate
+  // duplication as the rest of this file. This is what actually gets
+  // drawn onto the canvas (and published on day one) once a game's found;
+  // previewContent/formatTeamText above remain only as the fallback while
+  // this is loading or if a logo fetch fails.
+  const BANNER_HEIGHT = 48;
+  const LOGO_SIZE = 175;
+  const LOGO_MARGIN = 28;
+  const LEAGUE_DISPLAY_NAME = {
+    "football/nfl": "NFL",
+    "football/college-football": "COLLEGE FOOTBALL",
+    "basketball/nba": "NBA",
+    "baseball/mlb": "MLB",
+    "hockey/nhl": "NHL"
+  };
+
+  function gameDayBannerTitle(sport, league) {
+    const name = LEAGUE_DISPLAY_NAME[sport + "/" + league];
+    return name ? name + " GAME DAY" : "GAME DAY";
+  }
+
+  function fitBannerFontSize(ctx, text, maxWidth, family, maxSize, minSize) {
+    for (let size = maxSize; size > minSize; size--) {
+      ctx.font = size + "px " + family;
+      if (ctx.measureText(text).width <= maxWidth) return size;
+    }
+    ctx.font = minSize + "px " + family;
+    return minSize;
+  }
+
+  // Pads sourceImage onto a white size x size square (preserving aspect
+  // ratio) and dithers it, same as the server's ditheredLogoCanvas --
+  // opaque output (no transparency needed, drawn directly onto the card's
+  // white background), reusing the same toGrayscale/ditherAtkinson the
+  // Photo tool's "Normal Photo" style already uses below.
+  function ditheredLogoCanvasOpaque(sourceImage, size) {
+    const padded = document.createElement("canvas");
+    padded.width = size;
+    padded.height = size;
+    const pctx = padded.getContext("2d");
+    pctx.fillStyle = "#fff";
+    pctx.fillRect(0, 0, size, size);
+    const pad = size * 0.08;
+    const scale = Math.min((size - pad * 2) / sourceImage.width, (size - pad * 2) / sourceImage.height);
+    const w = sourceImage.width * scale, h = sourceImage.height * scale;
+    pctx.drawImage(sourceImage, (size - w) / 2, (size - h) / 2, w, h);
+
+    const imgData = pctx.getImageData(0, 0, size, size).data;
+    const gray = toGrayscale(imgData, size, size);
+    const bits = ditherAtkinson(gray, size, size);
+
+    const out = document.createElement("canvas");
+    out.width = size;
+    out.height = size;
+    const octx = out.getContext("2d");
+    const id = octx.createImageData(size, size);
+    for (let i = 0; i < size * size; i++) {
+      const v = bits[i] ? 0 : 255;
+      id.data[i * 4] = v; id.data[i * 4 + 1] = v; id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255;
+    }
+    octx.putImageData(id, 0, 0);
+    return out;
+  }
+
+  // Fetches a team logo through espnProxy's "logo" kind (needed for
+  // CORS-clean pixel access -- see the comment above ESPN_PROXY_BASE) and
+  // dithers it. A fetch()-then-blob-URL image never taints the canvas
+  // regardless of the ORIGINAL image's own CORS headers, since the blob
+  // URL itself is same-origin as far as the canvas is concerned -- that's
+  // what makes this safe to read pixels from at all. Returns null on ANY
+  // failure (missing URL, network error, bad status, decode error) rather
+  // than breaking the whole card over one missing logo.
+  async function fetchDitheredLogoClient(url, size) {
+    if (!url) return null;
+    let objectUrl = null;
+    try {
+      const resp = await fetch(ESPN_PROXY_BASE + "?kind=logo&url=" + encodeURIComponent(url));
+      if (!resp.ok) return null;
+      const blob = await resp.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const img = await new Promise((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = () => reject(new Error("logo image failed to decode"));
+        im.src = objectUrl;
+      });
+      return ditheredLogoCanvasOpaque(img, size);
+    } catch (err) {
+      return null;
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  // Full-screen layout: solid black title banner in white block letters,
+  // optional logos either side, matchup headline, days-left, optional
+  // date/venue -- no drawn border, the board's own bezel frames it.
+  // Missing optional fields (no logo, unparseable date, no venue) are
+  // simply skipped, same as the server. Explicitly resets textBaseline --
+  // unlike the server (a fresh canvas per render), this shares its 2d
+  // context with whatever layer drew before it in the same pass, and
+  // drawText above leaves it set to "middle".
+  function drawGameDayCardClient(ctx, card) {
+    const w = baseCanvas.width, h = baseCanvas.height;
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    const bannerTitle = card.bannerTitle || "GAME DAY";
+    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 24, 14);
+    ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+    ctx.fillStyle = "#000";
+    const bodyMidY = BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2;
+    if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
+    if (card.oppLogo) ctx.drawImage(card.oppLogo, w - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
+
+    ctx.font = "42px 'Bungee', sans-serif";
+    ctx.fillText(card.headline, w / 2, BANNER_HEIGHT + 60);
+
+    const lines = [{ text: card.daysLabel, font: "bold 24px Georgia, serif", gap: 38 }];
+    if (card.dateTimeLabel) lines.push({ text: card.dateTimeLabel, font: "italic 23px Georgia, serif", gap: 32 });
+    if (card.venue) lines.push({ text: card.venue, font: "bold 20px Georgia, serif", gap: 28 });
+
+    let y = BANNER_HEIGHT + 96;
+    for (const line of lines) {
+      ctx.font = line.font;
+      ctx.fillText(line.text, w / 2, y);
+      y += line.gap;
+    }
+  }
+
   function formatTeamText(nextGame, myAbbrev) {
     if (!nextGame) return myAbbrev ? myAbbrev + ": NO UPCOMING GAMES" : "NO UPCOMING GAMES";
     const prefix = myAbbrev ? myAbbrev + " " : "";
@@ -1030,12 +1123,23 @@
     } else if (obj.kind === "countdown") {
       drawText(ctx, formatCountdownText(daysUntil(obj.targetDate), obj.label), obj);
     } else if (obj.kind === "team") {
-      // Unlike countdown, this needs a live fetch -- previewContent is
-      // resolved asynchronously (see the League/Team select handlers) and
-      // cached here rather than computed inline on every redraw.
-      drawText(ctx, obj.previewContent || "LOADING…", obj);
+      // obj.card (headline/logos/date/venue) is resolved asynchronously
+      // -- see the Team select handler -- and cached here rather than
+      // recomputed on every redraw. Falls back to the plain text line
+      // while that's loading, or if no game/logo could be found.
+      if (obj.card) {
+        drawGameDayCardClient(ctx, obj.card);
+      } else {
+        drawText(ctx, obj.previewContent || "LOADING…", obj);
+      }
     } else if (obj.kind === "news") {
-      drawText(ctx, formatNewsPreviewText(obj), obj);
+      // Same idea: obj.headlines is resolved asynchronously by the News
+      // tool's input handlers below.
+      if (obj.headlines && obj.headlines.length) {
+        drawNewsCardClient(ctx, { headerLabel: obj.location || "", headlines: obj.headlines, updatedLabel: "UPDATED " + formatShortDateClient(new Date()) });
+      } else {
+        drawText(ctx, formatNewsPreviewText(obj), obj);
+      }
     } else if (obj.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(obj);
       ctx.imageSmoothingEnabled = false; // keeps sketch lines/dither dots crisp black-white instead of blurring into gray
@@ -1232,10 +1336,21 @@
   // Finds which committed layer (if any) sits under canvas point (px, py),
   // topmost first. Freehand strokes aren't selectable this way -- they
   // don't have a single size/position the way a stamped object does.
+  // Team and News render as a fixed full-screen card (once loaded), not a
+  // positioned stamp like everything else here -- x/y/size only matter
+  // for their loading-state placeholder text. Used below to skip
+  // drag/pinch-resize and treat a tap anywhere on the canvas as hitting
+  // whichever one is topmost.
+  const FULL_CARD_KINDS = new Set(["team", "news"]);
+
   function hitTestLayers(px, py) {
     for (let i = layers.length - 1; i >= 0; i--) {
       const obj = layers[i];
       if (obj.kind === "stroke") continue; // freehand ink isn't a selectable object
+      if (FULL_CARD_KINDS.has(obj.kind)) {
+        if (px >= 0 && px <= baseCanvas.width && py >= 0 && py <= baseCanvas.height) return i;
+        continue;
+      }
       const half = obj.size * 0.65; // matches the selection box drawn while staging
       if (Math.abs(px - obj.x) <= half && Math.abs(py - obj.y) <= half) return i;
     }
@@ -1282,11 +1397,16 @@
       teamLeagueSelect.value = obj.sport + "/" + obj.league;
       populateTeamSelect(obj.sport, obj.league, obj.teamId);
       syncTeamFontButtons(obj.fontKey);
+      teamStatus.textContent = obj.card
+        ? "This is the real card — it updates itself once a day after you publish."
+        : (obj.previewContent ? "Updates on its own once a day after you publish — no need to redesign it." : "Pick a team to see when they play next.");
     } else if (obj.kind === "news") {
       newsLocationInput.value = obj.location || "";
       newsFeedUrlInput.value = obj.feedUrl || "";
-      newsStatus.textContent = newsStatusText(obj.location || "", obj.feedUrl || "");
       syncNewsFontButtons(obj.fontKey);
+      newsStatus.textContent = (obj.headlines && obj.headlines.length)
+        ? "This is the real card — it updates itself once a day after you publish."
+        : "Type a location (or paste a specific RSS feed URL) to see today's headlines.";
     }
     return true;
   }
@@ -1822,6 +1942,7 @@
   let stagedObject = null;
 
   const stagingBar = document.getElementById("stagingBar");
+  const stagingDragSizeLabel = document.getElementById("stagingDragSizeLabel");
   const stagingSizeSlider = document.getElementById("stagingSizeSlider");
   const commitBtn = document.getElementById("commitBtn");
   const cancelStageBtn = document.getElementById("cancelStageBtn");
@@ -1956,16 +2077,76 @@
   });
 
   // ================= News tool =================
-  // No live preview of real headlines here -- an RSS feed almost never
-  // sends the CORS headers a browser fetch() needs, the same problem
-  // ESPN's API had (see the espnProxy comment above), and there's no
-  // single feed to proxy the way there's one ESPN API to proxy: the
-  // customer can paste ANY feed URL. Building/maintaining a general-
-  // purpose RSS proxy is more than this needs right now, so the canvas
-  // just shows a plain placeholder line and the real headlines only show
-  // up once the daily Cloud Function fetches and draws the actual card --
-  // same "day one is simple, it upgrades itself automatically" tradeoff
-  // as the Team tool's Game Day card.
+  // Live headlines come from newsProxy, a Cloud Function that fetches +
+  // parses the feed server-to-server (same CORS reasoning as espnProxy)
+  // and hands back already-parsed headline strings -- so this reuses the
+  // exact same headlines the daily regeneration job would draw, never a
+  // separately-parsed copy that could disagree with it.
+  const NEWS_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/newsProxy";
+
+  async function fetchHeadlinesPreview(location, feedUrl) {
+    const params = new URLSearchParams();
+    if (feedUrl && feedUrl.trim()) params.set("feedUrl", feedUrl.trim());
+    else params.set("location", location || "");
+    const resp = await fetch(NEWS_PROXY_BASE + "?" + params.toString());
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("News feed fetch failed: " + resp.status));
+    return data.headlines || [];
+  }
+
+  // Shrinks `text` (appending an ellipsis) until it fits maxWidth at
+  // ctx's current font -- mirrors truncateToWidth in lib/dynamic.js.
+  function truncateToWidth(ctx, text, maxWidth) {
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    let t = text;
+    while (t.length > 0 && ctx.measureText(t + "…").width > maxWidth) {
+      t = t.slice(0, -1);
+    }
+    return t + "…";
+  }
+
+  function formatShortDateClient(now) {
+    const at = now || new Date();
+    return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })
+      .format(at)
+      .toUpperCase();
+  }
+
+  // Mirrors drawNewsCard in lib/dynamic.js exactly (see the comment above
+  // drawGameDayCardClient for why textBaseline is reset here).
+  function drawNewsCardClient(ctx, card) {
+    const w = baseCanvas.width, h = baseCanvas.height;
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    const kicker = card.headerLabel ? card.headerLabel.toUpperCase() + " NEWS" : "NEWS";
+    const kickerSize = fitBannerFontSize(ctx, kicker, w - 40, "'Bungee', sans-serif", 22, 14);
+    ctx.fillText(kicker, w / 2, BANNER_HEIGHT / 2 + Math.round(kickerSize * 0.35));
+
+    ctx.fillStyle = "#000";
+    const leftX = 34;
+    const maxTextWidth = w - 34 - 34;
+    let y = BANNER_HEIGHT + 40;
+    const lineGap = 54;
+    ctx.textAlign = "left";
+    card.headlines.forEach((headline) => {
+      ctx.font = "bold 26px Georgia, serif";
+      const bullet = "•  ";
+      const bulletWidth = ctx.measureText(bullet).width;
+      ctx.fillText(bullet, leftX, y);
+      ctx.fillText(truncateToWidth(ctx, headline, maxTextWidth - bulletWidth), leftX + bulletWidth, y);
+      y += lineGap;
+    });
+
+    if (card.updatedLabel) {
+      ctx.textAlign = "right";
+      ctx.font = "italic 16px Georgia, serif";
+      ctx.fillText(card.updatedLabel, w - 24, h - 14);
+    }
+  }
+
   const newsLocationInput = document.getElementById("newsLocationInput");
   const newsFeedUrlInput = document.getElementById("newsFeedUrlInput");
   const newsStatus = document.getElementById("newsStatus");
@@ -1994,23 +2175,56 @@
     });
   });
 
-  function newsStatusText(location, feedUrl) {
-    if (feedUrl.trim()) return "Will pull headlines from that feed URL once you publish. We can't check it from here -- most feeds don't allow that -- so the first real check happens on your board's first automatic update.";
-    if (location.trim()) return "Will search for \"" + location.trim() + "\" news once you publish -- updates once a day after that.";
-    return "Type a location (or paste a specific RSS feed URL) to get today's headlines once you publish.";
+  let newsFetchToken = 0; // guards a slow/stale fetch from clobbering a newer edit
+  let newsDebounceTimer = null;
+
+  function loadNewsPreview() {
+    if (!stagedObject || stagedObject.kind !== "news") return;
+    const location = stagedObject.location || "";
+    const feedUrl = stagedObject.feedUrl || "";
+    if (!location.trim() && !feedUrl.trim()) {
+      stagedObject.headlines = null;
+      newsStatus.textContent = "Type a location (or paste a specific RSS feed URL) to see today's headlines.";
+      redrawOverlay();
+      return;
+    }
+
+    const token = ++newsFetchToken;
+    newsStatus.textContent = "Loading headlines…";
+    fetchHeadlinesPreview(location, feedUrl).then((headlines) => {
+      if (token !== newsFetchToken || !stagedObject || stagedObject.kind !== "news") return; // superseded by a newer edit
+      stagedObject.headlines = headlines;
+      newsStatus.textContent = headlines.length
+        ? "This is the real card -- it updates itself once a day after you publish."
+        : "No headlines found for that " + (feedUrl.trim() ? "feed" : "location") + " right now. It'll try again on its own each day.";
+      redrawOverlay();
+    }).catch((err) => {
+      console.error("Couldn't load headlines:", err);
+      if (token !== newsFetchToken || !stagedObject || stagedObject.kind !== "news") return;
+      stagedObject.headlines = null;
+      newsStatus.textContent = "Couldn't load headlines right now (" + err.message + ") -- it'll try again on its own each day.";
+      redrawOverlay();
+    });
+  }
+
+  function scheduleNewsPreview() {
+    clearTimeout(newsDebounceTimer);
+    newsDebounceTimer = setTimeout(loadNewsPreview, 600);
   }
 
   newsLocationInput.addEventListener("input", () => {
     if (!stagedObject || stagedObject.kind !== "news") return;
     stagedObject.location = newsLocationInput.value;
-    newsStatus.textContent = newsStatusText(newsLocationInput.value, newsFeedUrlInput.value);
+    stagedObject.headlines = null;
     redrawOverlay();
+    scheduleNewsPreview();
   });
   newsFeedUrlInput.addEventListener("input", () => {
     if (!stagedObject || stagedObject.kind !== "news") return;
     stagedObject.feedUrl = newsFeedUrlInput.value.trim();
-    newsStatus.textContent = newsStatusText(newsLocationInput.value, newsFeedUrlInput.value);
+    stagedObject.headlines = null;
     redrawOverlay();
+    scheduleNewsPreview();
   });
 
   // ================= Team tool =================
@@ -2096,36 +2310,6 @@
     populateTeamSelect(sport, league);
   });
 
-  const gamedayPreview = document.getElementById("gamedayPreview");
-  const gamedayPreviewMyLogo = document.getElementById("gamedayPreviewMyLogo");
-  const gamedayPreviewOppLogo = document.getElementById("gamedayPreviewOppLogo");
-  const gamedayPreviewHeadline = document.getElementById("gamedayPreviewHeadline");
-  const gamedayPreviewMeta = document.getElementById("gamedayPreviewMeta");
-
-  function setPreviewLogo(imgEl, url) {
-    imgEl.onerror = () => { imgEl.style.visibility = "hidden"; };
-    imgEl.style.visibility = url ? "visible" : "hidden";
-    imgEl.src = url || "";
-  }
-
-  // Illustrative only -- a plain <img>, not drawn onto the canvas, so it
-  // doesn't need CORS headers from ESPN's logo CDN the way canvas pixel
-  // access would. Shows the customer what the daily-updated card will look
-  // like once the Cloud Function draws it for real.
-  function showGamedayPreview(myAbbrev, myLogo, nextGame) {
-    setPreviewLogo(gamedayPreviewMyLogo, myLogo);
-    setPreviewLogo(gamedayPreviewOppLogo, nextGame.opponentLogo);
-    const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
-    gamedayPreviewHeadline.textContent = (myAbbrev || "") + " " + vsOrAt + " " + nextGame.opponentAbbrev;
-    const metaParts = [formatGameDateTime(nextGame.gameDateISO), nextGame.venue].filter(Boolean);
-    gamedayPreviewMeta.textContent = metaParts.join(" · ");
-    gamedayPreview.classList.remove("hidden");
-  }
-
-  function hideGamedayPreview() {
-    gamedayPreview.classList.add("hidden");
-  }
-
   teamNameSelect.addEventListener("change", async () => {
     const teamId = teamNameSelect.value;
     const leagueVal = teamLeagueSelect.value;
@@ -2134,16 +2318,16 @@
     const teamName = teamNameSelect.options[teamNameSelect.selectedIndex].textContent;
 
     if (!stagedObject) {
-      startStaging({ kind: "team", sport, league, teamId, teamName, font: selectedTeamFont, outline: selectedTeamOutline, fontKey: selectedTeamFontKey, previewContent: null });
+      startStaging({ kind: "team", sport, league, teamId, teamName, font: selectedTeamFont, outline: selectedTeamOutline, fontKey: selectedTeamFontKey, previewContent: null, card: null });
     } else if (stagedObject.kind === "team") {
       stagedObject.sport = sport;
       stagedObject.league = league;
       stagedObject.teamId = teamId;
       stagedObject.teamName = teamName;
       stagedObject.previewContent = null;
+      stagedObject.card = null;
     }
     redrawOverlay();
-    hideGamedayPreview();
 
     const token = ++teamFetchToken;
     teamStatus.textContent = "Loading " + teamName + "'s schedule…";
@@ -2151,17 +2335,39 @@
       const { nextGame, myAbbrev, myLogo } = await fetchNextGame(sport, league, teamId);
       if (token !== teamFetchToken || !stagedObject || stagedObject.kind !== "team" || stagedObject.teamId !== teamId) return; // superseded by a newer selection
       stagedObject.previewContent = formatTeamText(nextGame, myAbbrev);
-      if (nextGame) {
-        showGamedayPreview(myAbbrev, myLogo, nextGame);
-        teamStatus.textContent = "Shows as text at first — becomes a full Game Day card with both team logos once it updates on its own (about once a day).";
-      } else {
+      if (!nextGame) {
         teamStatus.textContent = "Updates on its own once a day after you publish — no need to redesign it.";
+        redrawOverlay();
+        return;
       }
+
+      teamStatus.textContent = "Loading the Game Day card…";
+      redrawOverlay();
+
+      const [myLogoCanvas, oppLogoCanvas] = await Promise.all([
+        fetchDitheredLogoClient(myLogo, LOGO_SIZE),
+        fetchDitheredLogoClient(nextGame.opponentLogo, LOGO_SIZE)
+      ]);
+      if (token !== teamFetchToken || !stagedObject || stagedObject.kind !== "team" || stagedObject.teamId !== teamId) return; // superseded while logos were loading
+
+      const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
+      const daysLabel = nextGame.daysLeft <= 0 ? "TODAY!" : "IN " + nextGame.daysLeft + " " + (nextGame.daysLeft === 1 ? "DAY" : "DAYS");
+      stagedObject.card = {
+        bannerTitle: gameDayBannerTitle(sport, league),
+        headline: (myAbbrev || "") + " " + vsOrAt + " " + nextGame.opponentAbbrev,
+        daysLabel,
+        dateTimeLabel: formatGameDateTime(nextGame.gameDateISO),
+        venue: nextGame.venue,
+        myLogo: myLogoCanvas,
+        oppLogo: oppLogoCanvas
+      };
+      teamStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
       redrawOverlay();
     } catch (err) {
       console.error("Couldn't load schedule for team " + teamId + ":", err);
       if (token !== teamFetchToken || !stagedObject || stagedObject.kind !== "team") return;
       stagedObject.previewContent = "COULDN'T LOAD SCHEDULE";
+      stagedObject.card = null;
       teamStatus.textContent = "Couldn't load the schedule right now — try picking the team again.";
       redrawOverlay();
     }
@@ -2283,6 +2489,12 @@
     stagingSizeSlider.value = stagedObject.size;
     sensitivityRow.classList.toggle("hidden", obj.photoStyle !== "sketch");
     if (obj.photoStyle === "sketch") sensitivitySlider.value = obj.sensitivity;
+    // Team/News fill the whole screen as a fixed-layout card -- there's
+    // nothing to drag or resize, so hide those controls (commit/cancel
+    // stay put either way).
+    const isFullCard = FULL_CARD_KINDS.has(obj.kind);
+    stagingDragSizeLabel.style.display = isFullCard ? "none" : "";
+    stagingSizeSlider.style.display = isFullCard ? "none" : "";
     stagingBar.classList.add("visible");
     overlayCanvas.classList.add("staging");
     setControlsEnabled(false);
@@ -2334,11 +2546,16 @@
     // kind === "text": no canvas draw here, canvasTextInput shows it instead
     if (stagedObject.kind !== "text") drawStampObject(overlayCtx, stagedObject);
 
-    const half = stagedObject.size * 0.65;
-    overlayCtx.setLineDash([6, 5]);
-    overlayCtx.strokeStyle = "#2C4A63";
-    overlayCtx.lineWidth = 2;
-    overlayCtx.strokeRect(stagedObject.x - half, stagedObject.y - half, half * 2, half * 2);
+    // Team/News fill the whole canvas -- a small dashed selection box
+    // around their nominal x/y/size would be meaningless clutter over a
+    // full-screen card, so skip it for those.
+    if (!FULL_CARD_KINDS.has(stagedObject.kind)) {
+      const half = stagedObject.size * 0.65;
+      overlayCtx.setLineDash([6, 5]);
+      overlayCtx.strokeStyle = "#2C4A63";
+      overlayCtx.lineWidth = 2;
+      overlayCtx.strokeRect(stagedObject.x - half, stagedObject.y - half, half * 2, half * 2);
+    }
     overlayCtx.restore();
   }
 
@@ -2381,6 +2598,12 @@
     }
 
     overlayCanvas.setPointerCapture(evt.pointerId);
+
+    // Team/News have a fixed full-screen layout -- nothing to drag or
+    // pinch-resize, so capture the pointer (keeps the tap from falling
+    // through to baseCanvas) and stop there.
+    if (FULL_CARD_KINDS.has(stagedObject.kind)) return;
+
     activePointers.set(evt.pointerId, p);
 
     if (activePointers.size === 2) {
@@ -2446,7 +2669,6 @@
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     canvasTextInput.value = "";
     canvasTextInput.style.display = "none";
-    hideGamedayPreview();
     setControlsEnabled(true);
   }
 

@@ -63,20 +63,24 @@ Each run:
 
 ## The Game Day card
 
-The Team layer's live preview in `design-v2` only ever shows a plain text
-line ("PHI VS DAL IN 5 DAYS") and that's also what gets published on day
-one -- deliberately kept simple, since building the full bordered card
-in the browser would mean drawing real ESPN logo images onto the same
-canvas that gets packed into the device's `.bin`, which requires
-CORS-clean pixel access (`getImageData`) and would need routing team-logo
-image fetches through another proxy the same way `espnProxy` already does
-for the schedule/teams JSON. Not worth the extra moving part for a
-same-day cosmetic difference: this **daily** Cloud Function is what draws
-the real card, so within a day of publishing, the board upgrades itself
-from the plain text line to the full card automatically -- no republish
-needed. `design-v2` does show a small illustrative preview box (team
-logos as plain `<img>` tags, not on the canvas) once a game is found, so
-the customer can see roughly what it'll look like once it updates.
+`design-v2`'s live preview draws the REAL Game Day card -- banner, both
+teams' dithered logos, matchup, days-remaining, date/venue -- directly
+onto the canvas as soon as a game is found, and that's what publishes on
+day one too. Getting there needed CORS-clean pixel access to the logo
+images (drawing an image onto the same canvas that gets packed into the
+device's `.bin` taints that canvas for any cross-origin image without
+permissive CORS headers, and ESPN's logo CDN doesn't send any), so
+`espnProxy` gained a `kind=logo` mode: it fetches the logo server-to-
+server (never subject to CORS) and streams it back with its own
+permissive headers, restricted to `https://*.espncdn.com` URLs only (not
+an open image relay). The browser then dithers it client-side with the
+exact same Atkinson algorithm the Photo tool's "Normal Photo" style
+already uses, mirroring `ditheredLogoCanvas`/`drawGameDayCard` here.
+
+The daily job still redraws the card every day regardless (the game/date/
+venue change as the season progresses) -- the live preview just means the
+customer sees the real thing immediately instead of a placeholder that
+upgrades itself a day later.
 
 Logo URLs come from ESPN's `logo` / `logos[0].href` team fields (see
 `extractLogoUrl` in `lib/dynamic.js`) -- unverified field names, same
@@ -111,14 +115,24 @@ slip through and yield zero headlines, which just renders the same
 "NO HEADLINES FOUND" fallback as a genuinely empty feed rather than
 erroring.
 
-Same "day one is simple, it upgrades itself automatically" tradeoff as
-the Game Day card: design-v2's live preview and initial publish only ever
-show a plain placeholder line ("OCEAN CITY, NJ NEWS"), never real
-headlines -- fetching an arbitrary RSS feed from the browser hits the
-same CORS wall ESPN's API did, and unlike ESPN there's no single feed to
-route through a proxy (the customer can paste literally any URL). Adding
-a general-purpose RSS proxy wasn't worth it for a same-day cosmetic
-difference; the real headlines appear once this daily job runs.
+`design-v2`'s live preview shows the real card (banner + real headlines)
+too, via `newsProxy`: an `onRequest` function that fetches + parses the
+feed server-to-server -- same CORS reasoning as `espnProxy` -- and hands
+back already-**parsed** headline strings (not raw feed XML), reusing
+`fetchHeadlines`/`parseRssHeadlines` directly so the preview and the real
+card can never disagree about what a feed's headlines are. Unlike
+`espnProxy` there's no fixed hostname to whitelist here (the customer can
+point `feedUrl` at literally any feed), so `newsProxy` -- and the daily
+job's own `newsFeedUrl`, since customers publish this feedUrl too, not
+just preview it -- both run it through `isSafeFetchUrl` first: rejects
+anything that isn't plain http/https, and rejects private/link-local IP
+literals (most importantly `169.254.169.254`, Google Cloud's instance
+metadata endpoint -- letting this function fetch an arbitrary customer-
+supplied URL without that check would let a malicious `feedUrl` steal
+this function's own service-account token). This does **not** protect
+against DNS rebinding (a hostname resolving to a private IP only at fetch
+time, after the check already passed) -- see `isSafeFetchUrl` in
+`lib/dynamic.js` for the exact boundary.
 
 ## Known tradeoffs
 
@@ -181,9 +195,10 @@ npm test
 ```
 
 Runs `test/dynamic.test.js` (pure rendering/packing/date-math/next-game/
-RSS-parsing logic, including synthetic ESPN- and RSS-shaped responses),
-`test/orchestration.test.js`
-(the per-device list/download/render/upload flow, against an in-memory
-fake Storage bucket), and `test/espnProxy.test.js` (the proxy's request
-validation and ESPN-forwarding logic) -- none of these touch anything
-real, ESPN included.
+RSS-parsing/SSRF-guard logic, including synthetic ESPN- and RSS-shaped
+responses), `test/orchestration.test.js` (the per-device list/download/
+render/upload flow, against an in-memory fake Storage bucket),
+`test/espnProxy.test.js` (the proxy's request validation, ESPN-forwarding,
+and logo-forwarding logic), and `test/newsProxy.test.js` (request
+validation, headline-forwarding, and the SSRF rejection) -- none of these
+touch anything real, ESPN included.

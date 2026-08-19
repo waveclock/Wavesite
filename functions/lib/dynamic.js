@@ -264,12 +264,57 @@ function formatGameDateTime(isoString) {
 const GOOGLE_NEWS_RSS_BASE = "https://news.google.com/rss/search";
 const MAX_NEWS_HEADLINES = 3; // as many as fit on one card at a legible size, see drawNewsCard
 
+// meta.feedUrl is a URL the CUSTOMER types in, then this server fetches
+// -- a textbook SSRF shape. The real-world risk that matters here isn't
+// "reach some other website" (fetch() only ever speaks http/https, and
+// there's nothing sensitive on the open Internet this function has that
+// the customer doesn't already have), it's this Cloud Function reaching
+// somewhere on Google Cloud's INTERNAL network that trusts requests
+// simply for originating from inside it -- most importantly
+// 169.254.169.254, the instance metadata endpoint, which can hand back
+// this function's own service-account access token to whoever's able to
+// make it issue that request. Blocking link-local/private-range IP
+// literals closes that off. What this does NOT close off: a hostname
+// (not an IP literal) whose DNS only resolves to a private IP at fetch
+// time, after this check already passed ("DNS rebinding") -- doing that
+// properly means resolving DNS here ourselves and pinning the checked IP
+// for the actual request, which isn't implemented yet.
+function isPrivateOrLinkLocalHostname(hostname) {
+  const h = hostname.toLowerCase();
+  if (h === "localhost" || h === "0.0.0.0" || h === "::1" || h === "[::1]") return true;
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!m) return false;
+  const a = Number(m[1]), b = Number(m[2]);
+  if (a === 127) return true; // loopback
+  if (a === 10) return true; // RFC1918
+  if (a === 172 && b >= 16 && b <= 31) return true; // RFC1918
+  if (a === 192 && b === 168) return true; // RFC1918
+  if (a === 169 && b === 254) return true; // link-local, incl. cloud metadata (169.254.169.254)
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT range, sometimes used internally
+  return false;
+}
+
+function isSafeFetchUrl(urlString) {
+  let u;
+  try {
+    u = new URL(urlString);
+  } catch (err) {
+    return false;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+  if (isPrivateOrLinkLocalHostname(u.hostname)) return false;
+  return true;
+}
+
 // Builds the Google News RSS search URL for a free-text location, unless
 // the customer pasted a specific feed URL of their own (which always
-// wins). encodeURIComponent handles the query string; hl/gl/ceid pin the
+// wins, but ONLY if it passes isSafeFetchUrl -- an unsafe custom URL is
+// treated the same as no custom URL at all, falling back to the location
+// search, rather than fetching it anyway or hard-failing the card).
+// encodeURIComponent handles the query string; hl/gl/ceid pin the
 // results to US English, matching "any US beach town."
 function newsFeedUrl(meta) {
-  if (meta.feedUrl) return meta.feedUrl;
+  if (meta.feedUrl && isSafeFetchUrl(meta.feedUrl)) return meta.feedUrl;
   const q = encodeURIComponent(meta.location || "");
   return GOOGLE_NEWS_RSS_BASE + "?q=" + q + "&hl=en-US&gl=US&ceid=US:en";
 }
@@ -720,6 +765,9 @@ module.exports = {
   ditheredLogoCanvas,
   fetchDitheredLogo,
   fitBannerFontSize,
+  MAX_NEWS_HEADLINES,
+  isPrivateOrLinkLocalHostname,
+  isSafeFetchUrl,
   newsFeedUrl,
   parseRssHeadlines,
   fetchHeadlines,

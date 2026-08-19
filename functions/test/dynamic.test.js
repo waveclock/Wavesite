@@ -20,6 +20,8 @@ const {
   ditherAtkinson,
   ditheredLogoCanvas,
   fetchDitheredLogo,
+  isPrivateOrLinkLocalHostname,
+  isSafeFetchUrl,
   newsFeedUrl,
   parseRssHeadlines,
   fetchHeadlines,
@@ -534,6 +536,41 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(result.nextGame.venue, null);
   });
 
+  console.log("isPrivateOrLinkLocalHostname / isSafeFetchUrl (SSRF guard)");
+  await test("flags loopback, RFC1918, and link-local IPv4 literals as private", () => {
+    assert.strictEqual(isPrivateOrLinkLocalHostname("127.0.0.1"), true);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("10.0.0.5"), true);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("172.16.0.1"), true);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("172.31.255.255"), true);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("192.168.1.1"), true);
+  });
+  await test("flags the cloud metadata endpoint specifically (169.254.169.254)", () => {
+    assert.strictEqual(isPrivateOrLinkLocalHostname("169.254.169.254"), true);
+  });
+  await test("flags localhost and 0.0.0.0 by name", () => {
+    assert.strictEqual(isPrivateOrLinkLocalHostname("localhost"), true);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("LOCALHOST"), true);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("0.0.0.0"), true);
+  });
+  await test("does not flag ordinary public hostnames or IPs", () => {
+    assert.strictEqual(isPrivateOrLinkLocalHostname("news.google.com"), false);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("8.8.8.8"), false);
+    assert.strictEqual(isPrivateOrLinkLocalHostname("172.32.0.1"), false); // just outside the RFC1918 172.16-31 range
+  });
+  await test("isSafeFetchUrl accepts ordinary http(s) URLs", () => {
+    assert.strictEqual(isSafeFetchUrl("https://example.com/feed.xml"), true);
+    assert.strictEqual(isSafeFetchUrl("http://example.com/feed.xml"), true);
+  });
+  await test("isSafeFetchUrl rejects non-http(s) protocols and unparseable strings", () => {
+    assert.strictEqual(isSafeFetchUrl("file:///etc/passwd"), false);
+    assert.strictEqual(isSafeFetchUrl("ftp://example.com/feed.xml"), false);
+    assert.strictEqual(isSafeFetchUrl("not a url"), false);
+  });
+  await test("isSafeFetchUrl rejects the cloud metadata endpoint even with a path/port", () => {
+    assert.strictEqual(isSafeFetchUrl("http://169.254.169.254/computeMetadata/v1/"), false);
+    assert.strictEqual(isSafeFetchUrl("http://169.254.169.254:80/latest/meta-data/"), false);
+  });
+
   console.log("newsFeedUrl");
   await test("builds a Google News search URL from a free-text location", () => {
     const url = newsFeedUrl({ location: "Ocean City, NJ" });
@@ -546,6 +583,10 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   await test("an empty/missing location still builds a (empty-query) search URL rather than throwing", () => {
     const url = newsFeedUrl({});
     assert.strictEqual(url, "https://news.google.com/rss/search?q=&hl=en-US&gl=US&ceid=US:en");
+  });
+  await test("an unsafe custom feedUrl (SSRF attempt) is ignored, falling back to the location search", () => {
+    const url = newsFeedUrl({ location: "Ocean City, NJ", feedUrl: "http://169.254.169.254/computeMetadata/v1/" });
+    assert.strictEqual(url, "https://news.google.com/rss/search?q=Ocean%20City%2C%20NJ&hl=en-US&gl=US&ceid=US:en");
   });
 
   console.log("parseRssHeadlines");
