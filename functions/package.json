@@ -1,0 +1,17 @@
+{
+  "name": "waveclock-functions",
+  "description": "Daily regeneration of Custom Screen countdown designs for WaveClock devices.",
+  "type": "commonjs",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "scripts": {
+    "test": "node test/countdown.test.js && node test/orchestration.test.js"
+  },
+  "dependencies": {
+    "canvas": "^2.11.2",
+    "firebase-admin": "^12.1.0",
+    "firebase-functions": "^5.0.0"
+  }
+}
