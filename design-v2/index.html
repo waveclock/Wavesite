@@ -329,7 +329,8 @@
     font-weight: 600;
     color: var(--ink-soft);
   }
-  .countdown-field input {
+  .countdown-field input,
+  .countdown-field select {
     font-family: var(--heading);
     font-size: 15px;
     padding: 10px 12px;
@@ -338,6 +339,7 @@
     background: #fff;
     color: var(--ink);
   }
+  .countdown-field select:disabled { background: var(--foam); color: var(--ink-soft); }
   .clipart-search-row input[type="text"] {
     flex: 1;
     font-family: var(--heading);
@@ -492,7 +494,7 @@
   <header>
     <h1>DESIGN YOUR<br>WAVE CLOCK</h1>
     <p class="subtitle">Draw something, write something &mdash; whatever you want to see every time it cycles by.</p>
-    <p style="font-size:11px; color:var(--ink-soft); opacity:0.7; margin:6px 0 0;">Preview &mdash; adds a Countdown tool that updates on its own each day.</p>
+    <p style="font-size:11px; color:var(--ink-soft); opacity:0.7; margin:6px 0 0;">Preview &mdash; adds Countdown and Team Schedule tools that update on their own each day.</p>
     <span class="device-tag" id="deviceTag">Loading device&hellip;</span>
   </header>
 
@@ -517,6 +519,9 @@
           <button class="icon-tool-btn" id="toolPhotoBtn" data-tool="photo" title="Photo">&#128247;</button>
           <button class="icon-tool-btn" id="toolCountdownBtn" data-tool="countdown" title="Countdown">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="icon-tool-btn" id="toolTeamBtn" data-tool="team" title="Team Schedule">
+            <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
           </button>
           <button class="icon-tool-btn" id="toolLayersBtn" data-tool="layers" title="Layers">
             <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 13l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 17.5l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
@@ -606,6 +611,34 @@
       <button class="tool-btn" id="cdFontPixelBtn" data-font="'Press Start 2P', monospace" data-key="pixel">Pixel</button>
     </div>
     <p class="clipart-status">Updates on its own once a day after you publish &mdash; no need to redesign it.</p>
+  </div>
+
+  <div class="tool-panel hidden" id="teamPanel">
+    <div class="countdown-fields">
+      <label class="countdown-field">
+        <span>League</span>
+        <select id="teamLeagueSelect">
+          <option value="">Choose a league&hellip;</option>
+          <option value="football/nfl">NFL</option>
+          <option value="football/college-football">College Football</option>
+          <option value="basketball/nba">NBA</option>
+          <option value="baseball/mlb">MLB</option>
+          <option value="hockey/nhl">NHL</option>
+        </select>
+      </label>
+      <label class="countdown-field">
+        <span>Team</span>
+        <select id="teamNameSelect" disabled>
+          <option value="">Choose a league first&hellip;</option>
+        </select>
+      </label>
+    </div>
+    <div class="toolbar" id="teamFontRow">
+      <button class="tool-btn active" id="teamFontSerifBtn" data-font="Georgia, serif" data-key="serif">Serif</button>
+      <button class="tool-btn" id="teamFontBlockBtn" data-font="'Bungee', sans-serif" data-outline="true" data-key="block">Block</button>
+      <button class="tool-btn" id="teamFontPixelBtn" data-font="'Press Start 2P', monospace" data-key="pixel">Pixel</button>
+    </div>
+    <p class="clipart-status" id="teamStatus">Pick a team to see when they play next.</p>
   </div>
 
   <div class="tool-panel hidden" id="layersPanel">
@@ -741,12 +774,13 @@
   // Draws one committed layer object -- shared between the layers-canvas
   // full re-render and the staging overlay's live preview so the two
   // never drift out of sync with each other.
-  // ================= Countdown text: NOTE this exact formatting/day-math
-  // logic is duplicated (deliberately kept simple/dependency-free so it's
-  // easy to hand-port) in functions/index.js, which redraws this same text
-  // server-side once a day after publish. If either changes, the other
-  // must be updated to match or the daily-refreshed board will read
-  // differently than what was shown/previewed here at publish time. =====
+  // ================= Countdown/Team text: NOTE this exact formatting/
+  // day-math/next-game logic is duplicated (deliberately kept simple/
+  // dependency-free so it's easy to hand-port) in functions/lib/dynamic.js,
+  // which redraws this same text server-side once a day after publish. If
+  // either changes, the other must be updated to match or the daily-
+  // refreshed board will read differently than what was shown/previewed
+  // here at publish time. =====
   function daysUntil(targetDateStr) {
     const [ty, tm, td] = targetDateStr.split("-").map(Number);
     const target = Date.UTC(ty, tm - 1, td);
@@ -760,6 +794,71 @@
     if (daysLeft <= 0) return lbl ? (lbl + " TODAY!") : "TODAY!";
     const unit = daysLeft === 1 ? "DAY" : "DAYS";
     return lbl ? (daysLeft + " " + unit + " TO " + lbl) : (daysLeft + " " + unit);
+  }
+
+  // ================= Team schedule (ESPN) =================
+  // Uses ESPN's unofficial "site API" -- no key, same URL shape across
+  // every league. Not officially documented/supported; see
+  // functions/lib/dynamic.js for the full shape notes (this couldn't be
+  // verified against a LIVE response while building this, since network
+  // access to ESPN was blocked in the dev sandbox -- worth a real
+  // smoke-test once this is live).
+  const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
+
+  async function fetchLeagueTeams(sport, league) {
+    const resp = await fetch(ESPN_BASE + "/" + sport + "/" + league + "/teams?limit=400");
+    if (!resp.ok) throw new Error("ESPN teams fetch failed: " + resp.status);
+    const data = await resp.json();
+    const entries = (data.sports && data.sports[0] && data.sports[0].leagues && data.sports[0].leagues[0] && data.sports[0].leagues[0].teams) || [];
+    return entries
+      .map((e) => e.team)
+      .filter(Boolean)
+      .map((t) => ({ id: String(t.id), name: t.displayName || t.shortDisplayName || t.name, abbrev: t.abbreviation || t.shortDisplayName || "" }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function findNextGame(events, teamId) {
+    const now = new Date();
+    const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    let best = null;
+    for (const ev of events || []) {
+      if (!ev || !ev.date) continue;
+      const evDate = new Date(ev.date);
+      if (isNaN(evDate.getTime())) continue;
+      const evDayUTC = Date.UTC(evDate.getUTCFullYear(), evDate.getUTCMonth(), evDate.getUTCDate());
+      if (evDayUTC < todayUTC) continue;
+      const comp = ev.competitions && ev.competitions[0];
+      const competitors = comp && comp.competitors;
+      if (!competitors) continue;
+      const me = competitors.find((c) => c && c.team && String(c.team.id) === String(teamId));
+      const opp = competitors.find((c) => c && c.team && String(c.team.id) !== String(teamId));
+      if (!me || !opp) continue;
+      if (!best || evDayUTC < best.dayUTC) {
+        best = {
+          dayUTC: evDayUTC,
+          homeAway: me.homeAway,
+          opponentAbbrev: (opp.team.abbreviation || opp.team.shortDisplayName || opp.team.displayName || "TBD").toUpperCase()
+        };
+      }
+    }
+    if (!best) return null;
+    const daysLeft = Math.round((best.dayUTC - todayUTC) / 86400000);
+    return { homeAway: best.homeAway, opponentAbbrev: best.opponentAbbrev, daysLeft };
+  }
+
+  async function fetchNextGame(sport, league, teamId) {
+    const resp = await fetch(ESPN_BASE + "/" + sport + "/" + league + "/teams/" + teamId + "/schedule");
+    if (!resp.ok) throw new Error("ESPN schedule fetch failed: " + resp.status);
+    const data = await resp.json();
+    return findNextGame(data.events, teamId);
+  }
+
+  function formatTeamText(nextGame) {
+    if (!nextGame) return "NO UPCOMING GAMES";
+    const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
+    if (nextGame.daysLeft <= 0) return vsOrAt + " " + nextGame.opponentAbbrev + " TODAY!";
+    const unit = nextGame.daysLeft === 1 ? "DAY" : "DAYS";
+    return vsOrAt + " " + nextGame.opponentAbbrev + " IN " + nextGame.daysLeft + " " + unit;
   }
 
   function drawText(ctx, content, obj) {
@@ -781,6 +880,11 @@
       drawText(ctx, obj.content, obj);
     } else if (obj.kind === "countdown") {
       drawText(ctx, formatCountdownText(daysUntil(obj.targetDate), obj.label), obj);
+    } else if (obj.kind === "team") {
+      // Unlike countdown, this needs a live fetch -- previewContent is
+      // resolved asynchronously (see the League/Team select handlers) and
+      // cached here rather than computed inline on every redraw.
+      drawText(ctx, obj.previewContent || "LOADING…", obj);
     } else if (obj.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(obj);
       ctx.imageSmoothingEnabled = false; // keeps sketch lines/dither dots crisp black-white instead of blurring into gray
@@ -802,6 +906,7 @@
   function layerLabel(obj) {
     if (obj.kind === "text") return "Text: " + (obj.content || "(empty)");
     if (obj.kind === "countdown") return "Countdown: " + (obj.label || (daysUntil(obj.targetDate) + "d"));
+    if (obj.kind === "team") return "Team: " + (obj.teamName || "(choose a team)");
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
     if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Normal") + ")";
     if (obj.kind === "stroke") return "Drawing";
@@ -985,7 +1090,7 @@
     return -1;
   }
 
-  const TOOL_TAB_FOR_KIND = { text: "text", icon: "sticker", photo: "photo", countdown: "countdown" };
+  const TOOL_TAB_FOR_KIND = { text: "text", icon: "sticker", photo: "photo", countdown: "countdown", team: "team" };
 
   // Pulls a committed layer back into the staging flow (drag/pinch-resize/
   // slider all just work), switching to that layer's own tool tab so its
@@ -1021,6 +1126,10 @@
       countdownDateInput.value = obj.targetDate;
       countdownLabelInput.value = obj.label || "";
       syncCountdownFontButtons(obj.fontKey);
+    } else if (obj.kind === "team") {
+      teamLeagueSelect.value = obj.sport + "/" + obj.league;
+      populateTeamSelect(obj.sport, obj.league, obj.teamId);
+      syncTeamFontButtons(obj.fontKey);
     }
     return true;
   }
@@ -1571,6 +1680,7 @@
     sticker: document.getElementById("stickerPanel"),
     photo: document.getElementById("photoPanel"),
     countdown: document.getElementById("countdownPanel"),
+    team: document.getElementById("teamPanel"),
     layers: document.getElementById("layersPanel")
   };
 
@@ -1680,6 +1790,124 @@
     redrawOverlay();
   });
 
+  // ================= Team tool =================
+  const teamLeagueSelect = document.getElementById("teamLeagueSelect");
+  const teamNameSelect = document.getElementById("teamNameSelect");
+  const teamStatus = document.getElementById("teamStatus");
+  const teamFontButtons = document.querySelectorAll("#teamFontRow .tool-btn");
+  let selectedTeamFont = teamFontButtons[0].dataset.font;
+  let selectedTeamOutline = teamFontButtons[0].dataset.outline === "true";
+  let selectedTeamFontKey = teamFontButtons[0].dataset.key;
+  let teamsCache = {}; // "sport/league" -> [{id,name,abbrev}], fetched once per league per page load
+  let teamFetchToken = 0; // guards a slow/stale fetch from clobbering a newer selection
+
+  function syncTeamFontButtons(fontKey) {
+    teamFontButtons.forEach((b) => b.classList.toggle("active", b.dataset.key === fontKey));
+  }
+
+  teamFontButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      teamFontButtons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      selectedTeamFont = btn.dataset.font;
+      selectedTeamOutline = btn.dataset.outline === "true";
+      selectedTeamFontKey = btn.dataset.key;
+      if (stagedObject && stagedObject.kind === "team") {
+        stagedObject.font = selectedTeamFont;
+        stagedObject.outline = selectedTeamOutline;
+        stagedObject.fontKey = selectedTeamFontKey;
+        redrawOverlay();
+      }
+    });
+  });
+
+  function fillTeamOptions(teams) {
+    teamNameSelect.textContent = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose a team…";
+    teamNameSelect.appendChild(placeholder);
+    teams.forEach((t) => {
+      const opt = document.createElement("option");
+      opt.value = t.id;
+      opt.textContent = t.name; // textContent, not innerHTML -- team names come from ESPN, treat as untrusted
+      teamNameSelect.appendChild(opt);
+    });
+  }
+
+  async function populateTeamSelect(sport, league, preselectId) {
+    const key = sport + "/" + league;
+    teamNameSelect.disabled = true;
+    teamNameSelect.textContent = "";
+    const loadingOpt = document.createElement("option");
+    loadingOpt.textContent = "Loading teams…";
+    teamNameSelect.appendChild(loadingOpt);
+    teamStatus.textContent = "Loading teams…";
+    try {
+      const teams = teamsCache[key] || (teamsCache[key] = await fetchLeagueTeams(sport, league));
+      fillTeamOptions(teams);
+      if (preselectId) teamNameSelect.value = preselectId;
+      teamNameSelect.disabled = false;
+      teamStatus.textContent = "Pick a team to see when they play next.";
+    } catch (err) {
+      console.error("Couldn't load teams for " + key + ":", err);
+      teamNameSelect.textContent = "";
+      const errOpt = document.createElement("option");
+      errOpt.textContent = "Couldn't load teams";
+      teamNameSelect.appendChild(errOpt);
+      teamStatus.textContent = "Couldn't load the team list — try again in a moment.";
+    }
+  }
+
+  teamLeagueSelect.addEventListener("change", () => {
+    const val = teamLeagueSelect.value;
+    if (!val) {
+      teamNameSelect.disabled = true;
+      teamNameSelect.textContent = "";
+      const opt = document.createElement("option");
+      opt.textContent = "Choose a league first…";
+      teamNameSelect.appendChild(opt);
+      return;
+    }
+    const [sport, league] = val.split("/");
+    populateTeamSelect(sport, league);
+  });
+
+  teamNameSelect.addEventListener("change", async () => {
+    const teamId = teamNameSelect.value;
+    const leagueVal = teamLeagueSelect.value;
+    if (!teamId || !leagueVal) return;
+    const [sport, league] = leagueVal.split("/");
+    const teamName = teamNameSelect.options[teamNameSelect.selectedIndex].textContent;
+
+    if (!stagedObject) {
+      startStaging({ kind: "team", sport, league, teamId, teamName, font: selectedTeamFont, outline: selectedTeamOutline, fontKey: selectedTeamFontKey, previewContent: null });
+    } else if (stagedObject.kind === "team") {
+      stagedObject.sport = sport;
+      stagedObject.league = league;
+      stagedObject.teamId = teamId;
+      stagedObject.teamName = teamName;
+      stagedObject.previewContent = null;
+    }
+    redrawOverlay();
+
+    const token = ++teamFetchToken;
+    teamStatus.textContent = "Loading " + teamName + "'s schedule…";
+    try {
+      const nextGame = await fetchNextGame(sport, league, teamId);
+      if (token !== teamFetchToken || !stagedObject || stagedObject.kind !== "team" || stagedObject.teamId !== teamId) return; // superseded by a newer selection
+      stagedObject.previewContent = formatTeamText(nextGame);
+      teamStatus.textContent = "Updates on its own once a day after you publish — no need to redesign it.";
+      redrawOverlay();
+    } catch (err) {
+      console.error("Couldn't load schedule for team " + teamId + ":", err);
+      if (token !== teamFetchToken || !stagedObject || stagedObject.kind !== "team") return;
+      stagedObject.previewContent = "COULDN'T LOAD SCHEDULE";
+      teamStatus.textContent = "Couldn't load the schedule right now — try picking the team again.";
+      redrawOverlay();
+    }
+  });
+
   const photoInput = document.getElementById("photoInput");
   // Each button both picks the photo style AND triggers the upload picker
   // in one tap, instead of a separate select-a-style-then-upload step.
@@ -1781,6 +2009,11 @@
     countdownFontButtons.forEach((el) => { el.disabled = !countdownCtxEnabled; });
     countdownDateInput.disabled = !countdownCtxEnabled;
     countdownLabelInput.disabled = !countdownCtxEnabled;
+    // Same for a staged Team: league/team pickers and font stay live.
+    const teamCtxEnabled = enabled || (stagedObject && stagedObject.kind === "team");
+    teamFontButtons.forEach((el) => { el.disabled = !teamCtxEnabled; });
+    teamLeagueSelect.disabled = !teamCtxEnabled;
+    teamNameSelect.disabled = !teamCtxEnabled || teamNameSelect.options.length <= 1;
     updateClipartSearchEnabled();
   }
 
@@ -1969,6 +2202,10 @@
       endStaging();
       return;
     }
+    if (stagedObject.kind === "team" && !stagedObject.teamId) {
+      endStaging();
+      return;
+    }
     pushUndoState();
     const committed = Object.assign({}, stagedObject);
     // Sketch photos carry large working buffers (suppressed/sortedValues)
@@ -2024,12 +2261,18 @@
     return out;
   }
 
-  // Same idea as getCompositeCanvas, but leaves out any "countdown" layer
-  // -- this is what the daily Cloud Function redraws the current day count
+  // "Dynamic" layers are the ones the daily Cloud Function redraws on its
+  // own (Countdown, Team) -- at most one is treated as active per device
+  // for now. If more than one somehow exists, only the first is used for
+  // auto-updates; the rest render fine today but stay frozen after that.
+  const DYNAMIC_KINDS = new Set(["countdown", "team"]);
+
+  // Same idea as getCompositeCanvas, but leaves out any dynamic layer --
+  // this is what the daily Cloud Function redraws the current content
   // onto, so it always starts from everything else you drew/placed rather
-  // than compounding on top of yesterday's number. Always non-inverted
-  // (see packTo1Bit below for why): inversion is applied once, at the very
-  // end, after the day's countdown text is drawn on top server-side too.
+  // than compounding on top of yesterday's text. Always non-inverted (see
+  // packTo1Bit below for why): inversion is applied once, at the very end,
+  // after the day's dynamic text is drawn on top server-side too.
   function getBaseCanvas() {
     const out = document.createElement("canvas");
     out.width = baseCanvas.width;
@@ -2037,7 +2280,7 @@
     const ctx = out.getContext("2d");
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, out.width, out.height);
-    layers.forEach((obj) => { if (obj.kind !== "countdown") drawStampObject(ctx, obj); });
+    layers.forEach((obj) => { if (!DYNAMIC_KINDS.has(obj.kind)) drawStampObject(ctx, obj); });
     return out;
   }
 
@@ -2111,42 +2354,38 @@
         }
       }
 
-      // A countdown layer needs two more things saved so the daily Cloud
-      // Function can redraw it: the rest of the design flattened WITHOUT
-      // the countdown text (so it has a clean surface to redraw the new
-      // day count onto each day), and the countdown's own settings. If
-      // there's no countdown layer, clean up any of those left over from a
-      // previous publish so the daily job has nothing stale to find.
-      const countdownLayer = layers.find((l) => l.kind === "countdown");
+      // A dynamic layer (Countdown or Team) needs two more things saved so
+      // the daily Cloud Function can redraw it: the rest of the design
+      // flattened WITHOUT that layer's text (so it has a clean surface to
+      // redraw fresh content onto each day), and the layer's own settings.
+      // If there's no dynamic layer, clean up any of those left over from
+      // a previous publish so the daily job has nothing stale to find.
+      const dynamicLayer = layers.find((l) => DYNAMIC_KINDS.has(l.kind));
       const baseRef = ref(storage, "designs/" + deviceId + "-base.png");
-      const countdownRef = ref(storage, "designs/" + deviceId + "-countdown.json");
-      if (countdownLayer) {
+      const dynamicRef = ref(storage, "designs/" + deviceId + "-dynamic.json");
+      if (dynamicLayer) {
         try {
           const baseCanvasFlat = getBaseCanvas();
           const baseBlob = await new Promise((resolve) => baseCanvasFlat.toBlob(resolve, "image/png"));
           if (baseBlob) await uploadBytes(baseRef, baseBlob);
-          const countdownMeta = {
-            targetDate: countdownLayer.targetDate,
-            label: countdownLayer.label || "",
-            x: countdownLayer.x,
-            y: countdownLayer.y,
-            size: countdownLayer.size,
-            fontKey: countdownLayer.fontKey,
-            outline: !!countdownLayer.outline,
-            inverted
-          };
-          const metaBlob = new Blob([JSON.stringify(countdownMeta)], { type: "application/json" });
-          await uploadBytes(countdownRef, metaBlob);
-        } catch (cdErr) {
+
+          const shared = { x: dynamicLayer.x, y: dynamicLayer.y, size: dynamicLayer.size, fontKey: dynamicLayer.fontKey, outline: !!dynamicLayer.outline, inverted };
+          const dynamicMeta = dynamicLayer.kind === "countdown"
+            ? Object.assign({ type: "countdown", targetDate: dynamicLayer.targetDate, label: dynamicLayer.label || "" }, shared)
+            : Object.assign({ type: "team", sport: dynamicLayer.sport, league: dynamicLayer.league, teamId: dynamicLayer.teamId, teamName: dynamicLayer.teamName }, shared);
+
+          const metaBlob = new Blob([JSON.stringify(dynamicMeta)], { type: "application/json" });
+          await uploadBytes(dynamicRef, metaBlob);
+        } catch (dynErr) {
           // The board still got today's design either way (see above) --
           // only the DAILY auto-update wouldn't work, so this shouldn't
           // fail the whole publish, just warn about it.
-          console.error("Published, but the countdown won't auto-update daily:", cdErr);
-          setStatus("Published — but the daily countdown auto-update couldn't be saved. It'll still show today's count.", "error");
+          console.error("Published, but this won't auto-update daily:", dynErr);
+          setStatus("Published — but the daily auto-update couldn't be saved. It'll still show today's content.", "error");
         }
       } else {
         try { await deleteObject(baseRef); } catch (e) { /* nothing to clean up */ }
-        try { await deleteObject(countdownRef); } catch (e) { /* nothing to clean up */ }
+        try { await deleteObject(dynamicRef); } catch (e) { /* nothing to clean up */ }
       }
 
       if (!statusMsg.classList.contains("error")) {
