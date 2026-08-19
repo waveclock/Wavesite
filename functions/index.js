@@ -3,12 +3,17 @@
 // onto its saved base design and overwrite designs/{id}.bin + .png -- the
 // same two files the device already reads unconditionally, so no firmware
 // change is needed for this to show up.
+//
+// Also exports espnProxy, an HTTP function design-v2's Team tool calls
+// from the browser to get a live schedule preview before publishing --
+// see the comment above it for why that can't just call ESPN directly.
 "use strict";
 
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onRequest } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
-const { renderDynamicDesign } = require("./lib/dynamic");
+const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl } = require("./lib/dynamic");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -66,11 +71,6 @@ async function processDevice(bucket, deviceId, now, fetchImpl) {
   return "updated";
 }
 
-// Exposed for the mocked-bucket integration test in test/orchestration.test.js
-// -- harmless extra export, Firebase only picks up trigger-shaped exports
-// when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists };
-
 exports.regenerateCountdownDesigns = onSchedule(
   { schedule: "0 9 * * *", timeZone: "Etc/UTC", retryCount: 1 },
   async () => {
@@ -101,3 +101,76 @@ exports.regenerateCountdownDesigns = onSchedule(
     logger.info("Done. updated=" + updated + " expired=" + expired + " failed=" + failed);
   }
 );
+
+// ================= ESPN proxy =================
+// design-v2's Team tool needs a live schedule fetch to show an accurate
+// preview BEFORE the customer publishes, from the customer's own browser.
+// Calling ESPN's site.api.espn.com directly from there fails: the browser
+// blocks the response as a cross-origin request ESPN doesn't grant CORS
+// permission for (confirmed live -- the same URL loads fine when opened
+// directly in a browser tab, i.e. NOT as a fetch(), which isn't subject
+// to CORS at all -- only script-initiated cross-origin requests are).
+// This proxy exists purely to sidestep that: it makes the SAME request
+// server-to-server (never subject to CORS), and returns the result with
+// permissive CORS headers of its own so the browser will accept it.
+//
+// The daily regeneration job above does NOT go through this -- it already
+// calls ESPN directly from lib/dynamic.js's fetchNextGame, and a
+// server-to-server call was never subject to CORS in the first place.
+//
+// Only forwards to a small whitelist of known sport/league pairs (the
+// same ones design-v2's League dropdown offers) rather than proxying any
+// URL a caller asks for, so this can't be used as an open relay to
+// arbitrary sites.
+const ALLOWED_LEAGUES = new Set([
+  "football/nfl",
+  "football/college-football",
+  "basketball/nba",
+  "baseball/mlb",
+  "hockey/nhl"
+]);
+
+// Plain (req, res) handler, kept separate from the onRequest() wrapper
+// below so it can be unit-tested with fake req/res objects without
+// spinning up the Functions Framework.
+async function espnProxyHandler(req, res) {
+  const sport = req.query.sport;
+  const league = req.query.league;
+  const kind = req.query.kind;
+
+  if (typeof sport !== "string" || typeof league !== "string" || !ALLOWED_LEAGUES.has(sport + "/" + league)) {
+    res.status(400).json({ error: "Unsupported or missing sport/league" });
+    return;
+  }
+
+  let url;
+  if (kind === "teams") {
+    url = espnTeamsUrl(sport, league);
+  } else if (kind === "schedule") {
+    const teamId = req.query.teamId;
+    if (typeof teamId !== "string" || !teamId) {
+      res.status(400).json({ error: "Missing teamId" });
+      return;
+    }
+    url = espnScheduleUrl(sport, league, teamId);
+  } else {
+    res.status(400).json({ error: "kind must be \"teams\" or \"schedule\"" });
+    return;
+  }
+
+  try {
+    const espnResp = await fetch(url);
+    const data = await espnResp.json();
+    res.status(espnResp.status).json(data);
+  } catch (err) {
+    logger.error("ESPN proxy request failed for " + url + ":", err);
+    res.status(502).json({ error: "Couldn't reach ESPN" });
+  }
+}
+
+exports.espnProxy = onRequest({ cors: true, region: "us-central1" }, espnProxyHandler);
+
+// Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
+// -- harmless extra export, Firebase only picks up trigger-shaped exports
+// when deploying.
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, espnProxyHandler, ALLOWED_LEAGUES };

@@ -62,10 +62,34 @@ saved lat/lon) and per-device run times instead of one shared daily run.
 engineered by developers, and it could change or be blocked without
 notice. The response shape used here (`lib/dynamic.js`'s `findNextGame`/
 `fetchNextGame`) was built from well-established, widely-documented
-community knowledge but was **never verified against a live response**
-while building this, since network access to ESPN was blocked in the dev
-sandbox. Worth a real smoke-test against a live team schedule after this
-is deployed, before fully trusting it.
+community knowledge and has since been confirmed reachable live (see the
+CORS note below), though a full live schedule response hasn't been
+diffed field-by-field against what was assumed while building this.
+
+**ESPN blocks direct browser calls (CORS) -- confirmed live, and fixed**:
+design-v2's Team tool originally called `site.api.espn.com` straight from
+the browser for its live preview. That failed in production ("Couldn't
+load teams") -- confirmed by loading the same URL directly in a browser
+tab (works, returns real JSON) versus the page's own `fetch()` call to it
+(blocked), which is the signature of a CORS rejection: ESPN's response
+doesn't include headers granting waveclock.net's JavaScript permission to
+read it, even though the URL itself is publicly reachable.
+
+The fix is `espnProxy`, an `onRequest` HTTP function in this same
+`functions/` deployment: design-v2 now calls `espnProxy` (same-origin as
+far as CORS logic goes, since the function itself sends permissive CORS
+headers back), which makes the actual ESPN request server-to-server --
+and server-to-server calls were never subject to CORS in the first place,
+browsers only enforce it for script-initiated requests. The **daily
+regeneration job above is unaffected** -- it already called ESPN directly
+from server-side code, so it was never subject to this bug.
+
+This means the Team tool's live preview (picking a league/team and seeing
+"who do they play next") **cannot work at all until this Cloud Function
+is deployed** -- unlike Countdown, which works standalone and only needs
+the deploy for the *daily* auto-update. `espnProxy` deploys as part of
+the same `firebase deploy --only functions` as everything else here, no
+extra step.
 
 ## Deploying (not done automatically -- this needs a human with project access)
 
@@ -86,7 +110,8 @@ npm test
 ```
 
 Runs `test/dynamic.test.js` (pure rendering/packing/date-math/next-game
-logic, including synthetic ESPN-shaped responses) and
-`test/orchestration.test.js` (the per-device list/download/render/upload
-flow, against an in-memory fake Storage bucket -- never touches anything
-real, ESPN included).
+logic, including synthetic ESPN-shaped responses), `test/orchestration.test.js`
+(the per-device list/download/render/upload flow, against an in-memory
+fake Storage bucket), and `test/espnProxy.test.js` (the proxy's request
+validation and ESPN-forwarding logic) -- none of these touch anything
+real, ESPN included.
