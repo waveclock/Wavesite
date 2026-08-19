@@ -86,7 +86,7 @@ async function test(name, fn) {
     assert.deepStrictEqual(res.body, { sports: [{ leagues: [{ teams: [] }] }] });
   });
 
-  await test("teams: does NOT send a custom User-Agent -- confirmed live: site.api.espn.com started blocking requests right when one was added, while ESPN's logo CDN (same header) kept working", async () => {
+  await test("teams: does NOT send a custom User-Agent -- this endpoint is currently working live without one, left alone while fixing the still-broken RSS fetch", async () => {
     const req = fakeReq({ sport: "football", league: "nfl", kind: "teams" });
     const res = fakeRes();
     let capturedOptions = null;

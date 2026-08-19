@@ -206,10 +206,10 @@ async function espnProxyHandler(req, res) {
   }
 
   try {
-    // Deliberately NOT sending OUTBOUND_FETCH_HEADERS here -- see the
-    // comment above fetchNextGame in lib/dynamic.js for why: this
-    // endpoint started failing right when that header was added, while
-    // logo requests (same headers, same IP) kept working the whole time.
+    // Deliberately NOT sending OUTBOUND_FETCH_HEADERS here -- this
+    // endpoint is currently working live without it (see the README
+    // timeline), so leaving it alone rather than risking a
+    // currently-working path while fixing the still-broken RSS fetch.
     const espnResp = await fetch(url);
     const data = await espnResp.json();
     res.status(espnResp.status).json(data);
