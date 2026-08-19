@@ -796,17 +796,24 @@
     return lbl ? (daysLeft + " " + unit + " TO " + lbl) : (daysLeft + " " + unit);
   }
 
-  // ================= Team schedule (ESPN) =================
+  // ================= Team schedule (ESPN, via espnProxy) =================
   // Uses ESPN's unofficial "site API" -- no key, same URL shape across
   // every league. Not officially documented/supported; see
-  // functions/lib/dynamic.js for the full shape notes (this couldn't be
-  // verified against a LIVE response while building this, since network
-  // access to ESPN was blocked in the dev sandbox -- worth a real
-  // smoke-test once this is live).
-  const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
+  // functions/lib/dynamic.js for the full shape notes.
+  //
+  // Confirmed live: ESPN does NOT send CORS headers permitting a browser
+  // to fetch() this directly from waveclock.net (the same URL loads fine
+  // when opened as a plain page, which isn't subject to CORS -- only a
+  // script-initiated cross-origin request is). So this goes through
+  // espnProxy, a small Cloud Function that makes the same request
+  // server-to-server (never subject to CORS) and hands the result back
+  // with its own permissive CORS headers. See functions/index.js for that
+  // side. This requires the Cloud Function to actually be deployed --
+  // until then, the Team tool can't load a team list or schedule at all.
+  const ESPN_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/espnProxy";
 
   async function fetchLeagueTeams(sport, league) {
-    const resp = await fetch(ESPN_BASE + "/" + sport + "/" + league + "/teams?limit=400");
+    const resp = await fetch(ESPN_PROXY_BASE + "?kind=teams&sport=" + encodeURIComponent(sport) + "&league=" + encodeURIComponent(league));
     if (!resp.ok) throw new Error("ESPN teams fetch failed: " + resp.status);
     const data = await resp.json();
     const entries = (data.sports && data.sports[0] && data.sports[0].leagues && data.sports[0].leagues[0] && data.sports[0].leagues[0].teams) || [];
@@ -847,7 +854,7 @@
   }
 
   async function fetchNextGame(sport, league, teamId) {
-    const resp = await fetch(ESPN_BASE + "/" + sport + "/" + league + "/teams/" + teamId + "/schedule");
+    const resp = await fetch(ESPN_PROXY_BASE + "?kind=schedule&sport=" + encodeURIComponent(sport) + "&league=" + encodeURIComponent(league) + "&teamId=" + encodeURIComponent(teamId));
     if (!resp.ok) throw new Error("ESPN schedule fetch failed: " + resp.status);
     const data = await resp.json();
     return findNextGame(data.events, teamId);
