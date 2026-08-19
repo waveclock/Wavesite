@@ -197,16 +197,14 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       /ESPN schedule fetch failed/
     );
   });
-  await test("fetchNextGame sends a browser-like User-Agent (ESPN has been seen returning an HTML block page without one)", async () => {
+  await test("fetchNextGame does NOT send a custom User-Agent -- confirmed live: site.api.espn.com started blocking requests right when one was added, while ESPN's logo CDN (same header) kept working", async () => {
     let capturedOptions = null;
     const fetchImpl = async (url, options) => {
       capturedOptions = options;
       return { ok: true, status: 200, async json() { return { events: [] }; } };
     };
     await fetchNextGame("football", "nfl", "21", new Date(), fetchImpl);
-    assert.ok(capturedOptions && capturedOptions.headers, "expected a headers object to be sent");
-    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
-    assert.ok(/Mozilla/.test(OUTBOUND_FETCH_HEADERS["User-Agent"]));
+    assert.strictEqual(capturedOptions, undefined);
   });
 
   console.log("packTo1Bit");
