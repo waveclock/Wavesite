@@ -23,6 +23,11 @@ const CANVAS_HEIGHT = 272;
 const BIT_THRESHOLD = 180;
 const LOGO_SIZE = 175;
 const LOGO_MARGIN = 28;
+// Both full-screen cards (Game Day, News) use a solid black title banner
+// with white block-letter text instead of a drawn border -- the board's
+// own physical bezel already frames the display, so a second drawn
+// border was redundant.
+const BANNER_HEIGHT = 48;
 
 // fontKey (stored in designs/{id}-dynamic.json, set by the "Serif" /
 // "Block" / "Pixel" buttons in design-v2's Countdown tool) -> the family
@@ -315,29 +320,24 @@ function truncateToWidth(ctx, text, maxWidth) {
   return t + "…";
 }
 
-// Full-screen layout: border, "{LOCATION} · NEWS" header (or a bare
-// "NEWS" if the customer used a custom feed URL with no location text),
-// up to 3 bulleted headlines truncated to fit one line each, and a small
-// "UPDATED {DATE}" footer -- mirrors drawGameDayCard's structure.
+// Full-screen layout: solid black title banner ("{LOCATION} NEWS" in
+// white block letters, or a bare "NEWS" if the customer used a custom
+// feed URL with no location text -- no drawn border, the board's own
+// bezel frames it), up to 3 bulleted headlines truncated to fit one line
+// each, and a small "UPDATED {DATE}" footer -- mirrors drawGameDayCard.
 function drawNewsCard(ctx, card) {
   ctx.fillStyle = "#000";
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = 4;
-  ctx.strokeRect(10, 10, CANVAS_WIDTH - 20, CANVAS_HEIGHT - 20);
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(10, 52);
-  ctx.lineTo(CANVAS_WIDTH - 10, 52);
-  ctx.stroke();
-
+  ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
+  ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
-  ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
-  const kicker = card.headerLabel ? card.headerLabel.toUpperCase() + "   ·   N E W S" : "N E W S";
-  ctx.fillText(kicker, CANVAS_WIDTH / 2, 36);
+  ctx.font = "22px \"" + FONT_FAMILY.block + "\"";
+  const kicker = card.headerLabel ? card.headerLabel.toUpperCase() + " NEWS" : "NEWS";
+  ctx.fillText(kicker, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + 8);
 
+  ctx.fillStyle = "#000";
   const leftX = 34;
   const maxTextWidth = CANVAS_WIDTH - 34 - 34;
-  let y = 88;
+  let y = BANNER_HEIGHT + 40;
   const lineGap = 54;
   ctx.textAlign = "left";
   card.headlines.forEach((headline) => {
@@ -352,7 +352,7 @@ function drawNewsCard(ctx, card) {
   if (card.updatedLabel) {
     ctx.textAlign = "right";
     ctx.font = "italic 16px \"" + FONT_FAMILY.serif + "\"";
-    ctx.fillText(card.updatedLabel, CANVAS_WIDTH - 24, CANVAS_HEIGHT - 20);
+    ctx.fillText(card.updatedLabel, CANVAS_WIDTH - 24, CANVAS_HEIGHT - 14);
   }
 }
 
@@ -516,41 +516,36 @@ async function fetchDitheredLogo(url, size, fetchImpl) {
 }
 
 // ================= Game Day card =================
-// Full-screen layout (border, header, optional logos either side,
-// matchup headline, days-left, optional date/venue) -- NOT a positioned
-// stamp like drawDynamicText. meta.x/y/size/fontKey/outline don't apply
-// here; the card always fills the whole canvas at fixed positions,
-// matching the approved mockup. Missing optional fields (no logo found,
-// unparseable date, no venue in the response) are simply skipped rather
-// than leaving a gap or showing "undefined" -- later lines shift up to
-// fill the space.
+// Full-screen layout (solid black title banner, optional logos either
+// side, matchup headline, days-left, optional date/venue) -- NOT a
+// positioned stamp like drawDynamicText. meta.x/y/size/fontKey/outline
+// don't apply here; the card always fills the whole canvas at fixed
+// positions. No drawn border -- the board's own bezel already frames the
+// display, so the banner alone marks the top instead. Missing optional
+// fields (no logo found, unparseable date, no venue in the response) are
+// simply skipped rather than leaving a gap or showing "undefined" --
+// later lines shift up to fill the space.
 function drawGameDayCard(ctx, card) {
   ctx.fillStyle = "#000";
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = 4;
-  ctx.strokeRect(10, 10, CANVAS_WIDTH - 20, CANVAS_HEIGHT - 20);
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(10, 52);
-  ctx.lineTo(CANVAS_WIDTH - 10, 52);
-  ctx.stroke();
-
+  ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
+  ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
-  ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
-  ctx.fillText("N E X T   G A M E", CANVAS_WIDTH / 2, 36);
+  ctx.font = "24px \"" + FONT_FAMILY.block + "\"";
+  ctx.fillText("NEXT GAME", CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + 8);
 
-  const bodyMidY = 52 + (CANVAS_HEIGHT - 20 - 52) / 2;
+  ctx.fillStyle = "#000";
+  const bodyMidY = BANNER_HEIGHT + (CANVAS_HEIGHT - BANNER_HEIGHT) / 2;
   if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
   if (card.oppLogo) ctx.drawImage(card.oppLogo, CANVAS_WIDTH - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
 
   ctx.font = "42px \"" + FONT_FAMILY.block + "\"";
-  ctx.fillText(card.headline, CANVAS_WIDTH / 2, 116);
+  ctx.fillText(card.headline, CANVAS_WIDTH / 2, BANNER_HEIGHT + 60);
 
   const lines = [{ text: card.daysLabel, font: "bold 24px \"" + FONT_FAMILY.serif + "\"", gap: 38 }];
   if (card.dateTimeLabel) lines.push({ text: card.dateTimeLabel, font: "italic 23px \"" + FONT_FAMILY.serif + "\"", gap: 32 });
   if (card.venue) lines.push({ text: card.venue, font: "bold 20px \"" + FONT_FAMILY.serif + "\"", gap: 28 });
 
-  let y = 152;
+  let y = BANNER_HEIGHT + 96;
   for (const line of lines) {
     ctx.font = line.font;
     ctx.fillText(line.text, CANVAS_WIDTH / 2, y);

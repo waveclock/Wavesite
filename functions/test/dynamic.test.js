@@ -414,7 +414,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   });
 
   console.log("drawGameDayCard");
-  await test("draws a border, headline, and days label onto an otherwise-blank canvas", () => {
+  await test("draws a title banner, headline, and days label onto an otherwise-blank canvas", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");
     drawGameDayCard(ctx, { headline: "ME VS OPP", daysLabel: "IN 3 DAYS", dateTimeLabel: null, venue: null, myLogo: null, oppLogo: null });
@@ -551,7 +551,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const now = new Date(Date.UTC(2026, 7, 19, 12, 0, 0)); // 2026-08-19
     assert.strictEqual(formatShortDate(now), "AUG 19");
   });
-  await test("drawNewsCard draws a border, header, and headlines onto an otherwise-blank canvas", () => {
+  await test("drawNewsCard draws a title banner, header, and headlines onto an otherwise-blank canvas", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");
     drawNewsCard(ctx, { headerLabel: "OCEAN CITY, NJ", headlines: ["Headline one", "Headline two"], updatedLabel: "UPDATED AUG 19" });
