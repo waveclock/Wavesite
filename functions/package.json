@@ -7,7 +7,7 @@
   },
   "main": "index.js",
   "scripts": {
-    "test": "node test/dynamic.test.js && node test/orchestration.test.js && node test/espnProxy.test.js"
+    "test": "node test/dynamic.test.js && node test/orchestration.test.js && node test/espnProxy.test.js && node test/newsProxy.test.js"
   },
   "dependencies": {
     "canvas": "^2.11.2",
