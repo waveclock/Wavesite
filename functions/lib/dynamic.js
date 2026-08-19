@@ -111,6 +111,25 @@ function espnTeamsUrl(sport, league) {
   return ESPN_BASE + "/" + sport + "/" + league + "/teams?limit=400";
 }
 
+// Same 5 sport/league pairs design-v2's League dropdown offers (and
+// ALLOWED_LEAGUES in index.js whitelists) -- used only for the Game Day
+// card's banner title ("COLLEGE FOOTBALL GAME DAY" reads as a real
+// section header; a bare "NEXT GAME" didn't feel like a hero title). An
+// unmapped pair (shouldn't happen, since both sides share this list) just
+// falls back to a bare "GAME DAY" rather than showing nothing.
+const LEAGUE_DISPLAY_NAME = {
+  "football/nfl": "NFL",
+  "football/college-football": "COLLEGE FOOTBALL",
+  "basketball/nba": "NBA",
+  "baseball/mlb": "MLB",
+  "hockey/nhl": "NHL"
+};
+
+function gameDayBannerTitle(sport, league) {
+  const name = LEAGUE_DISPLAY_NAME[sport + "/" + league];
+  return name ? name + " GAME DAY" : "GAME DAY";
+}
+
 // Unverified field names (see comment above) -- tries the shapes seen in
 // ESPN's teams-list responses (a "logos" array of {href}) and a simpler
 // possible "logo" string, falls back to null (no logo drawn) rather than
@@ -308,6 +327,20 @@ function formatNewsFallbackText(meta) {
   return label ? label + ": NO HEADLINES FOUND" : "NO HEADLINES FOUND";
 }
 
+// Steps the font size down (never truncating -- a banner title reads
+// worse cut off than shrunk) until `text` fits maxWidth at family/weight,
+// stopping at minSize even if it still doesn't quite fit. Used for both
+// cards' banner titles, which vary a lot in length ("NFL GAME DAY" vs.
+// "COLLEGE FOOTBALL GAME DAY", or a customer's own free-text location).
+function fitBannerFontSize(ctx, text, maxWidth, family, maxSize, minSize) {
+  for (let size = maxSize; size > minSize; size--) {
+    ctx.font = size + "px \"" + family + "\"";
+    if (ctx.measureText(text).width <= maxWidth) return size;
+  }
+  ctx.font = minSize + "px \"" + family + "\"";
+  return minSize;
+}
+
 // Shrinks `text` (appending an ellipsis) until it fits maxWidth at ctx's
 // current font -- headlines are free text of unbounded length, unlike
 // everything else drawn on this display so far.
@@ -330,9 +363,9 @@ function drawNewsCard(ctx, card) {
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
-  ctx.font = "22px \"" + FONT_FAMILY.block + "\"";
   const kicker = card.headerLabel ? card.headerLabel.toUpperCase() + " NEWS" : "NEWS";
-  ctx.fillText(kicker, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + 8);
+  const kickerSize = fitBannerFontSize(ctx, kicker, CANVAS_WIDTH - 40, FONT_FAMILY.block, 22, 14);
+  ctx.fillText(kicker, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(kickerSize * 0.35));
 
   ctx.fillStyle = "#000";
   const leftX = 34;
@@ -530,8 +563,9 @@ function drawGameDayCard(ctx, card) {
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
-  ctx.font = "24px \"" + FONT_FAMILY.block + "\"";
-  ctx.fillText("NEXT GAME", CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + 8);
+  const bannerTitle = card.bannerTitle || "GAME DAY";
+  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 40, FONT_FAMILY.block, 24, 14);
+  ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
 
   ctx.fillStyle = "#000";
   const bodyMidY = BANNER_HEIGHT + (CANVAS_HEIGHT - BANNER_HEIGHT) / 2;
@@ -618,6 +652,7 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     const headline = (myAbbrev || "") + " " + vsOrAt + " " + rawNextGame.opponentAbbrev;
     const daysLabel = daysLeft <= 0 ? "TODAY!" : "IN " + daysLeft + " " + (daysLeft === 1 ? "DAY" : "DAYS");
     const card = {
+      bannerTitle: gameDayBannerTitle(meta.sport, meta.league),
       headline,
       daysLabel,
       dateTimeLabel: formatGameDateTime(rawNextGame.gameDateISO),
@@ -673,6 +708,7 @@ module.exports = {
   fetchNextGame,
   espnScheduleUrl,
   espnTeamsUrl,
+  gameDayBannerTitle,
   extractLogoUrl,
   extractVenueName,
   packTo1Bit,
@@ -683,6 +719,7 @@ module.exports = {
   ditherAtkinson,
   ditheredLogoCanvas,
   fetchDitheredLogo,
+  fitBannerFontSize,
   newsFeedUrl,
   parseRssHeadlines,
   fetchHeadlines,

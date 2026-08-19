@@ -11,6 +11,8 @@ const {
   fetchNextGame,
   extractLogoUrl,
   extractVenueName,
+  gameDayBannerTitle,
+  fitBannerFontSize,
   packTo1Bit,
   invertedCopy,
   drawGameDayCard,
@@ -413,17 +415,58 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(out.width, 60);
   });
 
+  console.log("gameDayBannerTitle / fitBannerFontSize");
+  await test("builds a '{LEAGUE} GAME DAY' banner title for each mapped league", () => {
+    assert.strictEqual(gameDayBannerTitle("football", "nfl"), "NFL GAME DAY");
+    assert.strictEqual(gameDayBannerTitle("football", "college-football"), "COLLEGE FOOTBALL GAME DAY");
+    assert.strictEqual(gameDayBannerTitle("basketball", "nba"), "NBA GAME DAY");
+    assert.strictEqual(gameDayBannerTitle("baseball", "mlb"), "MLB GAME DAY");
+    assert.strictEqual(gameDayBannerTitle("hockey", "nhl"), "NHL GAME DAY");
+  });
+  await test("falls back to a bare 'GAME DAY' for an unmapped sport/league", () => {
+    assert.strictEqual(gameDayBannerTitle("football", "xfl"), "GAME DAY");
+  });
+  await test("fitBannerFontSize returns the max size when the text already fits", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    const size = fitBannerFontSize(ctx, "NFL GAME DAY", 700, "sans-serif", 24, 14);
+    assert.strictEqual(size, 24);
+  });
+  await test("fitBannerFontSize shrinks a long title until it fits, never truncating it", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    const text = "COLLEGE FOOTBALL GAME DAY";
+    const size = fitBannerFontSize(ctx, text, 300, "sans-serif", 24, 14);
+    ctx.font = size + "px sans-serif";
+    assert.ok(size < 24);
+    assert.ok(size >= 14);
+    assert.ok(ctx.measureText(text).width <= 300);
+  });
+  await test("fitBannerFontSize stops at minSize even if the text still doesn't fit", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    const size = fitBannerFontSize(ctx, "AN IMPOSSIBLY LONG BANNER TITLE THAT NEVER FITS", 10, "sans-serif", 24, 14);
+    assert.strictEqual(size, 14);
+  });
+
   console.log("drawGameDayCard");
   await test("draws a title banner, headline, and days label onto an otherwise-blank canvas", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");
-    drawGameDayCard(ctx, { headline: "ME VS OPP", daysLabel: "IN 3 DAYS", dateTimeLabel: null, venue: null, myLogo: null, oppLogo: null });
+    drawGameDayCard(ctx, { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLabel: "IN 3 DAYS", dateTimeLabel: null, venue: null, myLogo: null, oppLogo: null });
     const d = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
     let sawInk = false;
     for (let i = 0; i < d.length; i += 4) {
       if (d[i] < 250) { sawInk = true; break; }
     }
-    assert.ok(sawInk, "expected the border/headline/days-label to leave some non-white pixels");
+    assert.ok(sawInk, "expected the banner/headline/days-label to leave some non-white pixels");
+  });
+  await test("falls back to a bare 'GAME DAY' banner when bannerTitle is missing", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawGameDayCard(ctx, { headline: "ME VS OPP", daysLabel: "IN 3 DAYS", dateTimeLabel: null, venue: null, myLogo: null, oppLogo: null });
+    });
   });
   await test("draws provided logo canvases without throwing, and skips date/venue lines cleanly when absent", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -431,6 +474,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const logo = ditheredLogoCanvas(whiteCanvas(20, 20), LOGO_SIZE);
     assert.doesNotThrow(() => {
       drawGameDayCard(ctx, {
+        bannerTitle: "COLLEGE FOOTBALL GAME DAY",
         headline: "ME VS OPP", daysLabel: "TODAY!",
         dateTimeLabel: "SAT OCT 24 · 1:30 PM ET", venue: "Beaver Stadium",
         myLogo: logo, oppLogo: logo
@@ -467,6 +511,15 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(result.hasMyLogo, true);
     assert.strictEqual(result.hasOppLogo, true);
     assert.strictEqual(result.nextGame.venue, "Lincoln Financial Field");
+    assert.ok(result.binBuffer.some((b) => b !== 0));
+  });
+  await test("renders the long 'COLLEGE FOOTBALL GAME DAY' banner title without throwing", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date(Date.UTC(2026, 8, 1));
+    const schedule = espnSchedule("213", [{ date: "2026-09-08T17:00Z", homeAway: "home", opponentAbbrev: "OSU" }]);
+    const meta = { type: "team", sport: "football", league: "college-football", teamId: "213", x: 396, y: 136, size: 48, fontKey: "block", outline: true, inverted: false };
+    const result = await renderDynamicDesign(base, meta, now, fakeFetchJson(schedule));
+    assert.ok(result);
     assert.ok(result.binBuffer.some((b) => b !== 0));
   });
   await test("hasMyLogo/hasOppLogo are false (card still renders) when logos are missing from the schedule", async () => {
