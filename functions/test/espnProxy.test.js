@@ -8,6 +8,7 @@
 
 const assert = require("assert");
 const { espnProxyHandler, ALLOWED_LEAGUES } = require("../index.js")._internal;
+const { OUTBOUND_FETCH_HEADERS } = require("../lib/dynamic");
 
 function fakeReq(query) {
   return { query };
@@ -83,6 +84,23 @@ async function test(name, fn) {
     assert.ok(requestedUrl.includes("/football/nfl/teams"), "expected the NFL teams endpoint, got: " + requestedUrl);
     assert.strictEqual(res.statusCode, 200);
     assert.deepStrictEqual(res.body, { sports: [{ leagues: [{ teams: [] }] }] });
+  });
+
+  await test("teams: sends a browser-like User-Agent (ESPN has been seen returning an HTML block page without one)", async () => {
+    const req = fakeReq({ sport: "football", league: "nfl", kind: "teams" });
+    const res = fakeRes();
+    let capturedOptions = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options) => {
+      capturedOptions = options;
+      return { status: 200, async json() { return { sports: [] }; } };
+    };
+    try {
+      await espnProxyHandler(req, res);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
   });
 
   await test("schedule: requires a teamId", async () => {
@@ -180,6 +198,22 @@ async function test(name, fn) {
     assert.strictEqual(res.statusCode, 200);
     assert.strictEqual(res.headers["Content-Type"], "image/png");
     assert.deepStrictEqual(Array.from(res.body), [1, 2, 3, 4]);
+  });
+  await test("logo: sends a browser-like User-Agent too", async () => {
+    const req = fakeReq({ kind: "logo", url: "https://a.espncdn.com/i/teamlogos/nfl/500/phi.png" });
+    const res = fakeRes();
+    let capturedOptions = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url, options) => {
+      capturedOptions = options;
+      return { ok: true, status: 200, headers: { get: () => "image/png" }, async arrayBuffer() { return new ArrayBuffer(0); } };
+    };
+    try {
+      await espnProxyHandler(req, res);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
   });
   await test("logo: rejects a non-ESPN-CDN URL (not an open image relay)", async () => {
     const req = fakeReq({ kind: "logo", url: "https://evil.example.com/tracker.png" });
