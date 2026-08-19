@@ -18,33 +18,11 @@
 const { createCanvas, loadImage, registerFont } = require("canvas");
 const path = require("path");
 
-// A missing/generic User-Agent on a server-to-server fetch reads as bot/
-// script traffic to some APIs and CDNs -- confirmed live: ESPN's
-// unofficial site API started returning an HTML block page ("Couldn't
-// reach ESPN" in the proxy, with the underlying error logged as a
-// SyntaxError trying to parse "<HTML><HEA..." as JSON) instead of its
-// normal JSON response, right after this stopped being a hand-tested
-// direct browser hit and became a server-to-server fetch with no
-// browser-like headers. A realistic User-Agent plus an explicit Accept
-// header is a common, low-risk way to stop looking like a script --
-// applied to every outbound fetch this file makes (ESPN's schedule/teams
-// API, ESPN's logo CDN, and the News feed fetch), since any of them could
-// hit the same kind of block.
-const OUTBOUND_FETCH_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Accept": "application/json, text/xml, application/xml, image/*, */*"
-};
-
 const CANVAS_WIDTH = 792;
 const CANVAS_HEIGHT = 272;
 const BIT_THRESHOLD = 180;
 const LOGO_SIZE = 175;
 const LOGO_MARGIN = 28;
-// Both full-screen cards (Game Day, News) use a solid black title banner
-// with white block-letter text instead of a drawn border -- the board's
-// own physical bezel already frames the display, so a second drawn
-// border was redundant.
-const BANNER_HEIGHT = 48;
 
 // fontKey (stored in designs/{id}-dynamic.json, set by the "Serif" /
 // "Block" / "Pixel" buttons in design-v2's Countdown tool) -> the family
@@ -128,25 +106,6 @@ function espnTeamsUrl(sport, league) {
   return ESPN_BASE + "/" + sport + "/" + league + "/teams?limit=400";
 }
 
-// Same 5 sport/league pairs design-v2's League dropdown offers (and
-// ALLOWED_LEAGUES in index.js whitelists) -- used only for the Game Day
-// card's banner title ("COLLEGE FOOTBALL GAME DAY" reads as a real
-// section header; a bare "NEXT GAME" didn't feel like a hero title). An
-// unmapped pair (shouldn't happen, since both sides share this list) just
-// falls back to a bare "GAME DAY" rather than showing nothing.
-const LEAGUE_DISPLAY_NAME = {
-  "football/nfl": "NFL",
-  "football/college-football": "COLLEGE FOOTBALL",
-  "basketball/nba": "NBA",
-  "baseball/mlb": "MLB",
-  "hockey/nhl": "NHL"
-};
-
-function gameDayBannerTitle(sport, league) {
-  const name = LEAGUE_DISPLAY_NAME[sport + "/" + league];
-  return name ? name + " GAME DAY" : "GAME DAY";
-}
-
 // Unverified field names (see comment above) -- tries the shapes seen in
 // ESPN's teams-list responses (a "logos" array of {href}) and a simpler
 // possible "logo" string, falls back to null (no logo drawn) rather than
@@ -218,7 +177,7 @@ async function findNextGame(events, teamId, now) {
 // Cloud Function, or a browser's fetch in design-v2).
 async function fetchNextGame(sport, league, teamId, now, fetchImpl) {
   const doFetch = fetchImpl || fetch;
-  const resp = await doFetch(espnScheduleUrl(sport, league, teamId), { headers: OUTBOUND_FETCH_HEADERS });
+  const resp = await doFetch(espnScheduleUrl(sport, league, teamId));
   if (!resp.ok) throw new Error("ESPN schedule fetch failed: " + resp.status);
   const data = await resp.json();
   return findNextGame(data.events, teamId, now);
@@ -258,205 +217,6 @@ function formatGameDateTime(isoString) {
   const dayPeriod = get("dayPeriod").toUpperCase();
   if (!weekday || !month || !day || !hour || !minute) return null;
   return weekday + " " + month + " " + day + " · " + hour + ":" + minute + " " + dayPeriod + " ET";
-}
-
-// ================= News (RSS) type =================
-//
-// Unlike Countdown/Team, there's no single API that covers "news for any
-// US town" -- so rather than maintaining a hand-picked feed per town (or
-// even per state, which still wouldn't be genuinely local), the customer
-// gives us EITHER a free-text location (we build a Google News RSS search
-// URL from it, which works for essentially any place name) OR pastes a
-// specific RSS feed URL of their own choosing (their local paper's,
-// a Patch.com town feed, whatever) which overrides the location search.
-// This is the same "give people the input, don't hardcode a lookup table
-// we can't maintain" tradeoff, just resolved differently than ESPN's
-// team-id lookup was.
-//
-// NEITHER of these has been confirmed against a live response the way
-// ESPN's schedule shape was (see fetchNextGame's comment) -- this needs
-// the same kind of live smoke test ESPN did (paste a real response back)
-// before trusting it fully in production.
-
-const GOOGLE_NEWS_RSS_BASE = "https://news.google.com/rss/search";
-const MAX_NEWS_HEADLINES = 3; // as many as fit on one card at a legible size, see drawNewsCard
-
-// meta.feedUrl is a URL the CUSTOMER types in, then this server fetches
-// -- a textbook SSRF shape. The real-world risk that matters here isn't
-// "reach some other website" (fetch() only ever speaks http/https, and
-// there's nothing sensitive on the open Internet this function has that
-// the customer doesn't already have), it's this Cloud Function reaching
-// somewhere on Google Cloud's INTERNAL network that trusts requests
-// simply for originating from inside it -- most importantly
-// 169.254.169.254, the instance metadata endpoint, which can hand back
-// this function's own service-account access token to whoever's able to
-// make it issue that request. Blocking link-local/private-range IP
-// literals closes that off. What this does NOT close off: a hostname
-// (not an IP literal) whose DNS only resolves to a private IP at fetch
-// time, after this check already passed ("DNS rebinding") -- doing that
-// properly means resolving DNS here ourselves and pinning the checked IP
-// for the actual request, which isn't implemented yet.
-function isPrivateOrLinkLocalHostname(hostname) {
-  const h = hostname.toLowerCase();
-  if (h === "localhost" || h === "0.0.0.0" || h === "::1" || h === "[::1]") return true;
-  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!m) return false;
-  const a = Number(m[1]), b = Number(m[2]);
-  if (a === 127) return true; // loopback
-  if (a === 10) return true; // RFC1918
-  if (a === 172 && b >= 16 && b <= 31) return true; // RFC1918
-  if (a === 192 && b === 168) return true; // RFC1918
-  if (a === 169 && b === 254) return true; // link-local, incl. cloud metadata (169.254.169.254)
-  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT range, sometimes used internally
-  return false;
-}
-
-function isSafeFetchUrl(urlString) {
-  let u;
-  try {
-    u = new URL(urlString);
-  } catch (err) {
-    return false;
-  }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return false;
-  if (isPrivateOrLinkLocalHostname(u.hostname)) return false;
-  return true;
-}
-
-// Builds the Google News RSS search URL for a free-text location, unless
-// the customer pasted a specific feed URL of their own (which always
-// wins, but ONLY if it passes isSafeFetchUrl -- an unsafe custom URL is
-// treated the same as no custom URL at all, falling back to the location
-// search, rather than fetching it anyway or hard-failing the card).
-// encodeURIComponent handles the query string; hl/gl/ceid pin the
-// results to US English, matching "any US beach town."
-function newsFeedUrl(meta) {
-  if (meta.feedUrl && isSafeFetchUrl(meta.feedUrl)) return meta.feedUrl;
-  const q = encodeURIComponent(meta.location || "");
-  return GOOGLE_NEWS_RSS_BASE + "?q=" + q + "&hl=en-US&gl=US&ceid=US:en";
-}
-
-// Just enough entity decoding for what actually shows up in real-world
-// RSS titles -- not a general XML/HTML entity decoder.
-function decodeXmlEntities(text) {
-  return text
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'");
-}
-
-// Dependency-free RSS 2.0 item/title extractor -- deliberately NOT a
-// general XML parser (no dependency for this exists in functions/
-// package.json, and RSS's <item>/<title> shape is simple and stable
-// enough not to need one). Handles both CDATA-wrapped and plain-encoded
-// titles, the two forms real-world feeds actually use. Skips any <item>
-// with no title rather than surfacing an empty/garbled headline.
-function parseRssHeadlines(xmlText, maxItems) {
-  const headlines = [];
-  const itemRe = /<item\b[\s\S]*?<\/item>/gi;
-  const titleRe = /<title\b[^>]*>([\s\S]*?)<\/title>/i;
-  const cdataRe = /^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/;
-  const items = xmlText.match(itemRe) || [];
-  for (const item of items) {
-    if (headlines.length >= maxItems) break;
-    const titleMatch = item.match(titleRe);
-    if (!titleMatch) continue;
-    const raw = titleMatch[1];
-    const cdataMatch = raw.match(cdataRe);
-    const decoded = decodeXmlEntities((cdataMatch ? cdataMatch[1] : raw).trim());
-    if (decoded) headlines.push(decoded);
-  }
-  return headlines;
-}
-
-// `fetchImpl` is injectable so tests never make a real network call, same
-// convention as fetchNextGame. Throws on a non-ok response so the caller
-// treats it as "try again on the next scheduled run," not "no news" --
-// same reasoning as a failed ESPN fetch.
-async function fetchHeadlines(meta, maxItems, fetchImpl) {
-  const doFetch = fetchImpl || fetch;
-  const resp = await doFetch(newsFeedUrl(meta), { headers: OUTBOUND_FETCH_HEADERS });
-  if (!resp.ok) throw new Error("RSS feed fetch failed: " + resp.status);
-  const xmlText = await resp.text();
-  return parseRssHeadlines(xmlText, maxItems);
-}
-
-function formatNewsFallbackText(meta) {
-  const label = (meta.location || "").trim().toUpperCase();
-  return label ? label + ": NO HEADLINES FOUND" : "NO HEADLINES FOUND";
-}
-
-// Steps the font size down (never truncating -- a banner title reads
-// worse cut off than shrunk) until `text` fits maxWidth at family/weight,
-// stopping at minSize even if it still doesn't quite fit. Used for both
-// cards' banner titles, which vary a lot in length ("NFL GAME DAY" vs.
-// "COLLEGE FOOTBALL GAME DAY", or a customer's own free-text location).
-function fitBannerFontSize(ctx, text, maxWidth, family, maxSize, minSize) {
-  for (let size = maxSize; size > minSize; size--) {
-    ctx.font = size + "px \"" + family + "\"";
-    if (ctx.measureText(text).width <= maxWidth) return size;
-  }
-  ctx.font = minSize + "px \"" + family + "\"";
-  return minSize;
-}
-
-// Shrinks `text` (appending an ellipsis) until it fits maxWidth at ctx's
-// current font -- headlines are free text of unbounded length, unlike
-// everything else drawn on this display so far.
-function truncateToWidth(ctx, text, maxWidth) {
-  if (ctx.measureText(text).width <= maxWidth) return text;
-  let t = text;
-  while (t.length > 0 && ctx.measureText(t + "…").width > maxWidth) {
-    t = t.slice(0, -1);
-  }
-  return t + "…";
-}
-
-// Full-screen layout: solid black title banner ("{LOCATION} NEWS" in
-// white block letters, or a bare "NEWS" if the customer used a custom
-// feed URL with no location text -- no drawn border, the board's own
-// bezel frames it), up to 3 bulleted headlines truncated to fit one line
-// each, and a small "UPDATED {DATE}" footer -- mirrors drawGameDayCard.
-function drawNewsCard(ctx, card) {
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
-  ctx.fillStyle = "#fff";
-  ctx.textAlign = "center";
-  const kicker = card.headerLabel ? card.headerLabel.toUpperCase() + " NEWS" : "NEWS";
-  const kickerSize = fitBannerFontSize(ctx, kicker, CANVAS_WIDTH - 40, FONT_FAMILY.block, 22, 14);
-  ctx.fillText(kicker, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(kickerSize * 0.35));
-
-  ctx.fillStyle = "#000";
-  const leftX = 34;
-  const maxTextWidth = CANVAS_WIDTH - 34 - 34;
-  let y = BANNER_HEIGHT + 40;
-  const lineGap = 54;
-  ctx.textAlign = "left";
-  card.headlines.forEach((headline) => {
-    ctx.font = "bold 26px \"" + FONT_FAMILY.serif + "\"";
-    const bullet = "•  ";
-    const bulletWidth = ctx.measureText(bullet).width;
-    ctx.fillText(bullet, leftX, y);
-    ctx.fillText(truncateToWidth(ctx, headline, maxTextWidth - bulletWidth), leftX + bulletWidth, y);
-    y += lineGap;
-  });
-
-  if (card.updatedLabel) {
-    ctx.textAlign = "right";
-    ctx.font = "italic 16px \"" + FONT_FAMILY.serif + "\"";
-    ctx.fillText(card.updatedLabel, CANVAS_WIDTH - 24, CANVAS_HEIGHT - 14);
-  }
-}
-
-// "AUG 19" -- short enough for the card's footer corner.
-function formatShortDate(now) {
-  const at = now || new Date();
-  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })
-    .format(at)
-    .toUpperCase();
 }
 
 // ================= Shared rendering/packing =================
@@ -600,7 +360,7 @@ async function fetchDitheredLogo(url, size, fetchImpl) {
   if (!url) return null;
   try {
     const doFetch = fetchImpl || fetch;
-    const resp = await doFetch(url, { headers: OUTBOUND_FETCH_HEADERS });
+    const resp = await doFetch(url);
     if (!resp.ok) return null;
     const buf = Buffer.from(await resp.arrayBuffer());
     const img = await loadImage(buf);
@@ -611,37 +371,41 @@ async function fetchDitheredLogo(url, size, fetchImpl) {
 }
 
 // ================= Game Day card =================
-// Full-screen layout (solid black title banner, optional logos either
-// side, matchup headline, days-left, optional date/venue) -- NOT a
-// positioned stamp like drawDynamicText. meta.x/y/size/fontKey/outline
-// don't apply here; the card always fills the whole canvas at fixed
-// positions. No drawn border -- the board's own bezel already frames the
-// display, so the banner alone marks the top instead. Missing optional
-// fields (no logo found, unparseable date, no venue in the response) are
-// simply skipped rather than leaving a gap or showing "undefined" --
-// later lines shift up to fill the space.
+// Full-screen layout (border, header, optional logos either side,
+// matchup headline, days-left, optional date/venue) -- NOT a positioned
+// stamp like drawDynamicText. meta.x/y/size/fontKey/outline don't apply
+// here; the card always fills the whole canvas at fixed positions,
+// matching the approved mockup. Missing optional fields (no logo found,
+// unparseable date, no venue in the response) are simply skipped rather
+// than leaving a gap or showing "undefined" -- later lines shift up to
+// fill the space.
 function drawGameDayCard(ctx, card) {
   ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
-  ctx.fillStyle = "#fff";
-  ctx.textAlign = "center";
-  const bannerTitle = card.bannerTitle || "GAME DAY";
-  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 40, FONT_FAMILY.block, 24, 14);
-  ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(10, 10, CANVAS_WIDTH - 20, CANVAS_HEIGHT - 20);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(10, 52);
+  ctx.lineTo(CANVAS_WIDTH - 10, 52);
+  ctx.stroke();
 
-  ctx.fillStyle = "#000";
-  const bodyMidY = BANNER_HEIGHT + (CANVAS_HEIGHT - BANNER_HEIGHT) / 2;
+  ctx.textAlign = "center";
+  ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
+  ctx.fillText("N E X T   G A M E", CANVAS_WIDTH / 2, 36);
+
+  const bodyMidY = 52 + (CANVAS_HEIGHT - 20 - 52) / 2;
   if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
   if (card.oppLogo) ctx.drawImage(card.oppLogo, CANVAS_WIDTH - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
 
   ctx.font = "42px \"" + FONT_FAMILY.block + "\"";
-  ctx.fillText(card.headline, CANVAS_WIDTH / 2, BANNER_HEIGHT + 60);
+  ctx.fillText(card.headline, CANVAS_WIDTH / 2, 116);
 
   const lines = [{ text: card.daysLabel, font: "bold 24px \"" + FONT_FAMILY.serif + "\"", gap: 38 }];
   if (card.dateTimeLabel) lines.push({ text: card.dateTimeLabel, font: "italic 23px \"" + FONT_FAMILY.serif + "\"", gap: 32 });
   if (card.venue) lines.push({ text: card.venue, font: "bold 20px \"" + FONT_FAMILY.serif + "\"", gap: 28 });
 
-  let y = BANNER_HEIGHT + 96;
+  let y = 152;
   for (const line of lines) {
     ctx.font = line.font;
     ctx.fillText(line.text, CANVAS_WIDTH / 2, y);
@@ -714,7 +478,6 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     const headline = (myAbbrev || "") + " " + vsOrAt + " " + rawNextGame.opponentAbbrev;
     const daysLabel = daysLeft <= 0 ? "TODAY!" : "IN " + daysLeft + " " + (daysLeft === 1 ? "DAY" : "DAYS");
     const card = {
-      bannerTitle: gameDayBannerTitle(meta.sport, meta.league),
       headline,
       daysLabel,
       dateTimeLabel: formatGameDateTime(rawNextGame.gameDateISO),
@@ -732,28 +495,6 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     });
   }
 
-  if (meta.type === "news") {
-    const headlines = await fetchHeadlines(meta, MAX_NEWS_HEADLINES, fetchImpl);
-
-    if (headlines.length === 0) {
-      // A feed that's reachable but empty (or every item is missing a
-      // title) -- same "steady state, not an error" treatment as Team's
-      // off-season case. A genuinely unreachable/broken feed throws above
-      // instead, via fetchHeadlines, and is retried next run.
-      const content = formatNewsFallbackText(meta);
-      const result = await compositeAndPack(basePngBuffer, (ctx) => drawDynamicText(ctx, content, meta), meta);
-      return Object.assign(result, { headlines: [], content });
-    }
-
-    const card = {
-      headerLabel: meta.location || "",
-      headlines,
-      updatedLabel: "UPDATED " + formatShortDate(now)
-    };
-    const result = await compositeAndPack(basePngBuffer, (ctx) => drawNewsCard(ctx, card), meta);
-    return Object.assign(result, { headlines, content: headlines.join(" | ") });
-  }
-
   throw new Error("Unknown dynamic layer type: " + meta.type);
 }
 
@@ -762,7 +503,6 @@ module.exports = {
   CANVAS_HEIGHT,
   LOGO_SIZE,
   FONT_FAMILY,
-  OUTBOUND_FETCH_HEADERS,
   daysUntil,
   formatCountdownText,
   formatTeamText,
@@ -771,7 +511,6 @@ module.exports = {
   fetchNextGame,
   espnScheduleUrl,
   espnTeamsUrl,
-  gameDayBannerTitle,
   extractLogoUrl,
   extractVenueName,
   packTo1Bit,
@@ -782,17 +521,6 @@ module.exports = {
   ditherAtkinson,
   ditheredLogoCanvas,
   fetchDitheredLogo,
-  fitBannerFontSize,
-  MAX_NEWS_HEADLINES,
-  isPrivateOrLinkLocalHostname,
-  isSafeFetchUrl,
-  newsFeedUrl,
-  parseRssHeadlines,
-  fetchHeadlines,
-  formatNewsFallbackText,
-  truncateToWidth,
-  drawNewsCard,
-  formatShortDate,
   renderDynamicDesign,
   ensureFontsRegistered
 };

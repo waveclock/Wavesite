@@ -13,7 +13,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onRequest } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
-const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
+const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl } = require("./lib/dynamic");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -130,60 +130,13 @@ const ALLOWED_LEAGUES = new Set([
   "hockey/nhl"
 ]);
 
-// ESPN's team logo CDN -- a fixed, known-ours-not-attacker-controlled
-// hostname, unlike News's feedUrl below, so a simple domain allowlist is
-// enough here (no need for the private-IP/SSRF guard that protects the
-// News proxy, since this can never be pointed anywhere but ESPN's own
-// CDN).
-function isEspnCdnUrl(urlString) {
-  let u;
-  try {
-    u = new URL(urlString);
-  } catch (err) {
-    return false;
-  }
-  if (u.protocol !== "https:") return false;
-  return u.hostname.toLowerCase().endsWith(".espncdn.com");
-}
-
 // Plain (req, res) handler, kept separate from the onRequest() wrapper
 // below so it can be unit-tested with fake req/res objects without
 // spinning up the Functions Framework.
 async function espnProxyHandler(req, res) {
-  const kind = req.query.kind;
-
-  // "logo" is unlike "teams"/"schedule" below -- it forwards a specific
-  // image URL (already returned to the browser by a prior "teams" or
-  // "schedule" call) rather than building one from sport/league, so it
-  // skips that validation and does its own (the CDN-domain check above)
-  // instead. design-v2's Team tool uses this to draw the real Game Day
-  // card -- including dithered logos -- directly in the live preview,
-  // which needs CORS-clean pixel access to the logo image the same way
-  // "teams"/"schedule" need CORS-clean JSON access.
-  if (kind === "logo") {
-    const url = req.query.url;
-    if (typeof url !== "string" || !isEspnCdnUrl(url)) {
-      res.status(400).json({ error: "url must be an https://*.espncdn.com image" });
-      return;
-    }
-    try {
-      const imgResp = await fetch(url, { headers: OUTBOUND_FETCH_HEADERS });
-      if (!imgResp.ok) {
-        res.status(imgResp.status).json({ error: "ESPN CDN returned " + imgResp.status });
-        return;
-      }
-      const buf = Buffer.from(await imgResp.arrayBuffer());
-      res.set("Content-Type", imgResp.headers.get("content-type") || "image/png");
-      res.status(200).send(buf);
-    } catch (err) {
-      logger.error("ESPN logo proxy request failed for " + url + ":", err);
-      res.status(502).json({ error: "Couldn't reach ESPN's logo CDN" });
-    }
-    return;
-  }
-
   const sport = req.query.sport;
   const league = req.query.league;
+  const kind = req.query.kind;
 
   if (typeof sport !== "string" || typeof league !== "string" || !ALLOWED_LEAGUES.has(sport + "/" + league)) {
     res.status(400).json({ error: "Unsupported or missing sport/league" });
@@ -201,12 +154,12 @@ async function espnProxyHandler(req, res) {
     }
     url = espnScheduleUrl(sport, league, teamId);
   } else {
-    res.status(400).json({ error: "kind must be \"teams\", \"schedule\", or \"logo\"" });
+    res.status(400).json({ error: "kind must be \"teams\" or \"schedule\"" });
     return;
   }
 
   try {
-    const espnResp = await fetch(url, { headers: OUTBOUND_FETCH_HEADERS });
+    const espnResp = await fetch(url);
     const data = await espnResp.json();
     res.status(espnResp.status).json(data);
   } catch (err) {
@@ -217,52 +170,7 @@ async function espnProxyHandler(req, res) {
 
 exports.espnProxy = onRequest({ cors: true, region: "us-central1" }, espnProxyHandler);
 
-// ================= News proxy =================
-// design-v2's News tool needs a live headline fetch to show an accurate
-// preview before publishing, same reasoning as espnProxy above -- an
-// arbitrary RSS feed almost never sends CORS headers a browser fetch()
-// needs. Unlike espnProxy there's no fixed API to whitelist by hostname
-// (the customer can point this at literally any feed), so the safety
-// boundary here is isSafeFetchUrl (see lib/dynamic.js): blocks anything
-// that isn't plain http/https, and blocks private/link-local IP literals
-// -- most importantly 169.254.169.254, which on Google Cloud is the
-// instance metadata endpoint and could otherwise leak this function's own
-// service-account credentials to whoever controls the feedUrl. This does
-// NOT protect against DNS rebinding (a hostname that resolves to a
-// private IP only at fetch time, after this check already passed) --
-// that would need resolving DNS ourselves and pinning the checked IP for
-// the actual request, which this doesn't do yet.
-//
-// Returns already-parsed headlines (not raw feed XML) so the browser
-// never needs its own RSS parser -- this reuses the exact same
-// fetchHeadlines/parseRssHeadlines the daily regeneration job calls
-// directly, so the preview and the real card can never disagree about
-// what a feed's headlines are.
-async function newsProxyHandler(req, res) {
-  const location = typeof req.query.location === "string" ? req.query.location : "";
-  const feedUrl = typeof req.query.feedUrl === "string" ? req.query.feedUrl : "";
-
-  if (!location.trim() && !feedUrl.trim()) {
-    res.status(400).json({ error: "Provide a location or a feedUrl" });
-    return;
-  }
-  if (feedUrl.trim() && !isSafeFetchUrl(feedUrl.trim())) {
-    res.status(400).json({ error: "That feed URL isn't allowed" });
-    return;
-  }
-
-  try {
-    const headlines = await fetchHeadlines({ location, feedUrl }, MAX_NEWS_HEADLINES);
-    res.status(200).json({ headlines });
-  } catch (err) {
-    logger.error("News proxy request failed for location=" + location + " feedUrl=" + feedUrl + ":", err);
-    res.status(502).json({ error: "Couldn't reach that feed" });
-  }
-}
-
-exports.newsProxy = onRequest({ cors: true, region: "us-central1" }, newsProxyHandler);
-
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, espnProxyHandler, newsProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, espnProxyHandler, ALLOWED_LEAGUES };
