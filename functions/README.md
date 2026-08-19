@@ -1,16 +1,17 @@
 # Dynamic-layer auto-update Cloud Function
 
 Runs once a day (09:00 UTC) and redraws the current content for every
-device with an active "dynamic layer" published from `/design-v2/` --
-either a **Countdown** (a target date) or a **Team Schedule** (next game
-for a picked sports team) -- overwriting `designs/{deviceId}.bin` and
-`.png` in place. The device itself needs no changes -- it already reads
-those two files unconditionally.
+device with an active "dynamic layer" published from `/design-v2/` -- a
+**Countdown** (a target date), a **Team Schedule** (next game for a
+picked sports team), or **News** (headlines for a location or RSS feed)
+-- overwriting `designs/{deviceId}.bin` and `.png` in place. The device
+itself needs no changes -- it already reads those two files
+unconditionally.
 
 ## How it fits together
 
 `design-v2/index.html` publishes up to four files per device when a
-Countdown or Team layer is on the canvas:
+Countdown, Team, or News layer is on the canvas:
 
 - `designs/{id}.bin` / `.png` -- today's design, exactly as before (so the
   board updates immediately on publish, same as always).
@@ -21,12 +22,13 @@ Countdown or Team layer is on the canvas:
   with a `type` field:
   - `{ type: "countdown", targetDate, label, x, y, size, fontKey, outline, inverted }`
   - `{ type: "team", sport, league, teamId, teamName, x, y, size, fontKey, outline, inverted }`
+  - `{ type: "news", location, feedUrl, x, y, size, fontKey, outline, inverted }`
 
-If there's no Countdown or Team layer, `design-v2` deletes the
+If there's no Countdown, Team, or News layer, `design-v2` deletes the
 `-base.png` / `-dynamic.json` files instead (best-effort) so this job has
 nothing to find for that device. At most one dynamic layer is treated as
-active per device for now -- if a customer somehow adds both a Countdown
-and a Team layer, only the first one found governs auto-updates.
+active per device for now -- if a customer somehow adds more than one,
+only the first one found governs auto-updates.
 
 Each run:
 1. Lists everything under `designs/` and picks out `*-dynamic.json`.
@@ -42,17 +44,22 @@ Each run:
      it falls back to the plain "{TEAM}: NO UPCOMING GAMES" text -- a
      normal, steady state, not an error, and there's no card to build
      around.
+   - **news**: fetches and parses an RSS feed (see "The News card" below
+     for how the feed URL is chosen), draws up to 3 headlines -- truncated
+     to fit -- in the same bordered card style as the Game Day card. An
+     empty/unreachable-but-responding feed falls back to plain
+     "{LOCATION}: NO HEADLINES FOUND" text.
 3. Re-packs to the device's 1-bit format and overwrites `.bin` / `.png`.
 4. **Countdown** only: once the target date has passed, deletes
    `-dynamic.json` / `-base.png` (so this device stops being picked up)
    and leaves the last real `.bin`/`.png` as-is -- the board freezes on
    whatever it last showed (typically "TODAY!") rather than going blank or
    counting into negative numbers.
-5. **Team** layers never get cleaned up this way -- they're perpetual and
-   self-renew every season as ESPN's schedule updates. A transient ESPN
-   fetch failure throws instead of returning null, which the caller treats
-   as "leave this device alone and try again tomorrow," never as "give up
-   on it."
+5. **Team and News** layers never get cleaned up this way -- they're
+   perpetual (a schedule renews every season, a news feed publishes new
+   items indefinitely). A transient fetch failure throws instead of
+   returning null, which the caller treats as "leave this device alone and
+   try again tomorrow," never as "give up on it."
 
 ## The Game Day card
 
@@ -77,6 +84,41 @@ caveat as the rest of this API, degrades to no logo (not a broken image
 or a thrown error) if either team has none. A failed logo fetch (network
 error, 404, bad image data) is likewise swallowed to "no logo for that
 side," never a reason to fail the whole card.
+
+## The News card
+
+Unlike Countdown (any date works) or Team (ESPN's API covers every team),
+there's no single API that covers "news for any US town," so the News
+tool doesn't try to maintain a lookup table of feeds per town/state. The
+customer instead types a free-text **Location** (e.g. "Ocean City, NJ"),
+which builds a Google News RSS search URL for that text
+(`news.google.com/rss/search?q=...`) -- this works for essentially any
+place name, not just towns big enough to have their own dedicated local
+news feed. Alternatively they can paste a specific **RSS feed URL** of
+their own choosing (their local paper's, a Patch.com town feed if one
+exists, whatever) in an "advanced" field, which always overrides the
+location search. See `newsFeedUrl` in `lib/dynamic.js`.
+
+**Neither of these has been confirmed against a live response** the way
+ESPN's schedule shape eventually was -- this needs the same kind of live
+smoke test (deploy, publish a News layer, and check what actually shows
+up) before fully trusting it. The RSS parsing itself
+(`parseRssHeadlines`) is a small dependency-free `<item>`/`<title>`
+extractor rather than a full XML parser -- deliberately kept simple since
+RSS 2.0's shape is stable and well-established, but a feed with unusual
+structure (e.g. Atom instead of RSS, deeply nested titles) could still
+slip through and yield zero headlines, which just renders the same
+"NO HEADLINES FOUND" fallback as a genuinely empty feed rather than
+erroring.
+
+Same "day one is simple, it upgrades itself automatically" tradeoff as
+the Game Day card: design-v2's live preview and initial publish only ever
+show a plain placeholder line ("OCEAN CITY, NJ NEWS"), never real
+headlines -- fetching an arbitrary RSS feed from the browser hits the
+same CORS wall ESPN's API did, and unlike ESPN there's no single feed to
+route through a proxy (the customer can paste literally any URL). Adding
+a general-purpose RSS proxy wasn't worth it for a same-day cosmetic
+difference; the real headlines appear once this daily job runs.
 
 ## Known tradeoffs
 
@@ -138,8 +180,9 @@ npm install
 npm test
 ```
 
-Runs `test/dynamic.test.js` (pure rendering/packing/date-math/next-game
-logic, including synthetic ESPN-shaped responses), `test/orchestration.test.js`
+Runs `test/dynamic.test.js` (pure rendering/packing/date-math/next-game/
+RSS-parsing logic, including synthetic ESPN- and RSS-shaped responses),
+`test/orchestration.test.js`
 (the per-device list/download/render/upload flow, against an in-memory
 fake Storage bucket), and `test/espnProxy.test.js` (the proxy's request
 validation and ESPN-forwarding logic) -- none of these touch anything

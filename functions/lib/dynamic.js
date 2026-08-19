@@ -219,6 +219,151 @@ function formatGameDateTime(isoString) {
   return weekday + " " + month + " " + day + " · " + hour + ":" + minute + " " + dayPeriod + " ET";
 }
 
+// ================= News (RSS) type =================
+//
+// Unlike Countdown/Team, there's no single API that covers "news for any
+// US town" -- so rather than maintaining a hand-picked feed per town (or
+// even per state, which still wouldn't be genuinely local), the customer
+// gives us EITHER a free-text location (we build a Google News RSS search
+// URL from it, which works for essentially any place name) OR pastes a
+// specific RSS feed URL of their own choosing (their local paper's,
+// a Patch.com town feed, whatever) which overrides the location search.
+// This is the same "give people the input, don't hardcode a lookup table
+// we can't maintain" tradeoff, just resolved differently than ESPN's
+// team-id lookup was.
+//
+// NEITHER of these has been confirmed against a live response the way
+// ESPN's schedule shape was (see fetchNextGame's comment) -- this needs
+// the same kind of live smoke test ESPN did (paste a real response back)
+// before trusting it fully in production.
+
+const GOOGLE_NEWS_RSS_BASE = "https://news.google.com/rss/search";
+const MAX_NEWS_HEADLINES = 3; // as many as fit on one card at a legible size, see drawNewsCard
+
+// Builds the Google News RSS search URL for a free-text location, unless
+// the customer pasted a specific feed URL of their own (which always
+// wins). encodeURIComponent handles the query string; hl/gl/ceid pin the
+// results to US English, matching "any US beach town."
+function newsFeedUrl(meta) {
+  if (meta.feedUrl) return meta.feedUrl;
+  const q = encodeURIComponent(meta.location || "");
+  return GOOGLE_NEWS_RSS_BASE + "?q=" + q + "&hl=en-US&gl=US&ceid=US:en";
+}
+
+// Just enough entity decoding for what actually shows up in real-world
+// RSS titles -- not a general XML/HTML entity decoder.
+function decodeXmlEntities(text) {
+  return text
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'");
+}
+
+// Dependency-free RSS 2.0 item/title extractor -- deliberately NOT a
+// general XML parser (no dependency for this exists in functions/
+// package.json, and RSS's <item>/<title> shape is simple and stable
+// enough not to need one). Handles both CDATA-wrapped and plain-encoded
+// titles, the two forms real-world feeds actually use. Skips any <item>
+// with no title rather than surfacing an empty/garbled headline.
+function parseRssHeadlines(xmlText, maxItems) {
+  const headlines = [];
+  const itemRe = /<item\b[\s\S]*?<\/item>/gi;
+  const titleRe = /<title\b[^>]*>([\s\S]*?)<\/title>/i;
+  const cdataRe = /^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/;
+  const items = xmlText.match(itemRe) || [];
+  for (const item of items) {
+    if (headlines.length >= maxItems) break;
+    const titleMatch = item.match(titleRe);
+    if (!titleMatch) continue;
+    const raw = titleMatch[1];
+    const cdataMatch = raw.match(cdataRe);
+    const decoded = decodeXmlEntities((cdataMatch ? cdataMatch[1] : raw).trim());
+    if (decoded) headlines.push(decoded);
+  }
+  return headlines;
+}
+
+// `fetchImpl` is injectable so tests never make a real network call, same
+// convention as fetchNextGame. Throws on a non-ok response so the caller
+// treats it as "try again on the next scheduled run," not "no news" --
+// same reasoning as a failed ESPN fetch.
+async function fetchHeadlines(meta, maxItems, fetchImpl) {
+  const doFetch = fetchImpl || fetch;
+  const resp = await doFetch(newsFeedUrl(meta));
+  if (!resp.ok) throw new Error("RSS feed fetch failed: " + resp.status);
+  const xmlText = await resp.text();
+  return parseRssHeadlines(xmlText, maxItems);
+}
+
+function formatNewsFallbackText(meta) {
+  const label = (meta.location || "").trim().toUpperCase();
+  return label ? label + ": NO HEADLINES FOUND" : "NO HEADLINES FOUND";
+}
+
+// Shrinks `text` (appending an ellipsis) until it fits maxWidth at ctx's
+// current font -- headlines are free text of unbounded length, unlike
+// everything else drawn on this display so far.
+function truncateToWidth(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let t = text;
+  while (t.length > 0 && ctx.measureText(t + "…").width > maxWidth) {
+    t = t.slice(0, -1);
+  }
+  return t + "…";
+}
+
+// Full-screen layout: border, "{LOCATION} · NEWS" header (or a bare
+// "NEWS" if the customer used a custom feed URL with no location text),
+// up to 3 bulleted headlines truncated to fit one line each, and a small
+// "UPDATED {DATE}" footer -- mirrors drawGameDayCard's structure.
+function drawNewsCard(ctx, card) {
+  ctx.fillStyle = "#000";
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(10, 10, CANVAS_WIDTH - 20, CANVAS_HEIGHT - 20);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(10, 52);
+  ctx.lineTo(CANVAS_WIDTH - 10, 52);
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
+  const kicker = card.headerLabel ? card.headerLabel.toUpperCase() + "   ·   N E W S" : "N E W S";
+  ctx.fillText(kicker, CANVAS_WIDTH / 2, 36);
+
+  const leftX = 34;
+  const maxTextWidth = CANVAS_WIDTH - 34 - 34;
+  let y = 88;
+  const lineGap = 54;
+  ctx.textAlign = "left";
+  card.headlines.forEach((headline) => {
+    ctx.font = "bold 26px \"" + FONT_FAMILY.serif + "\"";
+    const bullet = "•  ";
+    const bulletWidth = ctx.measureText(bullet).width;
+    ctx.fillText(bullet, leftX, y);
+    ctx.fillText(truncateToWidth(ctx, headline, maxTextWidth - bulletWidth), leftX + bulletWidth, y);
+    y += lineGap;
+  });
+
+  if (card.updatedLabel) {
+    ctx.textAlign = "right";
+    ctx.font = "italic 16px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillText(card.updatedLabel, CANVAS_WIDTH - 24, CANVAS_HEIGHT - 20);
+  }
+}
+
+// "AUG 19" -- short enough for the card's footer corner.
+function formatShortDate(now) {
+  const at = now || new Date();
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })
+    .format(at)
+    .toUpperCase();
+}
+
 // ================= Shared rendering/packing =================
 
 // Mirrors design-v2/index.html's packTo1Bit exactly: row-major, MSB-first
@@ -495,6 +640,28 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     });
   }
 
+  if (meta.type === "news") {
+    const headlines = await fetchHeadlines(meta, MAX_NEWS_HEADLINES, fetchImpl);
+
+    if (headlines.length === 0) {
+      // A feed that's reachable but empty (or every item is missing a
+      // title) -- same "steady state, not an error" treatment as Team's
+      // off-season case. A genuinely unreachable/broken feed throws above
+      // instead, via fetchHeadlines, and is retried next run.
+      const content = formatNewsFallbackText(meta);
+      const result = await compositeAndPack(basePngBuffer, (ctx) => drawDynamicText(ctx, content, meta), meta);
+      return Object.assign(result, { headlines: [], content });
+    }
+
+    const card = {
+      headerLabel: meta.location || "",
+      headlines,
+      updatedLabel: "UPDATED " + formatShortDate(now)
+    };
+    const result = await compositeAndPack(basePngBuffer, (ctx) => drawNewsCard(ctx, card), meta);
+    return Object.assign(result, { headlines, content: headlines.join(" | ") });
+  }
+
   throw new Error("Unknown dynamic layer type: " + meta.type);
 }
 
@@ -521,6 +688,13 @@ module.exports = {
   ditherAtkinson,
   ditheredLogoCanvas,
   fetchDitheredLogo,
+  newsFeedUrl,
+  parseRssHeadlines,
+  fetchHeadlines,
+  formatNewsFallbackText,
+  truncateToWidth,
+  drawNewsCard,
+  formatShortDate,
   renderDynamicDesign,
   ensureFontsRegistered
 };
