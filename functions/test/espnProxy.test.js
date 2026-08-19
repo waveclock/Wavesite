@@ -107,6 +107,23 @@ async function test(name, fn) {
     assert.strictEqual(res.statusCode, 200);
   });
 
+  await test("schedule: explicitly requests seasontype=2 (regular season), confirmed live: without it ESPN defaults to Preseason, which is empty for college football and reads as \"no upcoming games\"", async () => {
+    const req = fakeReq({ sport: "football", league: "college-football", kind: "schedule", teamId: "213" });
+    const res = fakeRes();
+    let requestedUrl = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      requestedUrl = url;
+      return { status: 200, async json() { return { events: [] }; } };
+    };
+    try {
+      await espnProxyHandler(req, res);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    assert.ok(requestedUrl.includes("seasontype=2"), "got: " + requestedUrl);
+  });
+
   await test("rejects an unknown kind", async () => {
     const req = fakeReq({ sport: "football", league: "nfl", kind: "standings" });
     const res = fakeRes();
