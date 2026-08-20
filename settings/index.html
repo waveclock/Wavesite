@@ -356,10 +356,13 @@
           <span class="toggle-label">Lifeguard Report</span>
           <div class="segmented"><button type="button" class="segmented-btn" data-value="true">Yes</button><button type="button" class="segmented-btn" data-value="false">No</button></div>
         </div>
-        <div class="toggle-row" data-field="showCustomScreen">
-          <span class="toggle-label">Custom Design</span>
-          <div class="segmented"><button type="button" class="segmented-btn" data-value="true">Yes</button><button type="button" class="segmented-btn" data-value="false">No</button></div>
-        </div>
+        <!-- No "Custom Design" row here anymore -- there used to be one
+             tied to the single showCustomScreen field, but that's retired
+             now that there are 3 independent custom screens. Each one's
+             own "include in rotation" toggle lives on design-v2 itself
+             (next to its editor), not duplicated here. This page still
+             reads/writes showCustomScreen1/2/3 transparently (see `state`
+             below) so saving other settings here doesn't clobber them. -->
         <div class="toggle-row" data-field="sunsetAllDay">
           <span class="toggle-label">Sunset Screen<span class="toggle-sub">Still appears via the Sunset Reminder even on Sunset Only</span></span>
           <div class="segmented"><button type="button" class="segmented-btn" data-value="true">All Day</button><button type="button" class="segmented-btn" data-value="false">Sunset Only</button></div>
@@ -473,7 +476,17 @@
     showWeatherForecast: true,
     showBeach: true,
     showLifeguard: true,
-    showCustomScreen: false,
+    // No UI on this page for these three -- see the comment above the
+    // (removed) Custom Design toggle row. Carried in `state` purely so
+    // loadExistingSettings()/the save payload below preserve whatever
+    // design-v2 last set instead of dropping them on every unrelated
+    // save here (Storage writes replace the whole file, there's no
+    // server-side merge). Defaults here only matter for a device that's
+    // never had a settings file at all -- see the same defaults used in
+    // design-v2's own settingsDefaults().
+    showCustomScreen1: true,
+    showCustomScreen2: true,
+    showCustomScreen3: false,
     sunsetAllDay: false,
     sunsetReminder: "NONE"
   };
@@ -485,8 +498,7 @@
     { field: "showWaveForecast", label: "Wave Forecast" },
     { field: "showWeatherForecast", label: "Weather Forecast" },
     { field: "showBeach", label: "Beach Screen" },
-    { field: "showLifeguard", label: "Lifeguard Report" },
-    { field: "showCustomScreen", label: "Custom Design" }
+    { field: "showLifeguard", label: "Lifeguard Report" }
   ];
 
   // ================= Step navigation =================
@@ -646,7 +658,7 @@
   // firmware-complete (the device echoes the whole settings object, not a
   // partial summary), so every field written to settings/{id}.json is
   // checked here, sunsetReminder included.
-  const CONFIRMABLE_FIELDS = ["cycleMode", "showWaveForecast", "showWeatherForecast", "showBeach", "showLifeguard", "showCustomScreen", "sunsetAllDay", "sunsetReminder"];
+  const CONFIRMABLE_FIELDS = ["cycleMode", "showWaveForecast", "showWeatherForecast", "showBeach", "showLifeguard", "showCustomScreen1", "showCustomScreen2", "showCustomScreen3", "sunsetAllDay", "sunsetReminder"];
 
   // Tolerant comparison instead of strict === -- a device's own JSON
   // serialization (likely embedded C/C++ firmware) commonly doesn't
@@ -727,7 +739,9 @@
         showWeatherForecast: state.showWeatherForecast,
         showBeach: state.showBeach,
         showLifeguard: state.showLifeguard,
-        showCustomScreen: state.showCustomScreen,
+        showCustomScreen1: state.showCustomScreen1,
+        showCustomScreen2: state.showCustomScreen2,
+        showCustomScreen3: state.showCustomScreen3,
         sunsetAllDay: state.sunsetAllDay,
         sunsetReminder: state.sunsetReminder
       };
