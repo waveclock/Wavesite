@@ -1443,7 +1443,29 @@
   // directly on the canvas and clicking its row in the Layers panel.
   function selectLayer(index) {
     if (index < 0 || index >= layers.length) return false;
-    const [obj] = layers.splice(index, 1);
+    const obj = layers[index];
+    // Team/News never leave `layers` to be edited -- they're fixed
+    // full-screen cards with no drag/commit step (see
+    // handleTeamSelection/handleNewsInputChange), so "selecting" one
+    // just opens its panel pre-filled, in place.
+    if (FULL_CARD_KINDS.has(obj.kind)) {
+      showToolPanel(TOOL_TAB_FOR_KIND[obj.kind] || activeTool);
+      if (obj.kind === "team") {
+        teamLeagueSelect.value = obj.sport + "/" + obj.league;
+        populateTeamSelect(obj.sport, obj.league, obj.teamId);
+        teamStatus.textContent = obj.card
+          ? "This is the real card — it updates itself once a day after you publish."
+          : (obj.previewContent ? "Updates on its own once a day after you publish — no need to redesign it." : "Pick a team to see when they play next.");
+      } else {
+        newsLocationInput.value = obj.location || "";
+        newsFeedUrlInput.value = obj.feedUrl || "";
+        newsStatus.textContent = (obj.headlines && obj.headlines.length)
+          ? "This is the real card — it updates itself once a day after you publish."
+          : "Type a location (or paste a specific RSS feed URL) to see today's headlines.";
+      }
+      return true;
+    }
+    layers.splice(index, 1);
     renderLayers();
     showToolPanel(TOOL_TAB_FOR_KIND[obj.kind] || activeTool);
     startStaging(obj);
@@ -1469,18 +1491,6 @@
       countdownDateInput.value = obj.targetDate;
       countdownLabelInput.value = obj.label || "";
       syncCountdownFontButtons(obj.fontKey);
-    } else if (obj.kind === "team") {
-      teamLeagueSelect.value = obj.sport + "/" + obj.league;
-      populateTeamSelect(obj.sport, obj.league, obj.teamId);
-      teamStatus.textContent = obj.card
-        ? "This is the real card — it updates itself once a day after you publish."
-        : (obj.previewContent ? "Updates on its own once a day after you publish — no need to redesign it." : "Pick a team to see when they play next.");
-    } else if (obj.kind === "news") {
-      newsLocationInput.value = obj.location || "";
-      newsFeedUrlInput.value = obj.feedUrl || "";
-      newsStatus.textContent = (obj.headlines && obj.headlines.length)
-        ? "This is the real card — it updates itself once a day after you publish."
-        : "Type a location (or paste a specific RSS feed URL) to see today's headlines.";
     }
     return true;
   }
@@ -2072,18 +2082,20 @@
         countdownDateInput.value = targetDate;
         countdownLabelInput.value = "";
       }
-      // News similarly stages right away, empty -- the customer just needs
-      // to type a location (or paste a feed URL) once the panel is open.
+      // News (like Team below) never goes through the staging/commit
+      // flow at all -- it's a fixed full-screen card with nothing to
+      // drag or place, so there's nothing to "confirm." Typing a
+      // location straight into `layers` (see handleNewsInputChange)
+      // takes effect immediately, and Publish is live the moment it's
+      // valid. Opening the tab just shows whatever's already there (or
+      // a blank slate for a new one).
       if (tool === "news") {
-        // font/outline have no button anymore (Team/News's real card
-        // ignores them entirely -- see drawGameDayCardClient/
-        // drawNewsCardClient), but they're still fixed values here, NOT
-        // removed outright: drawText's fallback rendering (the plain
-        // "LOADING…"/error line shown before the real card resolves, or
-        // if it never does) still needs a valid font to draw with.
-        startStaging({ kind: "news", location: "", feedUrl: "", font: "Georgia, serif", outline: false });
-        newsLocationInput.value = "";
-        newsFeedUrlInput.value = "";
+        const existing = layers.find((l) => l.kind === "news");
+        newsLocationInput.value = existing ? (existing.location || "") : "";
+        newsFeedUrlInput.value = existing ? (existing.feedUrl || "") : "";
+        newsStatus.textContent = existing && existing.headlines && existing.headlines.length
+          ? "This is the real card — it updates itself once a day after you publish."
+          : "Type a location (or paste a specific RSS feed URL) to get today's headlines once you publish.";
       }
     });
   });
@@ -2265,54 +2277,69 @@
   let newsFetchToken = 0; // guards a slow/stale fetch from clobbering a newer edit
   let newsDebounceTimer = null;
 
-  function loadNewsPreview() {
-    if (!stagedObject || stagedObject.kind !== "news") return;
-    const location = stagedObject.location || "";
-    const feedUrl = stagedObject.feedUrl || "";
-    if (!location.trim() && !feedUrl.trim()) {
-      stagedObject.headlines = null;
-      newsStatus.textContent = "Type a location (or paste a specific RSS feed URL) to see today's headlines.";
-      redrawOverlay();
-      return;
-    }
-
+  function loadNewsPreview(layer) {
+    const location = layer.location || "";
+    const feedUrl = layer.feedUrl || "";
     const token = ++newsFetchToken;
     newsStatus.textContent = "Loading headlines…";
     fetchHeadlinesPreview(location, feedUrl).then((headlines) => {
-      if (token !== newsFetchToken || !stagedObject || stagedObject.kind !== "news") return; // superseded by a newer edit
-      stagedObject.headlines = headlines;
+      if (token !== newsFetchToken) return; // superseded by a newer edit
+      layer.headlines = headlines;
       newsStatus.textContent = headlines.length
         ? "This is the real card -- it updates itself once a day after you publish."
         : "No headlines found for that " + (feedUrl.trim() ? "feed" : "location") + " right now. It'll try again on its own each day.";
-      redrawOverlay();
+      renderLayers();
     }).catch((err) => {
       console.error("Couldn't load headlines:", err);
-      if (token !== newsFetchToken || !stagedObject || stagedObject.kind !== "news") return;
-      stagedObject.headlines = null;
+      if (token !== newsFetchToken) return;
+      layer.headlines = null;
       newsStatus.textContent = "Couldn't load headlines right now (" + err.message + ") -- it'll try again on its own each day.";
-      redrawOverlay();
+      renderLayers();
     });
   }
 
-  function scheduleNewsPreview() {
+  function scheduleNewsPreview(layer) {
     clearTimeout(newsDebounceTimer);
-    newsDebounceTimer = setTimeout(loadNewsPreview, 600);
+    newsDebounceTimer = setTimeout(() => loadNewsPreview(layer), 600);
   }
 
-  newsLocationInput.addEventListener("input", () => {
-    if (!stagedObject || stagedObject.kind !== "news") return;
-    stagedObject.location = newsLocationInput.value;
-    stagedObject.headlines = null;
-    redrawOverlay();
-    scheduleNewsPreview();
-  });
-  newsFeedUrlInput.addEventListener("input", () => {
-    if (!stagedObject || stagedObject.kind !== "news") return;
-    stagedObject.feedUrl = newsFeedUrlInput.value.trim();
-    stagedObject.headlines = null;
-    redrawOverlay();
-    scheduleNewsPreview();
-  });
+  // News never goes through staging/commit either -- same reasoning as
+  // Team above. Typing a location (or feed URL) creates/updates the
+  // "news" layer in `layers` directly and immediately; clearing both
+  // back to empty removes it again, rather than leaving an
+  // unpublishable empty layer sitting around.
+  function handleNewsInputChange() {
+    const location = newsLocationInput.value;
+    const feedUrl = newsFeedUrlInput.value.trim();
+    const idx = layers.findIndex((l) => l.kind === "news");
+    if (!location.trim() && !feedUrl) {
+      if (idx !== -1) { layers.splice(idx, 1); renderLayers(); }
+      newsStatus.textContent = "Type a location (or paste a specific RSS feed URL) to see today's headlines.";
+      clearTimeout(newsDebounceTimer);
+      return;
+    }
+    let layer;
+    if (idx === -1) {
+      layer = {
+        kind: "news", id: nextLayerId++,
+        x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
+        font: "Georgia, serif", outline: false,
+        location, feedUrl, headlines: null
+      };
+      pushUndoState();
+      layers.push(layer);
+    } else {
+      layer = layers[idx];
+      layer.location = location;
+      layer.feedUrl = feedUrl;
+      layer.headlines = null;
+    }
+    renderLayers();
+    scheduleNewsPreview(layer);
+  }
+
+  newsLocationInput.addEventListener("input", handleNewsInputChange);
+  newsFeedUrlInput.addEventListener("input", handleNewsInputChange);
 
   // ================= Team tool =================
   const teamLeagueSelect = document.getElementById("teamLeagueSelect");
@@ -2373,6 +2400,29 @@
     populateTeamSelect(sport, league);
   });
 
+  // Team never goes through staging/commit at all -- it's a fixed
+  // full-screen card with nothing to drag or place, so picking a team
+  // takes effect immediately: creates (or updates) the "team" layer in
+  // `layers` directly, live, with Publish already valid the moment a
+  // real game is found. font/outline are fixed (not user-facing -- see
+  // the removed Serif/Block/Pixel buttons) but still needed by
+  // drawText's fallback rendering (the plain "LOADING…"/error line shown
+  // before the real card resolves, or if it never does).
+  function findOrCreateTeamLayer() {
+    let layer = layers.find((l) => l.kind === "team");
+    if (!layer) {
+      layer = {
+        kind: "team", id: nextLayerId++,
+        x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
+        font: "Georgia, serif", outline: false,
+        previewContent: null, card: null
+      };
+      pushUndoState();
+      layers.push(layer);
+    }
+    return layer;
+  }
+
   teamNameSelect.addEventListener("change", async () => {
     const teamId = teamNameSelect.value;
     const leagueVal = teamLeagueSelect.value;
@@ -2380,44 +2430,39 @@
     const [sport, league] = leagueVal.split("/");
     const teamName = teamNameSelect.options[teamNameSelect.selectedIndex].textContent;
 
-    if (!stagedObject) {
-      // Same reasoning as the News tool above -- font/outline are fixed,
-      // not user-facing, but still needed by drawText's fallback line.
-      startStaging({ kind: "team", sport, league, teamId, teamName, font: "Georgia, serif", outline: false, previewContent: null, card: null });
-    } else if (stagedObject.kind === "team") {
-      stagedObject.sport = sport;
-      stagedObject.league = league;
-      stagedObject.teamId = teamId;
-      stagedObject.teamName = teamName;
-      stagedObject.previewContent = null;
-      stagedObject.card = null;
-    }
-    redrawOverlay();
+    const layer = findOrCreateTeamLayer();
+    layer.sport = sport;
+    layer.league = league;
+    layer.teamId = teamId;
+    layer.teamName = teamName;
+    layer.previewContent = null;
+    layer.card = null;
+    renderLayers();
 
     const token = ++teamFetchToken;
     teamStatus.textContent = "Loading " + teamName + "'s schedule…";
     try {
       const { nextGame, myAbbrev, myLogo } = await fetchNextGame(sport, league, teamId);
-      if (token !== teamFetchToken || !stagedObject || stagedObject.kind !== "team" || stagedObject.teamId !== teamId) return; // superseded by a newer selection
-      stagedObject.previewContent = formatTeamText(nextGame, myAbbrev);
+      if (token !== teamFetchToken || layer.teamId !== teamId) return; // superseded by a newer selection
+      layer.previewContent = formatTeamText(nextGame, myAbbrev);
       if (!nextGame) {
         teamStatus.textContent = "Updates on its own once a day after you publish — no need to redesign it.";
-        redrawOverlay();
+        renderLayers();
         return;
       }
 
       teamStatus.textContent = "Loading the Game Day card…";
-      redrawOverlay();
+      renderLayers();
 
       const [myLogoCanvas, oppLogoCanvas] = await Promise.all([
         fetchDitheredLogoClient(myLogo, LOGO_SIZE),
         fetchDitheredLogoClient(nextGame.opponentLogo, LOGO_SIZE)
       ]);
-      if (token !== teamFetchToken || !stagedObject || stagedObject.kind !== "team" || stagedObject.teamId !== teamId) return; // superseded while logos were loading
+      if (token !== teamFetchToken || layer.teamId !== teamId) return; // superseded while logos were loading
 
       const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
       const dateTimeParts = formatGameDateTimeParts(nextGame.gameDateISO);
-      stagedObject.card = {
+      layer.card = {
         bannerTitle: gameDayBannerTitle(sport, league),
         headline: (myAbbrev || "") + " " + vsOrAt + " " + nextGame.opponentAbbrev,
         daysLeft: nextGame.daysLeft,
@@ -2429,14 +2474,14 @@
         oppLogo: oppLogoCanvas
       };
       teamStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
-      redrawOverlay();
+      renderLayers();
     } catch (err) {
       console.error("Couldn't load schedule for team " + teamId + ":", err);
-      if (token !== teamFetchToken || !stagedObject || stagedObject.kind !== "team") return;
-      stagedObject.previewContent = "COULDN'T LOAD SCHEDULE";
-      stagedObject.card = null;
+      if (token !== teamFetchToken) return;
+      layer.previewContent = "COULDN'T LOAD SCHEDULE";
+      layer.card = null;
       teamStatus.textContent = "Couldn't load the schedule right now — try picking the team again.";
-      redrawOverlay();
+      renderLayers();
     }
   });
 
@@ -2541,10 +2586,13 @@
     countdownFontButtons.forEach((el) => { el.disabled = !countdownCtxEnabled; });
     countdownDateInput.disabled = !countdownCtxEnabled;
     countdownLabelInput.disabled = !countdownCtxEnabled;
-    // Same for a staged Team: league/team pickers and font stay live.
-    const teamCtxEnabled = enabled || (stagedObject && stagedObject.kind === "team");
-    teamLeagueSelect.disabled = !teamCtxEnabled;
-    teamNameSelect.disabled = !teamCtxEnabled || teamNameSelect.options.length <= 1;
+    // Team/News never go through staging at all (see
+    // findOrCreateTeamLayer/handleNewsInputChange) -- they follow
+    // `enabled` directly like every other non-staging control above.
+    teamLeagueSelect.disabled = !enabled;
+    teamNameSelect.disabled = !enabled || teamNameSelect.options.length <= 1;
+    newsLocationInput.disabled = !enabled;
+    newsFeedUrlInput.disabled = !enabled;
     updateClipartSearchEnabled();
   }
 
@@ -2747,14 +2795,6 @@
       return;
     }
     if (stagedObject.kind === "countdown" && !stagedObject.targetDate) {
-      endStaging();
-      return;
-    }
-    if (stagedObject.kind === "team" && !stagedObject.teamId) {
-      endStaging();
-      return;
-    }
-    if (stagedObject.kind === "news" && !stagedObject.location.trim() && !stagedObject.feedUrl.trim()) {
       endStaging();
       return;
     }
