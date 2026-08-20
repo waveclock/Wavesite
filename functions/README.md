@@ -37,14 +37,15 @@ Each run:
    - **countdown**: computes days-remaining and draws the text.
    - **team**: fetches the team's schedule from ESPN's unofficial site API.
      If a game is found, draws the full **Game Day card** -- full-screen
-     layout with an edge-to-edge matchup line using each team's actual
-     name ("PENN STATE VS MARSHALL", not ESPN's cryptic triCode
-     abbreviation), both teams' logos (fetched and Atkinson-dithered
-     server-side) flanking a large centered days-remaining count (split
-     across 3 lines -- "IN" / the number, in a very large font / "DAY" or
-     "DAYS" -- or a single big "TODAY!"), and an edge-to-edge bottom line
-     with the game's day/date, venue, and kickoff time in Eastern, all in
-     that order on one line. In the off-season (no upcoming games) it
+     layout with an edge-to-edge matchup line tucked up under the banner
+     using each team's actual name ("PENN STATE VS MARSHALL", not ESPN's
+     cryptic triCode abbreviation), both teams' full-size logos (fetched
+     and Atkinson-dithered server-side) flanking a large centered
+     days-remaining count (split across 3 lines -- "IN" / the number, in
+     a very large font / "DAY" or "DAYS" -- or a single big "TODAY!"),
+     the venue in its own larger line centered directly under that count,
+     and an edge-to-edge bottom line with the game's day/date and kickoff
+     time in Eastern. In the off-season (no upcoming games) it
      falls back to the plain "{TEAM}: NO UPCOMING GAMES" text -- a normal,
      steady state, not an error, and there's no card to build around.
    - **news**: fetches and parses an RSS feed (see "The News card" below

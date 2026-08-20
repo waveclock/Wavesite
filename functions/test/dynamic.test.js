@@ -6,7 +6,7 @@ const {
   daysUntil,
   formatCountdownText,
   formatTeamText,
-  formatGameLine,
+  formatGameDateTime,
   findNextGame,
   fetchNextGame,
   extractLogoUrl,
@@ -322,18 +322,14 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     await assert.rejects(() => renderDynamicDesign(base, meta, now, fakeFetchJson({}, false)));
   });
 
-  console.log("formatGameLine");
-  await test("formats an ISO date + venue in Eastern time, matching US broadcast convention", () => {
+  console.log("formatGameDateTime");
+  await test("formats an ISO date in Eastern time, matching US broadcast convention", () => {
     // 2026-10-24 17:30Z = 1:30 PM ET (EDT, UTC-4) that day.
-    const text = formatGameLine("2026-10-24T17:30Z", "Beaver Stadium");
-    assert.strictEqual(text, "SAT OCT 24 · Beaver Stadium · 1:30 PM ET");
-  });
-  await test("omits the venue segment (no dangling separator) when there's no venue", () => {
-    const text = formatGameLine("2026-10-24T17:30Z", null);
+    const text = formatGameDateTime("2026-10-24T17:30Z");
     assert.strictEqual(text, "SAT OCT 24 · 1:30 PM ET");
   });
   await test("returns null for an unparseable date instead of showing garbage", () => {
-    assert.strictEqual(formatGameLine("not-a-date", "Beaver Stadium"), null);
+    assert.strictEqual(formatGameDateTime("not-a-date"), null);
   });
 
   console.log("extractLogoUrl / extractVenueName");
@@ -518,7 +514,19 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       drawGameDayCard(ctx, { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft: 0, daysUnit: "DAYS", gameLine: null, myLogo: null, oppLogo: null });
     });
   });
-  await test("draws provided logo canvases without throwing, and skips the gameLine cleanly when absent", () => {
+  await test("draws a venue line (larger font, centered under the days-count) when provided, without throwing", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawGameDayCard(ctx, {
+        bannerTitle: "COLLEGE FOOTBALL GAME DAY",
+        headline: "PENN STATE VS MARSHALL", daysLeft: 17, daysUnit: "DAYS",
+        venue: "Beaver Stadium", gameLine: "SAT SEP 5 · 3:30 PM ET",
+        myLogo: null, oppLogo: null
+      });
+    });
+  });
+  await test("draws provided logo canvases without throwing, and skips the venue/gameLine cleanly when absent", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");
     const logo = ditheredLogoCanvas(whiteCanvas(20, 20), LOGO_SIZE);
@@ -526,7 +534,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       drawGameDayCard(ctx, {
         bannerTitle: "COLLEGE FOOTBALL GAME DAY",
         headline: "ME VS OPP", daysLeft: 0, daysUnit: "DAYS",
-        gameLine: "SAT OCT 24 · Beaver Stadium · 1:30 PM ET",
+        venue: null, gameLine: null,
         myLogo: logo, oppLogo: logo
       });
     });

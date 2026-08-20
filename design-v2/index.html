@@ -931,12 +931,12 @@
     return findNextGame(data.events, teamId);
   }
 
-  // "SAT SEP 5 · Beaver Stadium · 3:30 PM ET" -- mirrors
-  // functions/lib/dynamic.js's formatGameLine exactly; see the comment
-  // there for the ordering/venue-omission reasoning. Always Eastern time,
-  // matching US sports broadcast convention, regardless of the visitor's
-  // own timezone.
-  function formatGameLine(isoString, venue) {
+  // "SAT SEP 5 · 3:30 PM ET" -- the card's edge-to-edge bottom line.
+  // Mirrors functions/lib/dynamic.js's formatGameDateTime exactly; see
+  // the comment there for why venue isn't part of this. Always Eastern
+  // time, matching US sports broadcast convention, regardless of the
+  // visitor's own timezone.
+  function formatGameDateTime(isoString) {
     const d = new Date(isoString);
     if (isNaN(d.getTime())) return null;
     const parts = new Intl.DateTimeFormat("en-US", {
@@ -952,10 +952,7 @@
     const minute = get("minute");
     const dayPeriod = get("dayPeriod").toUpperCase();
     if (!weekday || !month || !day || !hour || !minute) return null;
-    const segments = [weekday + " " + month + " " + day];
-    if (venue) segments.push(venue);
-    segments.push(hour + ":" + minute + " " + dayPeriod + " ET");
-    return segments.join(" · ");
+    return weekday + " " + month + " " + day + " · " + hour + ":" + minute + " " + dayPeriod + " ET";
   }
 
   // ================= Game Day card (live preview) =================
@@ -966,10 +963,7 @@
   // previewContent/formatTeamText above remain only as the fallback while
   // this is loading or if a logo fetch fails.
   const BANNER_HEIGHT = 48;
-  // 150, not 175 -- mirrors functions/lib/dynamic.js's LOGO_SIZE; see the
-  // comment there for why (the headline/gameLine bands above and below
-  // the logos leave less vertical room than before).
-  const LOGO_SIZE = 150;
+  const LOGO_SIZE = 175;
   const LOGO_MARGIN = 28;
   const LEAGUE_DISPLAY_NAME = {
     "football/nfl": "NFL",
@@ -1081,30 +1075,34 @@
     ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
 
     ctx.fillStyle = "#000";
-    const headlineSize = fitBannerFontSize(ctx, card.headline, w - 40, "'Bungee', sans-serif", 28, 16);
-    ctx.fillText(card.headline, w / 2, BANNER_HEIGHT + 30 + Math.round(headlineSize * 0.35));
+    const headlineSize = fitBannerFontSize(ctx, card.headline, w - 40, "'Bungee', sans-serif", 24, 16);
+    ctx.fillText(card.headline, w / 2, BANNER_HEIGHT + 4 + headlineSize);
 
-    const bodyTop = BANNER_HEIGHT + 42;
-    const bodyBottom = h - 30;
-    const bodyMidY = (bodyTop + bodyBottom) / 2;
+    const bodyMidY = BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2;
     if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
     if (card.oppLogo) ctx.drawImage(card.oppLogo, w - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
 
     const daysMaxWidth = w - 2 * (LOGO_MARGIN + LOGO_SIZE) - 20;
     if (card.daysLeft <= 0) {
-      const size = fitBannerFontSize(ctx, "TODAY!", daysMaxWidth, "'Bungee', sans-serif", 64, 28);
-      ctx.fillText("TODAY!", w / 2, bodyMidY + Math.round(size * 0.35));
+      const size = fitBannerFontSize(ctx, "TODAY!", daysMaxWidth, "'Bungee', sans-serif", 56, 26);
+      ctx.fillText("TODAY!", w / 2, bodyMidY - 6 + Math.round(size * 0.35));
     } else {
-      ctx.font = "bold 22px Georgia, serif";
-      ctx.fillText("IN", w / 2, bodyMidY - 58);
+      ctx.font = "bold 20px Georgia, serif";
+      ctx.fillText("IN", w / 2, bodyMidY - 60);
 
       const numberText = String(card.daysLeft);
-      const numberSize = fitBannerFontSize(ctx, numberText, daysMaxWidth, "'Bungee', sans-serif", 110, 40);
+      const numberSize = fitBannerFontSize(ctx, numberText, daysMaxWidth, "'Bungee', sans-serif", 92, 40);
       ctx.font = numberSize + "px 'Bungee', sans-serif";
-      ctx.fillText(numberText, w / 2, bodyMidY + Math.round(numberSize * 0.36));
+      ctx.fillText(numberText, w / 2, bodyMidY - 6 + Math.round(numberSize * 0.34));
 
-      ctx.font = "bold 22px Georgia, serif";
-      ctx.fillText(card.daysUnit || "DAYS", w / 2, bodyMidY + 62);
+      ctx.font = "bold 20px Georgia, serif";
+      ctx.fillText(card.daysUnit || "DAYS", w / 2, bodyMidY + 40);
+    }
+
+    if (card.venue) {
+      const venueSize = fitBannerFontSize(ctx, card.venue, daysMaxWidth, "Georgia, serif", 24, 14);
+      ctx.font = venueSize + "px Georgia, serif";
+      ctx.fillText(card.venue, w / 2, bodyMidY + 68);
     }
 
     if (card.gameLine) {
@@ -2386,7 +2384,8 @@
         headline: (myAbbrev || "") + " " + vsOrAt + " " + nextGame.opponentAbbrev,
         daysLeft: nextGame.daysLeft,
         daysUnit: nextGame.daysLeft === 1 ? "DAY" : "DAYS",
-        gameLine: formatGameLine(nextGame.gameDateISO, nextGame.venue),
+        venue: nextGame.venue,
+        gameLine: formatGameDateTime(nextGame.gameDateISO),
         myLogo: myLogoCanvas,
         oppLogo: oppLogoCanvas
       };
