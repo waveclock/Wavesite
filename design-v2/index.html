@@ -82,6 +82,49 @@
     color: var(--foam);
   }
 
+  .screen-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 10px;
+    font-size: 13px;
+  }
+  .screen-nav-label {
+    color: var(--ink-soft);
+    margin-right: 2px;
+  }
+  .screen-nav-item {
+    display: inline-block;
+    min-width: 22px;
+    text-align: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    text-decoration: none;
+    font-weight: 700;
+  }
+  .screen-nav-item.current {
+    background: var(--navy);
+    color: var(--foam);
+  }
+  a.screen-nav-item {
+    background: var(--foam);
+    border: 1px solid var(--line);
+    color: var(--navy);
+  }
+  a.screen-nav-item:hover { background: var(--sand); }
+
+  .rotation-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+  .rotation-toggle-row input { width: 16px; height: 16px; }
+
   .current-board {
     display: none;
     background: var(--foam);
@@ -497,6 +540,11 @@
     <p class="subtitle">Draw something, write something &mdash; whatever you want to see every time it cycles by.</p>
     <p style="font-size:11px; color:var(--ink-soft); opacity:0.7; margin:6px 0 0;">Preview &mdash; adds Countdown and Team Schedule tools that update on their own each day.</p>
     <span class="device-tag" id="deviceTag">Loading device&hellip;</span>
+    <div class="screen-nav" id="screenNav" style="display:none;"></div>
+    <label class="rotation-toggle-row" id="rotationToggleRow" style="display:none;">
+      <input type="checkbox" id="rotationCheckbox">
+      <span id="rotationToggleLabel">Include this screen in the rotation</span>
+    </label>
   </header>
 
   <p class="status error" id="noDeviceMsg" style="display:none;">This link is missing your device ID, so there's nothing to design for &mdash; scan the QR code on your Wave Clock to get a working link.</p>
@@ -696,6 +744,46 @@
   const noDeviceMsg = document.getElementById("noDeviceMsg");
   const editor = document.getElementById("editor");
   const backToManageLink = document.getElementById("backToManageLink");
+  const screenNav = document.getElementById("screenNav");
+  const rotationToggleRow = document.getElementById("rotationToggleRow");
+  const rotationCheckbox = document.getElementById("rotationCheckbox");
+
+  // Which of the customer's 3 independent custom-design slots this page
+  // load is editing -- defaults to 1 for a bare `?id=` link (every
+  // existing bookmark/QR code), never anything outside 1-3.
+  const screenParam = parseInt(params.get("screen"), 10);
+  const screen = (screenParam === 2 || screenParam === 3) ? screenParam : 1;
+
+  // Screen 1 writes to BOTH the legacy unsuffixed path and the new
+  // "_1"-suffixed one. Every Wave Clock in the field right now runs
+  // single-screen firmware that only ever reads the unsuffixed
+  // designs/{id}.bin -- the 3-screen firmware hasn't shipped yet (still
+  // pending a RAM/caching check on real hardware). Dual-writing keeps
+  // today's customers' boards updating normally while also building out
+  // the new path old firmware simply ignores, so nothing breaks in
+  // production the moment this ships. Screens 2/3 have no legacy
+  // equivalent to preserve -- old firmware never looked for a second or
+  // third screen, so there's nothing there to keep working.
+  function screenDesignPaths(suffix) {
+    if (screen === 1) return ["designs/" + deviceId + suffix, "designs/" + deviceId + "_1" + suffix];
+    return ["designs/" + deviceId + "_" + screen + suffix];
+  }
+
+  async function uploadToScreenPaths(suffix, blob) {
+    const paths = screenDesignPaths(suffix);
+    await uploadBytes(ref(storage, paths[0]), blob);
+    for (const path of paths.slice(1)) {
+      try {
+        await uploadBytes(ref(storage, path), blob);
+      } catch (err) {
+        console.error("Couldn't write the new multi-screen path " + path + " (non-critical while Storage Rules haven't been updated yet):", err);
+      }
+    }
+  }
+
+  async function deleteFromScreenPaths(suffix) {
+    await Promise.all(screenDesignPaths(suffix).map((path) => deleteObject(ref(storage, path)).catch(() => {})));
+  }
 
   if (!deviceId) {
     deviceTag.textContent = "No device ID found in link";
@@ -704,8 +792,29 @@
     noDeviceMsg.style.display = "block";
     editor.style.display = "none";
   } else {
-    deviceTag.textContent = "Designing for " + deviceId;
+    deviceTag.textContent = "Designing for " + deviceId + " — Screen " + screen;
     if (backToManageLink) backToManageLink.href = "../manage/?id=" + encodeURIComponent(deviceId);
+
+    screenNav.style.display = "flex";
+    screenNav.innerHTML = "";
+    const navLabel = document.createElement("span");
+    navLabel.className = "screen-nav-label";
+    navLabel.textContent = "Screen:";
+    screenNav.appendChild(navLabel);
+    [1, 2, 3].forEach((n) => {
+      if (n === screen) {
+        const cur = document.createElement("span");
+        cur.className = "screen-nav-item current";
+        cur.textContent = String(n);
+        screenNav.appendChild(cur);
+      } else {
+        const link = document.createElement("a");
+        link.className = "screen-nav-item";
+        link.href = "?id=" + encodeURIComponent(deviceId) + "&screen=" + n;
+        link.textContent = String(n);
+        screenNav.appendChild(link);
+      }
+    });
   }
 
   function withTimeout(promise, ms) {
@@ -715,14 +824,106 @@
     ]);
   }
 
+  async function fetchJsonFromStorage(path, timeoutMs) {
+    const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + encodeURIComponent(path) + "?alt=media";
+    const resp = await withTimeout(fetch(url), timeoutMs);
+    if (resp.status === 404) return null;
+    if (!resp.ok) throw new Error("fetch failed: " + resp.status);
+    return resp.json();
+  }
+
+  // Mirrors settings/index.html's own defaults exactly -- the firmware's
+  // parser requires every one of these fields present and boolean/enum-
+  // typed, or it silently rejects the WHOLE settings payload, not just
+  // whatever's missing (confirmed directly from the firmware's parsing
+  // code). These are the fallback values used to fill in anything a
+  // device's existing settings/{id}.json doesn't have yet -- most
+  // relevantly, a device that's never had one at all.
+  const SETTINGS_DEFAULTS = {
+    cycleMode: "1MIN",
+    showWaveForecast: true,
+    showWeatherForecast: true,
+    showBeach: true,
+    showLifeguard: true,
+    showCustomScreen: true, // legacy field, still required by current firmware -- see updateSettingsField
+    showCustomScreen1: true,
+    showCustomScreen2: true,
+    showCustomScreen3: false,
+    sunsetAllDay: false,
+    sunsetReminder: "NONE"
+  };
+
+  // Genuine read-merge-write, never a partial write: Firebase Storage
+  // replaces the whole file on each uploadBytes call (no server-side
+  // JSON merge), and settings/index.html does the same full-object
+  // write on its own Save -- so writing anything less than the complete,
+  // valid shape here would either drop fields that page just saved, or
+  // (for a field genuinely missing everywhere, e.g. a brand new device)
+  // get the ENTIRE settings sync rejected by the firmware, not just miss
+  // the one field intended.
+  async function updateSettingsField(field, value) {
+    let current = null;
+    try {
+      current = await fetchJsonFromStorage("settings/" + deviceId + ".json", 12000);
+    } catch (err) {
+      console.error("Couldn't read existing settings before updating " + field + " (filling gaps from defaults):", err);
+    }
+    const payload = Object.assign({}, SETTINGS_DEFAULTS, current || {}, { [field]: value });
+    // Current firmware still requires the legacy singular field; mirror it from
+    // screen 1 (the only slot legacy firmware can actually display) until firmware ships.
+    payload.showCustomScreen = payload.showCustomScreen1;
+    const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+    await uploadBytes(ref(storage, "settings/" + deviceId + ".json"), blob);
+  }
+
+  const ROTATION_FIELD = "showCustomScreen" + screen;
+
+  async function initRotationToggle() {
+    if (!deviceId) return;
+    rotationToggleRow.style.display = "flex";
+    let existing = null;
+    try {
+      existing = await fetchJsonFromStorage("settings/" + deviceId + ".json", 12000);
+    } catch (err) {
+      console.error("Couldn't load current rotation setting (defaulting):", err);
+    }
+    const current = existing && ROTATION_FIELD in existing ? existing[ROTATION_FIELD] : SETTINGS_DEFAULTS[ROTATION_FIELD];
+    rotationCheckbox.checked = !!current;
+  }
+  initRotationToggle();
+
+  rotationCheckbox.addEventListener("change", async () => {
+    if (!deviceId) return;
+    const value = rotationCheckbox.checked;
+    rotationCheckbox.disabled = true;
+    try {
+      await updateSettingsField(ROTATION_FIELD, value);
+    } catch (err) {
+      console.error("Couldn't save the rotation setting:", err);
+      rotationCheckbox.checked = !value; // revert the visible state to match what's actually saved
+      setStatus("Couldn't save that — try again in a moment.", "error");
+    } finally {
+      rotationCheckbox.disabled = false;
+    }
+  });
+
   // A snapshot of whatever was last published, saved alongside the .bin
   // (see publishBtn handler below) so a returning customer can see what's
   // actually on their board right now before they start drawing over it.
   // A missing file just means nothing's been published yet -- not an error.
+  // Screen 1 checks the LEGACY unsuffixed path -- that's the one every
+  // design published before this feature shipped actually lives at, and
+  // the dual-write in screenDesignPaths keeps it current going forward.
+  // Screens 2/3 have no legacy path; they only ever exist at their own
+  // "_N" suffix.
+  function primaryPreviewPath() {
+    return screen === 1 ? ("designs/" + deviceId + ".png") : ("designs/" + deviceId + "_" + screen + ".png");
+  }
+
   async function loadCurrentBoardPreview() {
     if (!deviceId) return;
     try {
-      const path = encodeURIComponent("designs/" + deviceId + ".png");
+      const path = encodeURIComponent(primaryPreviewPath());
       const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + path + "?alt=media";
       const resp = await withTimeout(fetch(url), 10000);
       if (!resp.ok) return; // 404 or otherwise -- nothing published yet
@@ -2938,16 +3139,14 @@
       const composite = getCompositeCanvas();
       const packed = packTo1Bit(composite);
       const blob = new Blob([packed], { type: "application/octet-stream" });
-      const storageRef = ref(storage, "designs/" + deviceId + ".bin");
 
       const previewCanvas = getPublishPreviewCanvas(composite);
       const pngBlob = await new Promise((resolve) => previewCanvas.toBlob(resolve, "image/png"));
-      const previewRef = ref(storage, "designs/" + deviceId + ".png");
 
-      await uploadBytes(storageRef, blob);
+      await uploadToScreenPaths(".bin", blob);
       if (pngBlob) {
         try {
-          await uploadBytes(previewRef, pngBlob);
+          await uploadToScreenPaths(".png", pngBlob);
           currentBoardImg.src = URL.createObjectURL(pngBlob);
           currentBoardCard.classList.add("visible");
         } catch (previewErr) {
@@ -2964,13 +3163,11 @@
       // If there's no dynamic layer, clean up any of those left over from
       // a previous publish so the daily job has nothing stale to find.
       const dynamicLayer = layers.find((l) => DYNAMIC_KINDS.has(l.kind));
-      const baseRef = ref(storage, "designs/" + deviceId + "-base.png");
-      const dynamicRef = ref(storage, "designs/" + deviceId + "-dynamic.json");
       if (dynamicLayer) {
         try {
           const baseCanvasFlat = getBaseCanvas();
           const baseBlob = await new Promise((resolve) => baseCanvasFlat.toBlob(resolve, "image/png"));
-          if (baseBlob) await uploadBytes(baseRef, baseBlob);
+          if (baseBlob) await uploadToScreenPaths("-base.png", baseBlob);
 
           const shared = { x: dynamicLayer.x, y: dynamicLayer.y, size: dynamicLayer.size, fontKey: dynamicLayer.fontKey, outline: !!dynamicLayer.outline, inverted };
           let dynamicMeta;
@@ -2983,7 +3180,7 @@
           }
 
           const metaBlob = new Blob([JSON.stringify(dynamicMeta)], { type: "application/json" });
-          await uploadBytes(dynamicRef, metaBlob);
+          await uploadToScreenPaths("-dynamic.json", metaBlob);
         } catch (dynErr) {
           // The board still got today's design either way (see above) --
           // only the DAILY auto-update wouldn't work, so this shouldn't
@@ -2992,8 +3189,8 @@
           setStatus("Published — but the daily auto-update couldn't be saved. It'll still show today's content.", "error");
         }
       } else {
-        try { await deleteObject(baseRef); } catch (e) { /* nothing to clean up */ }
-        try { await deleteObject(dynamicRef); } catch (e) { /* nothing to clean up */ }
+        await deleteFromScreenPaths("-base.png");
+        await deleteFromScreenPaths("-dynamic.json");
       }
 
       if (!statusMsg.classList.contains("error")) {
