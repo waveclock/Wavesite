@@ -51,9 +51,11 @@ Each run:
      falls back to the plain "{TEAM}: NO UPCOMING GAMES" text -- a normal,
      steady state, not an error, and there's no card to build around.
    - **news**: fetches and parses an RSS feed (see "The News card" below
-     for how the feed URL is chosen), draws up to 3 headlines -- truncated
-     to fit -- in the same bordered card style as the Game Day card. An
-     empty/unreachable-but-responding feed falls back to plain
+     for how the feed URL is chosen), draws up to 2 headlines -- each
+     word-wrapped across up to 2 lines rather than truncated to 1, so a
+     headline reads in full far more often -- in the same bordered card
+     style as the Game Day card. An empty/unreachable-but-responding feed
+     falls back to plain
      "{LOCATION}: NO HEADLINES FOUND" text.
 3. Re-packs to the device's 1-bit format and overwrites `.bin` / `.png`.
 4. **Countdown** only: once the target date has passed, deletes

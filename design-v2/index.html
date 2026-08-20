@@ -2191,6 +2191,32 @@
     return t + "…";
   }
 
+  // Mirrors wrapToLines in lib/dynamic.js exactly -- see the comment
+  // there for the maxLines-overflow (fold + ellipsize the last line)
+  // reasoning.
+  function wrapToLines(ctx, text, maxWidth, maxLines) {
+    const words = text.split(/\s+/).filter(Boolean);
+    const lines = [];
+    let current = "";
+    for (const word of words) {
+      const candidate = current ? current + " " + word : word;
+      if (current && ctx.measureText(candidate).width > maxWidth) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current) lines.push(current);
+
+    if (lines.length <= maxLines) return lines;
+
+    const kept = lines.slice(0, maxLines - 1);
+    const rest = lines.slice(maxLines - 1).join(" ");
+    kept.push(truncateToWidth(ctx, rest, maxWidth));
+    return kept;
+  }
+
   function formatShortDateClient(now) {
     const at = now || new Date();
     return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })
@@ -2215,15 +2241,20 @@
     const leftX = 34;
     const maxTextWidth = w - 34 - 34;
     let y = BANNER_HEIGHT + 40;
-    const lineGap = 54;
+    const lineGap = 32;
+    const headlineGap = 16;
     ctx.textAlign = "left";
     card.headlines.forEach((headline) => {
       ctx.font = "bold 26px Georgia, serif";
       const bullet = "•  ";
       const bulletWidth = ctx.measureText(bullet).width;
-      ctx.fillText(bullet, leftX, y);
-      ctx.fillText(truncateToWidth(ctx, headline, maxTextWidth - bulletWidth), leftX + bulletWidth, y);
-      y += lineGap;
+      const lines = wrapToLines(ctx, headline, maxTextWidth - bulletWidth, 2);
+      lines.forEach((line, i) => {
+        if (i === 0) ctx.fillText(bullet, leftX, y);
+        ctx.fillText(line, leftX + bulletWidth, y);
+        y += lineGap;
+      });
+      y += headlineGap;
     });
 
     if (card.updatedLabel) {
