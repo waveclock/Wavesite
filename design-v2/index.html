@@ -931,12 +931,13 @@
     return findNextGame(data.events, teamId);
   }
 
-  // "SAT SEP 5 · 3:30 PM ET" -- the card's edge-to-edge bottom line.
-  // Mirrors functions/lib/dynamic.js's formatGameDateTime exactly; see
-  // the comment there for why venue isn't part of this. Always Eastern
-  // time, matching US sports broadcast convention, regardless of the
-  // visitor's own timezone.
-  function formatGameDateTime(isoString) {
+  // Splits the weekday+date and kickoff time into two separate strings
+  // so the card's bottom line can draw the venue at a larger font size
+  // IN BETWEEN them. Mirrors functions/lib/dynamic.js's
+  // formatGameDateTimeParts exactly. Always Eastern time, matching US
+  // sports broadcast convention, regardless of the visitor's own
+  // timezone.
+  function formatGameDateTimeParts(isoString) {
     const d = new Date(isoString);
     if (isNaN(d.getTime())) return null;
     const parts = new Intl.DateTimeFormat("en-US", {
@@ -952,7 +953,10 @@
     const minute = get("minute");
     const dayPeriod = get("dayPeriod").toUpperCase();
     if (!weekday || !month || !day || !hour || !minute) return null;
-    return weekday + " " + month + " " + day + " · " + hour + ":" + minute + " " + dayPeriod + " ET";
+    return {
+      dateLabel: weekday + " " + month + " " + day,
+      timeLabel: hour + ":" + minute + " " + dayPeriod + " ET"
+    };
   }
 
   // ================= Game Day card (live preview) =================
@@ -1051,18 +1055,68 @@
     }
   }
 
+  // Draws one edge-to-edge line -- dateLabel, then venue (if given) at a
+  // LARGER size than the rest, then timeLabel -- all sharing one
+  // baseline. Mirrors functions/lib/dynamic.js's drawGameLine exactly;
+  // see the comment there for why fitBannerFontSize (single string,
+  // single size) can't do this and how the lockstep shrink works.
+  const VENUE_SIZE_BOOST = 6;
+  const MIN_DATE_SIZE = 13;
+  function drawGameLine(ctx, w, dateLabel, venue, timeLabel, maxWidth, y) {
+    const family = "Georgia, serif";
+    const sep = "  ·  ";
+    let dateSize = 20;
+    let venueSize, totalWidth, sepWidth, dateWidth, venueWidth, timeWidth;
+    for (;;) {
+      venueSize = dateSize + VENUE_SIZE_BOOST;
+      ctx.font = "bold " + dateSize + "px " + family;
+      sepWidth = ctx.measureText(sep).width;
+      dateWidth = ctx.measureText(dateLabel).width;
+      timeWidth = ctx.measureText(timeLabel).width;
+      venueWidth = 0;
+      if (venue) {
+        ctx.font = "bold " + venueSize + "px " + family;
+        venueWidth = ctx.measureText(venue).width;
+      }
+      const segCount = venue ? 3 : 2;
+      totalWidth = dateWidth + timeWidth + venueWidth + sepWidth * (segCount - 1);
+      if (totalWidth <= maxWidth || dateSize <= MIN_DATE_SIZE) break;
+      dateSize--;
+    }
+
+    const prevAlign = ctx.textAlign;
+    ctx.textAlign = "left";
+    let x = w / 2 - totalWidth / 2;
+
+    ctx.font = "bold " + dateSize + "px " + family;
+    ctx.fillText(dateLabel, x, y);
+    x += dateWidth;
+
+    if (venue) {
+      ctx.fillText(sep, x, y);
+      x += sepWidth;
+      ctx.font = "bold " + venueSize + "px " + family;
+      ctx.fillText(venue, x, y);
+      x += venueWidth;
+      ctx.font = "bold " + dateSize + "px " + family;
+    }
+    ctx.fillText(sep, x, y);
+    x += sepWidth;
+    ctx.fillText(timeLabel, x, y);
+
+    ctx.textAlign = prevAlign;
+  }
+
   // Full-screen layout: solid black title banner in white block letters,
-  // optional logos either side, matchup headline, days-left, optional
-  // date/venue -- no drawn border, the board's own bezel frames it.
-  // Missing optional fields (no logo, unparseable date, no venue) are
-  // simply skipped, same as the server. Explicitly resets textBaseline --
-  // unlike the server (a fresh canvas per render), this shares its 2d
-  // context with whatever layer drew before it in the same pass, and
-  // drawText above leaves it set to "middle".
-  // Mirrors functions/lib/dynamic.js's drawGameDayCard exactly (4 bands:
-  // banner, edge-to-edge headline, logos + big days-count between them,
-  // edge-to-edge gameLine) -- see the comment there for the reasoning
-  // behind each band.
+  // optional logos either side, matchup headline, days-left, and one
+  // edge-to-edge date/venue/time line -- no drawn border, the board's
+  // own bezel frames it. Missing optional fields (no logo, unparseable
+  // date, no venue) are simply skipped, same as the server. Explicitly
+  // resets textBaseline -- unlike the server (a fresh canvas per
+  // render), this shares its 2d context with whatever layer drew before
+  // it in the same pass, and drawText above leaves it set to "middle".
+  // Mirrors functions/lib/dynamic.js's drawGameDayCard exactly -- see
+  // the comment there for the reasoning behind each band.
   function drawGameDayCardClient(ctx, card) {
     const w = baseCanvas.width, h = baseCanvas.height;
     ctx.textBaseline = "alphabetic";
@@ -1099,17 +1153,9 @@
       ctx.fillText(card.daysUnit || "DAYS", w / 2, bodyMidY + 40);
     }
 
-    if (card.venue) {
-      const venueSize = fitBannerFontSize(ctx, card.venue, daysMaxWidth, "Georgia, serif", 24, 14);
-      ctx.font = venueSize + "px Georgia, serif";
-      ctx.fillText(card.venue, w / 2, bodyMidY + 68);
-    }
-
-    if (card.gameLine) {
+    if (card.dateLabel && card.timeLabel) {
       ctx.fillStyle = "#000";
-      const gameLineSize = fitBannerFontSize(ctx, card.gameLine, w - 48, "Georgia, serif", 20, 13);
-      ctx.font = "bold " + gameLineSize + "px Georgia, serif";
-      ctx.fillText(card.gameLine, w / 2, h - 14);
+      drawGameLine(ctx, w, card.dateLabel, card.venue, card.timeLabel, w - 48, h - 14);
     }
   }
 
@@ -2379,13 +2425,15 @@
       if (token !== teamFetchToken || !stagedObject || stagedObject.kind !== "team" || stagedObject.teamId !== teamId) return; // superseded while logos were loading
 
       const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
+      const dateTimeParts = formatGameDateTimeParts(nextGame.gameDateISO);
       stagedObject.card = {
         bannerTitle: gameDayBannerTitle(sport, league),
         headline: (myAbbrev || "") + " " + vsOrAt + " " + nextGame.opponentAbbrev,
         daysLeft: nextGame.daysLeft,
         daysUnit: nextGame.daysLeft === 1 ? "DAY" : "DAYS",
         venue: nextGame.venue,
-        gameLine: formatGameDateTime(nextGame.gameDateISO),
+        dateLabel: dateTimeParts ? dateTimeParts.dateLabel : null,
+        timeLabel: dateTimeParts ? dateTimeParts.timeLabel : null,
         myLogo: myLogoCanvas,
         oppLogo: oppLogoCanvas
       };

@@ -251,15 +251,14 @@ function formatTeamText(nextGame, myAbbrev) {
   return prefix + vsOrAt + " " + nextGame.opponentAbbrev + " IN " + daysLeft + " " + unit;
 }
 
-// "SAT SEP 5 · 3:30 PM ET" -- the card's edge-to-edge bottom line.
-// Venue is deliberately NOT part of this -- it gets its own larger,
-// centered line under the days-count instead (see drawGameDayCard),
-// since a stadium name deserves more visual weight than a corner of a
-// packed date/time line. Always Eastern time regardless of the device's
+// Splits the weekday+date and kickoff time into two separate strings
+// (instead of one joined line) so the card's bottom line can draw the
+// venue at a larger font size IN BETWEEN them, sharing one baseline --
+// see drawGameLine below. Always Eastern time regardless of the device's
 // own location, matching how US sports broadcasts/schedules
 // conventionally list game times. Returns null on an unparseable date
 // rather than showing garbage text.
-function formatGameDateTime(isoString) {
+function formatGameDateTimeParts(isoString) {
   const d = new Date(isoString);
   if (isNaN(d.getTime())) return null;
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -275,7 +274,10 @@ function formatGameDateTime(isoString) {
   const minute = get("minute");
   const dayPeriod = get("dayPeriod").toUpperCase();
   if (!weekday || !month || !day || !hour || !minute) return null;
-  return weekday + " " + month + " " + day + " · " + hour + ":" + minute + " " + dayPeriod + " ET";
+  return {
+    dateLabel: weekday + " " + month + " " + day,
+    timeLabel: hour + ":" + minute + " " + dayPeriod + " ET"
+  };
 }
 
 // ================= News (RSS) type =================
@@ -644,6 +646,65 @@ async function fetchDitheredLogo(url, size, fetchImpl) {
   }
 }
 
+// Draws one edge-to-edge line -- dateLabel, then venue (if given) at a
+// LARGER size than the rest, then timeLabel -- all sharing one baseline,
+// the way a normal typographic mixed-size line works ("10€" with a
+// bigger currency mark, still baseline-aligned). fitBannerFontSize can't
+// do this: it only ever measures one string at one size. So this shrinks
+// dateSize and venueSize together, in lockstep (keeping venue
+// VENUE_SIZE_BOOST px larger than the rest), re-measuring the WHOLE
+// assembled line each step, until it fits maxWidth or dateSize hits
+// MIN_DATE_SIZE -- same "shrink everything together, never truncate"
+// contract as fitBannerFontSize, just for 3 segments glued together
+// instead of 1. Skips venue (2 segments, not 3) when there isn't one,
+// e.g. an ESPN response with no venue field.
+const VENUE_SIZE_BOOST = 6;
+const MIN_DATE_SIZE = 13;
+function drawGameLine(ctx, dateLabel, venue, timeLabel, maxWidth, y) {
+  const family = FONT_FAMILY.serif;
+  const sep = "  ·  ";
+  let dateSize = 20;
+  let venueSize, totalWidth, sepWidth, dateWidth, venueWidth, timeWidth;
+  for (;;) {
+    venueSize = dateSize + VENUE_SIZE_BOOST;
+    ctx.font = "bold " + dateSize + "px \"" + family + "\"";
+    sepWidth = ctx.measureText(sep).width;
+    dateWidth = ctx.measureText(dateLabel).width;
+    timeWidth = ctx.measureText(timeLabel).width;
+    venueWidth = 0;
+    if (venue) {
+      ctx.font = "bold " + venueSize + "px \"" + family + "\"";
+      venueWidth = ctx.measureText(venue).width;
+    }
+    const segCount = venue ? 3 : 2;
+    totalWidth = dateWidth + timeWidth + venueWidth + sepWidth * (segCount - 1);
+    if (totalWidth <= maxWidth || dateSize <= MIN_DATE_SIZE) break;
+    dateSize--;
+  }
+
+  const prevAlign = ctx.textAlign;
+  ctx.textAlign = "left";
+  let x = CANVAS_WIDTH / 2 - totalWidth / 2;
+
+  ctx.font = "bold " + dateSize + "px \"" + family + "\"";
+  ctx.fillText(dateLabel, x, y);
+  x += dateWidth;
+
+  if (venue) {
+    ctx.fillText(sep, x, y);
+    x += sepWidth;
+    ctx.font = "bold " + venueSize + "px \"" + family + "\"";
+    ctx.fillText(venue, x, y);
+    x += venueWidth;
+    ctx.font = "bold " + dateSize + "px \"" + family + "\"";
+  }
+  ctx.fillText(sep, x, y);
+  x += sepWidth;
+  ctx.fillText(timeLabel, x, y);
+
+  ctx.textAlign = prevAlign;
+}
+
 // ================= Game Day card =================
 // Full-screen layout -- NOT a positioned stamp like drawDynamicText.
 // meta.x/y/size/fontKey/outline don't apply here; the card always fills
@@ -661,11 +722,11 @@ async function fetchDitheredLogo(url, size, fetchImpl) {
 //      large font -- this is the card's single most important fact, so
 //      it gets the most visual weight, sized to whatever room is left
 //      between the logos rather than a fixed width.
-//   4. gameLine: date + venue + kickoff time, edge-to-edge, auto-shrunk
-//      to fit, one line instead of two stacked centered ones.
-// Missing optional fields (no logo found, no gameLine because the date
-// was unparseable or ESPN gave no venue) are simply skipped rather than
-// leaving a gap or showing "undefined".
+//   4. one edge-to-edge bottom line: date, venue (at a larger size than
+//      the rest -- see drawGameLine), and kickoff time, all on one line.
+// Missing optional fields (no logo found, no dateLabel/timeLabel because
+// the date was unparseable, no venue in ESPN's response) are simply
+// skipped rather than leaving a gap or showing "undefined".
 function drawGameDayCard(ctx, card) {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
@@ -708,28 +769,9 @@ function drawGameDayCard(ctx, card) {
     ctx.fillText(card.daysUnit || "DAYS", CANVAS_WIDTH / 2, bodyMidY + 40);
   }
 
-  // The venue, given more visual weight than a corner of the bottom
-  // date/time line -- its own larger line, centered in the same
-  // between-the-logos gap as the days-count directly above it.
-  if (card.venue) {
-    // Not bold -- fitBannerFontSize measures with the plain style, and
-    // bold glyphs run wider than regular ones at the same size, so
-    // drawing bold here could overrun the width it was just shrunk to
-    // fit (same reasoning as the gameLine's italic note below).
-    const venueSize = fitBannerFontSize(ctx, card.venue, daysMaxWidth, FONT_FAMILY.serif, 24, 14);
-    ctx.font = venueSize + "px \"" + FONT_FAMILY.serif + "\"";
-    ctx.fillText(card.venue, CANVAS_WIDTH / 2, bodyMidY + 68);
-  }
-
-  if (card.gameLine) {
+  if (card.dateLabel && card.timeLabel) {
     ctx.fillStyle = "#000";
-    // Not italic -- fitBannerFontSize measures with the plain style, and
-    // italic glyphs run slightly wider than upright ones at the same
-    // size, so drawing italic here could overrun the width it was just
-    // shrunk to fit.
-    const gameLineSize = fitBannerFontSize(ctx, card.gameLine, CANVAS_WIDTH - 48, FONT_FAMILY.serif, 20, 13);
-    ctx.font = "bold " + gameLineSize + "px \"" + FONT_FAMILY.serif + "\"";
-    ctx.fillText(card.gameLine, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 14);
+    drawGameLine(ctx, card.dateLabel, card.venue, card.timeLabel, CANVAS_WIDTH - 48, CANVAS_HEIGHT - 14);
   }
 }
 
@@ -802,13 +844,15 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     // of a pre-formatted label, since it renders them as 3 separate lines
     // now, not one.
     const daysLabel = daysLeft <= 0 ? "TODAY!" : "IN " + daysLeft + " " + daysUnit;
+    const dateTimeParts = formatGameDateTimeParts(rawNextGame.gameDateISO);
     const card = {
       bannerTitle: gameDayBannerTitle(meta.sport, meta.league),
       headline,
       daysLeft,
       daysUnit,
       venue: rawNextGame.venue,
-      gameLine: formatGameDateTime(rawNextGame.gameDateISO),
+      dateLabel: dateTimeParts ? dateTimeParts.dateLabel : null,
+      timeLabel: dateTimeParts ? dateTimeParts.timeLabel : null,
       myLogo: myLogoCanvas,
       oppLogo: oppLogoCanvas
     };
@@ -856,7 +900,8 @@ module.exports = {
   daysUntil,
   formatCountdownText,
   formatTeamText,
-  formatGameDateTime,
+  formatGameDateTimeParts,
+  drawGameLine,
   findNextGame,
   fetchNextGame,
   espnScheduleUrl,

@@ -43,9 +43,11 @@ Each run:
      and Atkinson-dithered server-side) flanking a large centered
      days-remaining count (split across 3 lines -- "IN" / the number, in
      a very large font / "DAY" or "DAYS" -- or a single big "TODAY!"),
-     the venue in its own larger line centered directly under that count,
-     and an edge-to-edge bottom line with the game's day/date and kickoff
-     time in Eastern. In the off-season (no upcoming games) it
+     and one edge-to-edge bottom line with the game's day/date, venue
+     (drawn at a noticeably larger size than the rest of the line, since
+     it's the one piece worth extra visual weight), and kickoff time in
+     Eastern, all sharing one baseline. In the off-season (no upcoming
+     games) it
      falls back to the plain "{TEAM}: NO UPCOMING GAMES" text -- a normal,
      steady state, not an error, and there's no card to build around.
    - **news**: fetches and parses an RSS feed (see "The News card" below
