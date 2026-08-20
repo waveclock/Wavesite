@@ -41,7 +41,13 @@ const OUTBOUND_FETCH_HEADERS = {
 const CANVAS_WIDTH = 792;
 const CANVAS_HEIGHT = 272;
 const BIT_THRESHOLD = 180;
-const LOGO_SIZE = 175;
+// 150, not the more obviously-fitting 175 -- the Game Day card layout
+// carves a dedicated band above the logos (the "TEAM VS TEAM" line, moved
+// up so it can span the full card width instead of being squeezed between
+// the logos) and below them (the date/venue/time line), so the logos
+// themselves have less vertical room than when they were the only content
+// beside the headline.
+const LOGO_SIZE = 150;
 const LOGO_MARGIN = 28;
 // Both full-screen cards (Game Day, News) use a solid black title banner
 // with white block-letter text instead of a drawn border -- the board's
@@ -190,7 +196,12 @@ async function findNextGame(events, teamId, now) {
     const me = competitors.find((c) => c && c.team && String(c.team.id) === String(teamId));
     if (!me) continue;
     if (!myAbbrev) {
-      myAbbrev = (me.team.abbreviation || me.team.shortDisplayName || me.team.displayName || "").toUpperCase() || null;
+      // shortDisplayName ("Marshall", "Eagles") first, NOT abbreviation
+      // ("MRSH", "PHI") -- confirmed live: the raw ESPN triCode reads as
+      // cryptic on the actual card ("PSU VS MRSH"), where a real team name
+      // doesn't need any explanation. abbreviation is still the fallback
+      // for a team whose shortDisplayName ESPN doesn't provide.
+      myAbbrev = (me.team.shortDisplayName || me.team.abbreviation || me.team.displayName || "").toUpperCase() || null;
     }
     if (!myLogo) myLogo = extractLogoUrl(me.team);
 
@@ -206,7 +217,7 @@ async function findNextGame(events, teamId, now) {
       best = {
         dayUTC: evDayUTC,
         homeAway: me.homeAway,
-        opponentAbbrev: (opp.team.abbreviation || opp.team.shortDisplayName || opp.team.displayName || "TBD").toUpperCase(),
+        opponentAbbrev: (opp.team.shortDisplayName || opp.team.abbreviation || opp.team.displayName || "TBD").toUpperCase(),
         opponentLogo: extractLogoUrl(opp.team),
         venue: extractVenueName(comp),
         gameDateISO: ev.date
@@ -246,11 +257,17 @@ function formatTeamText(nextGame, myAbbrev) {
   return prefix + vsOrAt + " " + nextGame.opponentAbbrev + " IN " + daysLeft + " " + unit;
 }
 
-// "SAT OCT 26 · 3:30 PM ET" -- always shown in Eastern time regardless of
-// the device's own location, matching how US sports broadcasts/schedules
-// conventionally list game times. Returns null on an unparseable date
+// "SAT SEP 5 · Beaver Stadium · 3:30 PM ET" -- one edge-to-edge line
+// combining weekday+date, venue, and kickoff time in that order (day,
+// then where, then when), instead of stacking date/time and venue on two
+// separate centered lines squeezed between the logos. Always Eastern
+// time regardless of the device's own location, matching how US sports
+// broadcasts/schedules conventionally list game times. venue is left in
+// its original case (matches extractVenueName -- "Beaver Stadium", not
+// "BEAVER STADIUM") and simply omitted, not a dangling "· ·", when ESPN's
+// response doesn't include one. Returns null on an unparseable date
 // rather than showing garbage text.
-function formatGameDateTime(isoString) {
+function formatGameLine(isoString, venue) {
   const d = new Date(isoString);
   if (isNaN(d.getTime())) return null;
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -266,7 +283,10 @@ function formatGameDateTime(isoString) {
   const minute = get("minute");
   const dayPeriod = get("dayPeriod").toUpperCase();
   if (!weekday || !month || !day || !hour || !minute) return null;
-  return weekday + " " + month + " " + day + " · " + hour + ":" + minute + " " + dayPeriod + " ET";
+  const segments = [weekday + " " + month + " " + day];
+  if (venue) segments.push(venue);
+  segments.push(hour + ":" + minute + " " + dayPeriod + " ET");
+  return segments.join(" · ");
 }
 
 // ================= News (RSS) type =================
@@ -636,15 +656,27 @@ async function fetchDitheredLogo(url, size, fetchImpl) {
 }
 
 // ================= Game Day card =================
-// Full-screen layout (solid black title banner, optional logos either
-// side, matchup headline, days-left, optional date/venue) -- NOT a
-// positioned stamp like drawDynamicText. meta.x/y/size/fontKey/outline
-// don't apply here; the card always fills the whole canvas at fixed
-// positions. No drawn border -- the board's own bezel already frames the
-// display, so the banner alone marks the top instead. Missing optional
-// fields (no logo found, unparseable date, no venue in the response) are
-// simply skipped rather than leaving a gap or showing "undefined" --
-// later lines shift up to fill the space.
+// Full-screen layout -- NOT a positioned stamp like drawDynamicText.
+// meta.x/y/size/fontKey/outline don't apply here; the card always fills
+// the whole canvas at fixed positions. No drawn border -- the board's own
+// bezel already frames the display, so the banner alone marks the top
+// instead. Four vertical bands, top to bottom:
+//   1. banner: solid black, white block-letter league title (unchanged)
+//   2. headline: "TEAM VS TEAM", edge-to-edge, auto-shrunk to fit --
+//      moved up here (out of the logos' row) specifically so it isn't
+//      squeezed into the gap between them and doesn't need abbreviating
+//      to fit; long full team names ("PENN STATE VS MARSHALL") are the
+//      normal case, not the exception.
+//   3. logos either side + the days-left count between them, split
+//      across 3 lines (IN / {number} / DAY(S)) with the number in a very
+//      large font -- this is the card's single most important fact, so
+//      it gets the most visual weight, sized to whatever room is left
+//      between the logos rather than a fixed width.
+//   4. gameLine: date + venue + kickoff time, edge-to-edge, auto-shrunk
+//      to fit, one line instead of two stacked centered ones.
+// Missing optional fields (no logo found, no gameLine because the date
+// was unparseable or ESPN gave no venue) are simply skipped rather than
+// leaving a gap or showing "undefined".
 function drawGameDayCard(ctx, card) {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
@@ -655,22 +687,44 @@ function drawGameDayCard(ctx, card) {
   ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
 
   ctx.fillStyle = "#000";
-  const bodyMidY = BANNER_HEIGHT + (CANVAS_HEIGHT - BANNER_HEIGHT) / 2;
+  const headlineSize = fitBannerFontSize(ctx, card.headline, CANVAS_WIDTH - 40, FONT_FAMILY.block, 28, 16);
+  ctx.fillText(card.headline, CANVAS_WIDTH / 2, BANNER_HEIGHT + 30 + Math.round(headlineSize * 0.35));
+
+  const bodyTop = BANNER_HEIGHT + 42;
+  const bodyBottom = CANVAS_HEIGHT - 30;
+  const bodyMidY = (bodyTop + bodyBottom) / 2;
   if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
   if (card.oppLogo) ctx.drawImage(card.oppLogo, CANVAS_WIDTH - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
 
-  ctx.font = "42px \"" + FONT_FAMILY.block + "\"";
-  ctx.fillText(card.headline, CANVAS_WIDTH / 2, BANNER_HEIGHT + 60);
+  // Constrained to the gap BETWEEN the logos, not the full card width --
+  // unlike the headline/gameLine bands above/below, this needs to stay
+  // clear of the logos on either side.
+  const daysMaxWidth = CANVAS_WIDTH - 2 * (LOGO_MARGIN + LOGO_SIZE) - 20;
+  if (card.daysLeft <= 0) {
+    const size = fitBannerFontSize(ctx, "TODAY!", daysMaxWidth, FONT_FAMILY.block, 64, 28);
+    ctx.fillText("TODAY!", CANVAS_WIDTH / 2, bodyMidY + Math.round(size * 0.35));
+  } else {
+    ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillText("IN", CANVAS_WIDTH / 2, bodyMidY - 58);
 
-  const lines = [{ text: card.daysLabel, font: "bold 24px \"" + FONT_FAMILY.serif + "\"", gap: 38 }];
-  if (card.dateTimeLabel) lines.push({ text: card.dateTimeLabel, font: "italic 23px \"" + FONT_FAMILY.serif + "\"", gap: 32 });
-  if (card.venue) lines.push({ text: card.venue, font: "bold 20px \"" + FONT_FAMILY.serif + "\"", gap: 28 });
+    const numberText = String(card.daysLeft);
+    const numberSize = fitBannerFontSize(ctx, numberText, daysMaxWidth, FONT_FAMILY.block, 110, 40);
+    ctx.font = numberSize + "px \"" + FONT_FAMILY.block + "\"";
+    ctx.fillText(numberText, CANVAS_WIDTH / 2, bodyMidY + Math.round(numberSize * 0.36));
 
-  let y = BANNER_HEIGHT + 96;
-  for (const line of lines) {
-    ctx.font = line.font;
-    ctx.fillText(line.text, CANVAS_WIDTH / 2, y);
-    y += line.gap;
+    ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillText(card.daysUnit || "DAYS", CANVAS_WIDTH / 2, bodyMidY + 62);
+  }
+
+  if (card.gameLine) {
+    ctx.fillStyle = "#000";
+    // Not italic -- fitBannerFontSize measures with the plain style, and
+    // italic glyphs run slightly wider than upright ones at the same
+    // size, so drawing italic here could overrun the width it was just
+    // shrunk to fit.
+    const gameLineSize = fitBannerFontSize(ctx, card.gameLine, CANVAS_WIDTH - 48, FONT_FAMILY.serif, 20, 13);
+    ctx.font = "bold " + gameLineSize + "px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillText(card.gameLine, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 14);
   }
 }
 
@@ -737,13 +791,18 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     ]);
 
     const headline = (myAbbrev || "") + " " + vsOrAt + " " + rawNextGame.opponentAbbrev;
-    const daysLabel = daysLeft <= 0 ? "TODAY!" : "IN " + daysLeft + " " + (daysLeft === 1 ? "DAY" : "DAYS");
+    const daysUnit = daysLeft === 1 ? "DAY" : "DAYS";
+    // Kept as one string purely for the log-friendly `content` field
+    // below -- drawGameDayCard takes daysLeft/daysUnit directly instead
+    // of a pre-formatted label, since it renders them as 3 separate lines
+    // now, not one.
+    const daysLabel = daysLeft <= 0 ? "TODAY!" : "IN " + daysLeft + " " + daysUnit;
     const card = {
       bannerTitle: gameDayBannerTitle(meta.sport, meta.league),
       headline,
-      daysLabel,
-      dateTimeLabel: formatGameDateTime(rawNextGame.gameDateISO),
-      venue: rawNextGame.venue,
+      daysLeft,
+      daysUnit,
+      gameLine: formatGameLine(rawNextGame.gameDateISO, rawNextGame.venue),
       myLogo: myLogoCanvas,
       oppLogo: oppLogoCanvas
     };
@@ -791,7 +850,7 @@ module.exports = {
   daysUntil,
   formatCountdownText,
   formatTeamText,
-  formatGameDateTime,
+  formatGameLine,
   findNextGame,
   fetchNextGame,
   espnScheduleUrl,

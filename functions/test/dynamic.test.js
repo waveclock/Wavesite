@@ -6,7 +6,7 @@ const {
   daysUntil,
   formatCountdownText,
   formatTeamText,
-  formatGameDateTime,
+  formatGameLine,
   findNextGame,
   fetchNextGame,
   extractLogoUrl,
@@ -322,14 +322,18 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     await assert.rejects(() => renderDynamicDesign(base, meta, now, fakeFetchJson({}, false)));
   });
 
-  console.log("formatGameDateTime");
-  await test("formats an ISO date in Eastern time, matching US broadcast convention", () => {
+  console.log("formatGameLine");
+  await test("formats an ISO date + venue in Eastern time, matching US broadcast convention", () => {
     // 2026-10-24 17:30Z = 1:30 PM ET (EDT, UTC-4) that day.
-    const text = formatGameDateTime("2026-10-24T17:30Z");
+    const text = formatGameLine("2026-10-24T17:30Z", "Beaver Stadium");
+    assert.strictEqual(text, "SAT OCT 24 · Beaver Stadium · 1:30 PM ET");
+  });
+  await test("omits the venue segment (no dangling separator) when there's no venue", () => {
+    const text = formatGameLine("2026-10-24T17:30Z", null);
     assert.strictEqual(text, "SAT OCT 24 · 1:30 PM ET");
   });
   await test("returns null for an unparseable date instead of showing garbage", () => {
-    assert.strictEqual(formatGameDateTime("not-a-date"), null);
+    assert.strictEqual(formatGameLine("not-a-date", "Beaver Stadium"), null);
   });
 
   console.log("extractLogoUrl / extractVenueName");
@@ -370,6 +374,21 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(nextGame.opponentLogo, "https://example.com/opp.png");
     assert.strictEqual(nextGame.venue, "Beaver Stadium");
     assert.strictEqual(nextGame.gameDateISO, "2026-09-07T17:00Z");
+  });
+  await test("prefers shortDisplayName ('Marshall') over the raw abbreviation ('MRSH') for both teams -- confirmed live, the abbreviation reads as cryptic on the actual card", async () => {
+    const now = new Date(Date.UTC(2026, 8, 1));
+    const events = [{
+      date: "2026-09-07T17:00Z",
+      competitions: [{
+        competitors: [
+          { homeAway: "home", team: { id: "213", abbreviation: "PSU", shortDisplayName: "Penn State" } },
+          { homeAway: "away", team: { id: "276", abbreviation: "MRSH", shortDisplayName: "Marshall" } }
+        ]
+      }]
+    }];
+    const { nextGame, myAbbrev } = await findNextGame(events, "213", now);
+    assert.strictEqual(myAbbrev, "PENN STATE");
+    assert.strictEqual(nextGame.opponentAbbrev, "MARSHALL");
   });
 
   console.log("dithering (toGrayscale / ditherAtkinson / ditheredLogoCanvas / fetchDitheredLogo)");
@@ -474,33 +493,40 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   });
 
   console.log("drawGameDayCard");
-  await test("draws a title banner, headline, and days label onto an otherwise-blank canvas", () => {
+  await test("draws a title banner, headline, and days count onto an otherwise-blank canvas", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");
-    drawGameDayCard(ctx, { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLabel: "IN 3 DAYS", dateTimeLabel: null, venue: null, myLogo: null, oppLogo: null });
+    drawGameDayCard(ctx, { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft: 3, daysUnit: "DAYS", gameLine: null, myLogo: null, oppLogo: null });
     const d = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
     let sawInk = false;
     for (let i = 0; i < d.length; i += 4) {
       if (d[i] < 250) { sawInk = true; break; }
     }
-    assert.ok(sawInk, "expected the banner/headline/days-label to leave some non-white pixels");
+    assert.ok(sawInk, "expected the banner/headline/days-count to leave some non-white pixels");
   });
   await test("falls back to a bare 'GAME DAY' banner when bannerTitle is missing", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");
     assert.doesNotThrow(() => {
-      drawGameDayCard(ctx, { headline: "ME VS OPP", daysLabel: "IN 3 DAYS", dateTimeLabel: null, venue: null, myLogo: null, oppLogo: null });
+      drawGameDayCard(ctx, { headline: "ME VS OPP", daysLeft: 3, daysUnit: "DAYS", gameLine: null, myLogo: null, oppLogo: null });
     });
   });
-  await test("draws provided logo canvases without throwing, and skips date/venue lines cleanly when absent", () => {
+  await test("draws a single big 'TODAY!' instead of the 3-line count when daysLeft is 0 or negative", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawGameDayCard(ctx, { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft: 0, daysUnit: "DAYS", gameLine: null, myLogo: null, oppLogo: null });
+    });
+  });
+  await test("draws provided logo canvases without throwing, and skips the gameLine cleanly when absent", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");
     const logo = ditheredLogoCanvas(whiteCanvas(20, 20), LOGO_SIZE);
     assert.doesNotThrow(() => {
       drawGameDayCard(ctx, {
         bannerTitle: "COLLEGE FOOTBALL GAME DAY",
-        headline: "ME VS OPP", daysLabel: "TODAY!",
-        dateTimeLabel: "SAT OCT 24 · 1:30 PM ET", venue: "Beaver Stadium",
+        headline: "ME VS OPP", daysLeft: 0, daysUnit: "DAYS",
+        gameLine: "SAT OCT 24 · Beaver Stadium · 1:30 PM ET",
         myLogo: logo, oppLogo: logo
       });
     });

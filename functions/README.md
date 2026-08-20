@@ -36,14 +36,17 @@ Each run:
    on `type` (see `lib/dynamic.js`):
    - **countdown**: computes days-remaining and draws the text.
    - **team**: fetches the team's schedule from ESPN's unofficial site API.
-     If a game is found, draws the full **Game Day card** -- bordered
-     full-screen layout with both teams' logos (fetched and Atkinson-
-     dithered server-side), the matchup ("PHI VS DAL"), days-remaining
-     ("IN 5 DAYS" / "TODAY!"), and (when available) the game's date/time
-     in Eastern and the venue name. In the off-season (no upcoming games)
-     it falls back to the plain "{TEAM}: NO UPCOMING GAMES" text -- a
-     normal, steady state, not an error, and there's no card to build
-     around.
+     If a game is found, draws the full **Game Day card** -- full-screen
+     layout with an edge-to-edge matchup line using each team's actual
+     name ("PENN STATE VS MARSHALL", not ESPN's cryptic triCode
+     abbreviation), both teams' logos (fetched and Atkinson-dithered
+     server-side) flanking a large centered days-remaining count (split
+     across 3 lines -- "IN" / the number, in a very large font / "DAY" or
+     "DAYS" -- or a single big "TODAY!"), and an edge-to-edge bottom line
+     with the game's day/date, venue, and kickoff time in Eastern, all in
+     that order on one line. In the off-season (no upcoming games) it
+     falls back to the plain "{TEAM}: NO UPCOMING GAMES" text -- a normal,
+     steady state, not an error, and there's no card to build around.
    - **news**: fetches and parses an RSS feed (see "The News card" below
      for how the feed URL is chosen), draws up to 3 headlines -- truncated
      to fit -- in the same bordered card style as the Game Day card. An

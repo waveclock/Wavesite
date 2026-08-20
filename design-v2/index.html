@@ -888,7 +888,10 @@
       const me = competitors.find((c) => c && c.team && String(c.team.id) === String(teamId));
       if (!me) continue;
       if (!myAbbrev) {
-        myAbbrev = (me.team.abbreviation || me.team.shortDisplayName || me.team.displayName || "").toUpperCase() || null;
+        // shortDisplayName ("Marshall") first, NOT abbreviation ("MRSH")
+        // -- mirrors functions/lib/dynamic.js's findNextGame; see the
+        // comment there for why.
+        myAbbrev = (me.team.shortDisplayName || me.team.abbreviation || me.team.displayName || "").toUpperCase() || null;
       }
       if (!myLogo) myLogo = extractLogoUrl(me.team);
 
@@ -903,7 +906,7 @@
         best = {
           dayUTC: evDayUTC,
           homeAway: me.homeAway,
-          opponentAbbrev: (opp.team.abbreviation || opp.team.shortDisplayName || opp.team.displayName || "TBD").toUpperCase(),
+          opponentAbbrev: (opp.team.shortDisplayName || opp.team.abbreviation || opp.team.displayName || "TBD").toUpperCase(),
           opponentLogo: extractLogoUrl(opp.team),
           venue: extractVenueName(comp),
           gameDateISO: ev.date
@@ -928,10 +931,12 @@
     return findNextGame(data.events, teamId);
   }
 
-  // "SAT OCT 26 · 3:30 PM ET" -- always Eastern time, matching US sports
-  // broadcast convention, regardless of the visitor's own timezone. Used
-  // only for the illustrative preview box; see comment above findNextGame.
-  function formatGameDateTime(isoString) {
+  // "SAT SEP 5 · Beaver Stadium · 3:30 PM ET" -- mirrors
+  // functions/lib/dynamic.js's formatGameLine exactly; see the comment
+  // there for the ordering/venue-omission reasoning. Always Eastern time,
+  // matching US sports broadcast convention, regardless of the visitor's
+  // own timezone.
+  function formatGameLine(isoString, venue) {
     const d = new Date(isoString);
     if (isNaN(d.getTime())) return null;
     const parts = new Intl.DateTimeFormat("en-US", {
@@ -947,7 +952,10 @@
     const minute = get("minute");
     const dayPeriod = get("dayPeriod").toUpperCase();
     if (!weekday || !month || !day || !hour || !minute) return null;
-    return weekday + " " + month + " " + day + " · " + hour + ":" + minute + " " + dayPeriod + " ET";
+    const segments = [weekday + " " + month + " " + day];
+    if (venue) segments.push(venue);
+    segments.push(hour + ":" + minute + " " + dayPeriod + " ET");
+    return segments.join(" · ");
   }
 
   // ================= Game Day card (live preview) =================
@@ -958,7 +966,10 @@
   // previewContent/formatTeamText above remain only as the fallback while
   // this is loading or if a logo fetch fails.
   const BANNER_HEIGHT = 48;
-  const LOGO_SIZE = 175;
+  // 150, not 175 -- mirrors functions/lib/dynamic.js's LOGO_SIZE; see the
+  // comment there for why (the headline/gameLine bands above and below
+  // the logos leave less vertical room than before).
+  const LOGO_SIZE = 150;
   const LOGO_MARGIN = 28;
   const LEAGUE_DISPLAY_NAME = {
     "football/nfl": "NFL",
@@ -1054,6 +1065,10 @@
   // unlike the server (a fresh canvas per render), this shares its 2d
   // context with whatever layer drew before it in the same pass, and
   // drawText above leaves it set to "middle".
+  // Mirrors functions/lib/dynamic.js's drawGameDayCard exactly (4 bands:
+  // banner, edge-to-edge headline, logos + big days-count between them,
+  // edge-to-edge gameLine) -- see the comment there for the reasoning
+  // behind each band.
   function drawGameDayCardClient(ctx, card) {
     const w = baseCanvas.width, h = baseCanvas.height;
     ctx.textBaseline = "alphabetic";
@@ -1066,22 +1081,37 @@
     ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
 
     ctx.fillStyle = "#000";
-    const bodyMidY = BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2;
+    const headlineSize = fitBannerFontSize(ctx, card.headline, w - 40, "'Bungee', sans-serif", 28, 16);
+    ctx.fillText(card.headline, w / 2, BANNER_HEIGHT + 30 + Math.round(headlineSize * 0.35));
+
+    const bodyTop = BANNER_HEIGHT + 42;
+    const bodyBottom = h - 30;
+    const bodyMidY = (bodyTop + bodyBottom) / 2;
     if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
     if (card.oppLogo) ctx.drawImage(card.oppLogo, w - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
 
-    ctx.font = "42px 'Bungee', sans-serif";
-    ctx.fillText(card.headline, w / 2, BANNER_HEIGHT + 60);
+    const daysMaxWidth = w - 2 * (LOGO_MARGIN + LOGO_SIZE) - 20;
+    if (card.daysLeft <= 0) {
+      const size = fitBannerFontSize(ctx, "TODAY!", daysMaxWidth, "'Bungee', sans-serif", 64, 28);
+      ctx.fillText("TODAY!", w / 2, bodyMidY + Math.round(size * 0.35));
+    } else {
+      ctx.font = "bold 22px Georgia, serif";
+      ctx.fillText("IN", w / 2, bodyMidY - 58);
 
-    const lines = [{ text: card.daysLabel, font: "bold 24px Georgia, serif", gap: 38 }];
-    if (card.dateTimeLabel) lines.push({ text: card.dateTimeLabel, font: "italic 23px Georgia, serif", gap: 32 });
-    if (card.venue) lines.push({ text: card.venue, font: "bold 20px Georgia, serif", gap: 28 });
+      const numberText = String(card.daysLeft);
+      const numberSize = fitBannerFontSize(ctx, numberText, daysMaxWidth, "'Bungee', sans-serif", 110, 40);
+      ctx.font = numberSize + "px 'Bungee', sans-serif";
+      ctx.fillText(numberText, w / 2, bodyMidY + Math.round(numberSize * 0.36));
 
-    let y = BANNER_HEIGHT + 96;
-    for (const line of lines) {
-      ctx.font = line.font;
-      ctx.fillText(line.text, w / 2, y);
-      y += line.gap;
+      ctx.font = "bold 22px Georgia, serif";
+      ctx.fillText(card.daysUnit || "DAYS", w / 2, bodyMidY + 62);
+    }
+
+    if (card.gameLine) {
+      ctx.fillStyle = "#000";
+      const gameLineSize = fitBannerFontSize(ctx, card.gameLine, w - 48, "Georgia, serif", 20, 13);
+      ctx.font = "bold " + gameLineSize + "px Georgia, serif";
+      ctx.fillText(card.gameLine, w / 2, h - 14);
     }
   }
 
@@ -1123,7 +1153,7 @@
     } else if (obj.kind === "countdown") {
       drawText(ctx, formatCountdownText(daysUntil(obj.targetDate), obj.label), obj);
     } else if (obj.kind === "team") {
-      // obj.card (headline/logos/date/venue) is resolved asynchronously
+      // obj.card (headline/logos/days-left/gameLine) is resolved asynchronously
       // -- see the Team select handler -- and cached here rather than
       // recomputed on every redraw. Falls back to the plain text line
       // while that's loading, or if no game/logo could be found.
@@ -2351,13 +2381,12 @@
       if (token !== teamFetchToken || !stagedObject || stagedObject.kind !== "team" || stagedObject.teamId !== teamId) return; // superseded while logos were loading
 
       const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
-      const daysLabel = nextGame.daysLeft <= 0 ? "TODAY!" : "IN " + nextGame.daysLeft + " " + (nextGame.daysLeft === 1 ? "DAY" : "DAYS");
       stagedObject.card = {
         bannerTitle: gameDayBannerTitle(sport, league),
         headline: (myAbbrev || "") + " " + vsOrAt + " " + nextGame.opponentAbbrev,
-        daysLabel,
-        dateTimeLabel: formatGameDateTime(nextGame.gameDateISO),
-        venue: nextGame.venue,
+        daysLeft: nextGame.daysLeft,
+        daysUnit: nextGame.daysLeft === 1 ? "DAY" : "DAYS",
+        gameLine: formatGameLine(nextGame.gameDateISO, nextGame.venue),
         myLogo: myLogoCanvas,
         oppLogo: oppLogoCanvas
       };
