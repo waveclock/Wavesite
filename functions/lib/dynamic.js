@@ -190,7 +190,12 @@ async function findNextGame(events, teamId, now) {
     const me = competitors.find((c) => c && c.team && String(c.team.id) === String(teamId));
     if (!me) continue;
     if (!myAbbrev) {
-      myAbbrev = (me.team.abbreviation || me.team.shortDisplayName || me.team.displayName || "").toUpperCase() || null;
+      // shortDisplayName ("Marshall", "Eagles") first, NOT abbreviation
+      // ("MRSH", "PHI") -- confirmed live: the raw ESPN triCode reads as
+      // cryptic on the actual card ("PSU VS MRSH"), where a real team name
+      // doesn't need any explanation. abbreviation is still the fallback
+      // for a team whose shortDisplayName ESPN doesn't provide.
+      myAbbrev = (me.team.shortDisplayName || me.team.abbreviation || me.team.displayName || "").toUpperCase() || null;
     }
     if (!myLogo) myLogo = extractLogoUrl(me.team);
 
@@ -206,7 +211,7 @@ async function findNextGame(events, teamId, now) {
       best = {
         dayUTC: evDayUTC,
         homeAway: me.homeAway,
-        opponentAbbrev: (opp.team.abbreviation || opp.team.shortDisplayName || opp.team.displayName || "TBD").toUpperCase(),
+        opponentAbbrev: (opp.team.shortDisplayName || opp.team.abbreviation || opp.team.displayName || "TBD").toUpperCase(),
         opponentLogo: extractLogoUrl(opp.team),
         venue: extractVenueName(comp),
         gameDateISO: ev.date
@@ -246,11 +251,14 @@ function formatTeamText(nextGame, myAbbrev) {
   return prefix + vsOrAt + " " + nextGame.opponentAbbrev + " IN " + daysLeft + " " + unit;
 }
 
-// "SAT OCT 26 · 3:30 PM ET" -- always shown in Eastern time regardless of
-// the device's own location, matching how US sports broadcasts/schedules
+// Splits the weekday+date and kickoff time into two separate strings
+// (instead of one joined line) so the card's bottom line can draw the
+// venue at a larger font size IN BETWEEN them, sharing one baseline --
+// see drawGameLine below. Always Eastern time regardless of the device's
+// own location, matching how US sports broadcasts/schedules
 // conventionally list game times. Returns null on an unparseable date
 // rather than showing garbage text.
-function formatGameDateTime(isoString) {
+function formatGameDateTimeParts(isoString) {
   const d = new Date(isoString);
   if (isNaN(d.getTime())) return null;
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -266,7 +274,10 @@ function formatGameDateTime(isoString) {
   const minute = get("minute");
   const dayPeriod = get("dayPeriod").toUpperCase();
   if (!weekday || !month || !day || !hour || !minute) return null;
-  return weekday + " " + month + " " + day + " · " + hour + ":" + minute + " " + dayPeriod + " ET";
+  return {
+    dateLabel: weekday + " " + month + " " + day,
+    timeLabel: hour + ":" + minute + " " + dayPeriod + " ET"
+  };
 }
 
 // ================= News (RSS) type =================
@@ -635,16 +646,87 @@ async function fetchDitheredLogo(url, size, fetchImpl) {
   }
 }
 
+// Draws one edge-to-edge line -- dateLabel, then venue (if given) at a
+// LARGER size than the rest, then timeLabel -- all sharing one baseline,
+// the way a normal typographic mixed-size line works ("10€" with a
+// bigger currency mark, still baseline-aligned). fitBannerFontSize can't
+// do this: it only ever measures one string at one size. So this shrinks
+// dateSize and venueSize together, in lockstep (keeping venue
+// VENUE_SIZE_BOOST px larger than the rest), re-measuring the WHOLE
+// assembled line each step, until it fits maxWidth or dateSize hits
+// MIN_DATE_SIZE -- same "shrink everything together, never truncate"
+// contract as fitBannerFontSize, just for 3 segments glued together
+// instead of 1. Skips venue (2 segments, not 3) when there isn't one,
+// e.g. an ESPN response with no venue field.
+const VENUE_SIZE_BOOST = 6;
+const MIN_DATE_SIZE = 13;
+function drawGameLine(ctx, dateLabel, venue, timeLabel, maxWidth, y) {
+  const family = FONT_FAMILY.serif;
+  const sep = "  ·  ";
+  let dateSize = 20;
+  let venueSize, totalWidth, sepWidth, dateWidth, venueWidth, timeWidth;
+  for (;;) {
+    venueSize = dateSize + VENUE_SIZE_BOOST;
+    ctx.font = "bold " + dateSize + "px \"" + family + "\"";
+    sepWidth = ctx.measureText(sep).width;
+    dateWidth = ctx.measureText(dateLabel).width;
+    timeWidth = ctx.measureText(timeLabel).width;
+    venueWidth = 0;
+    if (venue) {
+      ctx.font = "bold " + venueSize + "px \"" + family + "\"";
+      venueWidth = ctx.measureText(venue).width;
+    }
+    const segCount = venue ? 3 : 2;
+    totalWidth = dateWidth + timeWidth + venueWidth + sepWidth * (segCount - 1);
+    if (totalWidth <= maxWidth || dateSize <= MIN_DATE_SIZE) break;
+    dateSize--;
+  }
+
+  const prevAlign = ctx.textAlign;
+  ctx.textAlign = "left";
+  let x = CANVAS_WIDTH / 2 - totalWidth / 2;
+
+  ctx.font = "bold " + dateSize + "px \"" + family + "\"";
+  ctx.fillText(dateLabel, x, y);
+  x += dateWidth;
+
+  if (venue) {
+    ctx.fillText(sep, x, y);
+    x += sepWidth;
+    ctx.font = "bold " + venueSize + "px \"" + family + "\"";
+    ctx.fillText(venue, x, y);
+    x += venueWidth;
+    ctx.font = "bold " + dateSize + "px \"" + family + "\"";
+  }
+  ctx.fillText(sep, x, y);
+  x += sepWidth;
+  ctx.fillText(timeLabel, x, y);
+
+  ctx.textAlign = prevAlign;
+}
+
 // ================= Game Day card =================
-// Full-screen layout (solid black title banner, optional logos either
-// side, matchup headline, days-left, optional date/venue) -- NOT a
-// positioned stamp like drawDynamicText. meta.x/y/size/fontKey/outline
-// don't apply here; the card always fills the whole canvas at fixed
-// positions. No drawn border -- the board's own bezel already frames the
-// display, so the banner alone marks the top instead. Missing optional
-// fields (no logo found, unparseable date, no venue in the response) are
-// simply skipped rather than leaving a gap or showing "undefined" --
-// later lines shift up to fill the space.
+// Full-screen layout -- NOT a positioned stamp like drawDynamicText.
+// meta.x/y/size/fontKey/outline don't apply here; the card always fills
+// the whole canvas at fixed positions. No drawn border -- the board's own
+// bezel already frames the display, so the banner alone marks the top
+// instead. Four vertical bands, top to bottom:
+//   1. banner: solid black, white block-letter league title (unchanged)
+//   2. headline: "TEAM VS TEAM", edge-to-edge, auto-shrunk to fit --
+//      moved up here (out of the logos' row) specifically so it isn't
+//      squeezed into the gap between them and doesn't need abbreviating
+//      to fit; long full team names ("PENN STATE VS MARSHALL") are the
+//      normal case, not the exception.
+//   3. logos either side + the days-left count between them, split
+//      across 3 lines (IN / {number} / DAY(S)) with the number in a very
+//      large font -- this is the card's single most important fact, so
+//      it gets the most visual weight, sized to whatever room is left
+//      between the logos rather than a fixed width.
+//   4. one edge-to-edge bottom line: date, venue (at a larger size than
+//      the rest -- see drawGameLine), and kickoff time, all on one line.
+// Missing optional fields (no logo found, no dateLabel/timeLabel because
+// the date was unparseable, no venue in ESPN's response) are simply
+// skipped rather than leaving a gap or showing "undefined".
 function drawGameDayCard(ctx, card) {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
@@ -655,22 +737,58 @@ function drawGameDayCard(ctx, card) {
   ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
 
   ctx.fillStyle = "#000";
+  // Tucked in tight under the banner (not vertically centered in its own
+  // band, like the banner title is) -- the logos are back to their full
+  // 175px size, which leaves very little clearance above them, so this
+  // needs to sit as high as it can rather than claiming a fixed-height
+  // band of its own.
+  const headlineSize = fitBannerFontSize(ctx, card.headline, CANVAS_WIDTH - 40, FONT_FAMILY.block, 24, 16);
+  ctx.fillText(card.headline, CANVAS_WIDTH / 2, BANNER_HEIGHT + 4 + headlineSize);
+
   const bodyMidY = BANNER_HEIGHT + (CANVAS_HEIGHT - BANNER_HEIGHT) / 2;
   if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
   if (card.oppLogo) ctx.drawImage(card.oppLogo, CANVAS_WIDTH - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
 
-  ctx.font = "42px \"" + FONT_FAMILY.block + "\"";
-  ctx.fillText(card.headline, CANVAS_WIDTH / 2, BANNER_HEIGHT + 60);
+  // Constrained to the gap BETWEEN the logos, not the full card width --
+  // unlike the headline/gameLine bands above/below, this (and the venue
+  // line below it) needs to stay clear of the logos on either side.
+  const daysMaxWidth = CANVAS_WIDTH - 2 * (LOGO_MARGIN + LOGO_SIZE) - 20;
+  if (card.daysLeft <= 0) {
+    const size = fitBannerFontSize(ctx, "TODAY!", daysMaxWidth, FONT_FAMILY.block, 56, 26);
+    ctx.fillText("TODAY!", CANVAS_WIDTH / 2, bodyMidY - 6 + Math.round(size * 0.35));
+  } else {
+    // "IN" and "DAY(S)" need the SAME gap to the big number on both
+    // sides -- a fixed pixel offset from bodyMidY for each (the earlier
+    // approach) doesn't give that, since the number's own rendered
+    // height varies with its font size, which varies with how many
+    // digits fit. Instead, measure the number's actual glyph box
+    // (actualBoundingBoxAscent/Descent -- real ink extent, not an
+    // approximated cap-height) and hang "IN"/"DAY(S)" off ITS top/bottom
+    // edge plus a fixed gap, so the gap is genuinely equal regardless of
+    // the number's size.
+    const GAP = 10;
+    const numberText = String(card.daysLeft);
+    const numberSize = fitBannerFontSize(ctx, numberText, daysMaxWidth, FONT_FAMILY.block, 92, 40);
+    ctx.font = numberSize + "px \"" + FONT_FAMILY.block + "\"";
+    const numMetrics = ctx.measureText(numberText);
+    const numHeight = numMetrics.actualBoundingBoxAscent + numMetrics.actualBoundingBoxDescent;
+    const numTop = bodyMidY - numHeight / 2;
+    const numBaseline = numTop + numMetrics.actualBoundingBoxAscent;
+    const numBottom = numBaseline + numMetrics.actualBoundingBoxDescent;
+    ctx.fillText(numberText, CANVAS_WIDTH / 2, numBaseline);
 
-  const lines = [{ text: card.daysLabel, font: "bold 24px \"" + FONT_FAMILY.serif + "\"", gap: 38 }];
-  if (card.dateTimeLabel) lines.push({ text: card.dateTimeLabel, font: "italic 23px \"" + FONT_FAMILY.serif + "\"", gap: 32 });
-  if (card.venue) lines.push({ text: card.venue, font: "bold 20px \"" + FONT_FAMILY.serif + "\"", gap: 28 });
+    ctx.font = "bold 20px \"" + FONT_FAMILY.serif + "\"";
+    const inMetrics = ctx.measureText("IN");
+    ctx.fillText("IN", CANVAS_WIDTH / 2, numTop - GAP - inMetrics.actualBoundingBoxDescent);
 
-  let y = BANNER_HEIGHT + 96;
-  for (const line of lines) {
-    ctx.font = line.font;
-    ctx.fillText(line.text, CANVAS_WIDTH / 2, y);
-    y += line.gap;
+    const unitText = card.daysUnit || "DAYS";
+    const unitMetrics = ctx.measureText(unitText);
+    ctx.fillText(unitText, CANVAS_WIDTH / 2, numBottom + GAP + unitMetrics.actualBoundingBoxAscent);
+  }
+
+  if (card.dateLabel && card.timeLabel) {
+    ctx.fillStyle = "#000";
+    drawGameLine(ctx, card.dateLabel, card.venue, card.timeLabel, CANVAS_WIDTH - 48, CANVAS_HEIGHT - 14);
   }
 }
 
@@ -737,13 +855,21 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     ]);
 
     const headline = (myAbbrev || "") + " " + vsOrAt + " " + rawNextGame.opponentAbbrev;
-    const daysLabel = daysLeft <= 0 ? "TODAY!" : "IN " + daysLeft + " " + (daysLeft === 1 ? "DAY" : "DAYS");
+    const daysUnit = daysLeft === 1 ? "DAY" : "DAYS";
+    // Kept as one string purely for the log-friendly `content` field
+    // below -- drawGameDayCard takes daysLeft/daysUnit directly instead
+    // of a pre-formatted label, since it renders them as 3 separate lines
+    // now, not one.
+    const daysLabel = daysLeft <= 0 ? "TODAY!" : "IN " + daysLeft + " " + daysUnit;
+    const dateTimeParts = formatGameDateTimeParts(rawNextGame.gameDateISO);
     const card = {
       bannerTitle: gameDayBannerTitle(meta.sport, meta.league),
       headline,
-      daysLabel,
-      dateTimeLabel: formatGameDateTime(rawNextGame.gameDateISO),
+      daysLeft,
+      daysUnit,
       venue: rawNextGame.venue,
+      dateLabel: dateTimeParts ? dateTimeParts.dateLabel : null,
+      timeLabel: dateTimeParts ? dateTimeParts.timeLabel : null,
       myLogo: myLogoCanvas,
       oppLogo: oppLogoCanvas
     };
@@ -791,7 +917,8 @@ module.exports = {
   daysUntil,
   formatCountdownText,
   formatTeamText,
-  formatGameDateTime,
+  formatGameDateTimeParts,
+  drawGameLine,
   findNextGame,
   fetchNextGame,
   espnScheduleUrl,

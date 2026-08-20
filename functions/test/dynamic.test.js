@@ -6,7 +6,7 @@ const {
   daysUntil,
   formatCountdownText,
   formatTeamText,
-  formatGameDateTime,
+  formatGameDateTimeParts,
   findNextGame,
   fetchNextGame,
   extractLogoUrl,
@@ -16,6 +16,7 @@ const {
   packTo1Bit,
   invertedCopy,
   drawGameDayCard,
+  drawGameLine,
   toGrayscale,
   ditherAtkinson,
   ditheredLogoCanvas,
@@ -322,14 +323,14 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     await assert.rejects(() => renderDynamicDesign(base, meta, now, fakeFetchJson({}, false)));
   });
 
-  console.log("formatGameDateTime");
-  await test("formats an ISO date in Eastern time, matching US broadcast convention", () => {
+  console.log("formatGameDateTimeParts");
+  await test("splits an ISO date into a dateLabel + timeLabel in Eastern time, matching US broadcast convention", () => {
     // 2026-10-24 17:30Z = 1:30 PM ET (EDT, UTC-4) that day.
-    const text = formatGameDateTime("2026-10-24T17:30Z");
-    assert.strictEqual(text, "SAT OCT 24 · 1:30 PM ET");
+    const parts = formatGameDateTimeParts("2026-10-24T17:30Z");
+    assert.deepStrictEqual(parts, { dateLabel: "SAT OCT 24", timeLabel: "1:30 PM ET" });
   });
   await test("returns null for an unparseable date instead of showing garbage", () => {
-    assert.strictEqual(formatGameDateTime("not-a-date"), null);
+    assert.strictEqual(formatGameDateTimeParts("not-a-date"), null);
   });
 
   console.log("extractLogoUrl / extractVenueName");
@@ -370,6 +371,21 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(nextGame.opponentLogo, "https://example.com/opp.png");
     assert.strictEqual(nextGame.venue, "Beaver Stadium");
     assert.strictEqual(nextGame.gameDateISO, "2026-09-07T17:00Z");
+  });
+  await test("prefers shortDisplayName ('Marshall') over the raw abbreviation ('MRSH') for both teams -- confirmed live, the abbreviation reads as cryptic on the actual card", async () => {
+    const now = new Date(Date.UTC(2026, 8, 1));
+    const events = [{
+      date: "2026-09-07T17:00Z",
+      competitions: [{
+        competitors: [
+          { homeAway: "home", team: { id: "213", abbreviation: "PSU", shortDisplayName: "Penn State" } },
+          { homeAway: "away", team: { id: "276", abbreviation: "MRSH", shortDisplayName: "Marshall" } }
+        ]
+      }]
+    }];
+    const { nextGame, myAbbrev } = await findNextGame(events, "213", now);
+    assert.strictEqual(myAbbrev, "PENN STATE");
+    assert.strictEqual(nextGame.opponentAbbrev, "MARSHALL");
   });
 
   console.log("dithering (toGrayscale / ditherAtkinson / ditheredLogoCanvas / fetchDitheredLogo)");
@@ -473,34 +489,131 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(size, 14);
   });
 
-  console.log("drawGameDayCard");
-  await test("draws a title banner, headline, and days label onto an otherwise-blank canvas", () => {
+  console.log("drawGameLine (bottom line: date, venue at a larger size, time -- all one line)");
+  await test("centers the assembled line, with the venue segment measurably taller than the date/time segments", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");
-    drawGameDayCard(ctx, { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLabel: "IN 3 DAYS", dateTimeLabel: null, venue: null, myLogo: null, oppLogo: null });
+    drawGameLine(ctx, "SAT SEP 5", "Beaver Stadium", "3:30 PM ET", CANVAS_WIDTH - 48, 150);
+    const d = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
+    let minX = CANVAS_WIDTH, maxX = 0;
+    for (let y = 0; y < CANVAS_HEIGHT; y++) {
+      for (let x = 0; x < CANVAS_WIDTH; x++) {
+        if (d[(y * CANVAS_WIDTH + x) * 4] < 250) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+        }
+      }
+    }
+    const center = (minX + maxX) / 2;
+    assert.ok(Math.abs(center - CANVAS_WIDTH / 2) < 3, "expected the whole line centered, got center=" + center);
+  });
+  await test("shrinks a too-long line to fit maxWidth rather than overflowing it", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    const maxWidth = 300;
+    drawGameLine(ctx, "SAT OCTOBER 24", "Los Angeles Memorial Coliseum", "10:30 PM ET", maxWidth, 150);
+    const d = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
+    let minX = CANVAS_WIDTH, maxX = 0;
+    for (let y = 0; y < CANVAS_HEIGHT; y++) {
+      for (let x = 0; x < CANVAS_WIDTH; x++) {
+        if (d[(y * CANVAS_WIDTH + x) * 4] < 250) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+        }
+      }
+    }
+    assert.ok(maxX - minX <= maxWidth, "expected the shrunk line to fit within " + maxWidth + "px, got " + (maxX - minX) + "px");
+  });
+  await test("falls back to just date + time (2 segments) when there's no venue", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawGameLine(ctx, "SAT SEP 5", null, "3:30 PM ET", CANVAS_WIDTH - 48, 150);
+    });
+  });
+
+  console.log("drawGameDayCard");
+  await test("keeps an equal gap between the number and 'IN' above it vs 'DAY(S)' below it, regardless of digit count", () => {
+    function blankGapsAroundNumber(daysLeft) {
+      const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+      const ctx = c.getContext("2d");
+      drawGameDayCard(ctx, { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft, daysUnit: "DAYS", venue: null, dateLabel: null, timeLabel: null, myLogo: null, oppLogo: null });
+      const d = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
+      // Scoped to the days-block's vertical neighborhood only -- well
+      // clear of the banner/headline above it, so their ink can't be
+      // mistaken for part of this measurement.
+      const rowHasInk = [];
+      for (let y = 85; y < 235; y++) {
+        let ink = false;
+        for (let x = 0; x < CANVAS_WIDTH; x++) {
+          if (d[(y * CANVAS_WIDTH + x) * 4] < 250) { ink = true; break; }
+        }
+        rowHasInk.push(ink);
+      }
+      const gaps = [];
+      let blankStart = null, sawFirstInk = false;
+      for (let i = 0; i < rowHasInk.length; i++) {
+        if (rowHasInk[i]) {
+          sawFirstInk = true;
+          if (blankStart !== null) { gaps.push(i - blankStart); blankStart = null; }
+        } else if (sawFirstInk && blankStart === null) {
+          blankStart = i;
+        }
+      }
+      return gaps;
+    }
+    for (const daysLeft of [1, 17, 128]) {
+      const gaps = blankGapsAroundNumber(daysLeft);
+      assert.strictEqual(gaps.length, 2, daysLeft + " days: expected 2 gaps (above/below the number), got " + gaps.length + " (" + gaps + ")");
+      assert.ok(Math.abs(gaps[0] - gaps[1]) <= 2, daysLeft + " days: expected roughly equal gaps, got " + gaps[0] + "px and " + gaps[1] + "px");
+    }
+  });
+  await test("draws a title banner, headline, and days count onto an otherwise-blank canvas", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    drawGameDayCard(ctx, { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft: 3, daysUnit: "DAYS", venue: null, dateLabel: null, timeLabel: null, myLogo: null, oppLogo: null });
     const d = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
     let sawInk = false;
     for (let i = 0; i < d.length; i += 4) {
       if (d[i] < 250) { sawInk = true; break; }
     }
-    assert.ok(sawInk, "expected the banner/headline/days-label to leave some non-white pixels");
+    assert.ok(sawInk, "expected the banner/headline/days-count to leave some non-white pixels");
   });
   await test("falls back to a bare 'GAME DAY' banner when bannerTitle is missing", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");
     assert.doesNotThrow(() => {
-      drawGameDayCard(ctx, { headline: "ME VS OPP", daysLabel: "IN 3 DAYS", dateTimeLabel: null, venue: null, myLogo: null, oppLogo: null });
+      drawGameDayCard(ctx, { headline: "ME VS OPP", daysLeft: 3, daysUnit: "DAYS", venue: null, dateLabel: null, timeLabel: null, myLogo: null, oppLogo: null });
     });
   });
-  await test("draws provided logo canvases without throwing, and skips date/venue lines cleanly when absent", () => {
+  await test("draws a single big 'TODAY!' instead of the 3-line count when daysLeft is 0 or negative", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawGameDayCard(ctx, { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft: 0, daysUnit: "DAYS", venue: null, dateLabel: null, timeLabel: null, myLogo: null, oppLogo: null });
+    });
+  });
+  await test("draws the one-line date/venue/time footer (venue larger, mid-line) when provided, without throwing", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawGameDayCard(ctx, {
+        bannerTitle: "COLLEGE FOOTBALL GAME DAY",
+        headline: "PENN STATE VS MARSHALL", daysLeft: 17, daysUnit: "DAYS",
+        venue: "Beaver Stadium", dateLabel: "SAT SEP 5", timeLabel: "3:30 PM ET",
+        myLogo: null, oppLogo: null
+      });
+    });
+  });
+  await test("draws provided logo canvases without throwing, and skips the footer cleanly when absent", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");
     const logo = ditheredLogoCanvas(whiteCanvas(20, 20), LOGO_SIZE);
     assert.doesNotThrow(() => {
       drawGameDayCard(ctx, {
         bannerTitle: "COLLEGE FOOTBALL GAME DAY",
-        headline: "ME VS OPP", daysLabel: "TODAY!",
-        dateTimeLabel: "SAT OCT 24 · 1:30 PM ET", venue: "Beaver Stadium",
+        headline: "ME VS OPP", daysLeft: 0, daysUnit: "DAYS",
+        venue: null, dateLabel: null, timeLabel: null,
         myLogo: logo, oppLogo: logo
       });
     });
