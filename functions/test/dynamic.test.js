@@ -28,6 +28,7 @@ const {
   fetchHeadlines,
   formatNewsFallbackText,
   truncateToWidth,
+  wrapToLines,
   drawNewsCard,
   formatShortDate,
   renderDynamicDesign,
@@ -797,6 +798,34 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.ok(result.endsWith("…"));
     assert.ok(ctx.measureText(result).width <= 200);
   });
+  await test("wrapToLines leaves short text as a single line", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    ctx.font = "26px sans-serif";
+    assert.deepStrictEqual(wrapToLines(ctx, "Short headline", 1000, 2), ["Short headline"]);
+  });
+  await test("wrapToLines breaks at a word boundary onto a 2nd line instead of truncating", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    ctx.font = "26px sans-serif";
+    const text = "Wildwood Beach Patrol warns of dangerous rip currents this weekend";
+    const width = ctx.measureText(text).width * 0.6; // forces a wrap, but comfortably fits in 2 lines
+    const lines = wrapToLines(ctx, text, width, 2);
+    assert.strictEqual(lines.length, 2);
+    assert.strictEqual(lines.join(" "), text, "expected every word preserved across the 2 lines, none dropped or ellipsized");
+    for (const line of lines) assert.ok(ctx.measureText(line).width <= width, "line overflowed maxWidth: " + line);
+  });
+  await test("wrapToLines truncates the LAST line (not silently dropping words) when text still doesn't fit after maxLines", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    ctx.font = "26px sans-serif";
+    const text = "Council approves new beach tag pricing structure after months of public debate and several contentious meetings";
+    const width = ctx.measureText(text).width * 0.3; // too narrow to fit even in 2 lines
+    const lines = wrapToLines(ctx, text, width, 2);
+    assert.strictEqual(lines.length, 2);
+    assert.ok(lines[1].endsWith("…"), "expected the 2nd (last) line truncated with an ellipsis, got: " + lines[1]);
+    for (const line of lines) assert.ok(ctx.measureText(line).width <= width, "line overflowed maxWidth: " + line);
+  });
   await test("formatShortDate renders a short Eastern-time month/day", () => {
     const now = new Date(Date.UTC(2026, 7, 19, 12, 0, 0)); // 2026-08-19
     assert.strictEqual(formatShortDate(now), "AUG 19");
@@ -825,7 +854,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const meta = { type: "news", location: "Ocean City, NJ", x: 396, y: 136, size: 48, fontKey: "serif", outline: false, inverted: false };
     const result = await renderDynamicDesign(base, meta, now, fakeFetchText(SAMPLE_RSS));
     assert.ok(result);
-    assert.strictEqual(result.headlines.length, 3);
+    assert.strictEqual(result.headlines.length, 2);
     assert.ok(result.binBuffer.some((b) => b !== 0));
     const decoded = await loadImage(result.pngBuffer);
     assert.strictEqual(decoded.width, CANVAS_WIDTH);

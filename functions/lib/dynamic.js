@@ -299,7 +299,7 @@ function formatGameDateTimeParts(isoString) {
 // before trusting it fully in production.
 
 const GOOGLE_NEWS_RSS_BASE = "https://news.google.com/rss/search";
-const MAX_NEWS_HEADLINES = 3; // as many as fit on one card at a legible size, see drawNewsCard
+const MAX_NEWS_HEADLINES = 2; // each gets up to 2 wrapped lines rather than 1 truncated one, see drawNewsCard
 
 // meta.feedUrl is a URL the CUSTOMER types in, then this server fetches
 // -- a textbook SSRF shape. The real-world risk that matters here isn't
@@ -466,11 +466,45 @@ function truncateToWidth(ctx, text, maxWidth) {
   return t + "…";
 }
 
+// Wraps `text` into at most maxLines lines that each fit maxWidth at
+// ctx's current font, breaking at word boundaries -- unlike
+// truncateToWidth, which always cuts to a single line, this is for
+// headlines that now get real room to breathe (2 headlines instead of 3,
+// see MAX_NEWS_HEADLINES) rather than being squeezed onto one line each.
+// If the text still doesn't fit after maxLines lines, the leftover words
+// are folded into the last line and THAT line is truncated with an
+// ellipsis (via truncateToWidth) -- so a very long headline degrades the
+// same familiar way, just after more of it has already been shown.
+function wrapToLines(ctx, text, maxWidth, maxLines) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? current + " " + word : word;
+    if (current && ctx.measureText(candidate).width > maxWidth) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+
+  if (lines.length <= maxLines) return lines;
+
+  const kept = lines.slice(0, maxLines - 1);
+  const rest = lines.slice(maxLines - 1).join(" ");
+  kept.push(truncateToWidth(ctx, rest, maxWidth));
+  return kept;
+}
+
 // Full-screen layout: solid black title banner ("{LOCATION} NEWS" in
 // white block letters, or a bare "NEWS" if the customer used a custom
 // feed URL with no location text -- no drawn border, the board's own
-// bezel frames it), up to 3 bulleted headlines truncated to fit one line
-// each, and a small "UPDATED {DATE}" footer -- mirrors drawGameDayCard.
+// bezel frames it), up to 2 bulleted headlines -- each word-wrapped
+// across up to 2 lines rather than truncated to 1, so a headline reads
+// in full far more often -- and a small "UPDATED {DATE}" footer --
+// mirrors drawGameDayCard.
 function drawNewsCard(ctx, card) {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
@@ -484,15 +518,20 @@ function drawNewsCard(ctx, card) {
   const leftX = 34;
   const maxTextWidth = CANVAS_WIDTH - 34 - 34;
   let y = BANNER_HEIGHT + 40;
-  const lineGap = 54;
+  const lineGap = 32;
+  const headlineGap = 16;
   ctx.textAlign = "left";
   card.headlines.forEach((headline) => {
     ctx.font = "bold 26px \"" + FONT_FAMILY.serif + "\"";
     const bullet = "•  ";
     const bulletWidth = ctx.measureText(bullet).width;
-    ctx.fillText(bullet, leftX, y);
-    ctx.fillText(truncateToWidth(ctx, headline, maxTextWidth - bulletWidth), leftX + bulletWidth, y);
-    y += lineGap;
+    const lines = wrapToLines(ctx, headline, maxTextWidth - bulletWidth, 2);
+    lines.forEach((line, i) => {
+      if (i === 0) ctx.fillText(bullet, leftX, y);
+      ctx.fillText(line, leftX + bulletWidth, y);
+      y += lineGap;
+    });
+    y += headlineGap;
   });
 
   if (card.updatedLabel) {
@@ -958,6 +997,7 @@ module.exports = {
   fetchHeadlines,
   formatNewsFallbackText,
   truncateToWidth,
+  wrapToLines,
   drawNewsCard,
   formatShortDate,
   renderDynamicDesign,
