@@ -631,6 +631,18 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const xml = "<rss><channel><item><link>https://example.com/no-title</link></item></channel></rss>";
     assert.deepStrictEqual(parseRssHeadlines(xml, 3), []);
   });
+  await test("strips a Google-News-style trailing \" - Source Name\" so the card's one line goes to the headline, not attribution", () => {
+    const xml = "<rss><channel><item><title>Wildwood Beach Patrol warns of rip currents - The Press of Atlantic City</title></item></channel></rss>";
+    assert.deepStrictEqual(parseRssHeadlines(xml, 1), ["Wildwood Beach Patrol warns of rip currents"]);
+  });
+  await test("leaves a headline with no \" - \" separator alone", () => {
+    const xml = "<rss><channel><item><title>Council approves new beach tag pricing</title></item></channel></rss>";
+    assert.deepStrictEqual(parseRssHeadlines(xml, 1), ["Council approves new beach tag pricing"]);
+  });
+  await test("only the LAST \" - \" is treated as the source separator -- an earlier, mid-headline \" - \" is preserved", () => {
+    const xml = "<rss><channel><item><title>Council debates plan - opponents say it's too costly - Shore Weekly</title></item></channel></rss>";
+    assert.deepStrictEqual(parseRssHeadlines(xml, 1), ["Council debates plan - opponents say it's too costly"]);
+  });
 
   console.log("fetchHeadlines / formatNewsFallbackText");
   await test("fetchHeadlines throws on a non-ok response (caller should skip-and-retry, not clean up)", async () => {

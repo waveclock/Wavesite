@@ -357,6 +357,22 @@ function decodeXmlEntities(text) {
     .replace(/&apos;/g, "'");
 }
 
+// Google News RSS (and most other news feeds) format every title as
+// "Headline text - Source Name" -- on a card this narrow, that trailing
+// attribution eats into the one line a headline gets before
+// truncateToWidth ellipsizes it, at the expense of the actual headline
+// (confirmed live: e.g. "Wildwood Beach Patrol in Wildwood, New
+// Jersey,..." was cut off well before the real news, with the source
+// name is what got dropped instead). Only strips the LAST " - " split,
+// and only if that leaves real text before it, so a hyphen that's
+// actually part of the headline (rare, but possible near the end)
+// doesn't get mistaken for the separator and eaten too.
+function stripFeedSource(title) {
+  const idx = title.lastIndexOf(" - ");
+  if (idx <= 0) return title;
+  return title.slice(0, idx);
+}
+
 // Dependency-free RSS 2.0 item/title extractor -- deliberately NOT a
 // general XML parser (no dependency for this exists in functions/
 // package.json, and RSS's <item>/<title> shape is simple and stable
@@ -376,7 +392,7 @@ function parseRssHeadlines(xmlText, maxItems) {
     const raw = titleMatch[1];
     const cdataMatch = raw.match(cdataRe);
     const decoded = decodeXmlEntities((cdataMatch ? cdataMatch[1] : raw).trim());
-    if (decoded) headlines.push(decoded);
+    if (decoded) headlines.push(stripFeedSource(decoded));
   }
   return headlines;
 }
