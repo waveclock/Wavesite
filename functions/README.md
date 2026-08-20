@@ -204,14 +204,28 @@ one. Fixed by giving `fetchHeadlines` a real `User-Agent` +
 deliberately left alone, since Node's own default (`*/*`) already
 matches what a real browser's `fetch()` sends.
 
-This fix is scoped to the RSS fetch only. ESPN's "teams"/"schedule" fetch
-is currently working without any custom headers, so it's left exactly as
-is -- there's no live evidence it has the same problem, and no reason to
-risk a currently-working path to test a theory. If it breaks again, the
-same local-header-probe approach (see the script referenced in this
-PR's history, or just spin up a throwaway `http.createServer` and hit it
-with a bare `fetch()`) is the fastest way to find out exactly what Node
-is sending by default, rather than guessing.
+That fix held for a while, then the RSS fetch broke a THIRD time --
+confirmed live via the same logs, Google News back to `503`, NPR back to
+`403` -- with the corrected header still in place and unchanged (verified
+by diffing `fetchHeadlines` against the exact commit that was last
+confirmed working: zero difference). So the header wasn't wrong; Google
+News/NPR started blocking the request again regardless of what header it
+carried. Meanwhile ESPN's "teams"/"schedule" fetch, which sends NO custom
+header at all, kept working the entire time. Since a real header no
+longer helps and the one thing demonstrably still working elsewhere in
+this file is sending no header, `fetchHeadlines` now matches that --
+`OUTBOUND_FETCH_HEADERS` is no longer sent on the RSS fetch either. This
+is an experiment based on what's currently working, not a diagnosed root
+cause -- unlike the Node-defaults fix above, there's no local repro
+proving the mechanism this time, just the live evidence that the
+headerless request pattern is the one still succeeding. If RSS breaks
+again, check the logs for the exact status first (a `503`/`403` is
+Google/NPR's own server responding, not a local bug) before assuming
+either direction on headers is automatically the fix.
+
+ESPN's "teams"/"schedule" fetch itself is untouched throughout all of
+this -- it's never shown a live problem, so there's no reason to risk it
+just for theoretical consistency with the RSS fetch.
 
 **ESPN blocks direct browser calls (CORS) -- confirmed live, and fixed**:
 design-v2's Team tool originally called `site.api.espn.com` straight from

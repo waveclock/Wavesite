@@ -412,9 +412,24 @@ function parseRssHeadlines(xmlText, maxItems) {
 // convention as fetchNextGame. Throws on a non-ok response so the caller
 // treats it as "try again on the next scheduled run," not "no news" --
 // same reasoning as a failed ESPN fetch.
+//
+// Deliberately NOT sending OUTBOUND_FETCH_HEADERS here, matching
+// fetchNextGame/espnProxyHandler's teams/schedule fetch below -- this is
+// a deliberate experiment, not a proven fix: confirmed live, Google News
+// and NPR both went back to 503/403-blocking this fetch even WITH a
+// realistic browser User-Agent, while ESPN's headerless fetch keeps
+// working the whole time. This does NOT contradict the earlier fix
+// (removing the header once already made things worse, because Node's
+// own un-set-header defaults -- "User-Agent: node" -- are a worse bot
+// signal than a real one) -- that finding was about Node's defaults
+// specifically being bad, not about headers being unnecessary in
+// general. Whether removing the header again helps THIS block is
+// unconfirmed; it's worth trying because it now matches the one thing
+// in this file that's demonstrably still working, not because the
+// underlying cause is understood.
 async function fetchHeadlines(meta, maxItems, fetchImpl) {
   const doFetch = fetchImpl || fetch;
-  const resp = await doFetch(newsFeedUrl(meta), { headers: OUTBOUND_FETCH_HEADERS });
+  const resp = await doFetch(newsFeedUrl(meta));
   if (!resp.ok) throw new Error("RSS feed fetch failed: " + resp.status);
   const xmlText = await resp.text();
   return parseRssHeadlines(xmlText, maxItems);
