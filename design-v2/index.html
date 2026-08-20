@@ -2320,13 +2320,18 @@
     }
     let layer;
     if (idx === -1) {
+      // Same reasoning as Team's findOrCreateTeamLayer -- News is also a
+      // full-screen card redrawn fresh every day, so starting one clears
+      // anything else already on the design rather than leaving it
+      // permanently hidden underneath from here on.
+      pushUndoState();
+      layers.length = 0;
       layer = {
         kind: "news", id: nextLayerId++,
         x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
         font: "Georgia, serif", outline: false,
         location, feedUrl, headlines: null
       };
-      pushUndoState();
       layers.push(layer);
     } else {
       layer = layers[idx];
@@ -2411,13 +2416,19 @@
   function findOrCreateTeamLayer() {
     let layer = layers.find((l) => l.kind === "team");
     if (!layer) {
+      // Team fills the whole screen and gets redrawn fresh every day --
+      // anything else already on the design (drawings, text, stickers,
+      // a Countdown) would just sit permanently hidden underneath it
+      // from here on, so starting one clears the slate instead of
+      // leaving dead weight behind.
+      pushUndoState();
+      layers.length = 0;
       layer = {
         kind: "team", id: nextLayerId++,
         x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
         font: "Georgia, serif", outline: false,
         previewContent: null, card: null
       };
-      pushUndoState();
       layers.push(layer);
     }
     return layer;
