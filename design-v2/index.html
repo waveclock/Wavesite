@@ -637,11 +637,6 @@
         </select>
       </label>
     </div>
-    <div class="toolbar" id="teamFontRow">
-      <button class="tool-btn active" id="teamFontSerifBtn" data-font="Georgia, serif" data-key="serif">Serif</button>
-      <button class="tool-btn" id="teamFontBlockBtn" data-font="'Bungee', sans-serif" data-outline="true" data-key="block">Block</button>
-      <button class="tool-btn" id="teamFontPixelBtn" data-font="'Press Start 2P', monospace" data-key="pixel">Pixel</button>
-    </div>
     <p class="clipart-status" id="teamStatus">Pick a team to see when they play next.</p>
   </div>
 
@@ -655,11 +650,6 @@
         <span>Or a specific RSS feed URL (optional, overrides Location)</span>
         <input type="text" id="newsFeedUrlInput" placeholder="https://example.com/feed.xml" maxlength="300">
       </label>
-    </div>
-    <div class="toolbar" id="newsFontRow">
-      <button class="tool-btn active" id="newsFontSerifBtn" data-font="Georgia, serif" data-key="serif">Serif</button>
-      <button class="tool-btn" id="newsFontBlockBtn" data-font="'Bungee', sans-serif" data-outline="true" data-key="block">Block</button>
-      <button class="tool-btn" id="newsFontPixelBtn" data-font="'Press Start 2P', monospace" data-key="pixel">Pixel</button>
     </div>
     <p class="clipart-status" id="newsStatus">Type a location (or paste a specific RSS feed URL) to get today's headlines once you publish.</p>
   </div>
@@ -1482,14 +1472,12 @@
     } else if (obj.kind === "team") {
       teamLeagueSelect.value = obj.sport + "/" + obj.league;
       populateTeamSelect(obj.sport, obj.league, obj.teamId);
-      syncTeamFontButtons(obj.fontKey);
       teamStatus.textContent = obj.card
         ? "This is the real card — it updates itself once a day after you publish."
         : (obj.previewContent ? "Updates on its own once a day after you publish — no need to redesign it." : "Pick a team to see when they play next.");
     } else if (obj.kind === "news") {
       newsLocationInput.value = obj.location || "";
       newsFeedUrlInput.value = obj.feedUrl || "";
-      syncNewsFontButtons(obj.fontKey);
       newsStatus.textContent = (obj.headlines && obj.headlines.length)
         ? "This is the real card — it updates itself once a day after you publish."
         : "Type a location (or paste a specific RSS feed URL) to see today's headlines.";
@@ -2087,7 +2075,13 @@
       // News similarly stages right away, empty -- the customer just needs
       // to type a location (or paste a feed URL) once the panel is open.
       if (tool === "news") {
-        startStaging({ kind: "news", location: "", feedUrl: "", font: selectedNewsFont, outline: selectedNewsOutline, fontKey: selectedNewsFontKey });
+        // font/outline have no button anymore (Team/News's real card
+        // ignores them entirely -- see drawGameDayCardClient/
+        // drawNewsCardClient), but they're still fixed values here, NOT
+        // removed outright: drawText's fallback rendering (the plain
+        // "LOADING…"/error line shown before the real card resolves, or
+        // if it never does) still needs a valid font to draw with.
+        startStaging({ kind: "news", location: "", feedUrl: "", font: "Georgia, serif", outline: false });
         newsLocationInput.value = "";
         newsFeedUrlInput.value = "";
       }
@@ -2267,30 +2261,6 @@
   const newsLocationInput = document.getElementById("newsLocationInput");
   const newsFeedUrlInput = document.getElementById("newsFeedUrlInput");
   const newsStatus = document.getElementById("newsStatus");
-  const newsFontButtons = document.querySelectorAll("#newsFontRow .tool-btn");
-  let selectedNewsFont = newsFontButtons[0].dataset.font;
-  let selectedNewsOutline = newsFontButtons[0].dataset.outline === "true";
-  let selectedNewsFontKey = newsFontButtons[0].dataset.key;
-
-  function syncNewsFontButtons(fontKey) {
-    newsFontButtons.forEach((b) => b.classList.toggle("active", b.dataset.key === fontKey));
-  }
-
-  newsFontButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      newsFontButtons.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      selectedNewsFont = btn.dataset.font;
-      selectedNewsOutline = btn.dataset.outline === "true";
-      selectedNewsFontKey = btn.dataset.key;
-      if (stagedObject && stagedObject.kind === "news") {
-        stagedObject.font = selectedNewsFont;
-        stagedObject.outline = selectedNewsOutline;
-        stagedObject.fontKey = selectedNewsFontKey;
-        redrawOverlay();
-      }
-    });
-  });
 
   let newsFetchToken = 0; // guards a slow/stale fetch from clobbering a newer edit
   let newsDebounceTimer = null;
@@ -2348,32 +2318,8 @@
   const teamLeagueSelect = document.getElementById("teamLeagueSelect");
   const teamNameSelect = document.getElementById("teamNameSelect");
   const teamStatus = document.getElementById("teamStatus");
-  const teamFontButtons = document.querySelectorAll("#teamFontRow .tool-btn");
-  let selectedTeamFont = teamFontButtons[0].dataset.font;
-  let selectedTeamOutline = teamFontButtons[0].dataset.outline === "true";
-  let selectedTeamFontKey = teamFontButtons[0].dataset.key;
   let teamsCache = {}; // "sport/league" -> [{id,name,abbrev}], fetched once per league per page load
   let teamFetchToken = 0; // guards a slow/stale fetch from clobbering a newer selection
-
-  function syncTeamFontButtons(fontKey) {
-    teamFontButtons.forEach((b) => b.classList.toggle("active", b.dataset.key === fontKey));
-  }
-
-  teamFontButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      teamFontButtons.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      selectedTeamFont = btn.dataset.font;
-      selectedTeamOutline = btn.dataset.outline === "true";
-      selectedTeamFontKey = btn.dataset.key;
-      if (stagedObject && stagedObject.kind === "team") {
-        stagedObject.font = selectedTeamFont;
-        stagedObject.outline = selectedTeamOutline;
-        stagedObject.fontKey = selectedTeamFontKey;
-        redrawOverlay();
-      }
-    });
-  });
 
   function fillTeamOptions(teams) {
     teamNameSelect.textContent = "";
@@ -2435,7 +2381,9 @@
     const teamName = teamNameSelect.options[teamNameSelect.selectedIndex].textContent;
 
     if (!stagedObject) {
-      startStaging({ kind: "team", sport, league, teamId, teamName, font: selectedTeamFont, outline: selectedTeamOutline, fontKey: selectedTeamFontKey, previewContent: null, card: null });
+      // Same reasoning as the News tool above -- font/outline are fixed,
+      // not user-facing, but still needed by drawText's fallback line.
+      startStaging({ kind: "team", sport, league, teamId, teamName, font: "Georgia, serif", outline: false, previewContent: null, card: null });
     } else if (stagedObject.kind === "team") {
       stagedObject.sport = sport;
       stagedObject.league = league;
@@ -2595,7 +2543,6 @@
     countdownLabelInput.disabled = !countdownCtxEnabled;
     // Same for a staged Team: league/team pickers and font stay live.
     const teamCtxEnabled = enabled || (stagedObject && stagedObject.kind === "team");
-    teamFontButtons.forEach((el) => { el.disabled = !teamCtxEnabled; });
     teamLeagueSelect.disabled = !teamCtxEnabled;
     teamNameSelect.disabled = !teamCtxEnabled || teamNameSelect.options.length <= 1;
     updateClipartSearchEnabled();
