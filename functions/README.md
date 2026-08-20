@@ -252,15 +252,43 @@ the deploy for the *daily* auto-update. `espnProxy` deploys as part of
 the same `firebase deploy --only functions` as everything else here, no
 extra step.
 
-## Deploying (not done automatically -- this needs a human with project access)
+## Deploying
+
+**Automatic**: `.github/workflows/deploy-functions.yml` runs `npm test`
+then `firebase deploy --only functions` by itself whenever `functions/`
+changes on `main` -- so a merged PR ships on its own, no terminal needed.
+It also supports a manual trigger (`workflow_dispatch`, runnable from
+GitHub's Actions tab -- including the mobile web UI -- or via the API)
+for re-running a deploy that isn't tied to a fresh push.
+
+This needs a one-time setup, done by a human with project access:
 
 1. **Upgrade the Firebase project to the Blaze (pay-as-you-go) plan** if
    it isn't already -- Cloud Functions require it. Realistic cost for this
    job is well under $1/month at any scale this business is likely to
    reach (see the cost breakdown discussed when this was built).
-2. Install the Firebase CLI if you don't have it: `npm install -g firebase-tools`
-3. `firebase login`
-4. From the repo root: `firebase deploy --only functions`
+2. Create a Google Cloud service account for deploys: **Google Cloud
+   Console -> IAM & Admin -> Service Accounts -> Create Service Account**
+   (any name, e.g. `github-deploy`), grant it the **Cloud Functions
+   Admin**, **Service Account User**, and **Firebase Admin** roles (or
+   just **Editor** if keeping it simple is preferred over the tightest
+   possible scope).
+3. On that service account: **Keys -> Add Key -> Create new key -> JSON**
+   -- downloads a `.json` credentials file. Treat this like a password;
+   it grants deploy access to the whole Firebase project.
+4. In this GitHub repo: **Settings -> Secrets and variables -> Actions ->
+   New repository secret**, name it `FIREBASE_SERVICE_ACCOUNT`, and paste
+   the entire contents of that downloaded JSON file as the value.
+5. That's it -- the next push to `main` touching `functions/` (or a
+   manual run of the workflow) will deploy using that key. All of the
+   above can be done from a phone browser; no local terminal needed
+   for this one-time setup either.
+
+**Manual** (still works, e.g. for testing a deploy before pushing):
+
+1. Install the Firebase CLI if you don't have it: `npm install -g firebase-tools`
+2. `firebase login`
+3. From the repo root: `firebase deploy --only functions`
 
 ## Local testing (no live Firebase project needed)
 
