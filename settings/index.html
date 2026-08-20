@@ -484,6 +484,12 @@
     // server-side merge). Defaults here only matter for a device that's
     // never had a settings file at all -- see the same defaults used in
     // design-v2's own settingsDefaults().
+    //
+    // showCustomScreen (singular) is the legacy field current firmware still
+    // requires (all-or-nothing settings parser) -- mirrored from
+    // showCustomScreen1 on every save below until firmware ships and switches
+    // to the three per-slot fields.
+    showCustomScreen: true,
     showCustomScreen1: true,
     showCustomScreen2: true,
     showCustomScreen3: false,
@@ -658,7 +664,12 @@
   // firmware-complete (the device echoes the whole settings object, not a
   // partial summary), so every field written to settings/{id}.json is
   // checked here, sunsetReminder included.
-  const CONFIRMABLE_FIELDS = ["cycleMode", "showWaveForecast", "showWeatherForecast", "showBeach", "showLifeguard", "showCustomScreen1", "showCustomScreen2", "showCustomScreen3", "sunsetAllDay", "sunsetReminder"];
+  // Only the legacy singular field is checked here, not the three new
+  // per-slot fields -- current firmware's device-status echo only knows
+  // about showCustomScreen (singular), so requiring the new fields to
+  // match would permanently block the "Applied to your device" confirmation
+  // until firmware ships and starts echoing them.
+  const CONFIRMABLE_FIELDS = ["cycleMode", "showWaveForecast", "showWeatherForecast", "showBeach", "showLifeguard", "showCustomScreen", "sunsetAllDay", "sunsetReminder"];
 
   // Tolerant comparison instead of strict === -- a device's own JSON
   // serialization (likely embedded C/C++ firmware) commonly doesn't
@@ -739,6 +750,7 @@
         showWeatherForecast: state.showWeatherForecast,
         showBeach: state.showBeach,
         showLifeguard: state.showLifeguard,
+        showCustomScreen: state.showCustomScreen1, // legacy field mirrored for current firmware
         showCustomScreen1: state.showCustomScreen1,
         showCustomScreen2: state.showCustomScreen2,
         showCustomScreen3: state.showCustomScreen3,

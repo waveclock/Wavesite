@@ -770,7 +770,15 @@
   }
 
   async function uploadToScreenPaths(suffix, blob) {
-    await Promise.all(screenDesignPaths(suffix).map((path) => uploadBytes(ref(storage, path), blob)));
+    const paths = screenDesignPaths(suffix);
+    await uploadBytes(ref(storage, paths[0]), blob);
+    for (const path of paths.slice(1)) {
+      try {
+        await uploadBytes(ref(storage, path), blob);
+      } catch (err) {
+        console.error("Couldn't write the new multi-screen path " + path + " (non-critical while Storage Rules haven't been updated yet):", err);
+      }
+    }
   }
 
   async function deleteFromScreenPaths(suffix) {
@@ -837,6 +845,7 @@
     showWeatherForecast: true,
     showBeach: true,
     showLifeguard: true,
+    showCustomScreen: true, // legacy field, still required by current firmware -- see updateSettingsField
     showCustomScreen1: true,
     showCustomScreen2: true,
     showCustomScreen3: false,
@@ -860,6 +869,9 @@
       console.error("Couldn't read existing settings before updating " + field + " (filling gaps from defaults):", err);
     }
     const payload = Object.assign({}, SETTINGS_DEFAULTS, current || {}, { [field]: value });
+    // Current firmware still requires the legacy singular field; mirror it from
+    // screen 1 (the only slot legacy firmware can actually display) until firmware ships.
+    payload.showCustomScreen = payload.showCustomScreen1;
     const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
     await uploadBytes(ref(storage, "settings/" + deviceId + ".json"), blob);
   }
