@@ -533,6 +533,41 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   });
 
   console.log("drawGameDayCard");
+  await test("keeps an equal gap between the number and 'IN' above it vs 'DAY(S)' below it, regardless of digit count", () => {
+    function blankGapsAroundNumber(daysLeft) {
+      const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+      const ctx = c.getContext("2d");
+      drawGameDayCard(ctx, { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft, daysUnit: "DAYS", venue: null, dateLabel: null, timeLabel: null, myLogo: null, oppLogo: null });
+      const d = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
+      // Scoped to the days-block's vertical neighborhood only -- well
+      // clear of the banner/headline above it, so their ink can't be
+      // mistaken for part of this measurement.
+      const rowHasInk = [];
+      for (let y = 85; y < 235; y++) {
+        let ink = false;
+        for (let x = 0; x < CANVAS_WIDTH; x++) {
+          if (d[(y * CANVAS_WIDTH + x) * 4] < 250) { ink = true; break; }
+        }
+        rowHasInk.push(ink);
+      }
+      const gaps = [];
+      let blankStart = null, sawFirstInk = false;
+      for (let i = 0; i < rowHasInk.length; i++) {
+        if (rowHasInk[i]) {
+          sawFirstInk = true;
+          if (blankStart !== null) { gaps.push(i - blankStart); blankStart = null; }
+        } else if (sawFirstInk && blankStart === null) {
+          blankStart = i;
+        }
+      }
+      return gaps;
+    }
+    for (const daysLeft of [1, 17, 128]) {
+      const gaps = blankGapsAroundNumber(daysLeft);
+      assert.strictEqual(gaps.length, 2, daysLeft + " days: expected 2 gaps (above/below the number), got " + gaps.length + " (" + gaps + ")");
+      assert.ok(Math.abs(gaps[0] - gaps[1]) <= 2, daysLeft + " days: expected roughly equal gaps, got " + gaps[0] + "px and " + gaps[1] + "px");
+    }
+  });
   await test("draws a title banner, headline, and days count onto an otherwise-blank canvas", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");

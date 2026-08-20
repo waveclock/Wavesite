@@ -1141,16 +1141,28 @@
       const size = fitBannerFontSize(ctx, "TODAY!", daysMaxWidth, "'Bungee', sans-serif", 56, 26);
       ctx.fillText("TODAY!", w / 2, bodyMidY - 6 + Math.round(size * 0.35));
     } else {
-      ctx.font = "bold 20px Georgia, serif";
-      ctx.fillText("IN", w / 2, bodyMidY - 60);
-
+      // Mirrors functions/lib/dynamic.js's equal-gap approach exactly:
+      // hang "IN"/"DAY(S)" off the number's own actual glyph box (not an
+      // approximated cap-height) plus a fixed gap on each side, so the
+      // gap stays equal regardless of how big the number's font ends up.
+      const GAP = 10;
       const numberText = String(card.daysLeft);
       const numberSize = fitBannerFontSize(ctx, numberText, daysMaxWidth, "'Bungee', sans-serif", 92, 40);
       ctx.font = numberSize + "px 'Bungee', sans-serif";
-      ctx.fillText(numberText, w / 2, bodyMidY - 6 + Math.round(numberSize * 0.34));
+      const numMetrics = ctx.measureText(numberText);
+      const numHeight = numMetrics.actualBoundingBoxAscent + numMetrics.actualBoundingBoxDescent;
+      const numTop = bodyMidY - numHeight / 2;
+      const numBaseline = numTop + numMetrics.actualBoundingBoxAscent;
+      const numBottom = numBaseline + numMetrics.actualBoundingBoxDescent;
+      ctx.fillText(numberText, w / 2, numBaseline);
 
       ctx.font = "bold 20px Georgia, serif";
-      ctx.fillText(card.daysUnit || "DAYS", w / 2, bodyMidY + 40);
+      const inMetrics = ctx.measureText("IN");
+      ctx.fillText("IN", w / 2, numTop - GAP - inMetrics.actualBoundingBoxDescent);
+
+      const unitText = card.daysUnit || "DAYS";
+      const unitMetrics = ctx.measureText(unitText);
+      ctx.fillText(unitText, w / 2, numBottom + GAP + unitMetrics.actualBoundingBoxAscent);
     }
 
     if (card.dateLabel && card.timeLabel) {

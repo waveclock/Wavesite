@@ -757,16 +757,33 @@ function drawGameDayCard(ctx, card) {
     const size = fitBannerFontSize(ctx, "TODAY!", daysMaxWidth, FONT_FAMILY.block, 56, 26);
     ctx.fillText("TODAY!", CANVAS_WIDTH / 2, bodyMidY - 6 + Math.round(size * 0.35));
   } else {
-    ctx.font = "bold 20px \"" + FONT_FAMILY.serif + "\"";
-    ctx.fillText("IN", CANVAS_WIDTH / 2, bodyMidY - 60);
-
+    // "IN" and "DAY(S)" need the SAME gap to the big number on both
+    // sides -- a fixed pixel offset from bodyMidY for each (the earlier
+    // approach) doesn't give that, since the number's own rendered
+    // height varies with its font size, which varies with how many
+    // digits fit. Instead, measure the number's actual glyph box
+    // (actualBoundingBoxAscent/Descent -- real ink extent, not an
+    // approximated cap-height) and hang "IN"/"DAY(S)" off ITS top/bottom
+    // edge plus a fixed gap, so the gap is genuinely equal regardless of
+    // the number's size.
+    const GAP = 10;
     const numberText = String(card.daysLeft);
     const numberSize = fitBannerFontSize(ctx, numberText, daysMaxWidth, FONT_FAMILY.block, 92, 40);
     ctx.font = numberSize + "px \"" + FONT_FAMILY.block + "\"";
-    ctx.fillText(numberText, CANVAS_WIDTH / 2, bodyMidY - 6 + Math.round(numberSize * 0.34));
+    const numMetrics = ctx.measureText(numberText);
+    const numHeight = numMetrics.actualBoundingBoxAscent + numMetrics.actualBoundingBoxDescent;
+    const numTop = bodyMidY - numHeight / 2;
+    const numBaseline = numTop + numMetrics.actualBoundingBoxAscent;
+    const numBottom = numBaseline + numMetrics.actualBoundingBoxDescent;
+    ctx.fillText(numberText, CANVAS_WIDTH / 2, numBaseline);
 
     ctx.font = "bold 20px \"" + FONT_FAMILY.serif + "\"";
-    ctx.fillText(card.daysUnit || "DAYS", CANVAS_WIDTH / 2, bodyMidY + 40);
+    const inMetrics = ctx.measureText("IN");
+    ctx.fillText("IN", CANVAS_WIDTH / 2, numTop - GAP - inMetrics.actualBoundingBoxDescent);
+
+    const unitText = card.daysUnit || "DAYS";
+    const unitMetrics = ctx.measureText(unitText);
+    ctx.fillText(unitText, CANVAS_WIDTH / 2, numBottom + GAP + unitMetrics.actualBoundingBoxAscent);
   }
 
   if (card.dateLabel && card.timeLabel) {
