@@ -31,6 +31,8 @@ const {
   wrapToLines,
   drawNewsCard,
   formatShortDate,
+  drawMoonIcon,
+  drawTideCard,
   renderDynamicDesign,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -883,6 +885,124 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const meta = { type: "news", location: "Ocean City, NJ", feedUrl: "https://example.com/custom-feed.xml", x: 396, y: 136, size: 48, fontKey: "serif", outline: false, inverted: false };
     await renderDynamicDesign(base, meta, now, fetchImpl);
     assert.strictEqual(requestedUrl, "https://example.com/custom-feed.xml");
+  });
+
+  console.log("drawMoonIcon (Tide & Fishing card)");
+  function centerPixel(canvas, x, y) {
+    const [r, g, b] = canvas.getContext("2d").getImageData(x, y, 1, 1).data;
+    return r < 128 && g < 128 && b < 128 ? "black" : "white";
+  }
+  await test("new moon (illumination 0) is entirely dark", () => {
+    const c = whiteCanvas(60, 60);
+    drawMoonIcon(c.getContext("2d"), 30, 30, 25, 0, true);
+    assert.strictEqual(centerPixel(c, 30, 30), "black");
+  });
+  await test("full moon (illumination 1) is entirely lit/blank", () => {
+    const c = whiteCanvas(60, 60);
+    drawMoonIcon(c.getContext("2d"), 30, 30, 25, 1, true);
+    assert.strictEqual(centerPixel(c, 30, 30), "white");
+  });
+  await test("waxing first quarter (illumination 0.5) is lit on the left, dark on the right", () => {
+    const c = whiteCanvas(60, 60);
+    drawMoonIcon(c.getContext("2d"), 30, 30, 25, 0.5, true);
+    assert.strictEqual(centerPixel(c, 18, 30), "white");
+    assert.strictEqual(centerPixel(c, 42, 30), "black");
+  });
+  await test("waning first quarter (illumination 0.5, not waxing) mirrors it -- lit on the right, dark on the left", () => {
+    const c = whiteCanvas(60, 60);
+    drawMoonIcon(c.getContext("2d"), 30, 30, 25, 0.5, false);
+    assert.strictEqual(centerPixel(c, 42, 30), "white");
+    assert.strictEqual(centerPixel(c, 18, 30), "black");
+  });
+  await test("waxing progresses monotonically from new to full (each step at least as lit as the last, sampling the whole disk)", () => {
+    function litFraction(illum, waxing) {
+      const c = whiteCanvas(60, 60);
+      drawMoonIcon(c.getContext("2d"), 30, 30, 25, illum, waxing);
+      const data = c.getContext("2d").getImageData(0, 0, 60, 60).data;
+      let lit = 0, total = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const dx = (i / 4) % 60 - 30, dy = Math.floor(i / 4 / 60) - 30;
+        if (dx * dx + dy * dy > 24 * 24) continue; // inside the disk only
+        total++;
+        if (data[i] > 128) lit++;
+      }
+      return lit / total;
+    }
+    const steps = [0, 0.25, 0.5, 0.78, 1].map((illum) => litFraction(illum, true));
+    for (let i = 1; i < steps.length; i++) {
+      assert.ok(steps[i] > steps[i - 1] - 0.01, "expected lit fraction to grow: " + steps.join(", "));
+    }
+    assert.ok(steps[0] < 0.05, "new moon should be almost entirely dark");
+    assert.ok(steps[steps.length - 1] > 0.95, "full moon should be almost entirely lit");
+  });
+
+  console.log("drawTideCard (Tide & Fishing card, Phase 1: tide + moon only)");
+  const SAMPLE_TIDE_CARD = {
+    dawn: { t: "2026-07-15T09:12:00.000Z", label: "5:12 AM" },
+    sunrise: { t: "2026-07-15T09:44:00.000Z", label: "5:44 AM" },
+    sunset: { t: "2026-07-16T00:24:00.000Z", label: "8:24 PM" },
+    dusk: { t: "2026-07-16T00:55:00.000Z", label: "8:55 PM" },
+    moon: {
+      illumination: 0.78, waxing: true, phaseName: "Waxing Gibbous",
+      rise: { t: "2026-07-15T19:15:00.000Z", label: "3:15 PM" },
+      set: { t: "2026-07-16T05:42:00.000Z", label: "1:42 AM" }
+    },
+    tideCurve: [
+      { t: "2026-07-15T09:12:00.000Z", heightFt: 1.0 },
+      { t: "2026-07-15T13:00:00.000Z", heightFt: 4.4 },
+      { t: "2026-07-16T00:55:00.000Z", heightFt: 0.5 }
+    ],
+    tideExtrema: [
+      { t: "2026-07-15T11:14:00.000Z", label: "7:14 AM", heightFt: 0.6, isHigh: false },
+      { t: "2026-07-15T17:22:00.000Z", label: "1:22 PM", heightFt: 4.4, isHigh: true }
+    ]
+  };
+  await test("draws onto an otherwise-blank canvas without throwing, at the right size", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawTideCard(c.getContext("2d"), SAMPLE_TIDE_CARD);
+    assert.strictEqual(c.width, CANVAS_WIDTH);
+    assert.strictEqual(c.height, CANVAS_HEIGHT);
+  });
+  await test("tolerates a moonless day (rise/set both null) and an extremum outside the dawn-dusk window without throwing", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const card = Object.assign({}, SAMPLE_TIDE_CARD, {
+      moon: Object.assign({}, SAMPLE_TIDE_CARD.moon, { rise: null, set: null }),
+      tideExtrema: SAMPLE_TIDE_CARD.tideExtrema.concat([
+        { t: "2026-07-15T03:00:00.000Z", label: "11:00 PM", heightFt: 4.0, isHigh: true } // before dawn -- must be skipped, not drawn
+      ])
+    });
+    drawTideCard(c.getContext("2d"), card);
+  });
+
+  console.log("renderDynamicDesign (type: tide)");
+  function fakeNoaaFetch(predictionsByInterval) {
+    return async (url) => {
+      const interval = new URL(url).searchParams.get("interval");
+      return { json: async () => ({ predictions: predictionsByInterval[interval] || [] }) };
+    };
+  }
+  await test("renders a tide card from real (mocked) suncalc + NOAA data", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = { type: "tide", lat: 39.2776, lon: -74.5746, stationId: "8534720" };
+    const fetchImpl = fakeNoaaFetch({
+      h: [{ t: "2026-07-15 12:00", v: "2.00" }, { t: "2026-07-15 13:00", v: "2.50" }],
+      hilo: [{ t: "2026-07-15 07:14", v: "0.60", type: "L" }, { t: "2026-07-15 13:22", v: "4.40", type: "H" }]
+    });
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.ok(result);
+    assert.ok(result.tideData.moon.phaseName);
+    assert.ok(result.binBuffer.some((b) => b !== 0));
+    const decoded = await loadImage(result.pngBuffer);
+    assert.strictEqual(decoded.width, CANVAS_WIDTH);
+    assert.strictEqual(decoded.height, CANVAS_HEIGHT);
+  });
+  await test("a real NOAA-fetch failure throws instead of returning null (must not be cleaned up -- tide is perpetual, like team/news)", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = { type: "tide", lat: 39.2776, lon: -74.5746, stationId: "8534720" };
+    const fetchImpl = async () => { throw new Error("network down"); };
+    await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");

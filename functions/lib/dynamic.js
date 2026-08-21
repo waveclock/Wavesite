@@ -17,6 +17,7 @@
 
 const { createCanvas, loadImage, registerFont } = require("canvas");
 const path = require("path");
+const { fetchTideCardData } = require("./astro");
 
 // Node's built-in fetch() has its OWN default headers when none are
 // given -- verified directly (a local Node server, hit with a bare
@@ -846,6 +847,178 @@ function drawGameDayCard(ctx, card) {
   }
 }
 
+// Silhouette of the moon's lit fraction -- black fill is the UNLIT
+// shadow (ink on the page), the blank/white area is what's lit, matching
+// this card's black-ink-on-white style everywhere else. Verified against
+// a 6-case reference render (new/crescent/quarter/gibbous/full, both
+// waxing and waning) before being trusted here -- the two-path
+// (semicircle + terminator ellipse) approach is easy to get subtly
+// backwards (e.g. which half bulges which direction) without checking
+// actual output.
+function drawMoonIcon(ctx, cx, cy, r, illum, waxing) {
+  const k = Math.max(0, Math.min(1, illum));
+  const rx = r * Math.abs(1 - 2 * k);
+  const gibbous = k > 0.5;
+  const bulgeAnticlockwise = waxing ? gibbous : !gibbous;
+  ctx.save();
+  ctx.beginPath();
+  ctx.fillStyle = "#000";
+  if (waxing) ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+  else ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
+  ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, bulgeAnticlockwise);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Phase 1 of the Tide & Fishing card: tide curve (clipped to the
+// dawn-dusk window, so full darkness is never shown) + moon phase/rise/
+// set. No fishing score, solunar bands, or weather yet -- those are
+// later phases, added on top of this same fixed-band layout rather than
+// changing it, so this stays a subset of the final card, not a
+// throwaway draft of it.
+//
+// card is exactly what lib/astro.js's fetchTideCardData returns:
+// { dawn, sunrise, sunset, dusk, moon, tideCurve, tideExtrema }, each of
+// dawn/sunrise/sunset/dusk/moon.rise/moon.set being either null or
+// { t: <ISO string>, label: <"3:15 PM" or null> }.
+function drawTideCard(ctx, card) {
+  const dawnMs = new Date(card.dawn.t).getTime();
+  const duskMs = new Date(card.dusk.t).getTime();
+  function minutesToX(iso) {
+    const ms = new Date(iso).getTime();
+    const clamped = Math.max(dawnMs, Math.min(duskMs, ms));
+    return 46 + ((clamped - dawnMs) / (duskMs - dawnMs)) * (CANVAS_WIDTH - 92);
+  }
+
+  // Fixed bands -- each zone owns a Y range that never depends on the
+  // day's actual tide/data values, so a high/low label can't drift into
+  // the top strip or footer on a day with an unusual tide range. See the
+  // mockup iteration that led here: floating a label relative to its
+  // dot's data-driven height is what caused repeated overlap bugs.
+  const TOP_STRIP_END = BANNER_HEIGHT + 24;
+  const PLOT_TOP = TOP_STRIP_END + 40;
+  const PLOT_BOTTOM = CANVAS_HEIGHT - 96;
+  const FOOTER_START = PLOT_BOTTOM + 40;
+
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  const bannerTitle = "TODAY'S TIDE";
+  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 40, FONT_FAMILY.block, 26, 14);
+  ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+  ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  if (card.sunrise.label) {
+    ctx.textAlign = "left";
+    ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 6);
+  }
+  if (card.sunset.label) {
+    ctx.textAlign = "right";
+    ctx.fillText("Sunset " + card.sunset.label, CANVAS_WIDTH - 24, TOP_STRIP_END - 6);
+  }
+
+  const heights = card.tideCurve.map((p) => p.heightFt);
+  const minH = (heights.length ? Math.min(...heights) : 0) - 0.4;
+  const maxH = (heights.length ? Math.max(...heights) : 1) + 0.4;
+  function heightToY(h) {
+    return PLOT_BOTTOM - ((h - minH) / (maxH - minH)) * (PLOT_BOTTOM - PLOT_TOP);
+  }
+
+  ctx.strokeStyle = "rgba(0,0,0,0.2)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 3]);
+  [card.sunrise, card.sunset].forEach((point) => {
+    if (!point) return;
+    const x = minutesToX(point.t);
+    ctx.beginPath();
+    ctx.moveTo(x, PLOT_TOP);
+    ctx.lineTo(x, PLOT_BOTTOM);
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  if (card.tideCurve.length > 1) {
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    card.tideCurve.forEach((p, i) => {
+      const x = minutesToX(p.t);
+      const y = heightToY(p.heightFt);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(46, PLOT_BOTTOM);
+  ctx.lineTo(CANVAS_WIDTH - 46, PLOT_BOTTOM);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.textAlign = "center";
+  card.tideExtrema.forEach((e) => {
+    const eMs = new Date(e.t).getTime();
+    if (eMs < dawnMs || eMs > duskMs) return;
+    const x = minutesToX(e.t);
+    const y = heightToY(e.heightFt);
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = "#000";
+    ctx.fill();
+
+    const heightLabel = (e.isHigh ? "H " : "L ") + e.heightFt.toFixed(1) + "ft";
+    if (e.isHigh) {
+      if (y - PLOT_TOP > 14) {
+        ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x, PLOT_TOP + 2); ctx.stroke();
+      }
+      ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "#000";
+      ctx.fillText(heightLabel, x, TOP_STRIP_END + 18);
+      ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillText(e.label, x, TOP_STRIP_END + 34);
+    } else {
+      if (PLOT_BOTTOM - y > 14) {
+        ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, y + 6); ctx.lineTo(x, PLOT_BOTTOM - 2); ctx.stroke();
+      }
+      ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "#000";
+      ctx.fillText(heightLabel, x, PLOT_BOTTOM + 20);
+      ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillText(e.label, x, PLOT_BOTTOM + 36);
+    }
+  });
+
+  const footerY = FOOTER_START + 26;
+  drawMoonIcon(ctx, 58, footerY - 10, 13, card.moon.illumination, card.moon.waxing);
+  ctx.textAlign = "left";
+  ctx.font = "bold 17px \"" + FONT_FAMILY.serif + "\"";
+  ctx.fillStyle = "#000";
+  ctx.fillText(card.moon.phaseName, 80, footerY - 3);
+
+  ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  const riseSetParts = [];
+  if (card.moon.rise && card.moon.rise.label) riseSetParts.push("Moonrise " + card.moon.rise.label);
+  if (card.moon.set && card.moon.set.label) riseSetParts.push("Moonset " + card.moon.set.label);
+  if (riseSetParts.length) {
+    ctx.textAlign = "right";
+    ctx.fillText(riseSetParts.join("   ·   "), CANVAS_WIDTH - 24, footerY - 3);
+  }
+}
+
 async function compositeAndPack(basePngBuffer, drawFn, meta) {
   const baseImage = await loadImage(basePngBuffer);
   const composite = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -959,6 +1132,13 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     return Object.assign(result, { headlines, content: headlines.join(" | ") });
   }
 
+  if (meta.type === "tide") {
+    const data = await fetchTideCardData({ lat: meta.lat, lon: meta.lon, stationId: meta.stationId }, now, fetchImpl);
+    const result = await compositeAndPack(basePngBuffer, (ctx) => drawTideCard(ctx, data), meta);
+    const extremaSummary = data.tideExtrema.map((e) => (e.isHigh ? "H" : "L") + " " + e.label).join(", ");
+    return Object.assign(result, { tideData: data, content: data.moon.phaseName + " -- " + extremaSummary });
+  }
+
   throw new Error("Unknown dynamic layer type: " + meta.type);
 }
 
@@ -1000,6 +1180,8 @@ module.exports = {
   wrapToLines,
   drawNewsCard,
   formatShortDate,
+  drawMoonIcon,
+  drawTideCard,
   renderDynamicDesign,
   ensureFontsRegistered
 };
