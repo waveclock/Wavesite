@@ -39,6 +39,7 @@ const {
   LOGO_SIZE,
   OUTBOUND_FETCH_HEADERS
 } = require("../lib/dynamic");
+const BANNER_HEIGHT = 48; // matches the constant in lib/dynamic.js (not exported)
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
@@ -972,6 +973,41 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       ])
     });
     drawTideCard(c.getContext("2d"), card);
+  });
+  await test("draws the fishing score badge and solunar hatch bands without throwing, and the badge text actually appears (banner has ink past where the plain title alone would end)", () => {
+    const cardWithScore = Object.assign({}, SAMPLE_TIDE_CARD, {
+      fishingScore: "Excellent",
+      solunarPeriods: [
+        { kind: "major", start: "2026-07-15T17:00:00.000Z", end: "2026-07-15T19:00:00.000Z" },
+        { kind: "minor", start: "2026-07-15T10:30:00.000Z", end: "2026-07-15T11:20:00.000Z" }
+      ]
+    });
+    const withBadge = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawTideCard(withBadge.getContext("2d"), cardWithScore);
+    const withoutBadge = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawTideCard(withoutBadge.getContext("2d"), SAMPLE_TIDE_CARD);
+    // The badge is a white pill somewhere in the banner's right half (its
+    // exact width depends on the score text) -- rather than guess one
+    // pixel, check whether ANY pixel in that half is white. A plain
+    // banner (no badge) is solid black out there; the "TODAY'S TIDE"
+    // title text is white but sits shifted toward the left-center, well
+    // clear of this scan region.
+    function hasWhitePixelInRightHalf(canvas) {
+      const data = canvas.getContext("2d").getImageData(CANVAS_WIDTH / 2 + 80, 0, CANVAS_WIDTH / 2 - 80, BANNER_HEIGHT).data;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] > 200) return true;
+      }
+      return false;
+    }
+    assert.ok(hasWhitePixelInRightHalf(withBadge), "expected the fishing-score badge to be visible");
+    assert.ok(!hasWhitePixelInRightHalf(withoutBadge), "expected no badge when fishingScore is absent");
+  });
+  await test("solunar periods outside the dawn-dusk window are skipped, not drawn (same rule as tideExtrema)", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const card = Object.assign({}, SAMPLE_TIDE_CARD, {
+      solunarPeriods: [{ kind: "major", start: "2026-07-15T02:00:00.000Z", end: "2026-07-15T04:00:00.000Z" }] // hours before dawn
+    });
+    drawTideCard(c.getContext("2d"), card); // must not throw
   });
 
   console.log("renderDynamicDesign (type: tide)");

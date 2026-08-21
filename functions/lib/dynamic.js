@@ -876,16 +876,37 @@ function drawMoonIcon(ctx, cx, cy, r, illum, waxing) {
   ctx.restore();
 }
 
-// Phase 1 of the Tide & Fishing card: tide curve (clipped to the
-// dawn-dusk window, so full darkness is never shown) + moon phase/rise/
-// set. No fishing score, solunar bands, or weather yet -- those are
-// later phases, added on top of this same fixed-band layout rather than
-// changing it, so this stays a subset of the final card, not a
-// throwaway draft of it.
+// A diagonal-hatch "highlight" -- deliberately not a gray fill, since a
+// semi-transparent wash would just get thresholded away to solid black or
+// white once this is packed to 1-bit for the real e-ink display. Denser
+// spacing reads as more emphasis (used for solunar "major" periods vs.
+// "minor").
+function drawHatchBand(ctx, x0, x1, yTop, yBottom, spacing) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0, yTop, x1 - x0, yBottom - yTop);
+  ctx.clip();
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1;
+  for (let x = x0 - (yBottom - yTop); x < x1; x += spacing) {
+    ctx.beginPath();
+    ctx.moveTo(x, yBottom);
+    ctx.lineTo(x + (yBottom - yTop), yTop);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Phase 2 of the Tide & Fishing card: adds solunar major/minor period
+// bands (hatched, clipped to the dawn-dusk window like everything else on
+// this card) and a fishing score badge in the banner, on top of Phase 1's
+// tide curve + moon phase/rise/set. Weather (wind/pressure/rain/swell)
+// is still a later phase.
 //
 // card is exactly what lib/astro.js's fetchTideCardData returns:
-// { dawn, sunrise, sunset, dusk, moon, tideCurve, tideExtrema }, each of
-// dawn/sunrise/sunset/dusk/moon.rise/moon.set being either null or
+// { dawn, sunrise, sunset, dusk, moon, tideCurve, tideExtrema,
+// solunarPeriods, fishingScore }, each of dawn/sunrise/sunset/dusk/
+// moon.rise/moon.set being either null or
 // { t: <ISO string>, label: <"3:15 PM" or null> }.
 function drawTideCard(ctx, card) {
   const dawnMs = new Date(card.dawn.t).getTime();
@@ -911,8 +932,25 @@ function drawTideCard(ctx, card) {
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
   const bannerTitle = "TODAY'S TIDE";
-  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 40, FONT_FAMILY.block, 26, 14);
-  ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 210, FONT_FAMILY.block, 26, 14);
+  ctx.fillText(bannerTitle, CANVAS_WIDTH / 2 - 46, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+  if (card.fishingScore) {
+    ctx.font = "bold 16px \"" + FONT_FAMILY.serif + "\"";
+    const badgeLabel = "FISHING: " + card.fishingScore.toUpperCase();
+    const badgeTextWidth = ctx.measureText(badgeLabel).width;
+    const badgeW = badgeTextWidth + 26;
+    const badgeH = 28;
+    const badgeX = CANVAS_WIDTH - 24 - badgeW;
+    const badgeY = (BANNER_HEIGHT - badgeH) / 2;
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.roundRect(badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+    ctx.fill();
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "left";
+    ctx.fillText(badgeLabel, badgeX + 13, BANNER_HEIGHT / 2 + 5.5);
+  }
 
   ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
   ctx.fillStyle = "rgba(0,0,0,0.6)";
@@ -931,6 +969,15 @@ function drawTideCard(ctx, card) {
   function heightToY(h) {
     return PLOT_BOTTOM - ((h - minH) / (maxH - minH)) * (PLOT_BOTTOM - PLOT_TOP);
   }
+
+  const solunarPeriods = card.solunarPeriods || [];
+  solunarPeriods.forEach((p) => {
+    const pStartMs = new Date(p.start).getTime(), pEndMs = new Date(p.end).getTime();
+    if (pEndMs < dawnMs || pStartMs > duskMs) return;
+    const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
+    const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
+    drawHatchBand(ctx, x0, x1, PLOT_TOP, PLOT_BOTTOM, p.kind === "major" ? 7 : 13);
+  });
 
   ctx.strokeStyle = "rgba(0,0,0,0.2)";
   ctx.lineWidth = 1;
@@ -999,6 +1046,24 @@ function drawTideCard(ctx, card) {
       ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillText(e.label, x, PLOT_BOTTOM + 36);
     }
+  });
+
+  // MAJOR/MINOR band labels sit just above the baseline, with a small
+  // white halo so the hatch lines behind them don't cut through the text.
+  solunarPeriods.forEach((p) => {
+    const pStartMs = new Date(p.start).getTime(), pEndMs = new Date(p.end).getTime();
+    if (pEndMs < dawnMs || pStartMs > duskMs) return;
+    const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
+    const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
+    ctx.font = "italic bold 11px \"" + FONT_FAMILY.serif + "\"";
+    ctx.textAlign = "center";
+    const bandLabel = p.kind.toUpperCase();
+    const labelW = ctx.measureText(bandLabel).width;
+    const labelCx = (x0 + x1) / 2;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(labelCx - labelW / 2 - 4, PLOT_BOTTOM - 20, labelW + 8, 16);
+    ctx.fillStyle = "#000";
+    ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 6);
   });
 
   const footerY = FOOTER_START + 26;

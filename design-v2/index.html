@@ -2684,6 +2684,24 @@
     ctx.restore();
   }
 
+  // Mirrors functions/lib/dynamic.js's drawHatchBand exactly -- see the
+  // comment there for why this is a hatch, not a gray fill.
+  function drawHatchBandClient(ctx, x0, x1, yTop, yBottom, spacing) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, yTop, x1 - x0, yBottom - yTop);
+    ctx.clip();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1;
+    for (let x = x0 - (yBottom - yTop); x < x1; x += spacing) {
+      ctx.beginPath();
+      ctx.moveTo(x, yBottom);
+      ctx.lineTo(x + (yBottom - yTop), yTop);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // Mirrors functions/lib/dynamic.js's drawTideCard exactly -- same fixed
   // -band layout (see the comment there for why the high/low labels are
   // pinned to their own reserved rows instead of floated off the dot).
@@ -2708,8 +2726,25 @@
     ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
     const bannerTitle = "TODAY'S TIDE";
-    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 26, 14);
-    ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 210, "'Bungee', sans-serif", 26, 14);
+    ctx.fillText(bannerTitle, w / 2 - 46, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+    if (card.fishingScore) {
+      ctx.font = "bold 16px Georgia, serif";
+      const badgeLabel = "FISHING: " + card.fishingScore.toUpperCase();
+      const badgeTextWidth = ctx.measureText(badgeLabel).width;
+      const badgeW = badgeTextWidth + 26;
+      const badgeH = 28;
+      const badgeX = w - 24 - badgeW;
+      const badgeY = (BANNER_HEIGHT - badgeH) / 2;
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+      ctx.fill();
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      ctx.fillText(badgeLabel, badgeX + 13, BANNER_HEIGHT / 2 + 5.5);
+    }
 
     ctx.font = "13px Georgia, serif";
     ctx.fillStyle = "rgba(0,0,0,0.6)";
@@ -2726,6 +2761,15 @@
     const minH = (heights.length ? Math.min(...heights) : 0) - 0.4;
     const maxH = (heights.length ? Math.max(...heights) : 1) + 0.4;
     function heightToY(v) { return PLOT_BOTTOM - ((v - minH) / (maxH - minH)) * (PLOT_BOTTOM - PLOT_TOP); }
+
+    const solunarPeriods = card.solunarPeriods || [];
+    solunarPeriods.forEach((p) => {
+      const pStartMs = new Date(p.start).getTime(), pEndMs = new Date(p.end).getTime();
+      if (pEndMs < dawnMs || pStartMs > duskMs) return;
+      const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
+      const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
+      drawHatchBandClient(ctx, x0, x1, PLOT_TOP, PLOT_BOTTOM, p.kind === "major" ? 7 : 13);
+    });
 
     ctx.strokeStyle = "rgba(0,0,0,0.2)";
     ctx.lineWidth = 1;
@@ -2794,6 +2838,22 @@
         ctx.font = "13px Georgia, serif";
         ctx.fillText(e.label, x, PLOT_BOTTOM + 36);
       }
+    });
+
+    solunarPeriods.forEach((p) => {
+      const pStartMs = new Date(p.start).getTime(), pEndMs = new Date(p.end).getTime();
+      if (pEndMs < dawnMs || pStartMs > duskMs) return;
+      const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
+      const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
+      ctx.font = "italic bold 11px Georgia, serif";
+      ctx.textAlign = "center";
+      const bandLabel = p.kind.toUpperCase();
+      const labelW = ctx.measureText(bandLabel).width;
+      const labelCx = (x0 + x1) / 2;
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(labelCx - labelW / 2 - 4, PLOT_BOTTOM - 20, labelW + 8, 16);
+      ctx.fillStyle = "#000";
+      ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 6);
     });
 
     const footerY = FOOTER_START + 26;

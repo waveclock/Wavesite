@@ -143,7 +143,7 @@ against DNS rebinding (a hostname resolving to a private IP only at fetch
 time, after the check already passed) -- see `isSafeFetchUrl` in
 `lib/dynamic.js` for the exact boundary.
 
-## The Tide & Fishing card (Phase 1: tide + moon only)
+## The Tide & Fishing card
 
 Unlike Team/News, this one doesn't duplicate its data-shaping logic
 between the live preview and the daily job -- both call `lib/astro.js`'s
@@ -193,9 +193,42 @@ and covered thoroughly with mocked tests (`test/astro.test.js`,
 eventually got -- deploy, publish a Tide layer, and check what actually
 shows up -- before fully trusting a real station's response shape.
 
-No fishing score, solunar major/minor bands, or weather (wind/pressure/
-rain/swell) yet -- those are later phases, layered onto this same
-fixed-band card rather than changing it.
+**Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
+unlike everything else here -- there's no closed-form time for lunar
+transit the way there is for solar noon. `computeSolunarPeriods` finds
+it numerically: sample the moon's altitude (`SunCalc.getMoonPosition`)
+every 2 minutes and look for local maxima (overhead) and minima
+(underfoot) -- both count as "major" periods, 2 per lunar day, ~12.4h
+apart. Minor periods are simpler: centered on moonrise/moonset, which
+suncalc already gives directly.
+
+A tempting shortcut -- "transit should be the midpoint of moonrise and
+moonset" -- turned out to be **unreliable** and was dropped after
+checking real output: `getMoonTimes` can return a rise/set pair that
+don't actually bracket the same transit (the moon rises ~50min later
+each day, so a given day's "set" is sometimes left over from the
+previous day's rise), which makes their midpoint land near the wrong
+extremum entirely. Direct altitude sampling has no such pairing
+ambiguity, and was verified against real `SunCalc` output (consecutive
+extrema alternate max/min and land ~12.3-12.6h apart, exactly the
+expected spacing) before being trusted -- see `test/astro.test.js`.
+
+**The fishing score** (`Fair`/`Good`/`Excellent`) is an explicit
+heuristic, not a scientific claim -- two pieces of classic angling
+folklore, same honesty standard as the "ESPN's API is unofficial" and
+NOAA-not-live-tested notes above: (1) tidal range is greatest near new/
+full moon and least near the quarters, and (2) fish are said to feed
+more actively while the tide is running, not near slack, so a major/
+minor period overlapping a fast-moving stretch of today's curve
+(computed via `tideRateOfChange`, relative to the day's own fastest
+stretch rather than a fixed ft/hr number, so it scales with each
+location's actual tidal range) is a second positive signal. Phase 2 has
+no NEGATIVE signal yet -- that needs weather (Phase 3: high wind, a sharp
+pressure drop) -- so it never returns `Poor` yet.
+
+No weather (wind/pressure/rain/swell) or the separate fishing-spot picker
+yet -- those are later phases, layered onto this same fixed-band card
+rather than changing it.
 
 ## Known tradeoffs
 
