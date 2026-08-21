@@ -183,8 +183,9 @@ function tideRateOfChange(curve, atMs) {
 
 // A simple, explicitly-a-heuristic-not-science fishing score (see the
 // README section for the honesty caveat, same spirit as the ESPN/NOAA
-// "not live tested"/"unofficial API" notes elsewhere in this file). Two
-// inputs, both classic angling folklore rather than settled fact:
+// "not live tested"/"unofficial API" notes elsewhere in this file). Moon
+// + tide (always available) contribute 0-2 points; weather (optional --
+// omitted where a caller has none, e.g. old tests) can add or subtract 1:
 //   1. Tidal range (and, per the folklore, fish activity) is greatest
 //      near new/full moon (spring tides) and least near the quarters
 //      (neap tides).
@@ -192,13 +193,21 @@ function tideRateOfChange(curve, atMs) {
 //      moving, not near slack -- so a major/minor solunar period that
 //      overlaps a fast-moving stretch of today's tide curve is a second
 //      positive signal.
-// Phase 2 (moon + tide only) has no NEGATIVE signal yet -- that needs
-// weather (Phase 3: high wind, sharp pressure drops), so this never
-// returns "Poor" yet.
-const FISHING_SCORE_LEVELS = ["Fair", "Good", "Excellent"];
+//   3. Calm wind + steady/rising pressure is a positive signal; high wind
+//      or a sharp pressure drop (a front moving through) is a negative
+//      one -- this is what actually lets the score reach "Poor".
+const FISHING_SCORE_LEVELS = ["Poor", "Fair", "Good", "Excellent"];
+const WEATHER_CALM_WIND_MPH = 15;
+const WEATHER_HIGH_WIND_MPH = 20;
+const WEATHER_SHARP_PRESSURE_DROP_HPA = -3;
 
-function fishingScore({ moonIllumination, solunarPeriods, tideCurve, dawn, dusk }) {
-  let points = 0;
+function fishingScore({ moonIllumination, solunarPeriods, tideCurve, dawn, dusk, weather }) {
+  // Starts at 1 ("Fair" -- the FISHING_SCORE_LEVELS index for a day with
+  // no positive or negative signal at all), not 0: Phase 2 had 2 possible
+  // positive points landing on Fair/Good/Excellent, and adding "Poor"
+  // here must not silently shift those down a level for existing (no
+  // weather) callers.
+  let points = 1;
 
   const distFromNewOrFull = Math.min(moonIllumination, 1 - moonIllumination); // 0 at new/full, 0.5 at quarter
   if (distFromNewOrFull < 0.15) points += 1;
@@ -219,7 +228,204 @@ function fishingScore({ moonIllumination, solunarPeriods, tideCurve, dawn, dusk 
     if (hasMovingOverlap) points += 1;
   }
 
-  return FISHING_SCORE_LEVELS[Math.min(points, FISHING_SCORE_LEVELS.length - 1)];
+  if (weather) {
+    const windMph = weather.wind ? weather.wind.mph : null;
+    const pressureDelta = weather.pressure ? weather.pressure.deltaHpa : null;
+    const windCalm = windMph == null || windMph <= WEATHER_CALM_WIND_MPH;
+    const pressureGood = !weather.pressure || weather.pressure.trend !== "falling";
+    const windBad = windMph != null && windMph > WEATHER_HIGH_WIND_MPH;
+    const pressureBad = pressureDelta != null && pressureDelta <= WEATHER_SHARP_PRESSURE_DROP_HPA;
+    if (windBad || pressureBad) points -= 1;
+    else if (windCalm && pressureGood) points += 1;
+  }
+
+  const clamped = Math.max(0, Math.min(points, FISHING_SCORE_LEVELS.length - 1));
+  return FISHING_SCORE_LEVELS[clamped];
+}
+
+const OPEN_METEO_WEATHER_BASE = "https://api.open-meteo.com/v1/forecast";
+const OPEN_METEO_MARINE_BASE = "https://marine-api.open-meteo.com/v1/marine";
+const RAIN_PROBABILITY_THRESHOLD = 50; // percent
+const WIND_RAMP_MIN_ABS_MPH = 15;
+const WIND_RAMP_MIN_INCREASE_MPH = 8;
+
+// Open-Meteo's hourly.time entries look like "2026-07-15T09:00" (no
+// seconds, no timezone marker) -- requested with timezone=UTC below for
+// the same reason NOAA's calls use time_zone=gmt: read explicitly as UTC
+// rather than risk the ambiguous default.
+function parseOpenMeteoTimestamp(t) {
+  return new Date(t + ":00Z");
+}
+
+async function fetchOpenMeteoWeather(lat, lon, fetchImpl) {
+  const doFetch = fetchImpl || fetch;
+  const params = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    hourly: "wind_speed_10m,wind_direction_10m,surface_pressure,precipitation_probability",
+    wind_speed_unit: "mph",
+    timezone: "UTC",
+    past_hours: "6",
+    forecast_hours: "30"
+  });
+  const resp = await doFetch(OPEN_METEO_WEATHER_BASE + "?" + params.toString());
+  const data = await resp.json();
+  if (data && data.error) throw new Error(data.reason || "Open-Meteo weather returned an error");
+  const h = data.hourly || {};
+  const times = h.time || [];
+  return times.map((t, i) => ({
+    t: parseOpenMeteoTimestamp(t),
+    windMph: h.wind_speed_10m ? h.wind_speed_10m[i] : null,
+    windDir: h.wind_direction_10m ? h.wind_direction_10m[i] : null,
+    pressureHpa: h.surface_pressure ? h.surface_pressure[i] : null,
+    precipProbability: h.precipitation_probability ? h.precipitation_probability[i] : null
+  }));
+}
+
+async function fetchOpenMeteoMarine(lat, lon, fetchImpl) {
+  const doFetch = fetchImpl || fetch;
+  const params = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    hourly: "wave_height,wave_period,sea_surface_temperature",
+    length_unit: "imperial",
+    temperature_unit: "fahrenheit",
+    timezone: "UTC",
+    forecast_hours: "30"
+  });
+  const resp = await doFetch(OPEN_METEO_MARINE_BASE + "?" + params.toString());
+  const data = await resp.json();
+  if (data && data.error) throw new Error(data.reason || "Open-Meteo marine returned an error");
+  const h = data.hourly || {};
+  const times = h.time || [];
+  // sea_surface_temperature coverage is inconsistent close to shore in
+  // parts of the US -- a device very near the coast may just get nulls
+  // for it here, which the card handles by omitting water temp rather
+  // than showing a wrong/stale number (see fetchTideCardData below).
+  return times.map((t, i) => ({
+    t: parseOpenMeteoTimestamp(t),
+    waveHeightFt: h.wave_height ? h.wave_height[i] : null,
+    wavePeriodS: h.wave_period ? h.wave_period[i] : null,
+    waterTempF: h.sea_surface_temperature ? h.sea_surface_temperature[i] : null
+  }));
+}
+
+const COMPASS_POINTS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+function degreesToCompass(deg) {
+  if (deg == null) return null;
+  const idx = Math.round(((((deg % 360) + 360) % 360) / 360) * 16) % 16;
+  return COMPASS_POINTS[idx];
+}
+
+function nearestHourly(series, atMs) {
+  if (!series.length) return null;
+  let best = series[0], bestDiff = Math.abs(series[0].t.getTime() - atMs);
+  for (const item of series) {
+    const diff = Math.abs(item.t.getTime() - atMs);
+    if (diff < bestDiff) { best = item; bestDiff = diff; }
+  }
+  return best;
+}
+
+// Compares "now" to ~6h ago (both nearest-hourly) -- a plain threshold in
+// hPa/6h, not a fitted trendline, since a coarse rising/falling/steady
+// bucket is all the card actually displays.
+const PRESSURE_LOOKBACK_TOLERANCE_MS = 90 * 60000; // nearestHourly always returns ITS closest point, even if that's nowhere near 6h away (e.g. a short series) -- only trust it as "6h ago" within this tolerance
+
+function computePressure(weatherSeries, nowMs) {
+  const current = nearestHourly(weatherSeries, nowMs);
+  const targetMs = nowMs - 6 * 3600000;
+  const sixHoursAgo = nearestHourly(weatherSeries, targetMs);
+  const sixHoursAgoValid = sixHoursAgo && Math.abs(sixHoursAgo.t.getTime() - targetMs) <= PRESSURE_LOOKBACK_TOLERANCE_MS;
+  if (!current || current.pressureHpa == null || !sixHoursAgoValid || sixHoursAgo.pressureHpa == null) {
+    return { hpa: current && current.pressureHpa != null ? Math.round(current.pressureHpa) : null, deltaHpa: null, trend: "steady" };
+  }
+  const deltaHpa = Math.round((current.pressureHpa - sixHoursAgo.pressureHpa) * 10) / 10;
+  let trend = "steady";
+  if (deltaHpa <= -2) trend = "falling";
+  else if (deltaHpa >= 2) trend = "rising";
+  return { hpa: Math.round(current.pressureHpa), deltaHpa, trend };
+}
+
+// Contiguous windows (within [dawn, dusk]) where precipitation
+// probability meets the threshold -- each hourly point represents the
+// hour STARTING at its timestamp, so a run's window extends 1h past its
+// last point.
+function computeRainWindows(weatherSeries, dawn, dusk, timeZone) {
+  const dawnMs = dawn.getTime(), duskMs = dusk.getTime();
+  const inWindow = weatherSeries.filter((p) => p.t.getTime() >= dawnMs && p.t.getTime() <= duskMs && p.precipProbability != null);
+  const runs = [];
+  let current = null;
+  inWindow.forEach((p) => {
+    if (p.precipProbability >= RAIN_PROBABILITY_THRESHOLD) {
+      if (!current) current = { startMs: p.t.getTime(), endMs: p.t.getTime() };
+      else current.endMs = p.t.getTime();
+    } else if (current) {
+      runs.push(current);
+      current = null;
+    }
+  });
+  if (current) runs.push(current);
+
+  return runs.map((r) => {
+    const startDate = new Date(r.startMs);
+    const endDate = new Date(r.endMs + 3600000);
+    return {
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+      label: "RAIN LIKELY " + formatLocalTime(startDate, timeZone) + "-" + formatLocalTime(endDate, timeZone)
+    };
+  });
+}
+
+// A meaningful wind pickup later in the window: the later peak has to
+// clear an absolute floor (WIND_RAMP_MIN_ABS_MPH) AND be a real jump over
+// current conditions (WIND_RAMP_MIN_INCREASE_MPH) -- a 16mph day that's
+// already blowing 14mph isn't a "heads up," it's just breezy.
+function computeWindRamp(weatherSeries, dawn, dusk, nowMs, timeZone) {
+  const dawnMs = dawn.getTime(), duskMs = dusk.getTime();
+  const future = weatherSeries.filter((p) => p.t.getTime() >= Math.max(nowMs, dawnMs) && p.t.getTime() <= duskMs && p.windMph != null);
+  if (!future.length) return null;
+
+  const current = nearestHourly(weatherSeries, nowMs);
+  const currentMph = current && current.windMph != null ? current.windMph : 0;
+  let peak = future[0];
+  future.forEach((p) => { if (p.windMph > peak.windMph) peak = p; });
+
+  if (peak.windMph < WIND_RAMP_MIN_ABS_MPH || peak.windMph - currentMph < WIND_RAMP_MIN_INCREASE_MPH) return null;
+
+  const crossThreshold = currentMph + (peak.windMph - currentMph) * 0.5;
+  const crossing = future.find((p) => p.windMph >= crossThreshold) || peak;
+  const gustMph = Math.round(peak.windMph);
+  const afterLabel = formatLocalTime(crossing.t, timeZone);
+  return { gustMph, after: crossing.t.toISOString(), label: "WIND TO " + gustMph + " MPH AFTER " + afterLabel };
+}
+
+// Both Open-Meteo calls in parallel; returns null fields gracefully
+// rather than throwing when a value just isn't available (e.g. water
+// temp near shore) -- unlike a NOAA/network failure, a missing data
+// field is not a reason to fail the whole card.
+async function fetchWeatherSignals({ lat, lon, dawn, dusk, now, timeZone, fetchImpl }) {
+  const [weatherSeries, marineSeries] = await Promise.all([
+    fetchOpenMeteoWeather(lat, lon, fetchImpl),
+    fetchOpenMeteoMarine(lat, lon, fetchImpl)
+  ]);
+  const nowMs = now.getTime();
+  const currentWeather = nearestHourly(weatherSeries, nowMs);
+  const currentMarine = nearestHourly(marineSeries, nowMs);
+
+  return {
+    wind: currentWeather && currentWeather.windMph != null
+      ? { mph: Math.round(currentWeather.windMph), dir: degreesToCompass(currentWeather.windDir) }
+      : null,
+    pressure: computePressure(weatherSeries, nowMs),
+    rainWindows: computeRainWindows(weatherSeries, dawn, dusk, timeZone),
+    windRamp: computeWindRamp(weatherSeries, dawn, dusk, nowMs, timeZone),
+    swell: currentMarine && currentMarine.waveHeightFt != null
+      ? { heightFt: Math.round(currentMarine.waveHeightFt * 10) / 10, periodS: currentMarine.wavePeriodS != null ? Math.round(currentMarine.wavePeriodS) : null }
+      : null,
+    waterTempF: currentMarine && currentMarine.waterTempF != null ? Math.round(currentMarine.waterTempF) : null
+  };
 }
 
 // station: NOAA CO-OPS station ID (numeric string, e.g. "8534720").
@@ -247,6 +453,7 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
 
   const tideCurve = curve.map((p) => ({ t: p.t.toISOString(), heightFt: p.heightFt }));
   const solunarPeriods = computeSolunarPeriods(lat, lon, dawn, dusk, moonTimes.rise || null, moonTimes.set || null);
+  const weather = await fetchWeatherSignals({ lat, lon, dawn, dusk, now: at, timeZone, fetchImpl });
 
   return {
     timeZone,
@@ -266,7 +473,8 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
       .filter((p) => p.isHigh !== null)
       .map((p) => ({ t: p.t.toISOString(), label: formatLocalTime(p.t, timeZone), heightFt: p.heightFt, isHigh: p.isHigh })),
     solunarPeriods,
-    fishingScore: fishingScore({ moonIllumination: illum.fraction, solunarPeriods, tideCurve, dawn, dusk })
+    weather,
+    fishingScore: fishingScore({ moonIllumination: illum.fraction, solunarPeriods, tideCurve, dawn, dusk, weather })
   };
 }
 
@@ -280,5 +488,14 @@ module.exports = {
   computeSolunarPeriods,
   tideRateOfChange,
   fishingScore,
+  parseOpenMeteoTimestamp,
+  degreesToCompass,
+  nearestHourly,
+  computePressure,
+  computeRainWindows,
+  computeWindRamp,
+  fetchOpenMeteoWeather,
+  fetchOpenMeteoMarine,
+  fetchWeatherSignals,
   fetchTideCardData
 };

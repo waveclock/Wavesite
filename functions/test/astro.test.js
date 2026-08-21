@@ -15,6 +15,15 @@ const {
   computeSolunarPeriods,
   tideRateOfChange,
   fishingScore,
+  parseOpenMeteoTimestamp,
+  degreesToCompass,
+  nearestHourly,
+  computePressure,
+  computeRainWindows,
+  computeWindRamp,
+  fetchOpenMeteoWeather,
+  fetchOpenMeteoMarine,
+  fetchWeatherSignals,
   fetchTideCardData
 } = require("../lib/astro");
 
@@ -36,6 +45,42 @@ function mockNoaaFetch(predictionsByInterval) {
     const interval = new URL(url).searchParams.get("interval");
     return { json: async () => ({ predictions: predictionsByInterval[interval] || [] }) };
   };
+}
+
+// Routes by hostname so a single fetchImpl can stand in for NOAA + both
+// Open-Meteo endpoints at once, for tests that exercise fetchTideCardData
+// end-to-end. Any host not stubbed here throws, so an accidental request
+// to a fourth host wouldn't silently succeed with empty data.
+function mockAllApisFetch({ noaa = {}, weatherHourly = null, marineHourly = null } = {}) {
+  return async (url) => {
+    const u = new URL(url);
+    if (u.hostname === "api.tidesandcurrents.noaa.gov") {
+      const interval = u.searchParams.get("interval");
+      return { json: async () => ({ predictions: noaa[interval] || [] }) };
+    }
+    if (u.hostname === "api.open-meteo.com") {
+      return { json: async () => ({ hourly: weatherHourly || { time: [] } }) };
+    }
+    if (u.hostname === "marine-api.open-meteo.com") {
+      return { json: async () => ({ hourly: marineHourly || { time: [] } }) };
+    }
+    throw new Error("unexpected host in test: " + u.hostname);
+  };
+}
+
+// Builds a run of hourly Open-Meteo-shaped data from h=startHour to
+// h=endHour (UTC hours on 2026-07-15), with a value-generating function
+// per field -- keeps the weather/marine test fixtures below short.
+function buildHourlySeries(startHour, endHour, fields) {
+  const time = [];
+  const out = {};
+  Object.keys(fields).forEach((k) => { out[k] = []; });
+  for (let h = startHour; h <= endHour; h++) {
+    const dt = new Date(Date.UTC(2026, 6, 15, 0, 0, 0) + h * 3600000);
+    time.push(dt.toISOString().slice(0, 16));
+    Object.keys(fields).forEach((k) => out[k].push(fields[k](h)));
+  }
+  return Object.assign({ time }, out);
 }
 
 (async () => {
@@ -101,9 +146,11 @@ function mockNoaaFetch(predictionsByInterval) {
   });
 
   await test("fetchTideCardData assembles one payload from suncalc + both NOAA calls, filtering tideExtrema to only real hi/lo points", async () => {
-    const mockFetch = mockNoaaFetch({
-      h: [{ t: "2026-07-15 12:00", v: "2.00" }, { t: "2026-07-15 13:00", v: "2.50" }],
-      hilo: [{ t: "2026-07-15 07:14", v: "0.60", type: "L" }, { t: "2026-07-15 13:22", v: "4.40", type: "H" }]
+    const mockFetch = mockAllApisFetch({
+      noaa: {
+        h: [{ t: "2026-07-15 12:00", v: "2.00" }, { t: "2026-07-15 13:00", v: "2.50" }],
+        hilo: [{ t: "2026-07-15 07:14", v: "0.60", type: "L" }, { t: "2026-07-15 13:22", v: "4.40", type: "H" }]
+      }
     });
     const now = new Date("2026-07-15T16:00:00Z");
     const data = await fetchTideCardData({ lat: 39.2776, lon: -74.5746, stationId: "8534720" }, now, mockFetch);
@@ -119,7 +166,8 @@ function mockNoaaFetch(predictionsByInterval) {
     assert.strictEqual(data.tideExtrema[0].label, "3:14 AM");
     assert.strictEqual(data.tideExtrema[1].isHigh, true);
     assert.ok(Array.isArray(data.solunarPeriods));
-    assert.ok(["Fair", "Good", "Excellent"].includes(data.fishingScore));
+    assert.ok(data.weather, "expected a weather object even when Open-Meteo returns no hourly data");
+    assert.ok(["Poor", "Fair", "Good", "Excellent"].includes(data.fishingScore));
   });
 
   // Real SunCalc computation, no mocking -- this is pure math (no network),
@@ -213,6 +261,158 @@ function mockNoaaFetch(predictionsByInterval) {
       fishingScore({ moonIllumination: 0.5, solunarPeriods: [], tideCurve: [], dawn: SCORE_DAWN, dusk: SCORE_DUSK }),
       "Fair"
     );
+  });
+  await test("weather can now push the score down to Poor -- high wind or a sharp pressure drop, on top of an otherwise-neutral moon/tide", () => {
+    const neutral = { moonIllumination: 0.5, solunarPeriods: [], tideCurve: [], dawn: SCORE_DAWN, dusk: SCORE_DUSK };
+    assert.strictEqual(fishingScore(Object.assign({}, neutral, { weather: { wind: { mph: 25 }, pressure: { trend: "steady", deltaHpa: 0 } } })), "Poor");
+    assert.strictEqual(fishingScore(Object.assign({}, neutral, { weather: { wind: { mph: 8 }, pressure: { trend: "falling", deltaHpa: -4 } } })), "Poor");
+  });
+  await test("weather can also push the score up -- calm wind + steady/rising pressure is a positive signal", () => {
+    const neutral = { moonIllumination: 0.5, solunarPeriods: [], tideCurve: [], dawn: SCORE_DAWN, dusk: SCORE_DUSK };
+    assert.strictEqual(fishingScore(Object.assign({}, neutral, { weather: { wind: { mph: 8 }, pressure: { trend: "steady", deltaHpa: 0 } } })), "Good");
+  });
+  await test("mixed weather (calm wind but falling pressure, not sharply) is neutral -- neither bonus nor penalty", () => {
+    const neutral = { moonIllumination: 0.5, solunarPeriods: [], tideCurve: [], dawn: SCORE_DAWN, dusk: SCORE_DUSK };
+    assert.strictEqual(fishingScore(Object.assign({}, neutral, { weather: { wind: { mph: 8 }, pressure: { trend: "falling", deltaHpa: -2 } } })), "Fair");
+  });
+  await test("score never goes below Poor or above Excellent even with every signal maxed", () => {
+    const best = { moonIllumination: 0.0, solunarPeriods: [{ kind: "major", start: "2026-07-15T10:00:00.000Z", end: "2026-07-15T12:00:00.000Z" }], tideCurve: MOVING_CURVE, dawn: SCORE_DAWN, dusk: SCORE_DUSK, weather: { wind: { mph: 5 }, pressure: { trend: "rising", deltaHpa: 3 } } };
+    assert.strictEqual(fishingScore(best), "Excellent");
+  });
+
+  console.log("degreesToCompass / nearestHourly");
+  await test("degreesToCompass maps common headings, wraps correctly at 0/360, and returns null for null", () => {
+    assert.strictEqual(degreesToCompass(0), "N");
+    assert.strictEqual(degreesToCompass(360), "N");
+    assert.strictEqual(degreesToCompass(90), "E");
+    assert.strictEqual(degreesToCompass(180), "S");
+    assert.strictEqual(degreesToCompass(315), "NW");
+    assert.strictEqual(degreesToCompass(null), null);
+  });
+  await test("nearestHourly picks the closest point by absolute time distance, and null for an empty series", () => {
+    const series = [{ t: new Date("2026-07-15T10:00:00Z") }, { t: new Date("2026-07-15T14:00:00Z") }];
+    assert.strictEqual(nearestHourly(series, new Date("2026-07-15T11:30:00Z").getTime()), series[0]);
+    assert.strictEqual(nearestHourly(series, new Date("2026-07-15T12:30:00Z").getTime()), series[1]);
+    assert.strictEqual(nearestHourly([], Date.now()), null);
+  });
+
+  console.log("computePressure / computeRainWindows / computeWindRamp");
+  await test("computePressure classifies a >=2hPa/6h change as rising/falling, otherwise steady", () => {
+    const falling = buildHourlySeries(0, 6, {}).time.map((t, i) => ({ t: new Date(t + ":00Z"), pressureHpa: 1021 - i }));
+    assert.strictEqual(computePressure(falling, new Date(falling[6].t).getTime()).trend, "falling");
+    const rising = buildHourlySeries(0, 6, {}).time.map((t, i) => ({ t: new Date(t + ":00Z"), pressureHpa: 1015 + i }));
+    assert.strictEqual(computePressure(rising, new Date(rising[6].t).getTime()).trend, "rising");
+    const steady = buildHourlySeries(0, 6, {}).time.map((t) => ({ t: new Date(t + ":00Z"), pressureHpa: 1018 }));
+    assert.strictEqual(computePressure(steady, new Date(steady[6].t).getTime()).trend, "steady");
+  });
+  await test("computePressure degrades to steady/null-delta when there's no 6h-ago reading to compare against", () => {
+    const single = [{ t: new Date("2026-07-15T16:00:00Z"), pressureHpa: 1015 }];
+    const result = computePressure(single, new Date("2026-07-15T16:00:00Z").getTime());
+    assert.strictEqual(result.hpa, 1015);
+    assert.strictEqual(result.deltaHpa, null);
+    assert.strictEqual(result.trend, "steady");
+  });
+
+  await test("computeRainWindows merges contiguous hours over the probability threshold into one window, extended 1h past the last point", () => {
+    const dawn = new Date("2026-07-15T09:00:00Z");
+    const dusk = new Date("2026-07-15T20:00:00Z");
+    const series = buildHourlySeries(9, 20, {}).time.map((t, i) => {
+      const h = 9 + i;
+      return { t: new Date(t + ":00Z"), precipProbability: (h >= 14 && h <= 16) ? 70 : 10 };
+    });
+    const windows = computeRainWindows(series, dawn, dusk, "America/New_York");
+    assert.strictEqual(windows.length, 1);
+    assert.strictEqual(new Date(windows[0].start).toISOString(), "2026-07-15T14:00:00.000Z");
+    assert.strictEqual(new Date(windows[0].end).toISOString(), "2026-07-15T17:00:00.000Z");
+    assert.ok(windows[0].label.startsWith("RAIN LIKELY"));
+  });
+  await test("computeRainWindows returns two separate windows for two separate rainy runs, not one merged window", () => {
+    const dawn = new Date("2026-07-15T09:00:00Z");
+    const dusk = new Date("2026-07-15T20:00:00Z");
+    const series = buildHourlySeries(9, 20, {}).time.map((t, i) => {
+      const h = 9 + i;
+      return { t: new Date(t + ":00Z"), precipProbability: (h === 10 || h === 18) ? 80 : 5 };
+    });
+    const windows = computeRainWindows(series, dawn, dusk, "America/New_York");
+    assert.strictEqual(windows.length, 2);
+  });
+  await test("computeRainWindows returns nothing when probability never meets the threshold", () => {
+    const dawn = new Date("2026-07-15T09:00:00Z");
+    const dusk = new Date("2026-07-15T20:00:00Z");
+    const series = buildHourlySeries(9, 20, {}).time.map((t) => ({ t: new Date(t + ":00Z"), precipProbability: 20 }));
+    assert.deepStrictEqual(computeRainWindows(series, dawn, dusk, "America/New_York"), []);
+  });
+
+  await test("computeWindRamp flags a real later pickup (well above both the absolute floor and current conditions)", () => {
+    const dawn = new Date("2026-07-15T09:00:00Z");
+    const dusk = new Date("2026-07-16T00:00:00Z");
+    const now = new Date("2026-07-15T12:00:00Z");
+    const series = buildHourlySeries(9, 24, {}).time.map((t, i) => {
+      const h = 9 + i;
+      return { t: new Date(t + ":00Z"), windMph: h < 15 ? 8 : 22 };
+    });
+    const ramp = computeWindRamp(series, dawn, dusk, now.getTime(), "America/New_York");
+    assert.ok(ramp, "expected a wind ramp to be flagged");
+    assert.strictEqual(ramp.gustMph, 22);
+    assert.ok(ramp.label.includes("22 MPH"));
+  });
+  await test("computeWindRamp returns null when wind is already elevated now (nothing new to warn about)", () => {
+    const dawn = new Date("2026-07-15T09:00:00Z");
+    const dusk = new Date("2026-07-16T00:00:00Z");
+    const now = new Date("2026-07-15T16:00:00Z"); // already in the high-wind stretch
+    const series = buildHourlySeries(9, 24, {}).time.map((t, i) => {
+      const h = 9 + i;
+      return { t: new Date(t + ":00Z"), windMph: h < 15 ? 8 : 22 };
+    });
+    assert.strictEqual(computeWindRamp(series, dawn, dusk, now.getTime(), "America/New_York"), null);
+  });
+  await test("computeWindRamp returns null for a small/unremarkable increase (below the minimum jump)", () => {
+    const dawn = new Date("2026-07-15T09:00:00Z");
+    const dusk = new Date("2026-07-16T00:00:00Z");
+    const now = new Date("2026-07-15T12:00:00Z");
+    const series = buildHourlySeries(9, 24, {}).time.map((t) => ({ t: new Date(t + ":00Z"), windMph: 10 }));
+    assert.strictEqual(computeWindRamp(series, dawn, dusk, now.getTime(), "America/New_York"), null);
+  });
+
+  console.log("fetchOpenMeteoWeather / fetchOpenMeteoMarine / fetchWeatherSignals");
+  await test("fetchOpenMeteoWeather parses the hourly arrays into one object per timestamp", async () => {
+    const hourly = buildHourlySeries(0, 2, {
+      wind_speed_10m: () => 12,
+      wind_direction_10m: () => 270,
+      surface_pressure: () => 1018,
+      precipitation_probability: () => 40
+    });
+    const fetchImpl = async () => ({ json: async () => ({ hourly }) });
+    const series = await fetchOpenMeteoWeather(39.27, -74.57, fetchImpl);
+    assert.strictEqual(series.length, 3);
+    assert.strictEqual(series[0].windMph, 12);
+    assert.strictEqual(series[0].windDir, 270);
+    assert.strictEqual(series[0].pressureHpa, 1018);
+    assert.strictEqual(series[0].precipProbability, 40);
+  });
+  await test("fetchOpenMeteoWeather throws on an Open-Meteo-reported error instead of returning garbage", async () => {
+    const errorFetch = async () => ({ json: async () => ({ error: true, reason: "Latitude must be in range of -90 to 90 degrees" }) });
+    await assert.rejects(() => fetchOpenMeteoWeather(999, -74.57, errorFetch), /Latitude must be in range/);
+  });
+  await test("fetchOpenMeteoMarine parses wave height/period and water temp, tolerating missing sea_surface_temperature (patchy nearshore coverage)", async () => {
+    const hourly = buildHourlySeries(0, 1, { wave_height: () => 2.5, wave_period: () => 7 }); // no sea_surface_temperature field at all
+    const fetchImpl = async () => ({ json: async () => ({ hourly }) });
+    const series = await fetchOpenMeteoMarine(39.27, -74.57, fetchImpl);
+    assert.strictEqual(series[0].waveHeightFt, 2.5);
+    assert.strictEqual(series[0].wavePeriodS, 7);
+    assert.strictEqual(series[0].waterTempF, null);
+  });
+
+  await test("fetchWeatherSignals combines both APIs into one object, gracefully omitting swell/water temp when the marine call returns nothing", async () => {
+    const fetchImpl = mockAllApisFetch({
+      weatherHourly: buildHourlySeries(10, 20, { wind_speed_10m: () => 10, wind_direction_10m: () => 180, surface_pressure: () => 1015, precipitation_probability: () => 5 })
+      // marineHourly omitted entirely -- defaults to { time: [] }
+    });
+    const dawn = new Date("2026-07-15T09:00:00Z"), dusk = new Date("2026-07-15T20:00:00Z"), now = new Date("2026-07-15T16:00:00Z");
+    const weather = await fetchWeatherSignals({ lat: 39.27, lon: -74.57, dawn, dusk, now, timeZone: "America/New_York", fetchImpl });
+    assert.ok(weather.wind && weather.wind.mph === 10 && weather.wind.dir === "S");
+    assert.strictEqual(weather.swell, null);
+    assert.strictEqual(weather.waterTempF, null);
   });
 
   console.log(passed + " passed, " + failed + " failed");

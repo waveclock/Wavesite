@@ -1009,6 +1009,63 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     });
     drawTideCard(c.getContext("2d"), card); // must not throw
   });
+  await test("the alert strip replaces the quiet Sunrise/Sunset line when there's rain or a wind ramp to call out, and falls back to Sunrise/Sunset when there isn't", () => {
+    const alertY = BANNER_HEIGHT + 12; // roughly mid-way down the top-strip row
+    function hasInkAt(card, x) {
+      const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+      drawTideCard(c.getContext("2d"), card);
+      const data = c.getContext("2d").getImageData(x, alertY, 1, 1).data;
+      return data[0] < 200;
+    }
+    const withAlert = Object.assign({}, SAMPLE_TIDE_CARD, {
+      weather: { rainWindows: [{ start: "2026-07-15T18:00:00.000Z", end: "2026-07-15T20:00:00.000Z", label: "RAIN LIKELY 2:00 PM-4:00 PM" }], windRamp: null }
+    });
+    const withoutAlert = Object.assign({}, SAMPLE_TIDE_CARD, { weather: {} });
+    // Around x=30 is where the warning triangle sits -- only present with an alert.
+    assert.ok(hasInkAt(withAlert, 30), "expected the warning triangle when there's a rain window");
+    assert.ok(!hasInkAt(withoutAlert, 30), "expected no warning triangle on a normal day");
+    // Sunrise's plain-text line sits at the far left, x=24-ish -- present only without an alert.
+    assert.ok(hasInkAt(withoutAlert, 26), "expected the Sunrise label to fall back in without an alert");
+  });
+  await test("the weather footer row draws wind/pressure/swell/water-temp without throwing, and omits fields that are null (no crash on sparse Open-Meteo coverage)", () => {
+    const full = Object.assign({}, SAMPLE_TIDE_CARD, {
+      weather: {
+        wind: { mph: 8, dir: "NW" },
+        pressure: { hpa: 1015, deltaHpa: -6, trend: "falling" },
+        rainWindows: [],
+        windRamp: null,
+        swell: { heightFt: 2.1, periodS: 8 },
+        waterTempF: 68
+      }
+    });
+    drawTideCard(whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).getContext("2d"), full); // must not throw
+
+    const sparse = Object.assign({}, SAMPLE_TIDE_CARD, {
+      weather: { wind: null, pressure: { hpa: null, deltaHpa: null, trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null }
+    });
+    drawTideCard(whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).getContext("2d"), sparse); // must not throw, must not draw a broken/empty row
+
+    drawTideCard(whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).getContext("2d"), SAMPLE_TIDE_CARD); // no weather key at all -- must not throw
+  });
+  await test("the wind text draws left-aligned starting at its own position, even after the moonrise/moonset line (drawn right-aligned) runs first -- regression test for a real bug caught visually: drawLabelThenValue not resetting textAlign meant \"Wind 8 mph NW\" rendered right-aligned and collided with the wind arrow icon", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const card = Object.assign({}, SAMPLE_TIDE_CARD, {
+      moon: Object.assign({}, SAMPLE_TIDE_CARD.moon, {
+        rise: { t: "2026-07-15T19:15:00.000Z", label: "3:15 PM" },
+        set: { t: "2026-07-16T05:42:00.000Z", label: "1:42 AM" }
+      }),
+      weather: { wind: { mph: 8, dir: "NW" }, pressure: { hpa: null, deltaHpa: null, trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null }
+    });
+    drawTideCard(c.getContext("2d"), card);
+    // If textAlign leaked as "right", the wind text would render ending
+    // at x=80 (i.e. entirely to the LEFT of it) instead of starting at
+    // x=80 and extending right -- check for ink comfortably right of 80,
+    // where only the correctly-left-aligned text would reach.
+    const data = c.getContext("2d").getImageData(110, CANVAS_HEIGHT - 20, 40, 14).data;
+    let hasInk = false;
+    for (let i = 0; i < data.length; i += 4) { if (data[i] < 200) hasInk = true; }
+    assert.ok(hasInk, "expected \"Wind 8 mph NW\" to extend rightward past x=110, not render right-aligned and collapse to the left");
+  });
 
   console.log("renderDynamicDesign (type: tide)");
   function fakeNoaaFetch(predictionsByInterval) {

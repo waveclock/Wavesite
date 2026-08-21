@@ -876,6 +876,87 @@ function drawMoonIcon(ctx, cx, cy, r, illum, waxing) {
   ctx.restore();
 }
 
+// Small drawn glyphs for the Tide & Fishing card's weather row -- no
+// emoji (node-canvas has no color-emoji font, so an emoji character
+// renders as tofu/garbage; verified directly while building this).
+function drawWindArrow(ctx, x, y, size) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(Math.PI / 4);
+  ctx.beginPath();
+  ctx.moveTo(0, -size); ctx.lineTo(0, size);
+  ctx.moveTo(-size * 0.5, -size * 0.4); ctx.lineTo(0, -size); ctx.lineTo(size * 0.5, -size * 0.4);
+  ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.stroke();
+  ctx.restore();
+}
+function drawWaveGlyph(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.quadraticCurveTo(x + w * 0.25, y - h, x + w * 0.5, y);
+  ctx.quadraticCurveTo(x + w * 0.75, y + h, x + w, y);
+  ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.lineCap = "round";
+  ctx.stroke();
+  ctx.restore();
+}
+function drawTrendArrow(ctx, x, y, size, direction) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (direction === "down") ctx.rotate(Math.PI);
+  ctx.beginPath();
+  ctx.moveTo(0, -size); ctx.lineTo(size * 0.8, size * 0.6); ctx.lineTo(-size * 0.8, size * 0.6);
+  ctx.closePath();
+  ctx.fillStyle = "#000";
+  ctx.fill();
+  ctx.restore();
+}
+function drawWarningTriangle(ctx, x, y, size) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  ctx.moveTo(0, -size); ctx.lineTo(size * 0.95, size * 0.75); ctx.lineTo(-size * 0.95, size * 0.75);
+  ctx.closePath();
+  ctx.lineWidth = 2.2;
+  ctx.strokeStyle = "#000";
+  ctx.stroke();
+  ctx.fillStyle = "#000";
+  ctx.fillRect(-1.3, -size * 0.35, 2.6, size * 0.7);
+  ctx.beginPath();
+  ctx.arc(0, size * 0.52, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+function drawRainTick(ctx, x, y, size) {
+  ctx.save();
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x - size * 0.3, y);
+  ctx.lineTo(x - size * 0.7, y + size);
+  ctx.moveTo(x + size * 0.3, y);
+  ctx.lineTo(x - size * 0.1, y + size);
+  ctx.stroke();
+  ctx.restore();
+}
+// Draws "label value" with the value bold/solid black and the label in a
+// lighter weight -- used throughout the weather row so the actual
+// NUMBERS are what stand out, not the words around them. Returns the x
+// position immediately after what was drawn, for chaining more segments
+// on the same line (textAlign must be "left" going in).
+function drawLabelThenValue(ctx, label, value, x, y, serifFamily) {
+  ctx.textAlign = "left"; // self-contained: never depends on a caller having reset alignment first
+  ctx.font = "13px \"" + serifFamily + "\"";
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.fillText(label, x, y);
+  const labelW = ctx.measureText(label).width;
+  ctx.font = "bold 13px \"" + serifFamily + "\"";
+  ctx.fillStyle = "#000";
+  ctx.fillText(value, x + labelW, y);
+  return x + labelW + ctx.measureText(value).width;
+}
+
 // A diagonal-hatch "highlight" -- deliberately not a gray fill, since a
 // semi-transparent wash would just get thresholded away to solid black or
 // white once this is packed to 1-bit for the real e-ink display. Denser
@@ -952,15 +1033,34 @@ function drawTideCard(ctx, card) {
     ctx.fillText(badgeLabel, badgeX + 13, BANNER_HEIGHT / 2 + 5.5);
   }
 
-  ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-  ctx.fillStyle = "rgba(0,0,0,0.6)";
-  if (card.sunrise.label) {
+  // The alert strip (rain/wind call-outs) is the single boldest thing on
+  // the card besides the banner -- it's what the "conditions that might
+  // change your plans" ask was actually about, so it outranks the quiet
+  // Sunrise/Sunset line and takes that row over on any day there's
+  // something to flag. On an ordinary day with nothing to call out, the
+  // row falls back to Sunrise/Sunset as before.
+  const weather = card.weather || {};
+  const alertParts = [].concat(
+    (weather.rainWindows || []).map((w) => w.label),
+    weather.windRamp ? [weather.windRamp.label] : []
+  );
+  if (alertParts.length) {
+    drawWarningTriangle(ctx, 30, (BANNER_HEIGHT + TOP_STRIP_END) / 2, 10);
+    ctx.font = "bold 16px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "#000";
     ctx.textAlign = "left";
-    ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 6);
-  }
-  if (card.sunset.label) {
-    ctx.textAlign = "right";
-    ctx.fillText("Sunset " + card.sunset.label, CANVAS_WIDTH - 24, TOP_STRIP_END - 6);
+    ctx.fillText(alertParts.join("   ·   "), 48, (BANNER_HEIGHT + TOP_STRIP_END) / 2 + 6);
+  } else {
+    ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    if (card.sunrise.label) {
+      ctx.textAlign = "left";
+      ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 6);
+    }
+    if (card.sunset.label) {
+      ctx.textAlign = "right";
+      ctx.fillText("Sunset " + card.sunset.label, CANVAS_WIDTH - 24, TOP_STRIP_END - 6);
+    }
   }
 
   const heights = card.tideCurve.map((p) => p.heightFt);
@@ -977,6 +1077,17 @@ function drawTideCard(ctx, card) {
     const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
     const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
     drawHatchBand(ctx, x0, x1, PLOT_TOP, PLOT_BOTTOM, p.kind === "major" ? 7 : 13);
+  });
+
+  // Rain ticks along the top of the plot -- visually distinct from the
+  // full-height solunar hatch above so the two kinds of "shaded window"
+  // are never confused with each other.
+  (weather.rainWindows || []).forEach((w) => {
+    const wStartMs = new Date(w.start).getTime(), wEndMs = new Date(w.end).getTime();
+    if (wEndMs < dawnMs || wStartMs > duskMs) return;
+    const rx0 = minutesToX(new Date(Math.max(wStartMs, dawnMs)).toISOString());
+    const rx1 = minutesToX(new Date(Math.min(wEndMs, duskMs)).toISOString());
+    for (let x = rx0; x <= rx1; x += 14) drawRainTick(ctx, x, PLOT_TOP + 4, 8);
   });
 
   ctx.strokeStyle = "rgba(0,0,0,0.2)";
@@ -1066,21 +1177,82 @@ function drawTideCard(ctx, card) {
     ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 6);
   });
 
-  const footerY = FOOTER_START + 26;
-  drawMoonIcon(ctx, 58, footerY - 10, 13, card.moon.illumination, card.moon.waxing);
+  // Footer row 1: moon phase + rise/set.
+  const footerY1 = FOOTER_START + 22;
+  drawMoonIcon(ctx, 58, footerY1 - 9, 11, card.moon.illumination, card.moon.waxing);
   ctx.textAlign = "left";
-  ctx.font = "bold 17px \"" + FONT_FAMILY.serif + "\"";
+  ctx.font = "bold 15px \"" + FONT_FAMILY.serif + "\"";
   ctx.fillStyle = "#000";
-  ctx.fillText(card.moon.phaseName, 80, footerY - 3);
+  ctx.fillText(card.moon.phaseName, 78, footerY1 - 3);
 
-  ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-  ctx.fillStyle = "rgba(0,0,0,0.65)";
   const riseSetParts = [];
   if (card.moon.rise && card.moon.rise.label) riseSetParts.push("Moonrise " + card.moon.rise.label);
   if (card.moon.set && card.moon.set.label) riseSetParts.push("Moonset " + card.moon.set.label);
   if (riseSetParts.length) {
+    ctx.font = "12px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
     ctx.textAlign = "right";
-    ctx.fillText(riseSetParts.join("   ·   "), CANVAS_WIDTH - 24, footerY - 3);
+    ctx.fillText(riseSetParts.join("   ·   "), CANVAS_WIDTH - 24, footerY1 - 3);
+  }
+
+  // Footer row 2: wind + pressure (left), swell + water temp (right) --
+  // both from Open-Meteo. Omitted entirely if there's nothing at all to
+  // show (e.g. the weather fetch came back sparse), rather than drawing
+  // an empty row.
+  const footerY2 = CANVAS_HEIGHT - 12;
+  let cx = 80;
+  if (weather.wind) {
+    drawWindArrow(ctx, 56, footerY2 - 7, 7);
+    cx = drawLabelThenValue(ctx, "Wind ", weather.wind.mph + " mph" + (weather.wind.dir ? " " + weather.wind.dir : ""), cx, footerY2 - 3, FONT_FAMILY.serif);
+  }
+  if (weather.pressure && weather.pressure.hpa != null) {
+    if (cx > 80) {
+      ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "rgba(0,0,0,0.65)";
+      ctx.textAlign = "left";
+      ctx.fillText("   ·   ", cx, footerY2 - 3);
+      cx += ctx.measureText("   ·   ").width;
+    }
+    if (weather.pressure.deltaHpa != null && weather.pressure.trend !== "steady") {
+      drawTrendArrow(ctx, cx + 7, footerY2 - 7, 7, weather.pressure.trend === "falling" ? "down" : "up");
+      cx += 16;
+    }
+    const pressureValue = weather.pressure.hpa + " hPa" + (weather.pressure.deltaHpa != null ? " (" + weather.pressure.deltaHpa + " in 6h)" : "");
+    ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "left";
+    ctx.fillText(pressureValue, cx, footerY2 - 3);
+  }
+
+  let rx = CANVAS_WIDTH - 24;
+  const rightParts = [];
+  if (weather.swell) rightParts.push({ label: "Swell ", value: weather.swell.heightFt.toFixed(1) + " ft" + (weather.swell.periodS != null ? " @ " + weather.swell.periodS + "s" : "") });
+  if (weather.waterTempF != null) rightParts.push({ label: "", value: weather.waterTempF + "°F water" });
+  if (rightParts.length) {
+    const fullPlain = rightParts.map((p) => p.label + p.value).join("   ·   ");
+    ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+    const fullW = ctx.measureText(fullPlain).width;
+    let px = CANVAS_WIDTH - 24 - fullW;
+    drawWaveGlyph(ctx, px - 32, footerY2 - 6, 26, 5);
+    ctx.textAlign = "left";
+    rightParts.forEach((part, i) => {
+      if (i > 0) {
+        ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        ctx.fillText("   ·   ", px, footerY2 - 3);
+        px += ctx.measureText("   ·   ").width;
+      }
+      if (part.label) {
+        ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        ctx.fillText(part.label, px, footerY2 - 3);
+        px += ctx.measureText(part.label).width;
+      }
+      ctx.font = "bold 13px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "#000";
+      ctx.fillText(part.value, px, footerY2 - 3);
+      px += ctx.measureText(part.value).width;
+    });
   }
 }
 

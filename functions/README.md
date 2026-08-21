@@ -222,13 +222,54 @@ more actively while the tide is running, not near slack, so a major/
 minor period overlapping a fast-moving stretch of today's curve
 (computed via `tideRateOfChange`, relative to the day's own fastest
 stretch rather than a fixed ft/hr number, so it scales with each
-location's actual tidal range) is a second positive signal. Phase 2 has
-no NEGATIVE signal yet -- that needs weather (Phase 3: high wind, a sharp
-pressure drop) -- so it never returns `Poor` yet.
+location's actual tidal range) is a second positive signal. Phase 2 alone
+has no NEGATIVE signal -- Phase 3 (below) adds one, so the score can now
+actually reach `Poor`.
 
-No weather (wind/pressure/rain/swell) or the separate fishing-spot picker
-yet -- those are later phases, layered onto this same fixed-band card
-rather than changing it.
+**Weather** (Phase 3), from Open-Meteo's free Weather + Marine APIs (no
+key, lat/lon only): current wind speed/direction, a pressure trend
+(rising/falling/steady, comparing "now" to ~6h ago -- `computePressure`
+requires that 6h-ago reading to actually be close to 6 hours away, not
+just whatever point happens to be nearest in a short series, since a
+naive nearest-point lookup would happily call a same-instant reading
+"6 hours ago" if that's all the data available), rain windows (contiguous
+hours over a probability threshold, merged and clipped to the dawn-dusk
+window), a wind "ramp" call-out (a later, meaningfully higher wind speed
+worth a heads-up -- both an absolute floor and a real jump over current
+conditions have to clear before it's flagged, so a currently-breezy day
+doesn't trigger a false alarm), and swell height/period + sea surface
+temperature (the last one nullable -- Open-Meteo's nearshore US water-
+temp coverage is inconsistent, handled by omitting it rather than
+showing a wrong/stale number, same principle as the tide extrema/
+solunar-period null-handling elsewhere in this file).
+
+Rain/wind call-outs replace the quiet Sunrise/Sunset line with a bold
+alert strip -- the single boldest text on the card besides the title --
+on any day there's something to flag, falling back to Sunrise/Sunset on
+an ordinary day. Rain also gets small tick marks on the chart itself,
+visually distinct from the solunar hatch bands so the two kinds of
+"shaded window" are never confused. The weather footer row uses a
+bold-value/quiet-label pattern throughout (`drawLabelThenValue`) so the
+actual numbers are what stand out, not the words around them.
+
+Weather now also feeds the fishing score: calm wind + steady/rising
+pressure is a positive signal, high wind or a sharp pressure drop is
+negative -- this is what lets the score reach `Poor`.
+
+**A real bug caught only by looking at the rendered output, not by the
+unit tests that were passing at the time**: `drawLabelThenValue` didn't
+reset `ctx.textAlign` itself, so when the wind line ran right after the
+moonrise/moonset line (drawn right-aligned), "Wind 8 mph NW" rendered
+right-aligned too -- collapsing backward into the wind arrow icon
+instead of extending rightward. Every unit test drew in isolation and
+never exercised that particular sequence, so nothing caught it until an
+actual screenshot of the real app did. Fixed by making the helper
+self-contained (it sets its own `textAlign` unconditionally now), with
+a regression test added afterward that specifically renders the two
+lines in sequence.
+
+No separate fishing-spot picker yet (Phase 4) -- still uses the device's
+main saved location.
 
 ## Known tradeoffs
 

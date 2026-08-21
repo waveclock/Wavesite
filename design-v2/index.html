@@ -2684,6 +2684,82 @@
     ctx.restore();
   }
 
+  // Mirror functions/lib/dynamic.js's small drawn glyphs exactly -- no
+  // emoji, same reasoning as there.
+  function drawWindArrowClient(ctx, x, y, size) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI / 4);
+    ctx.beginPath();
+    ctx.moveTo(0, -size); ctx.lineTo(0, size);
+    ctx.moveTo(-size * 0.5, -size * 0.4); ctx.lineTo(0, -size); ctx.lineTo(size * 0.5, -size * 0.4);
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.stroke();
+    ctx.restore();
+  }
+  function drawWaveGlyphClient(ctx, x, y, w, h) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.quadraticCurveTo(x + w * 0.25, y - h, x + w * 0.5, y);
+    ctx.quadraticCurveTo(x + w * 0.75, y + h, x + w, y);
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.lineCap = "round";
+    ctx.stroke();
+    ctx.restore();
+  }
+  function drawTrendArrowClient(ctx, x, y, size, direction) {
+    ctx.save();
+    ctx.translate(x, y);
+    if (direction === "down") ctx.rotate(Math.PI);
+    ctx.beginPath();
+    ctx.moveTo(0, -size); ctx.lineTo(size * 0.8, size * 0.6); ctx.lineTo(-size * 0.8, size * 0.6);
+    ctx.closePath();
+    ctx.fillStyle = "#000";
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawWarningTriangleClient(ctx, x, y, size) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.moveTo(0, -size); ctx.lineTo(size * 0.95, size * 0.75); ctx.lineTo(-size * 0.95, size * 0.75);
+    ctx.closePath();
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = "#000";
+    ctx.stroke();
+    ctx.fillStyle = "#000";
+    ctx.fillRect(-1.3, -size * 0.35, 2.6, size * 0.7);
+    ctx.beginPath();
+    ctx.arc(0, size * 0.52, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawRainTickClient(ctx, x, y, size) {
+    ctx.save();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(x - size * 0.3, y);
+    ctx.lineTo(x - size * 0.7, y + size);
+    ctx.moveTo(x + size * 0.3, y);
+    ctx.lineTo(x - size * 0.1, y + size);
+    ctx.stroke();
+    ctx.restore();
+  }
+  // Mirrors functions/lib/dynamic.js's drawLabelThenValue exactly.
+  function drawLabelThenValueClient(ctx, label, value, x, y) {
+    ctx.textAlign = "left"; // self-contained: never depends on a caller having reset alignment first
+    ctx.font = "13px Georgia, serif";
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.fillText(label, x, y);
+    const labelW = ctx.measureText(label).width;
+    ctx.font = "bold 13px Georgia, serif";
+    ctx.fillStyle = "#000";
+    ctx.fillText(value, x + labelW, y);
+    return x + labelW + ctx.measureText(value).width;
+  }
+
   // Mirrors functions/lib/dynamic.js's drawHatchBand exactly -- see the
   // comment there for why this is a hatch, not a gray fill.
   function drawHatchBandClient(ctx, x0, x1, yTop, yBottom, spacing) {
@@ -2746,15 +2822,28 @@
       ctx.fillText(badgeLabel, badgeX + 13, BANNER_HEIGHT / 2 + 5.5);
     }
 
-    ctx.font = "13px Georgia, serif";
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    if (card.sunrise.label) {
+    const weather = card.weather || {};
+    const alertParts = [].concat(
+      (weather.rainWindows || []).map((wnd) => wnd.label),
+      weather.windRamp ? [weather.windRamp.label] : []
+    );
+    if (alertParts.length) {
+      drawWarningTriangleClient(ctx, 30, (BANNER_HEIGHT + TOP_STRIP_END) / 2, 10);
+      ctx.font = "bold 16px Georgia, serif";
+      ctx.fillStyle = "#000";
       ctx.textAlign = "left";
-      ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 6);
-    }
-    if (card.sunset.label) {
-      ctx.textAlign = "right";
-      ctx.fillText("Sunset " + card.sunset.label, w - 24, TOP_STRIP_END - 6);
+      ctx.fillText(alertParts.join("   ·   "), 48, (BANNER_HEIGHT + TOP_STRIP_END) / 2 + 6);
+    } else {
+      ctx.font = "13px Georgia, serif";
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      if (card.sunrise.label) {
+        ctx.textAlign = "left";
+        ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 6);
+      }
+      if (card.sunset.label) {
+        ctx.textAlign = "right";
+        ctx.fillText("Sunset " + card.sunset.label, w - 24, TOP_STRIP_END - 6);
+      }
     }
 
     const heights = card.tideCurve.map((p) => p.heightFt);
@@ -2769,6 +2858,14 @@
       const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
       const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
       drawHatchBandClient(ctx, x0, x1, PLOT_TOP, PLOT_BOTTOM, p.kind === "major" ? 7 : 13);
+    });
+
+    (weather.rainWindows || []).forEach((wnd) => {
+      const wStartMs = new Date(wnd.start).getTime(), wEndMs = new Date(wnd.end).getTime();
+      if (wEndMs < dawnMs || wStartMs > duskMs) return;
+      const rx0 = minutesToX(new Date(Math.max(wStartMs, dawnMs)).toISOString());
+      const rx1 = minutesToX(new Date(Math.min(wEndMs, duskMs)).toISOString());
+      for (let x = rx0; x <= rx1; x += 14) drawRainTickClient(ctx, x, PLOT_TOP + 4, 8);
     });
 
     ctx.strokeStyle = "rgba(0,0,0,0.2)";
@@ -2856,21 +2953,78 @@
       ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 6);
     });
 
-    const footerY = FOOTER_START + 26;
-    drawMoonIconClient(ctx, 58, footerY - 10, 13, card.moon.illumination, card.moon.waxing);
+    // Footer row 1: moon phase + rise/set.
+    const footerY1 = FOOTER_START + 22;
+    drawMoonIconClient(ctx, 58, footerY1 - 9, 11, card.moon.illumination, card.moon.waxing);
     ctx.textAlign = "left";
-    ctx.font = "bold 17px Georgia, serif";
+    ctx.font = "bold 15px Georgia, serif";
     ctx.fillStyle = "#000";
-    ctx.fillText(card.moon.phaseName, 80, footerY - 3);
+    ctx.fillText(card.moon.phaseName, 78, footerY1 - 3);
 
-    ctx.font = "13px Georgia, serif";
-    ctx.fillStyle = "rgba(0,0,0,0.65)";
     const riseSetParts = [];
     if (card.moon.rise && card.moon.rise.label) riseSetParts.push("Moonrise " + card.moon.rise.label);
     if (card.moon.set && card.moon.set.label) riseSetParts.push("Moonset " + card.moon.set.label);
     if (riseSetParts.length) {
+      ctx.font = "12px Georgia, serif";
+      ctx.fillStyle = "rgba(0,0,0,0.65)";
       ctx.textAlign = "right";
-      ctx.fillText(riseSetParts.join("   ·   "), w - 24, footerY - 3);
+      ctx.fillText(riseSetParts.join("   ·   "), w - 24, footerY1 - 3);
+    }
+
+    // Footer row 2: wind + pressure (left), swell + water temp (right).
+    const footerY2 = h - 12;
+    let cx = 80;
+    if (weather.wind) {
+      drawWindArrowClient(ctx, 56, footerY2 - 7, 7);
+      cx = drawLabelThenValueClient(ctx, "Wind ", weather.wind.mph + " mph" + (weather.wind.dir ? " " + weather.wind.dir : ""), cx, footerY2 - 3);
+    }
+    if (weather.pressure && weather.pressure.hpa != null) {
+      if (cx > 80) {
+        ctx.font = "13px Georgia, serif";
+        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        ctx.textAlign = "left";
+        ctx.fillText("   ·   ", cx, footerY2 - 3);
+        cx += ctx.measureText("   ·   ").width;
+      }
+      if (weather.pressure.deltaHpa != null && weather.pressure.trend !== "steady") {
+        drawTrendArrowClient(ctx, cx + 7, footerY2 - 7, 7, weather.pressure.trend === "falling" ? "down" : "up");
+        cx += 16;
+      }
+      const pressureValue = weather.pressure.hpa + " hPa" + (weather.pressure.deltaHpa != null ? " (" + weather.pressure.deltaHpa + " in 6h)" : "");
+      ctx.font = "bold 14px Georgia, serif";
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      ctx.fillText(pressureValue, cx, footerY2 - 3);
+    }
+
+    const rightParts = [];
+    if (weather.swell) rightParts.push({ label: "Swell ", value: weather.swell.heightFt.toFixed(1) + " ft" + (weather.swell.periodS != null ? " @ " + weather.swell.periodS + "s" : "") });
+    if (weather.waterTempF != null) rightParts.push({ label: "", value: weather.waterTempF + "°F water" });
+    if (rightParts.length) {
+      const fullPlain = rightParts.map((p) => p.label + p.value).join("   ·   ");
+      ctx.font = "13px Georgia, serif";
+      const fullW = ctx.measureText(fullPlain).width;
+      let px = w - 24 - fullW;
+      drawWaveGlyphClient(ctx, px - 32, footerY2 - 6, 26, 5);
+      ctx.textAlign = "left";
+      rightParts.forEach((part, i) => {
+        if (i > 0) {
+          ctx.font = "13px Georgia, serif";
+          ctx.fillStyle = "rgba(0,0,0,0.65)";
+          ctx.fillText("   ·   ", px, footerY2 - 3);
+          px += ctx.measureText("   ·   ").width;
+        }
+        if (part.label) {
+          ctx.font = "13px Georgia, serif";
+          ctx.fillStyle = "rgba(0,0,0,0.65)";
+          ctx.fillText(part.label, px, footerY2 - 3);
+          px += ctx.measureText(part.label).width;
+        }
+        ctx.font = "bold 13px Georgia, serif";
+        ctx.fillStyle = "#000";
+        ctx.fillText(part.value, px, footerY2 - 3);
+        px += ctx.measureText(part.value).width;
+      });
     }
   }
 
