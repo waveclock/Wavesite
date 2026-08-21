@@ -640,6 +640,9 @@
           <button class="icon-tool-btn" id="toolTeamBtn" data-tool="team" title="Team Schedule">
             <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
           </button>
+          <button class="icon-tool-btn" id="toolTideBtn" data-tool="tide" title="Tide &amp; Fishing">
+            <svg viewBox="0 0 24 24"><path d="M3 15c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 19c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16.5" cy="6.5" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          </button>
           <button class="icon-tool-btn" id="toolNewsBtn" data-tool="news" title="News">
             <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="7" y1="9" x2="17" y2="9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="7" y1="12.5" x2="17" y2="12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="7" y1="16" x2="13" y2="16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
           </button>
@@ -754,6 +757,10 @@
       </label>
     </div>
     <p class="clipart-status" id="teamStatus">Pick a team to see when they play next.</p>
+  </div>
+
+  <div class="tool-panel hidden" id="tidePanel">
+    <p class="clipart-status" id="tideStatus">Loading tide, sun &amp; moon data for your location&hellip;</p>
   </div>
 
   <div class="tool-panel hidden" id="newsPanel">
@@ -1485,6 +1492,14 @@
       } else {
         drawText(ctx, formatNewsPreviewText(obj), obj);
       }
+    } else if (obj.kind === "tide") {
+      // Same idea again: obj.cardData is resolved asynchronously by
+      // loadTideLayer above.
+      if (obj.cardData) {
+        drawTideCardClient(ctx, obj.cardData);
+      } else {
+        drawText(ctx, obj.previewContent || "LOADING…", obj);
+      }
     } else if (obj.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(obj);
       ctx.imageSmoothingEnabled = false; // keeps sketch lines/dither dots crisp black-white instead of blurring into gray
@@ -1507,6 +1522,7 @@
     if (obj.kind === "text") return "Text: " + (obj.content || "(empty)");
     if (obj.kind === "countdown") return "Countdown: " + (obj.label || (daysUntil(obj.targetDate) + "d"));
     if (obj.kind === "team") return "Team: " + (obj.teamName || "(choose a team)");
+    if (obj.kind === "tide") return "Tide & Fishing" + (obj.cardData ? "" : " (loading…)");
     if (obj.kind === "news") return "News: " + (obj.feedUrl || obj.location || "(add a location)");
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
     if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Normal") + ")";
@@ -1686,7 +1702,7 @@
   // for their loading-state placeholder text. Used below to skip
   // drag/pinch-resize and treat a tap anywhere on the canvas as hitting
   // whichever one is topmost.
-  const FULL_CARD_KINDS = new Set(["team", "news"]);
+  const FULL_CARD_KINDS = new Set(["team", "news", "tide"]);
 
   function hitTestLayers(px, py) {
     for (let i = layers.length - 1; i >= 0; i--) {
@@ -1702,7 +1718,7 @@
     return -1;
   }
 
-  const TOOL_TAB_FOR_KIND = { text: "text", icon: "sticker", photo: "photo", countdown: "countdown", team: "team", news: "news" };
+  const TOOL_TAB_FOR_KIND = { text: "text", icon: "sticker", photo: "photo", countdown: "countdown", team: "team", tide: "tide", news: "news" };
 
   // Pulls a committed layer back into the staging flow (drag/pinch-resize/
   // slider all just work), switching to that layer's own tool tab so its
@@ -1725,6 +1741,10 @@
         teamStatus.textContent = obj.card
           ? "This is the real card — it updates itself once a day after you publish."
           : (obj.previewContent ? "Updates on its own once a day after you publish — no need to redesign it." : "Pick a team to see when they play next.");
+      } else if (obj.kind === "tide") {
+        tideStatus.textContent = obj.cardData
+          ? "This is the real card — it updates itself once a day after you publish."
+          : "Couldn't load tide data right now — it'll try again on its own each day.";
       } else {
         newsLocationInput.value = obj.location || "";
         newsFeedUrlInput.value = obj.feedUrl || "";
@@ -2312,6 +2332,7 @@
     photo: document.getElementById("photoPanel"),
     countdown: document.getElementById("countdownPanel"),
     team: document.getElementById("teamPanel"),
+    tide: document.getElementById("tidePanel"),
     news: document.getElementById("newsPanel"),
     layers: document.getElementById("layersPanel")
   };
@@ -2365,6 +2386,13 @@
         newsStatus.textContent = existing && existing.headlines && existing.headlines.length
           ? "This is the real card — it updates itself once a day after you publish."
           : "Type a location (or paste a specific RSS feed URL) to get today's headlines once you publish.";
+      }
+      // Tide & Fishing has no picker at all (Phase 1 -- no fishing-spot
+      // override yet, see the roadmap) -- it just uses the device's own
+      // saved location, so opening the tab is the only "action" there is.
+      // Same never-goes-through-staging model as Team/News.
+      if (tool === "tide") {
+        loadTideLayer();
       }
     });
   });
@@ -2614,6 +2642,232 @@
 
   newsLocationInput.addEventListener("input", handleNewsInputChange);
   newsFeedUrlInput.addEventListener("input", handleNewsInputChange);
+
+  // ================= Tide & Fishing tool (Phase 1: tide + moon only) =================
+  // astroProxy does the FULL computation server-side (twilight bounds,
+  // moon phase, NOAA tide predictions clipped to the dawn-dusk window)
+  // and hands back a ready-to-draw payload -- unlike Team/News's proxies,
+  // there's no raw-JSON-parsing logic to duplicate here at all. See the
+  // comment above astroProxyHandler in functions/index.js for why.
+  const tideStatus = document.getElementById("tideStatus");
+  const ASTRO_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/astroProxy";
+  let tideFetchToken = 0; // guards a slow/stale fetch from clobbering a newer load
+
+  async function fetchTideCardDataClient(lat, lon, stationId) {
+    const params = new URLSearchParams({ lat: String(lat), lon: String(lon), stationId: String(stationId) });
+    const resp = await fetch(ASTRO_PROXY_BASE + "?" + params.toString());
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("Tide data fetch failed: " + resp.status));
+    return data;
+  }
+
+  // Mirrors functions/lib/dynamic.js's drawMoonIcon exactly (verified
+  // against a 6-case reference render there -- see that file's comment).
+  function drawMoonIconClient(ctx, cx, cy, r, illum, waxing) {
+    const k = Math.max(0, Math.min(1, illum));
+    const rx = r * Math.abs(1 - 2 * k);
+    const gibbous = k > 0.5;
+    const bulgeAnticlockwise = waxing ? gibbous : !gibbous;
+    ctx.save();
+    ctx.beginPath();
+    ctx.fillStyle = "#000";
+    if (waxing) ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+    else ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
+    ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, bulgeAnticlockwise);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Mirrors functions/lib/dynamic.js's drawTideCard exactly -- same fixed
+  // -band layout (see the comment there for why the high/low labels are
+  // pinned to their own reserved rows instead of floated off the dot).
+  function drawTideCardClient(ctx, card) {
+    const w = baseCanvas.width, h = baseCanvas.height;
+    const dawnMs = new Date(card.dawn.t).getTime();
+    const duskMs = new Date(card.dusk.t).getTime();
+    function minutesToX(iso) {
+      const ms = new Date(iso).getTime();
+      const clamped = Math.max(dawnMs, Math.min(duskMs, ms));
+      return 46 + ((clamped - dawnMs) / (duskMs - dawnMs)) * (w - 92);
+    }
+
+    const TOP_STRIP_END = BANNER_HEIGHT + 24;
+    const PLOT_TOP = TOP_STRIP_END + 40;
+    const PLOT_BOTTOM = h - 96;
+    const FOOTER_START = PLOT_BOTTOM + 40;
+
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    const bannerTitle = "TODAY'S TIDE";
+    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 26, 14);
+    ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+    ctx.font = "13px Georgia, serif";
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    if (card.sunrise.label) {
+      ctx.textAlign = "left";
+      ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 6);
+    }
+    if (card.sunset.label) {
+      ctx.textAlign = "right";
+      ctx.fillText("Sunset " + card.sunset.label, w - 24, TOP_STRIP_END - 6);
+    }
+
+    const heights = card.tideCurve.map((p) => p.heightFt);
+    const minH = (heights.length ? Math.min(...heights) : 0) - 0.4;
+    const maxH = (heights.length ? Math.max(...heights) : 1) + 0.4;
+    function heightToY(v) { return PLOT_BOTTOM - ((v - minH) / (maxH - minH)) * (PLOT_BOTTOM - PLOT_TOP); }
+
+    ctx.strokeStyle = "rgba(0,0,0,0.2)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    [card.sunrise, card.sunset].forEach((point) => {
+      if (!point) return;
+      const x = minutesToX(point.t);
+      ctx.beginPath();
+      ctx.moveTo(x, PLOT_TOP);
+      ctx.lineTo(x, PLOT_BOTTOM);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+
+    if (card.tideCurve.length > 1) {
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      card.tideCurve.forEach((p, i) => {
+        const x = minutesToX(p.t);
+        const y = heightToY(p.heightFt);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "rgba(0,0,0,0.25)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(46, PLOT_BOTTOM);
+    ctx.lineTo(w - 46, PLOT_BOTTOM);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.textAlign = "center";
+    card.tideExtrema.forEach((e) => {
+      const eMs = new Date(e.t).getTime();
+      if (eMs < dawnMs || eMs > duskMs) return;
+      const x = minutesToX(e.t);
+      const y = heightToY(e.heightFt);
+      ctx.beginPath();
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "#000";
+      ctx.fill();
+
+      const heightLabel = (e.isHigh ? "H " : "L ") + e.heightFt.toFixed(1) + "ft";
+      if (e.isHigh) {
+        if (y - PLOT_TOP > 14) {
+          ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x, PLOT_TOP + 2); ctx.stroke();
+        }
+        ctx.font = "bold 18px Georgia, serif";
+        ctx.fillStyle = "#000";
+        ctx.fillText(heightLabel, x, TOP_STRIP_END + 18);
+        ctx.font = "13px Georgia, serif";
+        ctx.fillText(e.label, x, TOP_STRIP_END + 34);
+      } else {
+        if (PLOT_BOTTOM - y > 14) {
+          ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x, y + 6); ctx.lineTo(x, PLOT_BOTTOM - 2); ctx.stroke();
+        }
+        ctx.font = "bold 18px Georgia, serif";
+        ctx.fillStyle = "#000";
+        ctx.fillText(heightLabel, x, PLOT_BOTTOM + 20);
+        ctx.font = "13px Georgia, serif";
+        ctx.fillText(e.label, x, PLOT_BOTTOM + 36);
+      }
+    });
+
+    const footerY = FOOTER_START + 26;
+    drawMoonIconClient(ctx, 58, footerY - 10, 13, card.moon.illumination, card.moon.waxing);
+    ctx.textAlign = "left";
+    ctx.font = "bold 17px Georgia, serif";
+    ctx.fillStyle = "#000";
+    ctx.fillText(card.moon.phaseName, 80, footerY - 3);
+
+    ctx.font = "13px Georgia, serif";
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    const riseSetParts = [];
+    if (card.moon.rise && card.moon.rise.label) riseSetParts.push("Moonrise " + card.moon.rise.label);
+    if (card.moon.set && card.moon.set.label) riseSetParts.push("Moonset " + card.moon.set.label);
+    if (riseSetParts.length) {
+      ctx.textAlign = "right";
+      ctx.fillText(riseSetParts.join("   ·   "), w - 24, footerY - 3);
+    }
+  }
+
+  // Tide never goes through staging/commit either -- same reasoning as
+  // Team/News (a fixed full-screen card, redrawn fresh every day). Unlike
+  // them there's no picker at all in Phase 1 -- it just uses the device's
+  // own saved location -- so opening the tab is the only trigger there is,
+  // and it only actually fetches once per layer (reopening the tab just
+  // re-shows status, same as Team/News do).
+  async function loadTideLayer() {
+    let layer = layers.find((l) => l.kind === "tide");
+    if (layer && layer.cardData) {
+      tideStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
+      return;
+    }
+    if (!layer) {
+      pushUndoState();
+      layers.length = 0;
+      layer = {
+        kind: "tide", id: nextLayerId++,
+        x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
+        font: "Georgia, serif", outline: false,
+        lat: null, lon: null, stationId: null, cardData: null, previewContent: "LOADING…"
+      };
+      layers.push(layer);
+    }
+    if (!deviceId) return;
+
+    renderLayers();
+    const token = ++tideFetchToken;
+    try {
+      const location = await fetchJsonFromStorage("locations/" + deviceId + ".json", 12000);
+      if (token !== tideFetchToken) return;
+      if (!location || typeof location.lat !== "number" || typeof location.lon !== "number" || !location.stationId) {
+        layer.previewContent = "Set your location first, then come back here.";
+        tideStatus.textContent = "This device doesn't have a saved location yet — set one first (see Location in Manage), then come back here.";
+        renderLayers();
+        return;
+      }
+      layer.lat = location.lat;
+      layer.lon = location.lon;
+      layer.stationId = location.stationId;
+
+      tideStatus.textContent = "Loading tide, sun & moon data for your location…";
+      const data = await fetchTideCardDataClient(location.lat, location.lon, location.stationId);
+      if (token !== tideFetchToken) return; // superseded by a newer load
+      layer.cardData = data;
+      layer.previewContent = null;
+      tideStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
+    } catch (err) {
+      if (token !== tideFetchToken) return;
+      console.error("Couldn't load tide/moon data:", err);
+      layer.previewContent = "Couldn't load tide data right now — it'll try again on its own each day.";
+      tideStatus.textContent = "Couldn't load tide data right now (" + err.message + ") — it'll try again on its own each day.";
+    }
+    renderLayers();
+  }
 
   // ================= Team tool =================
   const teamLeagueSelect = document.getElementById("teamLeagueSelect");
@@ -3137,7 +3391,7 @@
   // own (Countdown, Team) -- at most one is treated as active per device
   // for now. If more than one somehow exists, only the first is used for
   // auto-updates; the rest render fine today but stay frozen after that.
-  const DYNAMIC_KINDS = new Set(["countdown", "team", "news"]);
+  const DYNAMIC_KINDS = new Set(["countdown", "team", "news", "tide"]);
 
   // Same idea as getCompositeCanvas, but leaves out any dynamic layer --
   // this is what the daily Cloud Function redraws the current content
@@ -3243,6 +3497,8 @@
             dynamicMeta = Object.assign({ type: "countdown", targetDate: dynamicLayer.targetDate, label: dynamicLayer.label || "" }, shared);
           } else if (dynamicLayer.kind === "team") {
             dynamicMeta = Object.assign({ type: "team", sport: dynamicLayer.sport, league: dynamicLayer.league, teamId: dynamicLayer.teamId, teamName: dynamicLayer.teamName }, shared);
+          } else if (dynamicLayer.kind === "tide") {
+            dynamicMeta = Object.assign({ type: "tide", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId }, shared);
           } else {
             dynamicMeta = Object.assign({ type: "news", location: dynamicLayer.location || "", feedUrl: dynamicLayer.feedUrl || "" }, shared);
           }

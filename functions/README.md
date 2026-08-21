@@ -3,10 +3,11 @@
 Runs once a day (09:00 UTC) and redraws the current content for every
 device with an active "dynamic layer" published from `/design-v2/` -- a
 **Countdown** (a target date), a **Team Schedule** (next game for a
-picked sports team), or **News** (headlines for a location or RSS feed)
--- overwriting `designs/{deviceId}.bin` and `.png` in place. The device
-itself needs no changes -- it already reads those two files
-unconditionally.
+picked sports team), **News** (headlines for a location or RSS feed), or
+**Tide & Fishing** (tide curve + moon phase/rise/set for the device's
+saved location) -- overwriting `designs/{deviceId}.bin` and `.png` in
+place. The device itself needs no changes -- it already reads those two
+files unconditionally.
 
 ## How it fits together
 
@@ -141,6 +142,60 @@ this function's own service-account token). This does **not** protect
 against DNS rebinding (a hostname resolving to a private IP only at fetch
 time, after the check already passed) -- see `isSafeFetchUrl` in
 `lib/dynamic.js` for the exact boundary.
+
+## The Tide & Fishing card (Phase 1: tide + moon only)
+
+Unlike Team/News, this one doesn't duplicate its data-shaping logic
+between the live preview and the daily job -- both call `lib/astro.js`'s
+`fetchTideCardData` directly. Twilight bounds, moon phase naming, and
+NOAA's date/timezone quirks are exactly the kind of thing that quietly
+drifts out of sync if reimplemented a second time in browser JS, unlike
+Team's `findNextGame` (simple enough to keep in sync by hand) or News's
+RSS parsing.
+
+Three data sources, all free/no API key:
+- **suncalc** for civil dawn/dusk, sunrise/sunset, moonrise/moonset, and
+  moon phase/illumination.
+- **NOAA CO-OPS** (`api.tidesandcurrents.noaa.gov`) for tide predictions,
+  using the station ID already saved per-device on the Location page
+  (`locations/{id}.json`'s `stationId`). Two calls: hourly `predictions`
+  for the smooth curve, and `interval=hilo` for precise high/low times.
+- **tz-lookup** derives the IANA timezone from lat/lon so every time
+  (sun, moon, tide) is formatted the same way via `Intl.DateTimeFormat`
+  (handles DST correctly) -- NOT NOAA's own local-time strings, which
+  would require trusting NOAA's per-station timezone handling as the
+  single source of truth for sun/moon times too.
+
+The tide curve and every high/low/dawn/dusk time are all requested and
+compared in **GMT** (`time_zone=gmt` on every NOAA call), specifically to
+avoid parsing NOAA's local-time-labeled strings against suncalc's UTC
+instants -- two different "local" interpretations would drift by the
+station's UTC offset. Local-time display is applied in exactly one place
+(`formatLocalTime`), after everything is already aligned as real UTC
+instants.
+
+The card layout (`drawTideCard` / `drawTideCardClient`) clips the curve
+to the dawn-to-dusk window -- "the time before sunrise and after sunset,
+but not full darkness," per the original ask -- and pins high/low labels
+to their own fixed vertical band rather than floating them off the
+dot's data-driven height. Early mockup iteration repeatedly hit label-
+overlap bugs from the floating approach (a label 30px above an unusually
+tall high tide could collide with the row above it); a fixed reserved
+band per label type structurally can't have that problem, regardless of
+the day's actual tide range.
+
+**Not live-tested against NOAA or Open-Meteo** from the sandbox this was
+built in -- outbound network there is allowlisted and neither host is on
+it (both returned a 403 from the sandbox's own egress proxy, not from
+NOAA). Built against NOAA's long-stable, publicly documented JSON shape
+and covered thoroughly with mocked tests (`test/astro.test.js`,
+`test/astroProxy.test.js`); needs the same live smoke test ESPN/RSS
+eventually got -- deploy, publish a Tide layer, and check what actually
+shows up -- before fully trusting a real station's response shape.
+
+No fishing score, solunar major/minor bands, or weather (wind/pressure/
+rain/swell) yet -- those are later phases, layered onto this same
+fixed-band card rather than changing it.
 
 ## Known tradeoffs
 
