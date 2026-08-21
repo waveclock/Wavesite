@@ -9,6 +9,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Press+Start+2P&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Only used by the Tide & Fishing tool's "pick a different fishing
+     spot" picker (Phase 4) -- same Leaflet + OpenStreetMap-tiles setup
+     already used in location/index.html, no API key needed. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root {
     --sand: #F1E6CF;
@@ -470,6 +475,73 @@
     min-height: 14px;
   }
 
+  /* Fishing Spot picker (Phase 4) -- deliberately mirrors the existing
+     station-row/station-map look from location/index.html so it reads as
+     a piece the customer has already seen, not a new pattern to learn. */
+  .spot-choice { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .spot-choice-row {
+    display: flex; align-items: center; gap: 10px;
+    border: 2px solid var(--ink); border-radius: 8px;
+    padding: 10px 12px; cursor: pointer; background: #fff;
+  }
+  .spot-choice-row.selected { background: var(--foam); border-color: var(--navy); box-shadow: 2px 2px 0 var(--navy); }
+  .spot-choice-row input[type="radio"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--navy); }
+  .spot-choice-text { font-size: 13px; }
+  .spot-choice-text .sub { display: block; font-size: 11px; color: var(--ink-soft); margin-top: 1px; }
+
+  #fishingSpotPicker.hidden { display: none; }
+  .fishing-search-row { position: relative; margin-bottom: 8px; }
+  .fishing-search-row input {
+    width: 100%; box-sizing: border-box;
+    border: 2px solid var(--ink); border-radius: 8px;
+    padding: 9px 12px; font-size: 13px; font-family: var(--body);
+  }
+  .fishing-search-results {
+    border: 2px solid var(--ink); border-top: none; border-radius: 0 0 8px 8px;
+    margin: -8px 0 8px; overflow: hidden; background: #fff;
+  }
+  .fishing-search-results:empty { display: none; margin: 0; border: none; }
+  .fishing-search-result-row { padding: 8px 12px; font-size: 13px; cursor: pointer; border-top: 1px solid var(--line); }
+  .fishing-search-result-row:first-child { border-top: none; }
+  .fishing-search-result-row:hover, .fishing-search-result-row:focus { background: var(--foam); }
+
+  .fishing-station-map {
+    display: none;
+    height: 180px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    margin-bottom: 10px;
+  }
+  .fishing-town-marker svg { display: block; filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff); }
+  .fishing-station-marker span {
+    display: block; width: 100%; height: 100%; border-radius: 50%;
+    background: var(--navy); border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink);
+  }
+  .fishing-station-marker.selected span { background: var(--coral); }
+
+  .fishing-station-row {
+    display: flex; align-items: center; gap: 10px;
+    border: 2px solid var(--ink); border-radius: 8px;
+    padding: 10px 12px; cursor: pointer; background: #fff; margin-bottom: 7px;
+  }
+  .fishing-station-row.selected { background: var(--foam); border-color: var(--navy); box-shadow: 2px 2px 0 var(--navy); }
+  .fishing-station-row input[type="radio"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--navy); }
+  .fishing-station-name { font-weight: 600; font-size: 13.5px; }
+  .fishing-station-meta { font-size: 11.5px; color: var(--ink-soft); }
+
+  .fishing-save-btn {
+    width: 100%; padding: 10px; margin-top: 4px;
+    border: 2px solid var(--navy); border-radius: 8px;
+    background: var(--navy); color: #fff; font-weight: 700; font-size: 13px;
+    cursor: pointer;
+  }
+  .fishing-save-btn:disabled { opacity: 0.4; cursor: default; }
+  .fishing-remove-btn {
+    width: 100%; padding: 8px; margin-top: 6px;
+    border: 2px solid var(--coral); border-radius: 8px;
+    background: #fff; color: var(--coral-dark); font-weight: 700; font-size: 12px;
+    cursor: pointer;
+  }
 
   .clipart-results {
     display: flex;
@@ -760,6 +832,29 @@
   </div>
 
   <div class="tool-panel hidden" id="tidePanel">
+    <div class="spot-choice">
+      <label class="spot-choice-row" data-value="device">
+        <input type="radio" name="spotChoice" id="spotChoiceDevice" value="device" checked>
+        <span class="spot-choice-text">Use my device's saved location<span class="sub" id="deviceLocationSub"></span></span>
+      </label>
+      <label class="spot-choice-row" data-value="custom">
+        <input type="radio" name="spotChoice" id="spotChoiceCustom" value="custom">
+        <span class="spot-choice-text">Pick a different fishing spot<span class="sub">A favorite pier, inlet, or jetty</span></span>
+      </label>
+    </div>
+
+    <div id="fishingSpotPicker" class="hidden">
+      <div class="fishing-search-row">
+        <input type="text" id="fishingTownSearch" placeholder="Town, city, or zip code&hellip;" autocomplete="off">
+      </div>
+      <div class="fishing-search-results" id="fishingSearchResults"></div>
+      <div class="fishing-station-map" id="fishingStationMap"></div>
+      <div id="fishingStationListWrap"></div>
+      <p class="clipart-status" id="fishingSpotStatus"></p>
+      <button type="button" class="fishing-save-btn" id="fishingSaveBtn" disabled>Save This Fishing Spot</button>
+      <button type="button" class="fishing-remove-btn hidden" id="fishingRemoveBtn">Remove custom spot &mdash; use device location instead</button>
+    </div>
+
     <p class="clipart-status" id="tideStatus">Loading tide, sun &amp; moon data for your location&hellip;</p>
   </div>
 
@@ -2392,6 +2487,7 @@
       // saved location, so opening the tab is the only "action" there is.
       // Same never-goes-through-staging model as Team/News.
       if (tool === "tide") {
+        initFishingSpotUIOnce();
         loadTideLayer();
       }
     });
@@ -3056,7 +3152,7 @@
     renderLayers();
     const token = ++tideFetchToken;
     try {
-      const location = await fetchJsonFromStorage("locations/" + deviceId + ".json", 12000);
+      const location = await resolveTideLocation();
       if (token !== tideFetchToken) return;
       if (!location || typeof location.lat !== "number" || typeof location.lon !== "number" || !location.stationId) {
         layer.previewContent = "Set your location first, then come back here.";
@@ -3081,6 +3177,270 @@
       tideStatus.textContent = "Couldn't load tide data right now (" + err.message + ") — it'll try again on its own each day.";
     }
     renderLayers();
+  }
+
+  // ================= Fishing Spot picker (Phase 4) =================
+  // A second, independent location just for this card -- most people's
+  // favorite fishing spot isn't where the clock itself sits. Saved
+  // separately (locations/{id}-fishing.json) so it never touches the
+  // device's actual location settings (used by Wave/Weather Forecast,
+  // Sunset, etc.). When absent, the tide card just uses the device's main
+  // location, same as Phase 1-3 always did.
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  const FISHING_SPOT_SUFFIX = "-fishing.json";
+  const spotChoiceDevice = document.getElementById("spotChoiceDevice");
+  const spotChoiceCustom = document.getElementById("spotChoiceCustom");
+  const deviceLocationSub = document.getElementById("deviceLocationSub");
+  const fishingSpotPickerEl = document.getElementById("fishingSpotPicker");
+  const fishingTownSearch = document.getElementById("fishingTownSearch");
+  const fishingSearchResults = document.getElementById("fishingSearchResults");
+  const fishingStationMapEl = document.getElementById("fishingStationMap");
+  const fishingStationListWrap = document.getElementById("fishingStationListWrap");
+  const fishingSpotStatus = document.getElementById("fishingSpotStatus");
+  const fishingSaveBtn = document.getElementById("fishingSaveBtn");
+  const fishingRemoveBtn = document.getElementById("fishingRemoveBtn");
+
+  async function resolveTideLocation() {
+    if (!deviceId) return null;
+    try {
+      const fishing = await fetchJsonFromStorage("locations/" + deviceId + FISHING_SPOT_SUFFIX, 8000);
+      if (fishing && typeof fishing.lat === "number" && typeof fishing.lon === "number" && fishing.stationId) {
+        return fishing;
+      }
+    } catch (err) {
+      console.error("Couldn't check for a custom fishing spot (falling back to device location):", err);
+    }
+    return fetchJsonFromStorage("locations/" + deviceId + ".json", 12000);
+  }
+
+  let fishingSpotInitialized = false;
+  let fishingTown = null; // { name, lat, lon }
+  let fishingStations = [];
+  let fishingSelectedStation = null; // { id, name, lat, lon, distance }
+  let fishingAllStationsCache = null;
+  let fishingMap = null;
+  let fishingMarkers = [];
+  let fishingSearchAbort = null;
+  let fishingSearchTimer = null;
+  let fishingExistingSpot = null; // the currently-saved -fishing.json, if any
+
+  function haversineMilesClient(lat1, lon1, lat2, lon2) {
+    const R = 3958.8;
+    const toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.asin(Math.sqrt(a));
+  }
+
+  async function fetchAllTideStations() {
+    if (fishingAllStationsCache) return fishingAllStationsCache;
+    const resp = await fetch("https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions");
+    if (!resp.ok) throw new Error("NOAA station list request failed: " + resp.status);
+    const data = await resp.json();
+    fishingAllStationsCache = data.stations || [];
+    return fishingAllStationsCache;
+  }
+
+  function clearFishingMap() {
+    if (fishingMap) { fishingMap.remove(); fishingMap = null; }
+    fishingMarkers = [];
+    fishingStationMapEl.style.display = "none";
+  }
+
+  function renderFishingStationMap() {
+    clearFishingMap();
+    if (typeof L === "undefined" || !fishingStations.length) return;
+    try {
+      fishingStationMapEl.style.display = "block";
+      fishingMap = L.map(fishingStationMapEl, { zoomControl: true, attributionControl: true }).setView([fishingTown.lat, fishingTown.lon], 11);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(fishingMap);
+
+      const townIcon = L.divIcon({ className: "fishing-town-marker", html: '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2c-4 0-7 3-7 7 0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z" fill="#C97456" stroke="#1F3347" stroke-width="1"/><circle cx="12" cy="9" r="2.4" fill="#fff"/></svg>', iconSize: [20, 20] });
+      const stationIcon = L.divIcon({ className: "fishing-station-marker", html: "<span></span>", iconSize: [12, 12] });
+      const selectedIcon = L.divIcon({ className: "fishing-station-marker selected", html: "<span></span>", iconSize: [16, 16] });
+
+      const townMarker = L.marker([fishingTown.lat, fishingTown.lon], { icon: townIcon }).addTo(fishingMap);
+      fishingMarkers.push(townMarker);
+      fishingStations.forEach((s) => {
+        const marker = L.marker([s.lat, s.lon], { icon: fishingSelectedStation && fishingSelectedStation.id === s.id ? selectedIcon : stationIcon }).addTo(fishingMap);
+        marker._stationId = s.id;
+        marker.on("click", () => selectFishingStation(s, "map"));
+        fishingMarkers.push(marker);
+      });
+    } catch (err) {
+      console.error("Fishing spot map failed to load:", err);
+      clearFishingMap();
+    }
+  }
+
+  function renderFishingStationList() {
+    fishingStationListWrap.innerHTML = "";
+    fishingStations.forEach((s) => {
+      const row = document.createElement("label");
+      row.className = "fishing-station-row" + (fishingSelectedStation && fishingSelectedStation.id === s.id ? " selected" : "");
+      row.dataset.stationId = String(s.id);
+      row.innerHTML =
+        '<input type="radio" name="fishingStation">' +
+        '<span class="fishing-station-info"><span class="fishing-station-name">' + escapeHtml(s.name) + '</span>' +
+        '<span class="fishing-station-meta">Station ' + escapeHtml(String(s.id)) + " &middot; " + s.distance.toFixed(1) + " mi away</span></span>";
+      row.querySelector("input").checked = !!(fishingSelectedStation && fishingSelectedStation.id === s.id);
+      row.addEventListener("click", (e) => { e.preventDefault(); selectFishingStation(s, "list"); });
+      fishingStationListWrap.appendChild(row);
+    });
+  }
+
+  function selectFishingStation(s, source) {
+    fishingSelectedStation = s;
+    fishingStationListWrap.querySelectorAll(".fishing-station-row").forEach((r) => {
+      const match = r.dataset.stationId === String(s.id);
+      r.classList.toggle("selected", match);
+      r.querySelector("input").checked = match;
+    });
+    fishingMarkers.forEach((m) => {
+      if (m._stationId) m.setIcon(L.divIcon({ className: "fishing-station-marker" + (m._stationId === s.id ? " selected" : ""), html: "<span></span>", iconSize: m._stationId === s.id ? [16, 16] : [12, 12] }));
+    });
+    fishingSaveBtn.disabled = false;
+    fishingSpotStatus.textContent = "Selected: " + s.name + " (Station " + s.id + ")";
+  }
+
+  async function loadFishingStations(town) {
+    fishingSpotStatus.textContent = "Finding nearby tide stations…";
+    try {
+      const all = await fetchAllTideStations();
+      fishingStations = all
+        .map((s) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lng !== undefined ? s.lng : s.lon }))
+        .map((s) => Object.assign(s, { distance: haversineMilesClient(town.lat, town.lon, s.lat, s.lon) }))
+        .filter((s) => s.distance <= 100)
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 8);
+      if (!fishingStations.length) {
+        fishingSpotStatus.textContent = "No tide stations found within 100 miles of that spot.";
+        return;
+      }
+      fishingSelectedStation = null;
+      fishingSaveBtn.disabled = true;
+      fishingSpotStatus.textContent = "Pick the closest tide station.";
+      renderFishingStationMap();
+      renderFishingStationList();
+    } catch (err) {
+      console.error("Couldn't load nearby tide stations:", err);
+      fishingSpotStatus.textContent = "Couldn't load nearby tide stations right now.";
+    }
+  }
+
+  async function runFishingSearch(q) {
+    if (fishingSearchAbort) fishingSearchAbort.abort();
+    fishingSearchAbort = new AbortController();
+    fishingSearchResults.innerHTML = '<div class="fishing-search-result-row">Searching…</div>';
+    try {
+      const resp = await fetch(
+        "https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=us&addressdetails=1&limit=6&q=" + encodeURIComponent(q),
+        { signal: fishingSearchAbort.signal }
+      );
+      const results = await resp.json();
+      fishingSearchResults.innerHTML = "";
+      if (!results.length) {
+        fishingSearchResults.innerHTML = '<div class="fishing-search-result-row">No matches</div>';
+        return;
+      }
+      results.forEach((r) => {
+        const row = document.createElement("div");
+        row.className = "fishing-search-result-row";
+        row.textContent = r.display_name;
+        row.addEventListener("click", () => {
+          fishingSearchResults.innerHTML = "";
+          fishingTownSearch.value = r.display_name;
+          fishingTown = { name: (r.address && (r.address.city || r.address.town || r.address.village)) || r.name || r.display_name, lat: parseFloat(r.lat), lon: parseFloat(r.lon) };
+          loadFishingStations(fishingTown);
+        });
+        fishingSearchResults.appendChild(row);
+      });
+    } catch (err) {
+      if (err.name === "AbortError") return;
+      console.error("Fishing spot town search failed:", err);
+      fishingSearchResults.innerHTML = '<div class="fishing-search-result-row">Search failed -- try again</div>';
+    }
+  }
+
+  fishingTownSearch.addEventListener("input", () => {
+    const q = fishingTownSearch.value.trim();
+    clearTimeout(fishingSearchTimer);
+    if (q.length < 3) { fishingSearchResults.innerHTML = ""; return; }
+    fishingSearchTimer = setTimeout(() => runFishingSearch(q), 350);
+  });
+
+  fishingSaveBtn.addEventListener("click", async () => {
+    if (!deviceId || !fishingTown || !fishingSelectedStation) return;
+    fishingSaveBtn.disabled = true;
+    fishingSpotStatus.textContent = "Saving…";
+    try {
+      const payload = { name: fishingTown.name, stationId: String(fishingSelectedStation.id), lat: fishingTown.lat, lon: fishingTown.lon };
+      const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+      await uploadBytes(ref(storage, "locations/" + deviceId + FISHING_SPOT_SUFFIX), blob);
+      fishingExistingSpot = payload;
+      fishingSpotStatus.textContent = "Saved! Refreshing your tide card…";
+      fishingRemoveBtn.classList.remove("hidden");
+      const layer = layers.find((l) => l.kind === "tide");
+      if (layer) layer.cardData = null; // force loadTideLayer to actually refetch
+      await loadTideLayer();
+    } catch (err) {
+      console.error("Couldn't save the fishing spot:", err);
+      fishingSpotStatus.textContent = "Couldn't save that spot right now — try again in a moment.";
+      fishingSaveBtn.disabled = false;
+    }
+  });
+
+  fishingRemoveBtn.addEventListener("click", async () => {
+    if (!deviceId) return;
+    try {
+      await deleteObject(ref(storage, "locations/" + deviceId + FISHING_SPOT_SUFFIX));
+    } catch (err) {
+      // Already gone (or never existed) is fine -- nothing left to remove.
+      if (!err || err.code !== "storage/object-not-found") console.error("Couldn't remove the fishing spot:", err);
+    }
+    fishingExistingSpot = null;
+    spotChoiceDevice.checked = true;
+    updateSpotChoiceUI();
+    const layer = layers.find((l) => l.kind === "tide");
+    if (layer) layer.cardData = null;
+    await loadTideLayer();
+  });
+
+  function updateSpotChoiceUI() {
+    document.querySelectorAll('.spot-choice-row').forEach((row) => {
+      row.classList.toggle("selected", row.dataset.value === (spotChoiceCustom.checked ? "custom" : "device"));
+    });
+    fishingSpotPickerEl.classList.toggle("hidden", !spotChoiceCustom.checked);
+    fishingRemoveBtn.classList.toggle("hidden", !fishingExistingSpot);
+    if (spotChoiceCustom.checked && fishingExistingSpot && !fishingTown) {
+      fishingSpotStatus.textContent = "Currently: " + fishingExistingSpot.name + " (Station " + fishingExistingSpot.stationId + ")";
+    }
+  }
+  [spotChoiceDevice, spotChoiceCustom].forEach((el) => el.addEventListener("change", updateSpotChoiceUI));
+
+  // Runs once, the first time the Tide tool is opened -- pre-fills the
+  // device's main location name and whether a custom fishing spot is
+  // already saved, without disturbing whichever spot is actually in use.
+  async function initFishingSpotUIOnce() {
+    if (fishingSpotInitialized || !deviceId) return;
+    fishingSpotInitialized = true;
+    try {
+      const deviceLocation = await fetchJsonFromStorage("locations/" + deviceId + ".json", 8000);
+      deviceLocationSub.textContent = deviceLocation && deviceLocation.name ? deviceLocation.name : "";
+    } catch (err) {
+      console.error("Couldn't load the device's main location name:", err);
+    }
+    try {
+      fishingExistingSpot = await fetchJsonFromStorage("locations/" + deviceId + FISHING_SPOT_SUFFIX, 8000);
+    } catch (err) {
+      console.error("Couldn't check for an existing fishing spot:", err);
+    }
+    if (fishingExistingSpot) spotChoiceCustom.checked = true;
+    updateSpotChoiceUI();
   }
 
   // ================= Team tool =================

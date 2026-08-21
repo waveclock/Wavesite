@@ -268,8 +268,36 @@ self-contained (it sets its own `textAlign` unconditionally now), with
 a regression test added afterward that specifically renders the two
 lines in sequence.
 
-No separate fishing-spot picker yet (Phase 4) -- still uses the device's
-main saved location.
+**The Fishing Spot picker** (Phase 4, in `design-v2/index.html`) lets a
+customer point this card at a second, independent location -- a favorite
+pier or inlet, not necessarily where the clock itself sits. Saved to
+`locations/{deviceId}-fishing.json` (Storage Rules updated to allow the
+`-fishing` suffix), completely separate from the device's main
+`locations/{deviceId}.json` used by Wave/Weather Forecast, Sunset, etc.
+`resolveTideLocation()` checks for the fishing-spot file first and falls
+back to the device's main location when it's absent -- so a customer who
+never touches this picker sees no behavior change at all.
+
+The picker itself reuses the exact same mechanics already proven live in
+`location/index.html`'s own map/station picker, not a new pattern:
+Nominatim (free, no key) for town search, the NOAA CO-OPS station
+metadata endpoint (`mdapi/prod/webapi/stations.json?type=tidepredictions`)
+fetched once and filtered by haversine distance (≤100mi, closest 8) for
+nearby tide stations, and Leaflet + OpenStreetMap tiles (no key) for the
+map itself.
+
+**Leaflet couldn't be loaded from this development sandbox either** --
+`https://unpkg.com/leaflet@1.9.4/dist/leaflet.js` failed with
+`ERR_TUNNEL_CONNECTION_FAILED` from the sandbox's own network proxy, the
+same category of restriction that blocked live NOAA/Open-Meteo testing
+elsewhere in this file. The picker degrades gracefully without it (a
+`typeof L === "undefined"` guard skips just the map, verified directly),
+and everything that doesn't depend on the map itself -- search, the
+station list, selecting one, saving, removing -- was verified working
+end-to-end with Playwright, mocking Nominatim/NOAA/tile responses.
+`location/index.html` already uses this identical CDN/tile setup live in
+production, so this is a sandbox limitation, not an unproven approach --
+but the map specifically is worth a quick look after deploying.
 
 ## Known tradeoffs
 
