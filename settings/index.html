@@ -356,13 +356,20 @@
           <span class="toggle-label">Lifeguard Report</span>
           <div class="segmented"><button type="button" class="segmented-btn" data-value="true">Yes</button><button type="button" class="segmented-btn" data-value="false">No</button></div>
         </div>
-        <!-- No "Custom Design" row here anymore -- there used to be one
-             tied to the single showCustomScreen field, but that's retired
-             now that there are 3 independent custom screens. Each one's
-             own "include in rotation" toggle lives on design-v2 itself
-             (next to its editor), not duplicated here. This page still
-             reads/writes showCustomScreen1/2/3 transparently (see `state`
-             below) so saving other settings here doesn't clobber them. -->
+        <div class="toggle-row" data-field="showCustomScreen1">
+          <span class="toggle-label">Custom Design<span class="toggle-sub">The design you made in the design tool</span></span>
+          <div class="segmented"><button type="button" class="segmented-btn" data-value="true">Yes</button><button type="button" class="segmented-btn" data-value="false">No</button></div>
+        </div>
+        <!-- This toggle controls showCustomScreen1 -- the only one of the
+             3 planned custom-screen slots any customer can actually create
+             a design for today (via the live /design/ editor). design-v2
+             adds 2 more screens with their own per-screen rotation toggle,
+             but design-v2 isn't public yet, so showCustomScreen2/3 have no
+             UI here on purpose -- there's nothing for them to control until
+             a customer can actually reach design-v2 to make a screen 2/3
+             design. This page still reads/writes showCustomScreen2/3
+             transparently (see `state` below) so saving settings here
+             never clobbers whatever design-v2 last set for those slots. -->
         <div class="toggle-row" data-field="sunsetAllDay">
           <span class="toggle-label">Sunset Screen<span class="toggle-sub">Still appears via the Sunset Reminder even on Sunset Only</span></span>
           <div class="segmented"><button type="button" class="segmented-btn" data-value="true">All Day</button><button type="button" class="segmented-btn" data-value="false">Sunset Only</button></div>
@@ -476,20 +483,21 @@
     showWeatherForecast: true,
     showBeach: true,
     showLifeguard: true,
-    // No UI on this page for these three -- see the comment above the
-    // (removed) Custom Design toggle row. Carried in `state` purely so
+    // showCustomScreen (singular) is the legacy field current firmware still
+    // requires (all-or-nothing settings parser) -- mirrored from
+    // showCustomScreen1 on every save below until firmware ships and switches
+    // to the three per-slot fields.
+    showCustomScreen: true,
+    // showCustomScreen1 has a real toggle row above (it's the only screen a
+    // customer can actually design today, via the live /design/ editor).
+    // showCustomScreen2/3 have no UI here -- see the comment above the
+    // toggle row. They're carried in `state` purely so
     // loadExistingSettings()/the save payload below preserve whatever
     // design-v2 last set instead of dropping them on every unrelated
     // save here (Storage writes replace the whole file, there's no
     // server-side merge). Defaults here only matter for a device that's
     // never had a settings file at all -- see the same defaults used in
     // design-v2's own settingsDefaults().
-    //
-    // showCustomScreen (singular) is the legacy field current firmware still
-    // requires (all-or-nothing settings parser) -- mirrored from
-    // showCustomScreen1 on every save below until firmware ships and switches
-    // to the three per-slot fields.
-    showCustomScreen: true,
     showCustomScreen1: true,
     showCustomScreen2: true,
     showCustomScreen3: false,
@@ -504,7 +512,8 @@
     { field: "showWaveForecast", label: "Wave Forecast" },
     { field: "showWeatherForecast", label: "Weather Forecast" },
     { field: "showBeach", label: "Beach Screen" },
-    { field: "showLifeguard", label: "Lifeguard Report" }
+    { field: "showLifeguard", label: "Lifeguard Report" },
+    { field: "showCustomScreen1", label: "Custom Design" }
   ];
 
   // ================= Step navigation =================
