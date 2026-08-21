@@ -62,6 +62,61 @@
     margin: 0;
   }
 
+  .feature-callout {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 14px auto 0;
+    max-width: 420px;
+    padding: 10px 14px;
+    background: var(--foam);
+    border: 2px dashed var(--coral);
+    border-radius: 14px;
+    text-align: left;
+  }
+  .feature-callout-icons {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .feature-callout-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--navy);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .feature-callout-icon svg { width: 17px; height: 17px; color: #fff; }
+  .feature-callout-text { flex: 1; min-width: 0; }
+  .feature-callout-title {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 13.5px;
+    margin: 0 0 2px;
+    color: var(--ink);
+  }
+  .feature-callout-title .badge-pill {
+    display: inline-block;
+    background: var(--coral);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    vertical-align: middle;
+    margin-right: 6px;
+    transform: translateY(-1px);
+  }
+  .feature-callout-desc {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 0;
+    line-height: 1.35;
+  }
+
   .device-tag {
     display: inline-block;
     margin-top: 10px;
@@ -538,7 +593,20 @@
   <header>
     <h1>DESIGN YOUR<br>WAVE CLOCK</h1>
     <p class="subtitle">Draw something, write something &mdash; whatever you want to see every time it cycles by.</p>
-    <p style="font-size:11px; color:var(--ink-soft); opacity:0.7; margin:6px 0 0;">Preview &mdash; adds Countdown and Team Schedule tools that update on their own each day.</p>
+    <div class="feature-callout">
+      <div class="feature-callout-icons">
+        <span class="feature-callout-icon" title="Countdown">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="feature-callout-icon" title="Team Schedule">
+          <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </span>
+      </div>
+      <div class="feature-callout-text">
+        <p class="feature-callout-title"><span class="badge-pill">NEW</span>Countdown &amp; Team Schedule</p>
+        <p class="feature-callout-desc">Set it once and it keeps itself current &mdash; counting down the days, or pulling your team's next game &mdash; every single day, automatically.</p>
+      </div>
+    </div>
     <span class="device-tag" id="deviceTag">Loading device&hellip;</span>
     <div class="screen-nav" id="screenNav" style="display:none;"></div>
     <label class="rotation-toggle-row" id="rotationToggleRow" style="display:none;">
