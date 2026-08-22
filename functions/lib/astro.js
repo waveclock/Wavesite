@@ -112,7 +112,22 @@ async function fetchNoaaPredictions(stationId, begin, end, interval, fetchImpl) 
   });
   const resp = await doFetch(NOAA_BASE + "?" + params.toString(), { headers: OUTBOUND_FETCH_HEADERS });
   const data = await resp.json();
-  if (data && data.error) throw new Error(data.error.message || "NOAA returned an error");
+  if (data && data.error) {
+    // A well-formed JSON error body means NOAA was reached fine and gave a
+    // clear answer -- this is NOT a connectivity problem, so it's tagged
+    // separately from a thrown/network-level failure (a timeout, DNS
+    // failure, etc.) so astroProxyHandler can tell a customer something
+    // more useful than "couldn't reach NOAA" when the real story is "this
+    // specific station has no predictions data" (switching datum from
+    // MLLW to STND didn't change this error at all for stationId=8534975
+    // in production -- same message, byte for byte -- which means it
+    // isn't a datum problem: this looks like a subordinate station that
+    // only has time-offset predictions, not full height predictions, and
+    // no datum will ever produce a height curve for one of those).
+    const err = new Error(data.error.message || "NOAA returned an error");
+    err.noaaDataError = true;
+    throw err;
+  }
   return (data.predictions || []).map((p) => ({
     t: parseNoaaGmtTimestamp(p.t),
     heightFt: parseFloat(p.v),
