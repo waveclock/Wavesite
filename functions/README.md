@@ -225,6 +225,30 @@ persists after this, the next step is the astroProxy function's actual
 Cloud Function logs (`logger.error`'s underlying message), which is the
 only place the true cause is visible.
 
+**The actual root cause, found from those Cloud Function logs**: neither
+of the two fixes above was it. NOAA itself was rejecting the request --
+`"No Predictions data was found. Please make sure the Datum input is
+valid."` -- for a real production station (`8534975`). The predictions
+fetch hardcoded `datum: "MLLW"` (Mean Lower Low Water), which is only
+computed for stations with enough tidal-epoch history behind them; a lot
+of subordinate/harmonic prediction stations (this one included) don't
+have it and only support `"STND"` (station datum) -- the one arbitrary
+local reference every CO-OPS station is guaranteed to have, regardless of
+type. Switched to `STND`. Safe everywhere: the card never displays which
+datum a height is relative to, and NOAA's hi/lo `"type": "H"/"L"`
+classification is about the local curve shape, not the datum -- changing
+it only shifts every height by a constant, it doesn't change which points
+count as highs and lows. See `test/astro.test.js`'s test asserting the
+outbound request uses `datum=STND`, plus one reproducing this exact NOAA
+error message for a station that doesn't support the requested datum.
+
+The earlier two fixes (Open-Meteo resilience, browser-like headers)
+weren't wrong to make -- they're real improvements on their own terms --
+but they weren't *this* bug. Worth remembering next time: a live error
+message that survives two independent, plausible-sounding fixes is a sign
+to stop pattern-matching against past bugs and go straight to the actual
+log line first.
+
 **Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
 unlike everything else here -- there's no closed-form time for lunar
 transit the way there is for solar noon. `computeSolunarPeriods` finds

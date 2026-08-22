@@ -86,12 +86,23 @@ function parseNoaaGmtTimestamp(t) {
   return new Date(t.replace(" ", "T") + "Z");
 }
 
+// datum is "STND" (station datum), not "MLLW" -- confirmed via a real
+// production 502 (Cloud Function logs: "No Predictions data was found.
+// Please make sure the Datum input is valid.", for stationId=8534975).
+// MLLW is only computed for stations with enough tidal-epoch data behind
+// them; plenty of subordinate/harmonic prediction stations (this one
+// included) don't have it and only support STND, the arbitrary local
+// reference every CO-OPS station is guaranteed to have. Safe to use
+// everywhere: the card never displays which datum a height is relative
+// to, and NOAA's hi/lo "type": "H"/"L" classification is about local
+// curve shape, not the datum -- switching only shifts every height by a
+// constant, it doesn't change which points count as highs/lows.
 async function fetchNoaaPredictions(stationId, begin, end, interval, fetchImpl) {
   const doFetch = fetchImpl || fetch;
   const params = new URLSearchParams({
     station: stationId,
     product: "predictions",
-    datum: "MLLW",
+    datum: "STND",
     time_zone: "gmt",
     units: "english",
     format: "json",
