@@ -453,7 +453,20 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
 
   const tideCurve = curve.map((p) => ({ t: p.t.toISOString(), heightFt: p.heightFt }));
   const solunarPeriods = computeSolunarPeriods(lat, lon, dawn, dusk, moonTimes.rise || null, moonTimes.set || null);
-  const weather = await fetchWeatherSignals({ lat, lon, dawn, dusk, now: at, timeZone, fetchImpl });
+
+  // Weather is supplementary (the alert strip, footer row, and part of
+  // the fishing score) -- NOAA's tide curve above is the one thing this
+  // card genuinely can't function without, so only ITS failure should
+  // fail the whole card. An Open-Meteo outage (or a location just outside
+  // its marine model's coverage) degrades to no weather data instead,
+  // same principle as swell/water-temp already degrading field-by-field
+  // inside fetchWeatherSignals.
+  let weather = null;
+  try {
+    weather = await fetchWeatherSignals({ lat, lon, dawn, dusk, now: at, timeZone, fetchImpl });
+  } catch (err) {
+    console.error("Couldn't reach Open-Meteo for lat=" + lat + " lon=" + lon + " (continuing without weather data):", err);
+  }
 
   return {
     timeZone,
