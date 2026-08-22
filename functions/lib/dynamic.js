@@ -17,6 +17,7 @@
 
 const { createCanvas, loadImage, registerFont } = require("canvas");
 const path = require("path");
+const { fetchTideCardData } = require("./astro");
 
 // Node's built-in fetch() has its OWN default headers when none are
 // given -- verified directly (a local Node server, hit with a bare
@@ -846,6 +847,415 @@ function drawGameDayCard(ctx, card) {
   }
 }
 
+// Silhouette of the moon's lit fraction -- black fill is the UNLIT
+// shadow (ink on the page), the blank/white area is what's lit, matching
+// this card's black-ink-on-white style everywhere else. Verified against
+// a 6-case reference render (new/crescent/quarter/gibbous/full, both
+// waxing and waning) before being trusted here -- the two-path
+// (semicircle + terminator ellipse) approach is easy to get subtly
+// backwards (e.g. which half bulges which direction) without checking
+// actual output.
+function drawMoonIcon(ctx, cx, cy, r, illum, waxing) {
+  const k = Math.max(0, Math.min(1, illum));
+  const rx = r * Math.abs(1 - 2 * k);
+  const gibbous = k > 0.5;
+  const bulgeAnticlockwise = waxing ? gibbous : !gibbous;
+  ctx.save();
+  ctx.beginPath();
+  ctx.fillStyle = "#000";
+  if (waxing) ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+  else ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
+  ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, bulgeAnticlockwise);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Small drawn glyphs for the Tide & Fishing card's weather row -- no
+// emoji (node-canvas has no color-emoji font, so an emoji character
+// renders as tofu/garbage; verified directly while building this).
+function drawWindArrow(ctx, x, y, size) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(Math.PI / 4);
+  ctx.beginPath();
+  ctx.moveTo(0, -size); ctx.lineTo(0, size);
+  ctx.moveTo(-size * 0.5, -size * 0.4); ctx.lineTo(0, -size); ctx.lineTo(size * 0.5, -size * 0.4);
+  ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.stroke();
+  ctx.restore();
+}
+function drawWaveGlyph(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.quadraticCurveTo(x + w * 0.25, y - h, x + w * 0.5, y);
+  ctx.quadraticCurveTo(x + w * 0.75, y + h, x + w, y);
+  ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.lineCap = "round";
+  ctx.stroke();
+  ctx.restore();
+}
+function drawTrendArrow(ctx, x, y, size, direction) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (direction === "down") ctx.rotate(Math.PI);
+  ctx.beginPath();
+  ctx.moveTo(0, -size); ctx.lineTo(size * 0.8, size * 0.6); ctx.lineTo(-size * 0.8, size * 0.6);
+  ctx.closePath();
+  ctx.fillStyle = "#000";
+  ctx.fill();
+  ctx.restore();
+}
+function drawWarningTriangle(ctx, x, y, size) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  ctx.moveTo(0, -size); ctx.lineTo(size * 0.95, size * 0.75); ctx.lineTo(-size * 0.95, size * 0.75);
+  ctx.closePath();
+  ctx.lineWidth = 2.2;
+  ctx.strokeStyle = "#000";
+  ctx.stroke();
+  ctx.fillStyle = "#000";
+  ctx.fillRect(-1.3, -size * 0.35, 2.6, size * 0.7);
+  ctx.beginPath();
+  ctx.arc(0, size * 0.52, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+function drawRainTick(ctx, x, y, size) {
+  ctx.save();
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x - size * 0.3, y);
+  ctx.lineTo(x - size * 0.7, y + size);
+  ctx.moveTo(x + size * 0.3, y);
+  ctx.lineTo(x - size * 0.1, y + size);
+  ctx.stroke();
+  ctx.restore();
+}
+// Draws "label value" with the value bold/solid black and the label in a
+// lighter weight -- used throughout the weather row so the actual
+// NUMBERS are what stand out, not the words around them. Returns the x
+// position immediately after what was drawn, for chaining more segments
+// on the same line (textAlign must be "left" going in).
+function drawLabelThenValue(ctx, label, value, x, y, serifFamily) {
+  ctx.textAlign = "left"; // self-contained: never depends on a caller having reset alignment first
+  ctx.font = "13px \"" + serifFamily + "\"";
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.fillText(label, x, y);
+  const labelW = ctx.measureText(label).width;
+  ctx.font = "bold 13px \"" + serifFamily + "\"";
+  ctx.fillStyle = "#000";
+  ctx.fillText(value, x + labelW, y);
+  return x + labelW + ctx.measureText(value).width;
+}
+
+// A diagonal-hatch "highlight" -- deliberately not a gray fill, since a
+// semi-transparent wash would just get thresholded away to solid black or
+// white once this is packed to 1-bit for the real e-ink display. Denser
+// spacing reads as more emphasis (used for solunar "major" periods vs.
+// "minor").
+function drawHatchBand(ctx, x0, x1, yTop, yBottom, spacing) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0, yTop, x1 - x0, yBottom - yTop);
+  ctx.clip();
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1;
+  for (let x = x0 - (yBottom - yTop); x < x1; x += spacing) {
+    ctx.beginPath();
+    ctx.moveTo(x, yBottom);
+    ctx.lineTo(x + (yBottom - yTop), yTop);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Phase 2 of the Tide & Fishing card: adds solunar major/minor period
+// bands (hatched, clipped to the dawn-dusk window like everything else on
+// this card) and a fishing score badge in the banner, on top of Phase 1's
+// tide curve + moon phase/rise/set. Weather (wind/pressure/rain/swell)
+// is still a later phase.
+//
+// card is exactly what lib/astro.js's fetchTideCardData returns:
+// { dawn, sunrise, sunset, dusk, moon, tideCurve, tideExtrema,
+// solunarPeriods, fishingScore }, each of dawn/sunrise/sunset/dusk/
+// moon.rise/moon.set being either null or
+// { t: <ISO string>, label: <"3:15 PM" or null> }.
+function drawTideCard(ctx, card) {
+  const dawnMs = new Date(card.dawn.t).getTime();
+  const duskMs = new Date(card.dusk.t).getTime();
+  function minutesToX(iso) {
+    const ms = new Date(iso).getTime();
+    const clamped = Math.max(dawnMs, Math.min(duskMs, ms));
+    return 46 + ((clamped - dawnMs) / (duskMs - dawnMs)) * (CANVAS_WIDTH - 92);
+  }
+
+  // Fixed bands -- each zone owns a Y range that never depends on the
+  // day's actual tide/data values, so a high/low label can't drift into
+  // the top strip or footer on a day with an unusual tide range. See the
+  // mockup iteration that led here: floating a label relative to its
+  // dot's data-driven height is what caused repeated overlap bugs.
+  const TOP_STRIP_END = BANNER_HEIGHT + 24;
+  const PLOT_TOP = TOP_STRIP_END + 40;
+  const PLOT_BOTTOM = CANVAS_HEIGHT - 96;
+  const FOOTER_START = PLOT_BOTTOM + 40;
+
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  const bannerTitle = "TODAY'S TIDE";
+  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 210, FONT_FAMILY.block, 26, 14);
+  ctx.fillText(bannerTitle, CANVAS_WIDTH / 2 - 46, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+  if (card.fishingScore) {
+    ctx.font = "bold 16px \"" + FONT_FAMILY.serif + "\"";
+    const badgeLabel = "FISHING: " + card.fishingScore.toUpperCase();
+    const badgeTextWidth = ctx.measureText(badgeLabel).width;
+    const badgeW = badgeTextWidth + 26;
+    const badgeH = 28;
+    const badgeX = CANVAS_WIDTH - 24 - badgeW;
+    const badgeY = (BANNER_HEIGHT - badgeH) / 2;
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.roundRect(badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+    ctx.fill();
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "left";
+    ctx.fillText(badgeLabel, badgeX + 13, BANNER_HEIGHT / 2 + 5.5);
+  }
+
+  // The alert strip (rain/wind call-outs) is the single boldest thing on
+  // the card besides the banner -- it's what the "conditions that might
+  // change your plans" ask was actually about, so it outranks the quiet
+  // Sunrise/Sunset line and takes that row over on any day there's
+  // something to flag. On an ordinary day with nothing to call out, the
+  // row falls back to Sunrise/Sunset as before.
+  const weather = card.weather || {};
+  const alertParts = [].concat(
+    (weather.rainWindows || []).map((w) => w.label),
+    weather.windRamp ? [weather.windRamp.label] : []
+  );
+  if (alertParts.length) {
+    drawWarningTriangle(ctx, 30, (BANNER_HEIGHT + TOP_STRIP_END) / 2, 10);
+    ctx.font = "bold 16px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "left";
+    ctx.fillText(alertParts.join("   ·   "), 48, (BANNER_HEIGHT + TOP_STRIP_END) / 2 + 6);
+  } else {
+    ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    if (card.sunrise.label) {
+      ctx.textAlign = "left";
+      ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 6);
+    }
+    if (card.sunset.label) {
+      ctx.textAlign = "right";
+      ctx.fillText("Sunset " + card.sunset.label, CANVAS_WIDTH - 24, TOP_STRIP_END - 6);
+    }
+  }
+
+  const heights = card.tideCurve.map((p) => p.heightFt);
+  const minH = (heights.length ? Math.min(...heights) : 0) - 0.4;
+  const maxH = (heights.length ? Math.max(...heights) : 1) + 0.4;
+  function heightToY(h) {
+    return PLOT_BOTTOM - ((h - minH) / (maxH - minH)) * (PLOT_BOTTOM - PLOT_TOP);
+  }
+
+  const solunarPeriods = card.solunarPeriods || [];
+  solunarPeriods.forEach((p) => {
+    const pStartMs = new Date(p.start).getTime(), pEndMs = new Date(p.end).getTime();
+    if (pEndMs < dawnMs || pStartMs > duskMs) return;
+    const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
+    const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
+    drawHatchBand(ctx, x0, x1, PLOT_TOP, PLOT_BOTTOM, p.kind === "major" ? 7 : 13);
+  });
+
+  // Rain ticks along the top of the plot -- visually distinct from the
+  // full-height solunar hatch above so the two kinds of "shaded window"
+  // are never confused with each other.
+  (weather.rainWindows || []).forEach((w) => {
+    const wStartMs = new Date(w.start).getTime(), wEndMs = new Date(w.end).getTime();
+    if (wEndMs < dawnMs || wStartMs > duskMs) return;
+    const rx0 = minutesToX(new Date(Math.max(wStartMs, dawnMs)).toISOString());
+    const rx1 = minutesToX(new Date(Math.min(wEndMs, duskMs)).toISOString());
+    for (let x = rx0; x <= rx1; x += 14) drawRainTick(ctx, x, PLOT_TOP + 4, 8);
+  });
+
+  ctx.strokeStyle = "rgba(0,0,0,0.2)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 3]);
+  [card.sunrise, card.sunset].forEach((point) => {
+    if (!point) return;
+    const x = minutesToX(point.t);
+    ctx.beginPath();
+    ctx.moveTo(x, PLOT_TOP);
+    ctx.lineTo(x, PLOT_BOTTOM);
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  if (card.tideCurve.length > 1) {
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    card.tideCurve.forEach((p, i) => {
+      const x = minutesToX(p.t);
+      const y = heightToY(p.heightFt);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(46, PLOT_BOTTOM);
+  ctx.lineTo(CANVAS_WIDTH - 46, PLOT_BOTTOM);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.textAlign = "center";
+  card.tideExtrema.forEach((e) => {
+    const eMs = new Date(e.t).getTime();
+    if (eMs < dawnMs || eMs > duskMs) return;
+    const x = minutesToX(e.t);
+    const y = heightToY(e.heightFt);
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = "#000";
+    ctx.fill();
+
+    const heightLabel = (e.isHigh ? "H " : "L ") + e.heightFt.toFixed(1) + "ft";
+    if (e.isHigh) {
+      if (y - PLOT_TOP > 14) {
+        ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x, PLOT_TOP + 2); ctx.stroke();
+      }
+      ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "#000";
+      ctx.fillText(heightLabel, x, TOP_STRIP_END + 18);
+      ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillText(e.label, x, TOP_STRIP_END + 34);
+    } else {
+      if (PLOT_BOTTOM - y > 14) {
+        ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, y + 6); ctx.lineTo(x, PLOT_BOTTOM - 2); ctx.stroke();
+      }
+      ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "#000";
+      ctx.fillText(heightLabel, x, PLOT_BOTTOM + 20);
+      ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillText(e.label, x, PLOT_BOTTOM + 36);
+    }
+  });
+
+  // MAJOR/MINOR band labels sit just above the baseline, with a small
+  // white halo so the hatch lines behind them don't cut through the text.
+  solunarPeriods.forEach((p) => {
+    const pStartMs = new Date(p.start).getTime(), pEndMs = new Date(p.end).getTime();
+    if (pEndMs < dawnMs || pStartMs > duskMs) return;
+    const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
+    const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
+    ctx.font = "italic bold 11px \"" + FONT_FAMILY.serif + "\"";
+    ctx.textAlign = "center";
+    const bandLabel = p.kind.toUpperCase();
+    const labelW = ctx.measureText(bandLabel).width;
+    const labelCx = (x0 + x1) / 2;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(labelCx - labelW / 2 - 4, PLOT_BOTTOM - 20, labelW + 8, 16);
+    ctx.fillStyle = "#000";
+    ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 6);
+  });
+
+  // Footer row 1: moon phase + rise/set.
+  const footerY1 = FOOTER_START + 22;
+  drawMoonIcon(ctx, 58, footerY1 - 9, 11, card.moon.illumination, card.moon.waxing);
+  ctx.textAlign = "left";
+  ctx.font = "bold 15px \"" + FONT_FAMILY.serif + "\"";
+  ctx.fillStyle = "#000";
+  ctx.fillText(card.moon.phaseName, 78, footerY1 - 3);
+
+  const riseSetParts = [];
+  if (card.moon.rise && card.moon.rise.label) riseSetParts.push("Moonrise " + card.moon.rise.label);
+  if (card.moon.set && card.moon.set.label) riseSetParts.push("Moonset " + card.moon.set.label);
+  if (riseSetParts.length) {
+    ctx.font = "12px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.textAlign = "right";
+    ctx.fillText(riseSetParts.join("   ·   "), CANVAS_WIDTH - 24, footerY1 - 3);
+  }
+
+  // Footer row 2: wind + pressure (left), swell + water temp (right) --
+  // both from Open-Meteo. Omitted entirely if there's nothing at all to
+  // show (e.g. the weather fetch came back sparse), rather than drawing
+  // an empty row.
+  const footerY2 = CANVAS_HEIGHT - 12;
+  let cx = 80;
+  if (weather.wind) {
+    drawWindArrow(ctx, 56, footerY2 - 7, 7);
+    cx = drawLabelThenValue(ctx, "Wind ", weather.wind.mph + " mph" + (weather.wind.dir ? " " + weather.wind.dir : ""), cx, footerY2 - 3, FONT_FAMILY.serif);
+  }
+  if (weather.pressure && weather.pressure.hpa != null) {
+    if (cx > 80) {
+      ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "rgba(0,0,0,0.65)";
+      ctx.textAlign = "left";
+      ctx.fillText("   ·   ", cx, footerY2 - 3);
+      cx += ctx.measureText("   ·   ").width;
+    }
+    if (weather.pressure.deltaHpa != null && weather.pressure.trend !== "steady") {
+      drawTrendArrow(ctx, cx + 7, footerY2 - 7, 7, weather.pressure.trend === "falling" ? "down" : "up");
+      cx += 16;
+    }
+    const pressureValue = weather.pressure.hpa + " hPa" + (weather.pressure.deltaHpa != null ? " (" + weather.pressure.deltaHpa + " in 6h)" : "");
+    ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "left";
+    ctx.fillText(pressureValue, cx, footerY2 - 3);
+  }
+
+  let rx = CANVAS_WIDTH - 24;
+  const rightParts = [];
+  if (weather.swell) rightParts.push({ label: "Swell ", value: weather.swell.heightFt.toFixed(1) + " ft" + (weather.swell.periodS != null ? " @ " + weather.swell.periodS + "s" : "") });
+  if (weather.waterTempF != null) rightParts.push({ label: "", value: weather.waterTempF + "°F water" });
+  if (rightParts.length) {
+    const fullPlain = rightParts.map((p) => p.label + p.value).join("   ·   ");
+    ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+    const fullW = ctx.measureText(fullPlain).width;
+    let px = CANVAS_WIDTH - 24 - fullW;
+    drawWaveGlyph(ctx, px - 32, footerY2 - 6, 26, 5);
+    ctx.textAlign = "left";
+    rightParts.forEach((part, i) => {
+      if (i > 0) {
+        ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        ctx.fillText("   ·   ", px, footerY2 - 3);
+        px += ctx.measureText("   ·   ").width;
+      }
+      if (part.label) {
+        ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        ctx.fillText(part.label, px, footerY2 - 3);
+        px += ctx.measureText(part.label).width;
+      }
+      ctx.font = "bold 13px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "#000";
+      ctx.fillText(part.value, px, footerY2 - 3);
+      px += ctx.measureText(part.value).width;
+    });
+  }
+}
+
 async function compositeAndPack(basePngBuffer, drawFn, meta) {
   const baseImage = await loadImage(basePngBuffer);
   const composite = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -959,6 +1369,13 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     return Object.assign(result, { headlines, content: headlines.join(" | ") });
   }
 
+  if (meta.type === "tide") {
+    const data = await fetchTideCardData({ lat: meta.lat, lon: meta.lon, stationId: meta.stationId }, now, fetchImpl);
+    const result = await compositeAndPack(basePngBuffer, (ctx) => drawTideCard(ctx, data), meta);
+    const extremaSummary = data.tideExtrema.map((e) => (e.isHigh ? "H" : "L") + " " + e.label).join(", ");
+    return Object.assign(result, { tideData: data, content: data.moon.phaseName + " -- " + extremaSummary });
+  }
+
   throw new Error("Unknown dynamic layer type: " + meta.type);
 }
 
@@ -1000,6 +1417,8 @@ module.exports = {
   wrapToLines,
   drawNewsCard,
   formatShortDate,
+  drawMoonIcon,
+  drawTideCard,
   renderDynamicDesign,
   ensureFontsRegistered
 };

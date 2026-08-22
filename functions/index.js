@@ -14,6 +14,7 @@ const { onRequest } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
+const { fetchTideCardData } = require("./lib/astro");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -266,7 +267,39 @@ async function newsProxyHandler(req, res) {
 
 exports.newsProxy = onRequest({ cors: true, region: "us-central1" }, newsProxyHandler);
 
+// Unlike espnProxy/newsProxy above (thin passthroughs of raw upstream
+// JSON -- the "what does this data mean" logic is duplicated client-side
+// in design-v2 for those), this one does the FULL computation
+// server-side and returns a ready-to-draw payload. Twilight bounds, moon
+// phase naming, and NOAA's timezone handling are exactly the kind of
+// thing that quietly drifts out of sync if reimplemented a second time in
+// browser JS -- see the header comment in lib/astro.js.
+async function astroProxyHandler(req, res) {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  const stationId = typeof req.query.stationId === "string" ? req.query.stationId : "";
+
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+    res.status(400).json({ error: "lat/lon must be valid coordinates" });
+    return;
+  }
+  if (!/^[0-9]{5,9}$/.test(stationId)) {
+    res.status(400).json({ error: "stationId must be a NOAA station number" });
+    return;
+  }
+
+  try {
+    const data = await fetchTideCardData({ lat, lon, stationId });
+    res.status(200).json(data);
+  } catch (err) {
+    logger.error("astro proxy request failed for lat=" + lat + " lon=" + lon + " stationId=" + stationId + ":", err);
+    res.status(502).json({ error: "Couldn't reach NOAA/sun-moon data right now" });
+  }
+}
+
+exports.astroProxy = onRequest({ cors: true, region: "us-central1" }, astroProxyHandler);
+
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, espnProxyHandler, newsProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, espnProxyHandler, newsProxyHandler, astroProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };

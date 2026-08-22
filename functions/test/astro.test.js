@@ -1,0 +1,420 @@
+"use strict";
+
+// Exercises lib/astro.js directly with a stubbed fetch (no live NOAA
+// call) -- see the header comment in lib/astro.js for why the NOAA fetch
+// itself couldn't be live-verified from this development sandbox.
+
+const assert = require("assert");
+const {
+  moonPhaseName,
+  formatLocalTime,
+  noaaDateParam,
+  parseNoaaGmtTimestamp,
+  fetchNoaaPredictions,
+  findMoonAltitudeExtrema,
+  computeSolunarPeriods,
+  tideRateOfChange,
+  fishingScore,
+  parseOpenMeteoTimestamp,
+  degreesToCompass,
+  nearestHourly,
+  computePressure,
+  computeRainWindows,
+  computeWindRamp,
+  fetchOpenMeteoWeather,
+  fetchOpenMeteoMarine,
+  fetchWeatherSignals,
+  fetchTideCardData
+} = require("../lib/astro");
+
+let passed = 0, failed = 0;
+async function test(name, fn) {
+  try {
+    await fn();
+    passed++;
+    console.log("  ok - " + name);
+  } catch (err) {
+    failed++;
+    console.log("  FAIL - " + name);
+    console.log("    " + err.message);
+  }
+}
+
+function mockNoaaFetch(predictionsByInterval) {
+  return async (url) => {
+    const interval = new URL(url).searchParams.get("interval");
+    return { json: async () => ({ predictions: predictionsByInterval[interval] || [] }) };
+  };
+}
+
+// Routes by hostname so a single fetchImpl can stand in for NOAA + both
+// Open-Meteo endpoints at once, for tests that exercise fetchTideCardData
+// end-to-end. Any host not stubbed here throws, so an accidental request
+// to a fourth host wouldn't silently succeed with empty data.
+function mockAllApisFetch({ noaa = {}, weatherHourly = null, marineHourly = null } = {}) {
+  return async (url) => {
+    const u = new URL(url);
+    if (u.hostname === "api.tidesandcurrents.noaa.gov") {
+      const interval = u.searchParams.get("interval");
+      return { json: async () => ({ predictions: noaa[interval] || [] }) };
+    }
+    if (u.hostname === "api.open-meteo.com") {
+      return { json: async () => ({ hourly: weatherHourly || { time: [] } }) };
+    }
+    if (u.hostname === "marine-api.open-meteo.com") {
+      return { json: async () => ({ hourly: marineHourly || { time: [] } }) };
+    }
+    throw new Error("unexpected host in test: " + u.hostname);
+  };
+}
+
+// Builds a run of hourly Open-Meteo-shaped data from h=startHour to
+// h=endHour (UTC hours on 2026-07-15), with a value-generating function
+// per field -- keeps the weather/marine test fixtures below short.
+function buildHourlySeries(startHour, endHour, fields) {
+  const time = [];
+  const out = {};
+  Object.keys(fields).forEach((k) => { out[k] = []; });
+  for (let h = startHour; h <= endHour; h++) {
+    const dt = new Date(Date.UTC(2026, 6, 15, 0, 0, 0) + h * 3600000);
+    time.push(dt.toISOString().slice(0, 16));
+    Object.keys(fields).forEach((k) => out[k].push(fields[k](h)));
+  }
+  return Object.assign({ time }, out);
+}
+
+(async () => {
+  await test("moonPhaseName buckets the 8 named phases in order", () => {
+    assert.strictEqual(moonPhaseName(0), "New Moon");
+    assert.strictEqual(moonPhaseName(0.1), "Waxing Crescent");
+    assert.strictEqual(moonPhaseName(0.25), "First Quarter");
+    assert.strictEqual(moonPhaseName(0.35), "Waxing Gibbous");
+    assert.strictEqual(moonPhaseName(0.5), "Full Moon");
+    assert.strictEqual(moonPhaseName(0.6), "Waning Gibbous");
+    assert.strictEqual(moonPhaseName(0.75), "Last Quarter");
+    assert.strictEqual(moonPhaseName(0.9), "Waning Crescent");
+    assert.strictEqual(moonPhaseName(0.999), "New Moon");
+  });
+
+  await test("moonPhaseName normalizes an out-of-range phase (e.g. exactly 1, or negative)", () => {
+    assert.strictEqual(moonPhaseName(1), "New Moon");
+    assert.strictEqual(moonPhaseName(-0.1), moonPhaseName(0.9));
+  });
+
+  await test("formatLocalTime converts a UTC instant to the right wall-clock time (handles DST correctly, not just a fixed UTC offset)", () => {
+    const summer = new Date("2026-07-15T19:15:00Z"); // EDT (UTC-4) in July
+    assert.strictEqual(formatLocalTime(summer, "America/New_York"), "3:15 PM");
+    const winter = new Date("2026-01-15T19:15:00Z"); // EST (UTC-5) in January
+    assert.strictEqual(formatLocalTime(winter, "America/New_York"), "2:15 PM");
+  });
+
+  await test("formatLocalTime returns null for a null date (e.g. a moonless day's rise/set)", () => {
+    assert.strictEqual(formatLocalTime(null, "America/New_York"), null);
+  });
+
+  await test("noaaDateParam formats a UTC date as NOAA's \"yyyyMMdd HH:mm\"", () => {
+    assert.strictEqual(noaaDateParam(new Date("2026-07-05T06:07:00Z")), "20260705 06:07");
+  });
+
+  await test("parseNoaaGmtTimestamp reads NOAA's space-separated string as UTC, not local time", () => {
+    const parsed = parseNoaaGmtTimestamp("2026-07-15 14:00");
+    assert.strictEqual(parsed.toISOString(), "2026-07-15T14:00:00.000Z");
+  });
+
+  await test("fetchNoaaPredictions parses heights as numbers and flags isHigh only for interval=hilo", () => {
+    return (async () => {
+      const curveFetch = mockNoaaFetch({ h: [{ t: "2026-07-15 10:00", v: "2.345" }] });
+      const curve = await fetchNoaaPredictions("8534720", new Date(), new Date(), "h", curveFetch);
+      assert.strictEqual(curve.length, 1);
+      assert.strictEqual(curve[0].heightFt, 2.345);
+      assert.strictEqual(curve[0].isHigh, null);
+
+      const hiloFetch = mockNoaaFetch({ hilo: [{ t: "2026-07-15 13:22", v: "4.4", type: "H" }, { t: "2026-07-15 07:14", v: "0.6", type: "L" }] });
+      const hilo = await fetchNoaaPredictions("8534720", new Date(), new Date(), "hilo", hiloFetch);
+      assert.strictEqual(hilo.length, 2);
+      assert.strictEqual(hilo[0].isHigh, true);
+      assert.strictEqual(hilo[1].isHigh, false);
+    })();
+  });
+
+  await test("fetchNoaaPredictions throws on a NOAA-reported error (e.g. an unknown/retired station) instead of returning garbage", async () => {
+    const errorFetch = async () => ({ json: async () => ({ error: { message: "No data was found. This product may not be offered at this station." } }) });
+    await assert.rejects(
+      () => fetchNoaaPredictions("0000000", new Date(), new Date(), "h", errorFetch),
+      /No data was found/
+    );
+  });
+
+  await test("fetchTideCardData assembles one payload from suncalc + both NOAA calls, filtering tideExtrema to only real hi/lo points", async () => {
+    const mockFetch = mockAllApisFetch({
+      noaa: {
+        h: [{ t: "2026-07-15 12:00", v: "2.00" }, { t: "2026-07-15 13:00", v: "2.50" }],
+        hilo: [{ t: "2026-07-15 07:14", v: "0.60", type: "L" }, { t: "2026-07-15 13:22", v: "4.40", type: "H" }]
+      }
+    });
+    const now = new Date("2026-07-15T16:00:00Z");
+    const data = await fetchTideCardData({ lat: 39.2776, lon: -74.5746, stationId: "8534720" }, now, mockFetch);
+
+    assert.strictEqual(data.timeZone, "America/New_York");
+    assert.ok(data.dawn.label && data.sunrise.label && data.sunset.label && data.dusk.label);
+    assert.ok(typeof data.moon.illumination === "number" && data.moon.illumination >= 0 && data.moon.illumination <= 1);
+    assert.ok(typeof data.moon.phaseName === "string");
+    assert.strictEqual(data.tideCurve.length, 2);
+    assert.strictEqual(data.tideCurve[0].heightFt, 2.00);
+    assert.strictEqual(data.tideExtrema.length, 2);
+    assert.strictEqual(data.tideExtrema[0].isHigh, false);
+    assert.strictEqual(data.tideExtrema[0].label, "3:14 AM");
+    assert.strictEqual(data.tideExtrema[1].isHigh, true);
+    assert.ok(Array.isArray(data.solunarPeriods));
+    assert.ok(data.weather, "expected a weather object even when Open-Meteo returns no hourly data");
+    assert.ok(["Poor", "Fair", "Good", "Excellent"].includes(data.fishingScore));
+  });
+
+  // Real SunCalc computation, no mocking -- this is pure math (no network),
+  // so it's checked against real astronomical behavior rather than a fake.
+  console.log("solunar (major/minor period) calculation");
+  const LAT = 39.2776, LON = -74.5746; // Ocean City, NJ
+
+  await test("findMoonAltitudeExtrema finds alternating major transits ~12.3-12.6h apart (half the lunar day) -- verified against real SunCalc output before trusting this here", () => {
+    const from = new Date("2026-07-14T00:00:00Z");
+    const to = new Date("2026-07-17T00:00:00Z");
+    const extrema = findMoonAltitudeExtrema(LAT, LON, from, to, 2);
+    assert.ok(extrema.length >= 4, "expected at least 4 transits across 3 days");
+    for (let i = 1; i < extrema.length; i++) {
+      const gapHours = (extrema[i].t.getTime() - extrema[i - 1].t.getTime()) / 3600000;
+      assert.ok(gapHours > 12 && gapHours < 13, "gap should be ~half a lunar day, was " + gapHours.toFixed(2) + "h");
+    }
+  });
+
+  await test("computeSolunarPeriods only returns periods relevant to the display window, correctly clipped-to-center", () => {
+    const dawn = new Date("2026-07-15T09:12:00Z");
+    const dusk = new Date("2026-07-16T00:55:00Z");
+    const moonRise = new Date("2026-07-15T10:57:58Z"); // within window -> minor period expected
+    const moonSet = new Date("2026-07-15T01:01:19Z"); // hours before dawn -> should be filtered out
+    const periods = computeSolunarPeriods(LAT, LON, dawn, dusk, moonRise, moonSet);
+
+    assert.ok(periods.some((p) => p.kind === "major"), "expected at least one major period in this window");
+    const minors = periods.filter((p) => p.kind === "minor");
+    assert.strictEqual(minors.length, 1, "only the moonrise-based minor period should survive filtering");
+    assert.strictEqual(new Date(minors[0].start).getTime(), moonRise.getTime() - 25 * 60000);
+    assert.strictEqual(new Date(minors[0].end).getTime(), moonRise.getTime() + 25 * 60000);
+  });
+
+  await test("computeSolunarPeriods returns nothing when both moonrise/moonset are null and no transit falls nearby", () => {
+    // A window chosen far from any transit and with no rise/set data at all.
+    const dawn = new Date("2026-07-15T09:12:00Z");
+    const dusk = new Date("2026-07-15T09:20:00Z"); // absurdly narrow, unlikely to catch a transit's center
+    const periods = computeSolunarPeriods(LAT, LON, dawn, dusk, null, null);
+    assert.ok(Array.isArray(periods));
+  });
+
+  console.log("tideRateOfChange");
+  await test("computes feet-per-hour between the two bracketing curve points", () => {
+    const curve = [
+      { t: "2026-07-15T09:00:00.000Z", heightFt: 1.0 },
+      { t: "2026-07-15T13:00:00.000Z", heightFt: 5.0 }
+    ];
+    // Exactly 4ft over 4h = 1 ft/hr, sampled at the midpoint
+    const rate = tideRateOfChange(curve, new Date("2026-07-15T11:00:00.000Z").getTime());
+    assert.strictEqual(rate, 1);
+  });
+  await test("returns 0 for a single-point or empty curve instead of throwing", () => {
+    assert.strictEqual(tideRateOfChange([], Date.now()), 0);
+    assert.strictEqual(tideRateOfChange([{ t: "2026-07-15T09:00:00.000Z", heightFt: 1 }], Date.now()), 0);
+  });
+
+  console.log("fishingScore (Phase 2: moon + tide only, no weather signal yet)");
+  const SCORE_DAWN = new Date("2026-07-15T09:12:00Z");
+  const SCORE_DUSK = new Date("2026-07-16T00:55:00Z");
+  const MOVING_CURVE = [
+    { t: "2026-07-15T09:12:00.000Z", heightFt: 1.0 },
+    { t: "2026-07-15T13:00:00.000Z", heightFt: 4.4 },
+    { t: "2026-07-15T18:00:00.000Z", heightFt: 2.0 },
+    { t: "2026-07-16T00:55:00.000Z", heightFt: 0.5 }
+  ];
+  // Centered at 11:00, inside MOVING_CURVE's steepest segment (9:12->13:00,
+  // +3.4ft over ~3.8h -- the fastest-moving stretch of this curve).
+  const OVERLAPPING_PERIOD = [{ kind: "major", start: "2026-07-15T10:00:00.000Z", end: "2026-07-15T12:00:00.000Z" }];
+
+  await test("near-new/full moon + a solunar period overlapping a fast-moving stretch of tide = Excellent", () => {
+    assert.strictEqual(
+      fishingScore({ moonIllumination: 0.02, solunarPeriods: OVERLAPPING_PERIOD, tideCurve: MOVING_CURVE, dawn: SCORE_DAWN, dusk: SCORE_DUSK }),
+      "Excellent"
+    );
+  });
+  await test("just one positive signal (quarter moon, but still a moving-tide overlap) = Good", () => {
+    assert.strictEqual(
+      fishingScore({ moonIllumination: 0.5, solunarPeriods: OVERLAPPING_PERIOD, tideCurve: MOVING_CURVE, dawn: SCORE_DAWN, dusk: SCORE_DUSK }),
+      "Good"
+    );
+  });
+  await test("neither signal (quarter moon, flat/slack tide) = Fair, never Poor -- no weather signal yet", () => {
+    const flatCurve = [
+      { t: "2026-07-15T09:12:00.000Z", heightFt: 2.0 },
+      { t: "2026-07-16T00:55:00.000Z", heightFt: 2.0 }
+    ];
+    assert.strictEqual(
+      fishingScore({ moonIllumination: 0.5, solunarPeriods: [], tideCurve: flatCurve, dawn: SCORE_DAWN, dusk: SCORE_DUSK }),
+      "Fair"
+    );
+    assert.strictEqual(
+      fishingScore({ moonIllumination: 0.5, solunarPeriods: [], tideCurve: [], dawn: SCORE_DAWN, dusk: SCORE_DUSK }),
+      "Fair"
+    );
+  });
+  await test("weather can now push the score down to Poor -- high wind or a sharp pressure drop, on top of an otherwise-neutral moon/tide", () => {
+    const neutral = { moonIllumination: 0.5, solunarPeriods: [], tideCurve: [], dawn: SCORE_DAWN, dusk: SCORE_DUSK };
+    assert.strictEqual(fishingScore(Object.assign({}, neutral, { weather: { wind: { mph: 25 }, pressure: { trend: "steady", deltaHpa: 0 } } })), "Poor");
+    assert.strictEqual(fishingScore(Object.assign({}, neutral, { weather: { wind: { mph: 8 }, pressure: { trend: "falling", deltaHpa: -4 } } })), "Poor");
+  });
+  await test("weather can also push the score up -- calm wind + steady/rising pressure is a positive signal", () => {
+    const neutral = { moonIllumination: 0.5, solunarPeriods: [], tideCurve: [], dawn: SCORE_DAWN, dusk: SCORE_DUSK };
+    assert.strictEqual(fishingScore(Object.assign({}, neutral, { weather: { wind: { mph: 8 }, pressure: { trend: "steady", deltaHpa: 0 } } })), "Good");
+  });
+  await test("mixed weather (calm wind but falling pressure, not sharply) is neutral -- neither bonus nor penalty", () => {
+    const neutral = { moonIllumination: 0.5, solunarPeriods: [], tideCurve: [], dawn: SCORE_DAWN, dusk: SCORE_DUSK };
+    assert.strictEqual(fishingScore(Object.assign({}, neutral, { weather: { wind: { mph: 8 }, pressure: { trend: "falling", deltaHpa: -2 } } })), "Fair");
+  });
+  await test("score never goes below Poor or above Excellent even with every signal maxed", () => {
+    const best = { moonIllumination: 0.0, solunarPeriods: [{ kind: "major", start: "2026-07-15T10:00:00.000Z", end: "2026-07-15T12:00:00.000Z" }], tideCurve: MOVING_CURVE, dawn: SCORE_DAWN, dusk: SCORE_DUSK, weather: { wind: { mph: 5 }, pressure: { trend: "rising", deltaHpa: 3 } } };
+    assert.strictEqual(fishingScore(best), "Excellent");
+  });
+
+  console.log("degreesToCompass / nearestHourly");
+  await test("degreesToCompass maps common headings, wraps correctly at 0/360, and returns null for null", () => {
+    assert.strictEqual(degreesToCompass(0), "N");
+    assert.strictEqual(degreesToCompass(360), "N");
+    assert.strictEqual(degreesToCompass(90), "E");
+    assert.strictEqual(degreesToCompass(180), "S");
+    assert.strictEqual(degreesToCompass(315), "NW");
+    assert.strictEqual(degreesToCompass(null), null);
+  });
+  await test("nearestHourly picks the closest point by absolute time distance, and null for an empty series", () => {
+    const series = [{ t: new Date("2026-07-15T10:00:00Z") }, { t: new Date("2026-07-15T14:00:00Z") }];
+    assert.strictEqual(nearestHourly(series, new Date("2026-07-15T11:30:00Z").getTime()), series[0]);
+    assert.strictEqual(nearestHourly(series, new Date("2026-07-15T12:30:00Z").getTime()), series[1]);
+    assert.strictEqual(nearestHourly([], Date.now()), null);
+  });
+
+  console.log("computePressure / computeRainWindows / computeWindRamp");
+  await test("computePressure classifies a >=2hPa/6h change as rising/falling, otherwise steady", () => {
+    const falling = buildHourlySeries(0, 6, {}).time.map((t, i) => ({ t: new Date(t + ":00Z"), pressureHpa: 1021 - i }));
+    assert.strictEqual(computePressure(falling, new Date(falling[6].t).getTime()).trend, "falling");
+    const rising = buildHourlySeries(0, 6, {}).time.map((t, i) => ({ t: new Date(t + ":00Z"), pressureHpa: 1015 + i }));
+    assert.strictEqual(computePressure(rising, new Date(rising[6].t).getTime()).trend, "rising");
+    const steady = buildHourlySeries(0, 6, {}).time.map((t) => ({ t: new Date(t + ":00Z"), pressureHpa: 1018 }));
+    assert.strictEqual(computePressure(steady, new Date(steady[6].t).getTime()).trend, "steady");
+  });
+  await test("computePressure degrades to steady/null-delta when there's no 6h-ago reading to compare against", () => {
+    const single = [{ t: new Date("2026-07-15T16:00:00Z"), pressureHpa: 1015 }];
+    const result = computePressure(single, new Date("2026-07-15T16:00:00Z").getTime());
+    assert.strictEqual(result.hpa, 1015);
+    assert.strictEqual(result.deltaHpa, null);
+    assert.strictEqual(result.trend, "steady");
+  });
+
+  await test("computeRainWindows merges contiguous hours over the probability threshold into one window, extended 1h past the last point", () => {
+    const dawn = new Date("2026-07-15T09:00:00Z");
+    const dusk = new Date("2026-07-15T20:00:00Z");
+    const series = buildHourlySeries(9, 20, {}).time.map((t, i) => {
+      const h = 9 + i;
+      return { t: new Date(t + ":00Z"), precipProbability: (h >= 14 && h <= 16) ? 70 : 10 };
+    });
+    const windows = computeRainWindows(series, dawn, dusk, "America/New_York");
+    assert.strictEqual(windows.length, 1);
+    assert.strictEqual(new Date(windows[0].start).toISOString(), "2026-07-15T14:00:00.000Z");
+    assert.strictEqual(new Date(windows[0].end).toISOString(), "2026-07-15T17:00:00.000Z");
+    assert.ok(windows[0].label.startsWith("RAIN LIKELY"));
+  });
+  await test("computeRainWindows returns two separate windows for two separate rainy runs, not one merged window", () => {
+    const dawn = new Date("2026-07-15T09:00:00Z");
+    const dusk = new Date("2026-07-15T20:00:00Z");
+    const series = buildHourlySeries(9, 20, {}).time.map((t, i) => {
+      const h = 9 + i;
+      return { t: new Date(t + ":00Z"), precipProbability: (h === 10 || h === 18) ? 80 : 5 };
+    });
+    const windows = computeRainWindows(series, dawn, dusk, "America/New_York");
+    assert.strictEqual(windows.length, 2);
+  });
+  await test("computeRainWindows returns nothing when probability never meets the threshold", () => {
+    const dawn = new Date("2026-07-15T09:00:00Z");
+    const dusk = new Date("2026-07-15T20:00:00Z");
+    const series = buildHourlySeries(9, 20, {}).time.map((t) => ({ t: new Date(t + ":00Z"), precipProbability: 20 }));
+    assert.deepStrictEqual(computeRainWindows(series, dawn, dusk, "America/New_York"), []);
+  });
+
+  await test("computeWindRamp flags a real later pickup (well above both the absolute floor and current conditions)", () => {
+    const dawn = new Date("2026-07-15T09:00:00Z");
+    const dusk = new Date("2026-07-16T00:00:00Z");
+    const now = new Date("2026-07-15T12:00:00Z");
+    const series = buildHourlySeries(9, 24, {}).time.map((t, i) => {
+      const h = 9 + i;
+      return { t: new Date(t + ":00Z"), windMph: h < 15 ? 8 : 22 };
+    });
+    const ramp = computeWindRamp(series, dawn, dusk, now.getTime(), "America/New_York");
+    assert.ok(ramp, "expected a wind ramp to be flagged");
+    assert.strictEqual(ramp.gustMph, 22);
+    assert.ok(ramp.label.includes("22 MPH"));
+  });
+  await test("computeWindRamp returns null when wind is already elevated now (nothing new to warn about)", () => {
+    const dawn = new Date("2026-07-15T09:00:00Z");
+    const dusk = new Date("2026-07-16T00:00:00Z");
+    const now = new Date("2026-07-15T16:00:00Z"); // already in the high-wind stretch
+    const series = buildHourlySeries(9, 24, {}).time.map((t, i) => {
+      const h = 9 + i;
+      return { t: new Date(t + ":00Z"), windMph: h < 15 ? 8 : 22 };
+    });
+    assert.strictEqual(computeWindRamp(series, dawn, dusk, now.getTime(), "America/New_York"), null);
+  });
+  await test("computeWindRamp returns null for a small/unremarkable increase (below the minimum jump)", () => {
+    const dawn = new Date("2026-07-15T09:00:00Z");
+    const dusk = new Date("2026-07-16T00:00:00Z");
+    const now = new Date("2026-07-15T12:00:00Z");
+    const series = buildHourlySeries(9, 24, {}).time.map((t) => ({ t: new Date(t + ":00Z"), windMph: 10 }));
+    assert.strictEqual(computeWindRamp(series, dawn, dusk, now.getTime(), "America/New_York"), null);
+  });
+
+  console.log("fetchOpenMeteoWeather / fetchOpenMeteoMarine / fetchWeatherSignals");
+  await test("fetchOpenMeteoWeather parses the hourly arrays into one object per timestamp", async () => {
+    const hourly = buildHourlySeries(0, 2, {
+      wind_speed_10m: () => 12,
+      wind_direction_10m: () => 270,
+      surface_pressure: () => 1018,
+      precipitation_probability: () => 40
+    });
+    const fetchImpl = async () => ({ json: async () => ({ hourly }) });
+    const series = await fetchOpenMeteoWeather(39.27, -74.57, fetchImpl);
+    assert.strictEqual(series.length, 3);
+    assert.strictEqual(series[0].windMph, 12);
+    assert.strictEqual(series[0].windDir, 270);
+    assert.strictEqual(series[0].pressureHpa, 1018);
+    assert.strictEqual(series[0].precipProbability, 40);
+  });
+  await test("fetchOpenMeteoWeather throws on an Open-Meteo-reported error instead of returning garbage", async () => {
+    const errorFetch = async () => ({ json: async () => ({ error: true, reason: "Latitude must be in range of -90 to 90 degrees" }) });
+    await assert.rejects(() => fetchOpenMeteoWeather(999, -74.57, errorFetch), /Latitude must be in range/);
+  });
+  await test("fetchOpenMeteoMarine parses wave height/period and water temp, tolerating missing sea_surface_temperature (patchy nearshore coverage)", async () => {
+    const hourly = buildHourlySeries(0, 1, { wave_height: () => 2.5, wave_period: () => 7 }); // no sea_surface_temperature field at all
+    const fetchImpl = async () => ({ json: async () => ({ hourly }) });
+    const series = await fetchOpenMeteoMarine(39.27, -74.57, fetchImpl);
+    assert.strictEqual(series[0].waveHeightFt, 2.5);
+    assert.strictEqual(series[0].wavePeriodS, 7);
+    assert.strictEqual(series[0].waterTempF, null);
+  });
+
+  await test("fetchWeatherSignals combines both APIs into one object, gracefully omitting swell/water temp when the marine call returns nothing", async () => {
+    const fetchImpl = mockAllApisFetch({
+      weatherHourly: buildHourlySeries(10, 20, { wind_speed_10m: () => 10, wind_direction_10m: () => 180, surface_pressure: () => 1015, precipitation_probability: () => 5 })
+      // marineHourly omitted entirely -- defaults to { time: [] }
+    });
+    const dawn = new Date("2026-07-15T09:00:00Z"), dusk = new Date("2026-07-15T20:00:00Z"), now = new Date("2026-07-15T16:00:00Z");
+    const weather = await fetchWeatherSignals({ lat: 39.27, lon: -74.57, dawn, dusk, now, timeZone: "America/New_York", fetchImpl });
+    assert.ok(weather.wind && weather.wind.mph === 10 && weather.wind.dir === "S");
+    assert.strictEqual(weather.swell, null);
+    assert.strictEqual(weather.waterTempF, null);
+  });
+
+  console.log(passed + " passed, " + failed + " failed");
+  if (failed > 0) process.exit(1);
+})();

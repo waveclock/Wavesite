@@ -3,10 +3,11 @@
 Runs once a day (09:00 UTC) and redraws the current content for every
 device with an active "dynamic layer" published from `/design-v2/` -- a
 **Countdown** (a target date), a **Team Schedule** (next game for a
-picked sports team), or **News** (headlines for a location or RSS feed)
--- overwriting `designs/{deviceId}.bin` and `.png` in place. The device
-itself needs no changes -- it already reads those two files
-unconditionally.
+picked sports team), **News** (headlines for a location or RSS feed), or
+**Tide & Fishing** (tide curve + moon phase/rise/set for the device's
+saved location) -- overwriting `designs/{deviceId}.bin` and `.png` in
+place. The device itself needs no changes -- it already reads those two
+files unconditionally.
 
 ## How it fits together
 
@@ -141,6 +142,162 @@ this function's own service-account token). This does **not** protect
 against DNS rebinding (a hostname resolving to a private IP only at fetch
 time, after the check already passed) -- see `isSafeFetchUrl` in
 `lib/dynamic.js` for the exact boundary.
+
+## The Tide & Fishing card
+
+Unlike Team/News, this one doesn't duplicate its data-shaping logic
+between the live preview and the daily job -- both call `lib/astro.js`'s
+`fetchTideCardData` directly. Twilight bounds, moon phase naming, and
+NOAA's date/timezone quirks are exactly the kind of thing that quietly
+drifts out of sync if reimplemented a second time in browser JS, unlike
+Team's `findNextGame` (simple enough to keep in sync by hand) or News's
+RSS parsing.
+
+Three data sources, all free/no API key:
+- **suncalc** for civil dawn/dusk, sunrise/sunset, moonrise/moonset, and
+  moon phase/illumination.
+- **NOAA CO-OPS** (`api.tidesandcurrents.noaa.gov`) for tide predictions,
+  using the station ID already saved per-device on the Location page
+  (`locations/{id}.json`'s `stationId`). Two calls: hourly `predictions`
+  for the smooth curve, and `interval=hilo` for precise high/low times.
+- **tz-lookup** derives the IANA timezone from lat/lon so every time
+  (sun, moon, tide) is formatted the same way via `Intl.DateTimeFormat`
+  (handles DST correctly) -- NOT NOAA's own local-time strings, which
+  would require trusting NOAA's per-station timezone handling as the
+  single source of truth for sun/moon times too.
+
+The tide curve and every high/low/dawn/dusk time are all requested and
+compared in **GMT** (`time_zone=gmt` on every NOAA call), specifically to
+avoid parsing NOAA's local-time-labeled strings against suncalc's UTC
+instants -- two different "local" interpretations would drift by the
+station's UTC offset. Local-time display is applied in exactly one place
+(`formatLocalTime`), after everything is already aligned as real UTC
+instants.
+
+The card layout (`drawTideCard` / `drawTideCardClient`) clips the curve
+to the dawn-to-dusk window -- "the time before sunrise and after sunset,
+but not full darkness," per the original ask -- and pins high/low labels
+to their own fixed vertical band rather than floating them off the
+dot's data-driven height. Early mockup iteration repeatedly hit label-
+overlap bugs from the floating approach (a label 30px above an unusually
+tall high tide could collide with the row above it); a fixed reserved
+band per label type structurally can't have that problem, regardless of
+the day's actual tide range.
+
+**Not live-tested against NOAA or Open-Meteo** from the sandbox this was
+built in -- outbound network there is allowlisted and neither host is on
+it (both returned a 403 from the sandbox's own egress proxy, not from
+NOAA). Built against NOAA's long-stable, publicly documented JSON shape
+and covered thoroughly with mocked tests (`test/astro.test.js`,
+`test/astroProxy.test.js`); needs the same live smoke test ESPN/RSS
+eventually got -- deploy, publish a Tide layer, and check what actually
+shows up -- before fully trusting a real station's response shape.
+
+**Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
+unlike everything else here -- there's no closed-form time for lunar
+transit the way there is for solar noon. `computeSolunarPeriods` finds
+it numerically: sample the moon's altitude (`SunCalc.getMoonPosition`)
+every 2 minutes and look for local maxima (overhead) and minima
+(underfoot) -- both count as "major" periods, 2 per lunar day, ~12.4h
+apart. Minor periods are simpler: centered on moonrise/moonset, which
+suncalc already gives directly.
+
+A tempting shortcut -- "transit should be the midpoint of moonrise and
+moonset" -- turned out to be **unreliable** and was dropped after
+checking real output: `getMoonTimes` can return a rise/set pair that
+don't actually bracket the same transit (the moon rises ~50min later
+each day, so a given day's "set" is sometimes left over from the
+previous day's rise), which makes their midpoint land near the wrong
+extremum entirely. Direct altitude sampling has no such pairing
+ambiguity, and was verified against real `SunCalc` output (consecutive
+extrema alternate max/min and land ~12.3-12.6h apart, exactly the
+expected spacing) before being trusted -- see `test/astro.test.js`.
+
+**The fishing score** (`Fair`/`Good`/`Excellent`) is an explicit
+heuristic, not a scientific claim -- two pieces of classic angling
+folklore, same honesty standard as the "ESPN's API is unofficial" and
+NOAA-not-live-tested notes above: (1) tidal range is greatest near new/
+full moon and least near the quarters, and (2) fish are said to feed
+more actively while the tide is running, not near slack, so a major/
+minor period overlapping a fast-moving stretch of today's curve
+(computed via `tideRateOfChange`, relative to the day's own fastest
+stretch rather than a fixed ft/hr number, so it scales with each
+location's actual tidal range) is a second positive signal. Phase 2 alone
+has no NEGATIVE signal -- Phase 3 (below) adds one, so the score can now
+actually reach `Poor`.
+
+**Weather** (Phase 3), from Open-Meteo's free Weather + Marine APIs (no
+key, lat/lon only): current wind speed/direction, a pressure trend
+(rising/falling/steady, comparing "now" to ~6h ago -- `computePressure`
+requires that 6h-ago reading to actually be close to 6 hours away, not
+just whatever point happens to be nearest in a short series, since a
+naive nearest-point lookup would happily call a same-instant reading
+"6 hours ago" if that's all the data available), rain windows (contiguous
+hours over a probability threshold, merged and clipped to the dawn-dusk
+window), a wind "ramp" call-out (a later, meaningfully higher wind speed
+worth a heads-up -- both an absolute floor and a real jump over current
+conditions have to clear before it's flagged, so a currently-breezy day
+doesn't trigger a false alarm), and swell height/period + sea surface
+temperature (the last one nullable -- Open-Meteo's nearshore US water-
+temp coverage is inconsistent, handled by omitting it rather than
+showing a wrong/stale number, same principle as the tide extrema/
+solunar-period null-handling elsewhere in this file).
+
+Rain/wind call-outs replace the quiet Sunrise/Sunset line with a bold
+alert strip -- the single boldest text on the card besides the title --
+on any day there's something to flag, falling back to Sunrise/Sunset on
+an ordinary day. Rain also gets small tick marks on the chart itself,
+visually distinct from the solunar hatch bands so the two kinds of
+"shaded window" are never confused. The weather footer row uses a
+bold-value/quiet-label pattern throughout (`drawLabelThenValue`) so the
+actual numbers are what stand out, not the words around them.
+
+Weather now also feeds the fishing score: calm wind + steady/rising
+pressure is a positive signal, high wind or a sharp pressure drop is
+negative -- this is what lets the score reach `Poor`.
+
+**A real bug caught only by looking at the rendered output, not by the
+unit tests that were passing at the time**: `drawLabelThenValue` didn't
+reset `ctx.textAlign` itself, so when the wind line ran right after the
+moonrise/moonset line (drawn right-aligned), "Wind 8 mph NW" rendered
+right-aligned too -- collapsing backward into the wind arrow icon
+instead of extending rightward. Every unit test drew in isolation and
+never exercised that particular sequence, so nothing caught it until an
+actual screenshot of the real app did. Fixed by making the helper
+self-contained (it sets its own `textAlign` unconditionally now), with
+a regression test added afterward that specifically renders the two
+lines in sequence.
+
+**The Fishing Spot picker** (Phase 4, in `design-v2/index.html`) lets a
+customer point this card at a second, independent location -- a favorite
+pier or inlet, not necessarily where the clock itself sits. Saved to
+`locations/{deviceId}-fishing.json` (Storage Rules updated to allow the
+`-fishing` suffix), completely separate from the device's main
+`locations/{deviceId}.json` used by Wave/Weather Forecast, Sunset, etc.
+`resolveTideLocation()` checks for the fishing-spot file first and falls
+back to the device's main location when it's absent -- so a customer who
+never touches this picker sees no behavior change at all.
+
+The picker itself reuses the exact same mechanics already proven live in
+`location/index.html`'s own map/station picker, not a new pattern:
+Nominatim (free, no key) for town search, the NOAA CO-OPS station
+metadata endpoint (`mdapi/prod/webapi/stations.json?type=tidepredictions`)
+fetched once and filtered by haversine distance (≤100mi, closest 8) for
+nearby tide stations, and Leaflet + OpenStreetMap tiles (no key) for the
+map itself.
+
+**Leaflet couldn't be loaded from this development sandbox either** --
+`https://unpkg.com/leaflet@1.9.4/dist/leaflet.js` failed with
+`ERR_TUNNEL_CONNECTION_FAILED` from the sandbox's own network proxy, the
+same category of restriction that blocked live NOAA/Open-Meteo testing
+elsewhere in this file. The picker degrades gracefully without it (a
+`typeof L === "undefined"` guard skips just the map, verified directly),
+and everything that doesn't depend on the map itself -- search, the
+station list, selecting one, saving, removing -- was verified working
+end-to-end with Playwright, mocking Nominatim/NOAA/tile responses.
+`location/index.html` already uses this identical CDN/tile setup live in
+production, so this is a sandbox limitation, not an unproven approach --
+but the map specifically is worth a quick look after deploying.
 
 ## Known tradeoffs
 

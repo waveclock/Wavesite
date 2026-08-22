@@ -9,6 +9,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Press+Start+2P&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Only used by the Tide & Fishing tool's "pick a different fishing
+     spot" picker (Phase 4) -- same Leaflet + OpenStreetMap-tiles setup
+     already used in location/index.html, no API key needed. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root {
     --sand: #F1E6CF;
@@ -470,6 +475,73 @@
     min-height: 14px;
   }
 
+  /* Fishing Spot picker (Phase 4) -- deliberately mirrors the existing
+     station-row/station-map look from location/index.html so it reads as
+     a piece the customer has already seen, not a new pattern to learn. */
+  .spot-choice { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .spot-choice-row {
+    display: flex; align-items: center; gap: 10px;
+    border: 2px solid var(--ink); border-radius: 8px;
+    padding: 10px 12px; cursor: pointer; background: #fff;
+  }
+  .spot-choice-row.selected { background: var(--foam); border-color: var(--navy); box-shadow: 2px 2px 0 var(--navy); }
+  .spot-choice-row input[type="radio"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--navy); }
+  .spot-choice-text { font-size: 13px; }
+  .spot-choice-text .sub { display: block; font-size: 11px; color: var(--ink-soft); margin-top: 1px; }
+
+  #fishingSpotPicker.hidden { display: none; }
+  .fishing-search-row { position: relative; margin-bottom: 8px; }
+  .fishing-search-row input {
+    width: 100%; box-sizing: border-box;
+    border: 2px solid var(--ink); border-radius: 8px;
+    padding: 9px 12px; font-size: 13px; font-family: var(--body);
+  }
+  .fishing-search-results {
+    border: 2px solid var(--ink); border-top: none; border-radius: 0 0 8px 8px;
+    margin: -8px 0 8px; overflow: hidden; background: #fff;
+  }
+  .fishing-search-results:empty { display: none; margin: 0; border: none; }
+  .fishing-search-result-row { padding: 8px 12px; font-size: 13px; cursor: pointer; border-top: 1px solid var(--line); }
+  .fishing-search-result-row:first-child { border-top: none; }
+  .fishing-search-result-row:hover, .fishing-search-result-row:focus { background: var(--foam); }
+
+  .fishing-station-map {
+    display: none;
+    height: 180px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    margin-bottom: 10px;
+  }
+  .fishing-town-marker svg { display: block; filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff); }
+  .fishing-station-marker span {
+    display: block; width: 100%; height: 100%; border-radius: 50%;
+    background: var(--navy); border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink);
+  }
+  .fishing-station-marker.selected span { background: var(--coral); }
+
+  .fishing-station-row {
+    display: flex; align-items: center; gap: 10px;
+    border: 2px solid var(--ink); border-radius: 8px;
+    padding: 10px 12px; cursor: pointer; background: #fff; margin-bottom: 7px;
+  }
+  .fishing-station-row.selected { background: var(--foam); border-color: var(--navy); box-shadow: 2px 2px 0 var(--navy); }
+  .fishing-station-row input[type="radio"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--navy); }
+  .fishing-station-name { font-weight: 600; font-size: 13.5px; }
+  .fishing-station-meta { font-size: 11.5px; color: var(--ink-soft); }
+
+  .fishing-save-btn {
+    width: 100%; padding: 10px; margin-top: 4px;
+    border: 2px solid var(--navy); border-radius: 8px;
+    background: var(--navy); color: #fff; font-weight: 700; font-size: 13px;
+    cursor: pointer;
+  }
+  .fishing-save-btn:disabled { opacity: 0.4; cursor: default; }
+  .fishing-remove-btn {
+    width: 100%; padding: 8px; margin-top: 6px;
+    border: 2px solid var(--coral); border-radius: 8px;
+    background: #fff; color: var(--coral-dark); font-weight: 700; font-size: 12px;
+    cursor: pointer;
+  }
 
   .clipart-results {
     display: flex;
@@ -640,6 +712,9 @@
           <button class="icon-tool-btn" id="toolTeamBtn" data-tool="team" title="Team Schedule">
             <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
           </button>
+          <button class="icon-tool-btn" id="toolTideBtn" data-tool="tide" title="Tide &amp; Fishing">
+            <svg viewBox="0 0 24 24"><path d="M3 15c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 19c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16.5" cy="6.5" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          </button>
           <button class="icon-tool-btn" id="toolNewsBtn" data-tool="news" title="News">
             <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="7" y1="9" x2="17" y2="9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="7" y1="12.5" x2="17" y2="12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="7" y1="16" x2="13" y2="16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
           </button>
@@ -754,6 +829,33 @@
       </label>
     </div>
     <p class="clipart-status" id="teamStatus">Pick a team to see when they play next.</p>
+  </div>
+
+  <div class="tool-panel hidden" id="tidePanel">
+    <div class="spot-choice">
+      <label class="spot-choice-row" data-value="device">
+        <input type="radio" name="spotChoice" id="spotChoiceDevice" value="device" checked>
+        <span class="spot-choice-text">Use my device's saved location<span class="sub" id="deviceLocationSub"></span></span>
+      </label>
+      <label class="spot-choice-row" data-value="custom">
+        <input type="radio" name="spotChoice" id="spotChoiceCustom" value="custom">
+        <span class="spot-choice-text">Pick a different fishing spot<span class="sub">A favorite pier, inlet, or jetty</span></span>
+      </label>
+    </div>
+
+    <div id="fishingSpotPicker" class="hidden">
+      <div class="fishing-search-row">
+        <input type="text" id="fishingTownSearch" placeholder="Town, city, or zip code&hellip;" autocomplete="off">
+      </div>
+      <div class="fishing-search-results" id="fishingSearchResults"></div>
+      <div class="fishing-station-map" id="fishingStationMap"></div>
+      <div id="fishingStationListWrap"></div>
+      <p class="clipart-status" id="fishingSpotStatus"></p>
+      <button type="button" class="fishing-save-btn" id="fishingSaveBtn" disabled>Save This Fishing Spot</button>
+      <button type="button" class="fishing-remove-btn hidden" id="fishingRemoveBtn">Remove custom spot &mdash; use device location instead</button>
+    </div>
+
+    <p class="clipart-status" id="tideStatus">Loading tide, sun &amp; moon data for your location&hellip;</p>
   </div>
 
   <div class="tool-panel hidden" id="newsPanel">
@@ -1485,6 +1587,14 @@
       } else {
         drawText(ctx, formatNewsPreviewText(obj), obj);
       }
+    } else if (obj.kind === "tide") {
+      // Same idea again: obj.cardData is resolved asynchronously by
+      // loadTideLayer above.
+      if (obj.cardData) {
+        drawTideCardClient(ctx, obj.cardData);
+      } else {
+        drawText(ctx, obj.previewContent || "LOADING…", obj);
+      }
     } else if (obj.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(obj);
       ctx.imageSmoothingEnabled = false; // keeps sketch lines/dither dots crisp black-white instead of blurring into gray
@@ -1507,6 +1617,7 @@
     if (obj.kind === "text") return "Text: " + (obj.content || "(empty)");
     if (obj.kind === "countdown") return "Countdown: " + (obj.label || (daysUntil(obj.targetDate) + "d"));
     if (obj.kind === "team") return "Team: " + (obj.teamName || "(choose a team)");
+    if (obj.kind === "tide") return "Tide & Fishing" + (obj.cardData ? "" : " (loading…)");
     if (obj.kind === "news") return "News: " + (obj.feedUrl || obj.location || "(add a location)");
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
     if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Normal") + ")";
@@ -1686,7 +1797,7 @@
   // for their loading-state placeholder text. Used below to skip
   // drag/pinch-resize and treat a tap anywhere on the canvas as hitting
   // whichever one is topmost.
-  const FULL_CARD_KINDS = new Set(["team", "news"]);
+  const FULL_CARD_KINDS = new Set(["team", "news", "tide"]);
 
   function hitTestLayers(px, py) {
     for (let i = layers.length - 1; i >= 0; i--) {
@@ -1702,7 +1813,7 @@
     return -1;
   }
 
-  const TOOL_TAB_FOR_KIND = { text: "text", icon: "sticker", photo: "photo", countdown: "countdown", team: "team", news: "news" };
+  const TOOL_TAB_FOR_KIND = { text: "text", icon: "sticker", photo: "photo", countdown: "countdown", team: "team", tide: "tide", news: "news" };
 
   // Pulls a committed layer back into the staging flow (drag/pinch-resize/
   // slider all just work), switching to that layer's own tool tab so its
@@ -1725,6 +1836,10 @@
         teamStatus.textContent = obj.card
           ? "This is the real card — it updates itself once a day after you publish."
           : (obj.previewContent ? "Updates on its own once a day after you publish — no need to redesign it." : "Pick a team to see when they play next.");
+      } else if (obj.kind === "tide") {
+        tideStatus.textContent = obj.cardData
+          ? "This is the real card — it updates itself once a day after you publish."
+          : "Couldn't load tide data right now — it'll try again on its own each day.";
       } else {
         newsLocationInput.value = obj.location || "";
         newsFeedUrlInput.value = obj.feedUrl || "";
@@ -2312,6 +2427,7 @@
     photo: document.getElementById("photoPanel"),
     countdown: document.getElementById("countdownPanel"),
     team: document.getElementById("teamPanel"),
+    tide: document.getElementById("tidePanel"),
     news: document.getElementById("newsPanel"),
     layers: document.getElementById("layersPanel")
   };
@@ -2365,6 +2481,14 @@
         newsStatus.textContent = existing && existing.headlines && existing.headlines.length
           ? "This is the real card — it updates itself once a day after you publish."
           : "Type a location (or paste a specific RSS feed URL) to get today's headlines once you publish.";
+      }
+      // Tide & Fishing has no picker at all (Phase 1 -- no fishing-spot
+      // override yet, see the roadmap) -- it just uses the device's own
+      // saved location, so opening the tab is the only "action" there is.
+      // Same never-goes-through-staging model as Team/News.
+      if (tool === "tide") {
+        initFishingSpotUIOnce();
+        loadTideLayer();
       }
     });
   });
@@ -2614,6 +2738,710 @@
 
   newsLocationInput.addEventListener("input", handleNewsInputChange);
   newsFeedUrlInput.addEventListener("input", handleNewsInputChange);
+
+  // ================= Tide & Fishing tool (Phase 1: tide + moon only) =================
+  // astroProxy does the FULL computation server-side (twilight bounds,
+  // moon phase, NOAA tide predictions clipped to the dawn-dusk window)
+  // and hands back a ready-to-draw payload -- unlike Team/News's proxies,
+  // there's no raw-JSON-parsing logic to duplicate here at all. See the
+  // comment above astroProxyHandler in functions/index.js for why.
+  const tideStatus = document.getElementById("tideStatus");
+  const ASTRO_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/astroProxy";
+  let tideFetchToken = 0; // guards a slow/stale fetch from clobbering a newer load
+
+  async function fetchTideCardDataClient(lat, lon, stationId) {
+    const params = new URLSearchParams({ lat: String(lat), lon: String(lon), stationId: String(stationId) });
+    const resp = await fetch(ASTRO_PROXY_BASE + "?" + params.toString());
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("Tide data fetch failed: " + resp.status));
+    return data;
+  }
+
+  // Mirrors functions/lib/dynamic.js's drawMoonIcon exactly (verified
+  // against a 6-case reference render there -- see that file's comment).
+  function drawMoonIconClient(ctx, cx, cy, r, illum, waxing) {
+    const k = Math.max(0, Math.min(1, illum));
+    const rx = r * Math.abs(1 - 2 * k);
+    const gibbous = k > 0.5;
+    const bulgeAnticlockwise = waxing ? gibbous : !gibbous;
+    ctx.save();
+    ctx.beginPath();
+    ctx.fillStyle = "#000";
+    if (waxing) ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+    else ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
+    ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, bulgeAnticlockwise);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Mirror functions/lib/dynamic.js's small drawn glyphs exactly -- no
+  // emoji, same reasoning as there.
+  function drawWindArrowClient(ctx, x, y, size) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI / 4);
+    ctx.beginPath();
+    ctx.moveTo(0, -size); ctx.lineTo(0, size);
+    ctx.moveTo(-size * 0.5, -size * 0.4); ctx.lineTo(0, -size); ctx.lineTo(size * 0.5, -size * 0.4);
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.stroke();
+    ctx.restore();
+  }
+  function drawWaveGlyphClient(ctx, x, y, w, h) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.quadraticCurveTo(x + w * 0.25, y - h, x + w * 0.5, y);
+    ctx.quadraticCurveTo(x + w * 0.75, y + h, x + w, y);
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.lineCap = "round";
+    ctx.stroke();
+    ctx.restore();
+  }
+  function drawTrendArrowClient(ctx, x, y, size, direction) {
+    ctx.save();
+    ctx.translate(x, y);
+    if (direction === "down") ctx.rotate(Math.PI);
+    ctx.beginPath();
+    ctx.moveTo(0, -size); ctx.lineTo(size * 0.8, size * 0.6); ctx.lineTo(-size * 0.8, size * 0.6);
+    ctx.closePath();
+    ctx.fillStyle = "#000";
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawWarningTriangleClient(ctx, x, y, size) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.moveTo(0, -size); ctx.lineTo(size * 0.95, size * 0.75); ctx.lineTo(-size * 0.95, size * 0.75);
+    ctx.closePath();
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = "#000";
+    ctx.stroke();
+    ctx.fillStyle = "#000";
+    ctx.fillRect(-1.3, -size * 0.35, 2.6, size * 0.7);
+    ctx.beginPath();
+    ctx.arc(0, size * 0.52, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawRainTickClient(ctx, x, y, size) {
+    ctx.save();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(x - size * 0.3, y);
+    ctx.lineTo(x - size * 0.7, y + size);
+    ctx.moveTo(x + size * 0.3, y);
+    ctx.lineTo(x - size * 0.1, y + size);
+    ctx.stroke();
+    ctx.restore();
+  }
+  // Mirrors functions/lib/dynamic.js's drawLabelThenValue exactly.
+  function drawLabelThenValueClient(ctx, label, value, x, y) {
+    ctx.textAlign = "left"; // self-contained: never depends on a caller having reset alignment first
+    ctx.font = "13px Georgia, serif";
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.fillText(label, x, y);
+    const labelW = ctx.measureText(label).width;
+    ctx.font = "bold 13px Georgia, serif";
+    ctx.fillStyle = "#000";
+    ctx.fillText(value, x + labelW, y);
+    return x + labelW + ctx.measureText(value).width;
+  }
+
+  // Mirrors functions/lib/dynamic.js's drawHatchBand exactly -- see the
+  // comment there for why this is a hatch, not a gray fill.
+  function drawHatchBandClient(ctx, x0, x1, yTop, yBottom, spacing) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, yTop, x1 - x0, yBottom - yTop);
+    ctx.clip();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1;
+    for (let x = x0 - (yBottom - yTop); x < x1; x += spacing) {
+      ctx.beginPath();
+      ctx.moveTo(x, yBottom);
+      ctx.lineTo(x + (yBottom - yTop), yTop);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Mirrors functions/lib/dynamic.js's drawTideCard exactly -- same fixed
+  // -band layout (see the comment there for why the high/low labels are
+  // pinned to their own reserved rows instead of floated off the dot).
+  function drawTideCardClient(ctx, card) {
+    const w = baseCanvas.width, h = baseCanvas.height;
+    const dawnMs = new Date(card.dawn.t).getTime();
+    const duskMs = new Date(card.dusk.t).getTime();
+    function minutesToX(iso) {
+      const ms = new Date(iso).getTime();
+      const clamped = Math.max(dawnMs, Math.min(duskMs, ms));
+      return 46 + ((clamped - dawnMs) / (duskMs - dawnMs)) * (w - 92);
+    }
+
+    const TOP_STRIP_END = BANNER_HEIGHT + 24;
+    const PLOT_TOP = TOP_STRIP_END + 40;
+    const PLOT_BOTTOM = h - 96;
+    const FOOTER_START = PLOT_BOTTOM + 40;
+
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    const bannerTitle = "TODAY'S TIDE";
+    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 210, "'Bungee', sans-serif", 26, 14);
+    ctx.fillText(bannerTitle, w / 2 - 46, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+    if (card.fishingScore) {
+      ctx.font = "bold 16px Georgia, serif";
+      const badgeLabel = "FISHING: " + card.fishingScore.toUpperCase();
+      const badgeTextWidth = ctx.measureText(badgeLabel).width;
+      const badgeW = badgeTextWidth + 26;
+      const badgeH = 28;
+      const badgeX = w - 24 - badgeW;
+      const badgeY = (BANNER_HEIGHT - badgeH) / 2;
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+      ctx.fill();
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      ctx.fillText(badgeLabel, badgeX + 13, BANNER_HEIGHT / 2 + 5.5);
+    }
+
+    const weather = card.weather || {};
+    const alertParts = [].concat(
+      (weather.rainWindows || []).map((wnd) => wnd.label),
+      weather.windRamp ? [weather.windRamp.label] : []
+    );
+    if (alertParts.length) {
+      drawWarningTriangleClient(ctx, 30, (BANNER_HEIGHT + TOP_STRIP_END) / 2, 10);
+      ctx.font = "bold 16px Georgia, serif";
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      ctx.fillText(alertParts.join("   ·   "), 48, (BANNER_HEIGHT + TOP_STRIP_END) / 2 + 6);
+    } else {
+      ctx.font = "13px Georgia, serif";
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
+      if (card.sunrise.label) {
+        ctx.textAlign = "left";
+        ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 6);
+      }
+      if (card.sunset.label) {
+        ctx.textAlign = "right";
+        ctx.fillText("Sunset " + card.sunset.label, w - 24, TOP_STRIP_END - 6);
+      }
+    }
+
+    const heights = card.tideCurve.map((p) => p.heightFt);
+    const minH = (heights.length ? Math.min(...heights) : 0) - 0.4;
+    const maxH = (heights.length ? Math.max(...heights) : 1) + 0.4;
+    function heightToY(v) { return PLOT_BOTTOM - ((v - minH) / (maxH - minH)) * (PLOT_BOTTOM - PLOT_TOP); }
+
+    const solunarPeriods = card.solunarPeriods || [];
+    solunarPeriods.forEach((p) => {
+      const pStartMs = new Date(p.start).getTime(), pEndMs = new Date(p.end).getTime();
+      if (pEndMs < dawnMs || pStartMs > duskMs) return;
+      const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
+      const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
+      drawHatchBandClient(ctx, x0, x1, PLOT_TOP, PLOT_BOTTOM, p.kind === "major" ? 7 : 13);
+    });
+
+    (weather.rainWindows || []).forEach((wnd) => {
+      const wStartMs = new Date(wnd.start).getTime(), wEndMs = new Date(wnd.end).getTime();
+      if (wEndMs < dawnMs || wStartMs > duskMs) return;
+      const rx0 = minutesToX(new Date(Math.max(wStartMs, dawnMs)).toISOString());
+      const rx1 = minutesToX(new Date(Math.min(wEndMs, duskMs)).toISOString());
+      for (let x = rx0; x <= rx1; x += 14) drawRainTickClient(ctx, x, PLOT_TOP + 4, 8);
+    });
+
+    ctx.strokeStyle = "rgba(0,0,0,0.2)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    [card.sunrise, card.sunset].forEach((point) => {
+      if (!point) return;
+      const x = minutesToX(point.t);
+      ctx.beginPath();
+      ctx.moveTo(x, PLOT_TOP);
+      ctx.lineTo(x, PLOT_BOTTOM);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+
+    if (card.tideCurve.length > 1) {
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      card.tideCurve.forEach((p, i) => {
+        const x = minutesToX(p.t);
+        const y = heightToY(p.heightFt);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "rgba(0,0,0,0.25)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(46, PLOT_BOTTOM);
+    ctx.lineTo(w - 46, PLOT_BOTTOM);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.textAlign = "center";
+    card.tideExtrema.forEach((e) => {
+      const eMs = new Date(e.t).getTime();
+      if (eMs < dawnMs || eMs > duskMs) return;
+      const x = minutesToX(e.t);
+      const y = heightToY(e.heightFt);
+      ctx.beginPath();
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "#000";
+      ctx.fill();
+
+      const heightLabel = (e.isHigh ? "H " : "L ") + e.heightFt.toFixed(1) + "ft";
+      if (e.isHigh) {
+        if (y - PLOT_TOP > 14) {
+          ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x, PLOT_TOP + 2); ctx.stroke();
+        }
+        ctx.font = "bold 18px Georgia, serif";
+        ctx.fillStyle = "#000";
+        ctx.fillText(heightLabel, x, TOP_STRIP_END + 18);
+        ctx.font = "13px Georgia, serif";
+        ctx.fillText(e.label, x, TOP_STRIP_END + 34);
+      } else {
+        if (PLOT_BOTTOM - y > 14) {
+          ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x, y + 6); ctx.lineTo(x, PLOT_BOTTOM - 2); ctx.stroke();
+        }
+        ctx.font = "bold 18px Georgia, serif";
+        ctx.fillStyle = "#000";
+        ctx.fillText(heightLabel, x, PLOT_BOTTOM + 20);
+        ctx.font = "13px Georgia, serif";
+        ctx.fillText(e.label, x, PLOT_BOTTOM + 36);
+      }
+    });
+
+    solunarPeriods.forEach((p) => {
+      const pStartMs = new Date(p.start).getTime(), pEndMs = new Date(p.end).getTime();
+      if (pEndMs < dawnMs || pStartMs > duskMs) return;
+      const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
+      const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
+      ctx.font = "italic bold 11px Georgia, serif";
+      ctx.textAlign = "center";
+      const bandLabel = p.kind.toUpperCase();
+      const labelW = ctx.measureText(bandLabel).width;
+      const labelCx = (x0 + x1) / 2;
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(labelCx - labelW / 2 - 4, PLOT_BOTTOM - 20, labelW + 8, 16);
+      ctx.fillStyle = "#000";
+      ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 6);
+    });
+
+    // Footer row 1: moon phase + rise/set.
+    const footerY1 = FOOTER_START + 22;
+    drawMoonIconClient(ctx, 58, footerY1 - 9, 11, card.moon.illumination, card.moon.waxing);
+    ctx.textAlign = "left";
+    ctx.font = "bold 15px Georgia, serif";
+    ctx.fillStyle = "#000";
+    ctx.fillText(card.moon.phaseName, 78, footerY1 - 3);
+
+    const riseSetParts = [];
+    if (card.moon.rise && card.moon.rise.label) riseSetParts.push("Moonrise " + card.moon.rise.label);
+    if (card.moon.set && card.moon.set.label) riseSetParts.push("Moonset " + card.moon.set.label);
+    if (riseSetParts.length) {
+      ctx.font = "12px Georgia, serif";
+      ctx.fillStyle = "rgba(0,0,0,0.65)";
+      ctx.textAlign = "right";
+      ctx.fillText(riseSetParts.join("   ·   "), w - 24, footerY1 - 3);
+    }
+
+    // Footer row 2: wind + pressure (left), swell + water temp (right).
+    const footerY2 = h - 12;
+    let cx = 80;
+    if (weather.wind) {
+      drawWindArrowClient(ctx, 56, footerY2 - 7, 7);
+      cx = drawLabelThenValueClient(ctx, "Wind ", weather.wind.mph + " mph" + (weather.wind.dir ? " " + weather.wind.dir : ""), cx, footerY2 - 3);
+    }
+    if (weather.pressure && weather.pressure.hpa != null) {
+      if (cx > 80) {
+        ctx.font = "13px Georgia, serif";
+        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        ctx.textAlign = "left";
+        ctx.fillText("   ·   ", cx, footerY2 - 3);
+        cx += ctx.measureText("   ·   ").width;
+      }
+      if (weather.pressure.deltaHpa != null && weather.pressure.trend !== "steady") {
+        drawTrendArrowClient(ctx, cx + 7, footerY2 - 7, 7, weather.pressure.trend === "falling" ? "down" : "up");
+        cx += 16;
+      }
+      const pressureValue = weather.pressure.hpa + " hPa" + (weather.pressure.deltaHpa != null ? " (" + weather.pressure.deltaHpa + " in 6h)" : "");
+      ctx.font = "bold 14px Georgia, serif";
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      ctx.fillText(pressureValue, cx, footerY2 - 3);
+    }
+
+    const rightParts = [];
+    if (weather.swell) rightParts.push({ label: "Swell ", value: weather.swell.heightFt.toFixed(1) + " ft" + (weather.swell.periodS != null ? " @ " + weather.swell.periodS + "s" : "") });
+    if (weather.waterTempF != null) rightParts.push({ label: "", value: weather.waterTempF + "°F water" });
+    if (rightParts.length) {
+      const fullPlain = rightParts.map((p) => p.label + p.value).join("   ·   ");
+      ctx.font = "13px Georgia, serif";
+      const fullW = ctx.measureText(fullPlain).width;
+      let px = w - 24 - fullW;
+      drawWaveGlyphClient(ctx, px - 32, footerY2 - 6, 26, 5);
+      ctx.textAlign = "left";
+      rightParts.forEach((part, i) => {
+        if (i > 0) {
+          ctx.font = "13px Georgia, serif";
+          ctx.fillStyle = "rgba(0,0,0,0.65)";
+          ctx.fillText("   ·   ", px, footerY2 - 3);
+          px += ctx.measureText("   ·   ").width;
+        }
+        if (part.label) {
+          ctx.font = "13px Georgia, serif";
+          ctx.fillStyle = "rgba(0,0,0,0.65)";
+          ctx.fillText(part.label, px, footerY2 - 3);
+          px += ctx.measureText(part.label).width;
+        }
+        ctx.font = "bold 13px Georgia, serif";
+        ctx.fillStyle = "#000";
+        ctx.fillText(part.value, px, footerY2 - 3);
+        px += ctx.measureText(part.value).width;
+      });
+    }
+  }
+
+  // Tide never goes through staging/commit either -- same reasoning as
+  // Team/News (a fixed full-screen card, redrawn fresh every day). Unlike
+  // them there's no picker at all in Phase 1 -- it just uses the device's
+  // own saved location -- so opening the tab is the only trigger there is,
+  // and it only actually fetches once per layer (reopening the tab just
+  // re-shows status, same as Team/News do).
+  async function loadTideLayer() {
+    let layer = layers.find((l) => l.kind === "tide");
+    if (layer && layer.cardData) {
+      tideStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
+      return;
+    }
+    if (!layer) {
+      pushUndoState();
+      layers.length = 0;
+      layer = {
+        kind: "tide", id: nextLayerId++,
+        x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
+        font: "Georgia, serif", outline: false,
+        lat: null, lon: null, stationId: null, cardData: null, previewContent: "LOADING…"
+      };
+      layers.push(layer);
+    }
+    if (!deviceId) return;
+
+    renderLayers();
+    const token = ++tideFetchToken;
+    try {
+      const location = await resolveTideLocation();
+      if (token !== tideFetchToken) return;
+      if (!location || typeof location.lat !== "number" || typeof location.lon !== "number" || !location.stationId) {
+        layer.previewContent = "Set your location first, then come back here.";
+        tideStatus.textContent = "This device doesn't have a saved location yet — set one first (see Location in Manage), then come back here.";
+        renderLayers();
+        return;
+      }
+      layer.lat = location.lat;
+      layer.lon = location.lon;
+      layer.stationId = location.stationId;
+
+      tideStatus.textContent = "Loading tide, sun & moon data for your location…";
+      const data = await fetchTideCardDataClient(location.lat, location.lon, location.stationId);
+      if (token !== tideFetchToken) return; // superseded by a newer load
+      layer.cardData = data;
+      layer.previewContent = null;
+      tideStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
+    } catch (err) {
+      if (token !== tideFetchToken) return;
+      console.error("Couldn't load tide/moon data:", err);
+      layer.previewContent = "Couldn't load tide data right now — it'll try again on its own each day.";
+      tideStatus.textContent = "Couldn't load tide data right now (" + err.message + ") — it'll try again on its own each day.";
+    }
+    renderLayers();
+  }
+
+  // ================= Fishing Spot picker (Phase 4) =================
+  // A second, independent location just for this card -- most people's
+  // favorite fishing spot isn't where the clock itself sits. Saved
+  // separately (locations/{id}-fishing.json) so it never touches the
+  // device's actual location settings (used by Wave/Weather Forecast,
+  // Sunset, etc.). When absent, the tide card just uses the device's main
+  // location, same as Phase 1-3 always did.
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  const FISHING_SPOT_SUFFIX = "-fishing.json";
+  const spotChoiceDevice = document.getElementById("spotChoiceDevice");
+  const spotChoiceCustom = document.getElementById("spotChoiceCustom");
+  const deviceLocationSub = document.getElementById("deviceLocationSub");
+  const fishingSpotPickerEl = document.getElementById("fishingSpotPicker");
+  const fishingTownSearch = document.getElementById("fishingTownSearch");
+  const fishingSearchResults = document.getElementById("fishingSearchResults");
+  const fishingStationMapEl = document.getElementById("fishingStationMap");
+  const fishingStationListWrap = document.getElementById("fishingStationListWrap");
+  const fishingSpotStatus = document.getElementById("fishingSpotStatus");
+  const fishingSaveBtn = document.getElementById("fishingSaveBtn");
+  const fishingRemoveBtn = document.getElementById("fishingRemoveBtn");
+
+  async function resolveTideLocation() {
+    if (!deviceId) return null;
+    try {
+      const fishing = await fetchJsonFromStorage("locations/" + deviceId + FISHING_SPOT_SUFFIX, 8000);
+      if (fishing && typeof fishing.lat === "number" && typeof fishing.lon === "number" && fishing.stationId) {
+        return fishing;
+      }
+    } catch (err) {
+      console.error("Couldn't check for a custom fishing spot (falling back to device location):", err);
+    }
+    return fetchJsonFromStorage("locations/" + deviceId + ".json", 12000);
+  }
+
+  let fishingSpotInitialized = false;
+  let fishingTown = null; // { name, lat, lon }
+  let fishingStations = [];
+  let fishingSelectedStation = null; // { id, name, lat, lon, distance }
+  let fishingAllStationsCache = null;
+  let fishingMap = null;
+  let fishingMarkers = [];
+  let fishingSearchAbort = null;
+  let fishingSearchTimer = null;
+  let fishingExistingSpot = null; // the currently-saved -fishing.json, if any
+
+  function haversineMilesClient(lat1, lon1, lat2, lon2) {
+    const R = 3958.8;
+    const toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.asin(Math.sqrt(a));
+  }
+
+  async function fetchAllTideStations() {
+    if (fishingAllStationsCache) return fishingAllStationsCache;
+    const resp = await fetch("https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions");
+    if (!resp.ok) throw new Error("NOAA station list request failed: " + resp.status);
+    const data = await resp.json();
+    fishingAllStationsCache = data.stations || [];
+    return fishingAllStationsCache;
+  }
+
+  function clearFishingMap() {
+    if (fishingMap) { fishingMap.remove(); fishingMap = null; }
+    fishingMarkers = [];
+    fishingStationMapEl.style.display = "none";
+  }
+
+  function renderFishingStationMap() {
+    clearFishingMap();
+    if (typeof L === "undefined" || !fishingStations.length) return;
+    try {
+      fishingStationMapEl.style.display = "block";
+      fishingMap = L.map(fishingStationMapEl, { zoomControl: true, attributionControl: true }).setView([fishingTown.lat, fishingTown.lon], 11);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(fishingMap);
+
+      const townIcon = L.divIcon({ className: "fishing-town-marker", html: '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2c-4 0-7 3-7 7 0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z" fill="#C97456" stroke="#1F3347" stroke-width="1"/><circle cx="12" cy="9" r="2.4" fill="#fff"/></svg>', iconSize: [20, 20] });
+      const stationIcon = L.divIcon({ className: "fishing-station-marker", html: "<span></span>", iconSize: [12, 12] });
+      const selectedIcon = L.divIcon({ className: "fishing-station-marker selected", html: "<span></span>", iconSize: [16, 16] });
+
+      const townMarker = L.marker([fishingTown.lat, fishingTown.lon], { icon: townIcon }).addTo(fishingMap);
+      fishingMarkers.push(townMarker);
+      fishingStations.forEach((s) => {
+        const marker = L.marker([s.lat, s.lon], { icon: fishingSelectedStation && fishingSelectedStation.id === s.id ? selectedIcon : stationIcon }).addTo(fishingMap);
+        marker._stationId = s.id;
+        marker.on("click", () => selectFishingStation(s, "map"));
+        fishingMarkers.push(marker);
+      });
+    } catch (err) {
+      console.error("Fishing spot map failed to load:", err);
+      clearFishingMap();
+    }
+  }
+
+  function renderFishingStationList() {
+    fishingStationListWrap.innerHTML = "";
+    fishingStations.forEach((s) => {
+      const row = document.createElement("label");
+      row.className = "fishing-station-row" + (fishingSelectedStation && fishingSelectedStation.id === s.id ? " selected" : "");
+      row.dataset.stationId = String(s.id);
+      row.innerHTML =
+        '<input type="radio" name="fishingStation">' +
+        '<span class="fishing-station-info"><span class="fishing-station-name">' + escapeHtml(s.name) + '</span>' +
+        '<span class="fishing-station-meta">Station ' + escapeHtml(String(s.id)) + " &middot; " + s.distance.toFixed(1) + " mi away</span></span>";
+      row.querySelector("input").checked = !!(fishingSelectedStation && fishingSelectedStation.id === s.id);
+      row.addEventListener("click", (e) => { e.preventDefault(); selectFishingStation(s, "list"); });
+      fishingStationListWrap.appendChild(row);
+    });
+  }
+
+  function selectFishingStation(s, source) {
+    fishingSelectedStation = s;
+    fishingStationListWrap.querySelectorAll(".fishing-station-row").forEach((r) => {
+      const match = r.dataset.stationId === String(s.id);
+      r.classList.toggle("selected", match);
+      r.querySelector("input").checked = match;
+    });
+    fishingMarkers.forEach((m) => {
+      if (m._stationId) m.setIcon(L.divIcon({ className: "fishing-station-marker" + (m._stationId === s.id ? " selected" : ""), html: "<span></span>", iconSize: m._stationId === s.id ? [16, 16] : [12, 12] }));
+    });
+    fishingSaveBtn.disabled = false;
+    fishingSpotStatus.textContent = "Selected: " + s.name + " (Station " + s.id + ")";
+  }
+
+  async function loadFishingStations(town) {
+    fishingSpotStatus.textContent = "Finding nearby tide stations…";
+    try {
+      const all = await fetchAllTideStations();
+      fishingStations = all
+        .map((s) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lng !== undefined ? s.lng : s.lon }))
+        .map((s) => Object.assign(s, { distance: haversineMilesClient(town.lat, town.lon, s.lat, s.lon) }))
+        .filter((s) => s.distance <= 100)
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 8);
+      if (!fishingStations.length) {
+        fishingSpotStatus.textContent = "No tide stations found within 100 miles of that spot.";
+        return;
+      }
+      fishingSelectedStation = null;
+      fishingSaveBtn.disabled = true;
+      fishingSpotStatus.textContent = "Pick the closest tide station.";
+      renderFishingStationMap();
+      renderFishingStationList();
+    } catch (err) {
+      console.error("Couldn't load nearby tide stations:", err);
+      fishingSpotStatus.textContent = "Couldn't load nearby tide stations right now.";
+    }
+  }
+
+  async function runFishingSearch(q) {
+    if (fishingSearchAbort) fishingSearchAbort.abort();
+    fishingSearchAbort = new AbortController();
+    fishingSearchResults.innerHTML = '<div class="fishing-search-result-row">Searching…</div>';
+    try {
+      const resp = await fetch(
+        "https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=us&addressdetails=1&limit=6&q=" + encodeURIComponent(q),
+        { signal: fishingSearchAbort.signal }
+      );
+      const results = await resp.json();
+      fishingSearchResults.innerHTML = "";
+      if (!results.length) {
+        fishingSearchResults.innerHTML = '<div class="fishing-search-result-row">No matches</div>';
+        return;
+      }
+      results.forEach((r) => {
+        const row = document.createElement("div");
+        row.className = "fishing-search-result-row";
+        row.textContent = r.display_name;
+        row.addEventListener("click", () => {
+          fishingSearchResults.innerHTML = "";
+          fishingTownSearch.value = r.display_name;
+          fishingTown = { name: (r.address && (r.address.city || r.address.town || r.address.village)) || r.name || r.display_name, lat: parseFloat(r.lat), lon: parseFloat(r.lon) };
+          loadFishingStations(fishingTown);
+        });
+        fishingSearchResults.appendChild(row);
+      });
+    } catch (err) {
+      if (err.name === "AbortError") return;
+      console.error("Fishing spot town search failed:", err);
+      fishingSearchResults.innerHTML = '<div class="fishing-search-result-row">Search failed -- try again</div>';
+    }
+  }
+
+  fishingTownSearch.addEventListener("input", () => {
+    const q = fishingTownSearch.value.trim();
+    clearTimeout(fishingSearchTimer);
+    if (q.length < 3) { fishingSearchResults.innerHTML = ""; return; }
+    fishingSearchTimer = setTimeout(() => runFishingSearch(q), 350);
+  });
+
+  fishingSaveBtn.addEventListener("click", async () => {
+    if (!deviceId || !fishingTown || !fishingSelectedStation) return;
+    fishingSaveBtn.disabled = true;
+    fishingSpotStatus.textContent = "Saving…";
+    try {
+      const payload = { name: fishingTown.name, stationId: String(fishingSelectedStation.id), lat: fishingTown.lat, lon: fishingTown.lon };
+      const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+      await uploadBytes(ref(storage, "locations/" + deviceId + FISHING_SPOT_SUFFIX), blob);
+      fishingExistingSpot = payload;
+      fishingSpotStatus.textContent = "Saved! Refreshing your tide card…";
+      fishingRemoveBtn.classList.remove("hidden");
+      const layer = layers.find((l) => l.kind === "tide");
+      if (layer) layer.cardData = null; // force loadTideLayer to actually refetch
+      await loadTideLayer();
+    } catch (err) {
+      console.error("Couldn't save the fishing spot:", err);
+      fishingSpotStatus.textContent = "Couldn't save that spot right now — try again in a moment.";
+      fishingSaveBtn.disabled = false;
+    }
+  });
+
+  fishingRemoveBtn.addEventListener("click", async () => {
+    if (!deviceId) return;
+    try {
+      await deleteObject(ref(storage, "locations/" + deviceId + FISHING_SPOT_SUFFIX));
+    } catch (err) {
+      // Already gone (or never existed) is fine -- nothing left to remove.
+      if (!err || err.code !== "storage/object-not-found") console.error("Couldn't remove the fishing spot:", err);
+    }
+    fishingExistingSpot = null;
+    spotChoiceDevice.checked = true;
+    updateSpotChoiceUI();
+    const layer = layers.find((l) => l.kind === "tide");
+    if (layer) layer.cardData = null;
+    await loadTideLayer();
+  });
+
+  function updateSpotChoiceUI() {
+    document.querySelectorAll('.spot-choice-row').forEach((row) => {
+      row.classList.toggle("selected", row.dataset.value === (spotChoiceCustom.checked ? "custom" : "device"));
+    });
+    fishingSpotPickerEl.classList.toggle("hidden", !spotChoiceCustom.checked);
+    fishingRemoveBtn.classList.toggle("hidden", !fishingExistingSpot);
+    if (spotChoiceCustom.checked && fishingExistingSpot && !fishingTown) {
+      fishingSpotStatus.textContent = "Currently: " + fishingExistingSpot.name + " (Station " + fishingExistingSpot.stationId + ")";
+    }
+  }
+  [spotChoiceDevice, spotChoiceCustom].forEach((el) => el.addEventListener("change", updateSpotChoiceUI));
+
+  // Runs once, the first time the Tide tool is opened -- pre-fills the
+  // device's main location name and whether a custom fishing spot is
+  // already saved, without disturbing whichever spot is actually in use.
+  async function initFishingSpotUIOnce() {
+    if (fishingSpotInitialized || !deviceId) return;
+    fishingSpotInitialized = true;
+    try {
+      const deviceLocation = await fetchJsonFromStorage("locations/" + deviceId + ".json", 8000);
+      deviceLocationSub.textContent = deviceLocation && deviceLocation.name ? deviceLocation.name : "";
+    } catch (err) {
+      console.error("Couldn't load the device's main location name:", err);
+    }
+    try {
+      fishingExistingSpot = await fetchJsonFromStorage("locations/" + deviceId + FISHING_SPOT_SUFFIX, 8000);
+    } catch (err) {
+      console.error("Couldn't check for an existing fishing spot:", err);
+    }
+    if (fishingExistingSpot) spotChoiceCustom.checked = true;
+    updateSpotChoiceUI();
+  }
 
   // ================= Team tool =================
   const teamLeagueSelect = document.getElementById("teamLeagueSelect");
@@ -3137,7 +3965,7 @@
   // own (Countdown, Team) -- at most one is treated as active per device
   // for now. If more than one somehow exists, only the first is used for
   // auto-updates; the rest render fine today but stay frozen after that.
-  const DYNAMIC_KINDS = new Set(["countdown", "team", "news"]);
+  const DYNAMIC_KINDS = new Set(["countdown", "team", "news", "tide"]);
 
   // Same idea as getCompositeCanvas, but leaves out any dynamic layer --
   // this is what the daily Cloud Function redraws the current content
@@ -3243,6 +4071,8 @@
             dynamicMeta = Object.assign({ type: "countdown", targetDate: dynamicLayer.targetDate, label: dynamicLayer.label || "" }, shared);
           } else if (dynamicLayer.kind === "team") {
             dynamicMeta = Object.assign({ type: "team", sport: dynamicLayer.sport, league: dynamicLayer.league, teamId: dynamicLayer.teamId, teamName: dynamicLayer.teamName }, shared);
+          } else if (dynamicLayer.kind === "tide") {
+            dynamicMeta = Object.assign({ type: "tide", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId }, shared);
           } else {
             dynamicMeta = Object.assign({ type: "news", location: dynamicLayer.location || "", feedUrl: dynamicLayer.feedUrl || "" }, shared);
           }
