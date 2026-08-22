@@ -146,6 +146,25 @@ function buildHourlySeries(startHour, endHour, fields) {
     );
   });
 
+  await test("fetchNoaaPredictions requests datum=STND, not MLLW -- a real subordinate station (8534975) rejected MLLW in production", async () => {
+    let capturedUrl = null;
+    const capturingFetch = async (url) => {
+      capturedUrl = url;
+      return { json: async () => ({ predictions: [] }) };
+    };
+    await fetchNoaaPredictions("8534975", new Date(), new Date(), "h", capturingFetch);
+    const datum = new URL(capturedUrl).searchParams.get("datum");
+    assert.strictEqual(datum, "STND");
+  });
+
+  await test("fetchNoaaPredictions surfaces NOAA's real 'Datum input is valid' error message when a station doesn't support the requested datum", async () => {
+    const invalidDatumFetch = async () => ({ json: async () => ({ error: { message: "No Predictions data was found. Please make sure the Datum input is valid." } }) });
+    await assert.rejects(
+      () => fetchNoaaPredictions("8534975", new Date(), new Date(), "h", invalidDatumFetch),
+      /Datum input is valid/
+    );
+  });
+
   await test("fetchNoaaPredictions sends a browser-like User-Agent, not Node's own bare default", async () => {
     let capturedOptions = null;
     const capturingFetch = async (url, options) => {
