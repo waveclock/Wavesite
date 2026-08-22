@@ -293,6 +293,16 @@ async function astroProxyHandler(req, res) {
     res.status(200).json(data);
   } catch (err) {
     logger.error("astro proxy request failed for lat=" + lat + " lon=" + lon + " stationId=" + stationId + ":", err);
+    // err.noaaDataError (see fetchNoaaPredictions) means NOAA was reached
+    // fine and gave a clear "no data" answer for this specific station --
+    // not a connectivity problem, so it gets its own status/message rather
+    // than the generic "couldn't reach NOAA" one, which would wrongly
+    // suggest retrying later will help (some stations only have time-offset
+    // predictions, never a height curve, so it won't).
+    if (err.noaaDataError) {
+      res.status(422).json({ error: "This tide station doesn't have full predictions available (NOAA: " + err.message + "). Try picking a different station in Fishing Spot settings." });
+      return;
+    }
     res.status(502).json({ error: "Couldn't reach NOAA/sun-moon data right now" });
   }
 }

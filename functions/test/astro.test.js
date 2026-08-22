@@ -138,12 +138,15 @@ function buildHourlySeries(startHour, endHour, fields) {
     })();
   });
 
-  await test("fetchNoaaPredictions throws on a NOAA-reported error (e.g. an unknown/retired station) instead of returning garbage", async () => {
+  await test("fetchNoaaPredictions throws on a NOAA-reported error (e.g. an unknown/retired station) instead of returning garbage, tagged as noaaDataError (not a connectivity failure)", async () => {
     const errorFetch = async () => ({ json: async () => ({ error: { message: "No data was found. This product may not be offered at this station." } }) });
-    await assert.rejects(
-      () => fetchNoaaPredictions("0000000", new Date(), new Date(), "h", errorFetch),
-      /No data was found/
-    );
+    try {
+      await fetchNoaaPredictions("0000000", new Date(), new Date(), "h", errorFetch);
+      assert.fail("expected fetchNoaaPredictions to throw");
+    } catch (err) {
+      assert.match(err.message, /No data was found/);
+      assert.strictEqual(err.noaaDataError, true);
+    }
   });
 
   await test("fetchNoaaPredictions requests datum=STND, not MLLW -- a real subordinate station (8534975) rejected MLLW in production", async () => {
@@ -157,12 +160,15 @@ function buildHourlySeries(startHour, endHour, fields) {
     assert.strictEqual(datum, "STND");
   });
 
-  await test("fetchNoaaPredictions surfaces NOAA's real 'Datum input is valid' error message when a station doesn't support the requested datum", async () => {
+  await test("fetchNoaaPredictions surfaces NOAA's real 'Datum input is valid' error message (still tagged noaaDataError even with STND -- this turned out to be a station that has no height predictions at all, not a datum problem)", async () => {
     const invalidDatumFetch = async () => ({ json: async () => ({ error: { message: "No Predictions data was found. Please make sure the Datum input is valid." } }) });
-    await assert.rejects(
-      () => fetchNoaaPredictions("8534975", new Date(), new Date(), "h", invalidDatumFetch),
-      /Datum input is valid/
-    );
+    try {
+      await fetchNoaaPredictions("8534975", new Date(), new Date(), "h", invalidDatumFetch);
+      assert.fail("expected fetchNoaaPredictions to throw");
+    } catch (err) {
+      assert.match(err.message, /Datum input is valid/);
+      assert.strictEqual(err.noaaDataError, true);
+    }
   });
 
   await test("fetchNoaaPredictions sends a browser-like User-Agent, not Node's own bare default", async () => {

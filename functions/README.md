@@ -249,6 +249,37 @@ message that survives two independent, plausible-sounding fixes is a sign
 to stop pattern-matching against past bugs and go straight to the actual
 log line first.
 
+**...except switching to `STND` didn't fix it either** -- redeployed,
+same exact error, byte for byte, for the same station. That rules out
+datum entirely: if it were a real datum-support problem, `STND` (which
+every CO-OPS station is guaranteed to have) would have worked. The far
+more likely explanation is that `8534975` is a "time only" subordinate
+station -- NOAA CO-OPS distinguishes stations with full time-AND-height
+harmonic predictions from ones that only carry a time offset from a
+reference station, with no height curve computed for them at all. No
+datum will ever produce a height curve for one of those; the "Datum
+input is valid" wording is just NOAA's generic wrapper message for
+several different "no predictions data" cases, this being one of them.
+
+Rather than guess a fourth datum/header/network-shaped fix, this is
+handled as what it now looks like: a small, real subset of the NOAA
+"tidepredictions" station list (the same list the Fishing Spot picker's
+station search draws from) genuinely has no height predictions to serve,
+for any request. `fetchNoaaPredictions` tags this specific failure mode
+-- a well-formed JSON `error` response from NOAA, meaning NOAA was
+reached fine and gave a clear answer -- as `err.noaaDataError = true`,
+distinct from a thrown/network-level failure (timeout, DNS, a bad
+response body). `astroProxyHandler` checks for that tag and responds
+`422` with an actionable message ("This tide station doesn't have full
+predictions available... try picking a different station in Fishing Spot
+settings") instead of the generic `502` "Couldn't reach NOAA" message,
+which wrongly implied retrying later would help. design-v2 already
+surfaces `err.message` verbatim in the tide tool's status line, so this
+message reaches the customer as-is. See `test/astroProxy.test.js`'s test
+contrasting this against the still-502 generic-network-failure case, and
+`test/astro.test.js`'s tests confirming the tag on both the original
+unknown-station error and this real "Datum input is valid" one.
+
 **Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
 unlike everything else here -- there's no closed-form time for lunar
 transit the way there is for solar noon. `computeSolunarPeriods` finds

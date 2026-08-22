@@ -60,6 +60,20 @@ async function test(name, fn) {
     }
   });
 
+  await test("a NOAA station with no predictions data (e.g. a time-only subordinate station) returns 422 with an actionable message, not the generic 502", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = async () => ({ json: async () => ({ error: { message: "No Predictions data was found. Please make sure the Datum input is valid." } }) });
+    try {
+      const res = fakeRes();
+      await astroProxyHandler(fakeReq({ lat: "39.2788685", lon: "-74.5762507", stationId: "8534975" }), res);
+      assert.strictEqual(res.statusCode, 422);
+      assert.match(res.body.error, /doesn't have full predictions/);
+      assert.match(res.body.error, /Fishing Spot/);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   await test("valid inputs return 200 with the assembled payload", async () => {
     const originalFetch = global.fetch;
     global.fetch = async () => ({ json: async () => ({ predictions: [{ t: "2026-07-15 12:00", v: "2.10" }] }) });
