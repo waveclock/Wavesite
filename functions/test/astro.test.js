@@ -26,6 +26,7 @@ const {
   fetchWeatherSignals,
   fetchTideCardData
 } = require("../lib/astro");
+const { OUTBOUND_FETCH_HEADERS } = require("../lib/http");
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
@@ -143,6 +144,16 @@ function buildHourlySeries(startHour, endHour, fields) {
       () => fetchNoaaPredictions("0000000", new Date(), new Date(), "h", errorFetch),
       /No data was found/
     );
+  });
+
+  await test("fetchNoaaPredictions sends a browser-like User-Agent, not Node's own bare default", async () => {
+    let capturedOptions = null;
+    const capturingFetch = async (url, options) => {
+      capturedOptions = options;
+      return { json: async () => ({ predictions: [] }) };
+    };
+    await fetchNoaaPredictions("8534720", new Date(), new Date(), "h", capturingFetch);
+    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
   });
 
   await test("fetchTideCardData assembles one payload from suncalc + both NOAA calls, filtering tideExtrema to only real hi/lo points", async () => {
@@ -426,6 +437,26 @@ function buildHourlySeries(startHour, endHour, fields) {
     const errorFetch = async () => ({ json: async () => ({ error: true, reason: "Latitude must be in range of -90 to 90 degrees" }) });
     await assert.rejects(() => fetchOpenMeteoWeather(999, -74.57, errorFetch), /Latitude must be in range/);
   });
+  await test("fetchOpenMeteoWeather sends a browser-like User-Agent, not Node's own bare default", async () => {
+    let capturedOptions = null;
+    const capturingFetch = async (url, options) => {
+      capturedOptions = options;
+      return { json: async () => ({ hourly: { time: [] } }) };
+    };
+    await fetchOpenMeteoWeather(39.27, -74.57, capturingFetch);
+    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
+  });
+
+  await test("fetchOpenMeteoMarine sends a browser-like User-Agent, not Node's own bare default", async () => {
+    let capturedOptions = null;
+    const capturingFetch = async (url, options) => {
+      capturedOptions = options;
+      return { json: async () => ({ hourly: { time: [] } }) };
+    };
+    await fetchOpenMeteoMarine(39.27, -74.57, capturingFetch);
+    assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
+  });
+
   await test("fetchOpenMeteoMarine parses wave height/period and water temp, tolerating missing sea_surface_temperature (patchy nearshore coverage)", async () => {
     const hourly = buildHourlySeries(0, 1, { wave_height: () => 2.5, wave_period: () => 7 }); // no sea_surface_temperature field at all
     const fetchImpl = async () => ({ json: async () => ({ hourly }) });
