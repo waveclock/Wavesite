@@ -18,9 +18,23 @@
 // verify against a real station once this is deployed, the same way
 // espnProxy's live reachability was confirmed after the fact (see
 // README's "Known tradeoffs").
+//
+// All three outbound fetches (NOAA, Open-Meteo weather, Open-Meteo
+// marine) now send OUTBOUND_FETCH_HEADERS (lib/http.js) -- a real
+// browser User-Agent instead of Node's own default ("User-Agent: node",
+// a plain bot signal). A live 502 from astroProxy after deploy couldn't
+// be reproduced from this sandbox (both hosts are policy-blocked here
+// too, same as before), so this isn't a confirmed repro -- it's the same
+// fix applied to fetchDitheredLogo (dynamic.js) after a real live ESPN
+// CDN failure, tried here on the same theory since Node's bare "node"
+// User-Agent is a plausible reason for a CDN/API to reject the request.
+// If a live check after deploy shows this wasn't it, see this file's
+// header comment above (and dynamic.js's fetchHeadlines) for the
+// header-flip-flop history -- it's not a fix that's worked everywhere.
 
 const SunCalc = require("suncalc");
 const tzlookup = require("tz-lookup");
+const { OUTBOUND_FETCH_HEADERS } = require("./http");
 
 const NOAA_BASE = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter";
 
@@ -85,7 +99,7 @@ async function fetchNoaaPredictions(stationId, begin, end, interval, fetchImpl) 
     end_date: noaaDateParam(end),
     interval
   });
-  const resp = await doFetch(NOAA_BASE + "?" + params.toString());
+  const resp = await doFetch(NOAA_BASE + "?" + params.toString(), { headers: OUTBOUND_FETCH_HEADERS });
   const data = await resp.json();
   if (data && data.error) throw new Error(data.error.message || "NOAA returned an error");
   return (data.predictions || []).map((p) => ({
@@ -268,7 +282,7 @@ async function fetchOpenMeteoWeather(lat, lon, fetchImpl) {
     past_hours: "6",
     forecast_hours: "30"
   });
-  const resp = await doFetch(OPEN_METEO_WEATHER_BASE + "?" + params.toString());
+  const resp = await doFetch(OPEN_METEO_WEATHER_BASE + "?" + params.toString(), { headers: OUTBOUND_FETCH_HEADERS });
   const data = await resp.json();
   if (data && data.error) throw new Error(data.reason || "Open-Meteo weather returned an error");
   const h = data.hourly || {};
@@ -293,7 +307,7 @@ async function fetchOpenMeteoMarine(lat, lon, fetchImpl) {
     timezone: "UTC",
     forecast_hours: "30"
   });
-  const resp = await doFetch(OPEN_METEO_MARINE_BASE + "?" + params.toString());
+  const resp = await doFetch(OPEN_METEO_MARINE_BASE + "?" + params.toString(), { headers: OUTBOUND_FETCH_HEADERS });
   const data = await resp.json();
   if (data && data.error) throw new Error(data.reason || "Open-Meteo marine returned an error");
   const h = data.hourly || {};

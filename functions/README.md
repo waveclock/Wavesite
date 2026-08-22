@@ -208,6 +208,23 @@ to draw without it. See `test/astro.test.js`'s two tests contrasting an
 Open-Meteo-only outage (degrades) against a genuine NOAA outage (still
 fails).
 
+**All three outbound fetches now send a browser-like User-Agent**
+(`OUTBOUND_FETCH_HEADERS`, moved into its own `lib/http.js` so both
+`astro.js` and `dynamic.js` can use it without a circular require --
+`dynamic.js` already requires `astro.js` for `fetchTideCardData`). The
+502 above turned out to still be happening after the Open-Meteo-outage
+fix, so this applies the same category of fix that resolved a live ESPN
+CDN logo failure (`fetchDitheredLogo`): Node's own bare fetch() default,
+`User-Agent: node`, is a plain bot signal that's a common, unsophisticated
+thing for an API/CDN to reject by default. This is NOT a confirmed root
+cause here either -- both NOAA and Open-Meteo are policy-blocked from
+this development sandbox too, so it couldn't be reproduced directly --
+but it's a real, demonstrated fix for the same class of problem
+elsewhere in this codebase, applied on that theory. If the live error
+persists after this, the next step is the astroProxy function's actual
+Cloud Function logs (`logger.error`'s underlying message), which is the
+only place the true cause is visible.
+
 **Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
 unlike everything else here -- there's no closed-form time for lunar
 transit the way there is for solar noon. `computeSolunarPeriods` finds
