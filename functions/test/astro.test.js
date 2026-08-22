@@ -170,6 +170,38 @@ function buildHourlySeries(startHour, endHour, fields) {
     assert.ok(["Poor", "Fair", "Good", "Excellent"].includes(data.fishingScore));
   });
 
+  await test("an Open-Meteo outage doesn't fail the whole card -- NOAA tide data (the one thing this card can't function without) still comes back, just with weather: null", async () => {
+    const noaaOnlyFetch = async (url) => {
+      const u = new URL(url);
+      if (u.hostname === "api.tidesandcurrents.noaa.gov") {
+        const interval = u.searchParams.get("interval");
+        const predictions = interval === "hilo"
+          ? [{ t: "2026-07-15 07:14", v: "0.60", type: "L" }, { t: "2026-07-15 13:22", v: "4.40", type: "H" }]
+          : [{ t: "2026-07-15 12:00", v: "2.00" }];
+        return { json: async () => ({ predictions }) };
+      }
+      throw new Error("simulated Open-Meteo outage");
+    };
+    const now = new Date("2026-07-15T16:00:00Z");
+    const data = await fetchTideCardData({ lat: 39.2776, lon: -74.5746, stationId: "8534720" }, now, noaaOnlyFetch);
+    assert.strictEqual(data.tideCurve.length, 1);
+    assert.strictEqual(data.tideExtrema.length, 2);
+    assert.strictEqual(data.weather, null);
+    assert.ok(["Poor", "Fair", "Good", "Excellent"].includes(data.fishingScore));
+  });
+
+  await test("a genuine NOAA failure still fails the whole card (unlike Open-Meteo, there's no tide curve without it)", async () => {
+    const noaaFailsFetch = async (url) => {
+      const u = new URL(url);
+      if (u.hostname === "api.tidesandcurrents.noaa.gov") throw new Error("simulated NOAA outage");
+      return { json: async () => ({ hourly: { time: [] } }) };
+    };
+    await assert.rejects(
+      () => fetchTideCardData({ lat: 39.2776, lon: -74.5746, stationId: "8534720" }, new Date("2026-07-15T16:00:00Z"), noaaFailsFetch),
+      /simulated NOAA outage/
+    );
+  });
+
   // Real SunCalc computation, no mocking -- this is pure math (no network),
   // so it's checked against real astronomical behavior rather than a fake.
   console.log("solunar (major/minor period) calculation");

@@ -193,6 +193,21 @@ and covered thoroughly with mocked tests (`test/astro.test.js`,
 eventually got -- deploy, publish a Tide layer, and check what actually
 shows up -- before fully trusting a real station's response shape.
 
+**NOAA is the only failure that takes the whole card down.** A live 502
+from `astroProxy` ("Couldn't reach NOAA/sun-moon data right now") after
+deploy showed Open-Meteo's weather call was still able to fail the entire
+card even though the tide curve itself -- the one thing the card actually
+can't function without -- had nothing to do with it. `fetchTideCardData`
+now wraps the `fetchWeatherSignals` call in its own try/catch: an
+Open-Meteo outage (or a location just outside its marine model's
+coverage) logs and degrades to `weather: null` instead of throwing, same
+principle as swell/water-temp already degrading field-by-field inside
+`fetchWeatherSignals` itself. The NOAA fetch above it is deliberately left
+alone -- it should still fail the whole card, since there's no tide data
+to draw without it. See `test/astro.test.js`'s two tests contrasting an
+Open-Meteo-only outage (degrades) against a genuine NOAA outage (still
+fails).
+
 **Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
 unlike everything else here -- there's no closed-form time for lunar
 transit the way there is for solar noon. `computeSolunarPeriods` finds
