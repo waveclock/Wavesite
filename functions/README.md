@@ -481,6 +481,18 @@ two now occupy overlapping x-ranges near the card's left edge (both
 start close to the edge), so the test now checks a y just above where
 the text's own ink starts, where only the triangle's apex reaches.
 
+**A third pass: every piece of text is solid black, no gray.** Several
+labels (Sunrise/Sunset, hi/lo time labels, moonrise/moonset, the footer
+separator dots) were still drawn at a partial alpha (`rgba(0,0,0,0.75-
+0.8)`) even after the two font-size passes above -- a holdover from when
+those elements were meant to read as visually secondary next to bolder
+neighbors. Switched every text `fillStyle` in `drawTideCard` (and the
+`design-v2/index.html` client copy) to solid `#000`. The dashed guide
+lines (sunrise/sunset verticals, the plot's baseline, the leader ticks
+connecting a dot to its label) are deliberately left at their existing
+partial alpha -- those are lines, not text, and stay a lighter weight on
+purpose so they read as structure rather than content.
+
 **Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
 unlike everything else here -- there's no closed-form time for lunar
 transit the way there is for solar noon. `computeSolunarPeriods` finds
