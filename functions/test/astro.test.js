@@ -157,7 +157,7 @@ function buildHourlySeries(startHour, endHour, fields) {
     }
   });
 
-  await test("fetchNoaaPredictions requests datum=STND (not MLLW) and time_zone=lst_ldt (not gmt)", async () => {
+  await test("fetchNoaaPredictions requests datum=MLLW and time_zone=lst_ldt (not gmt)", async () => {
     let capturedUrl = null;
     const capturingFetch = async (url) => {
       capturedUrl = url;
@@ -165,7 +165,13 @@ function buildHourlySeries(startHour, endHour, fields) {
     };
     await fetchNoaaPredictions("8534975", new Date("2026-07-15T10:00:00Z"), new Date("2026-07-15T20:00:00Z"), "h", "America/New_York", capturingFetch);
     const params = new URL(capturedUrl).searchParams;
-    assert.strictEqual(params.get("datum"), "STND");
+    // MLLW, not STND -- an earlier attempt switched to STND on the theory
+    // that it's universally supported, but that theory was wrong too:
+    // confirmed directly against NOAA for this exact station (with
+    // time_zone already fixed to lst_ldt), STND failed on both intervals
+    // while MLLW succeeded. No fallback to STND -- no evidence it's ever
+    // actually needed.
+    assert.strictEqual(params.get("datum"), "MLLW");
     // time_zone=lst_ldt is the actual, complete fix for a real production
     // 502/422 (stationId=8534975) that datum alone did NOT resolve --
     // confirmed by hitting NOAA directly: gmt failed for every datum and
@@ -178,7 +184,7 @@ function buildHourlySeries(startHour, endHour, fields) {
     assert.strictEqual(params.get("end_date"), "20260715 16:00");
   });
 
-  await test("fetchNoaaPredictions surfaces NOAA's real 'Datum input is valid' error message (still tagged noaaDataError even with STND -- this turned out to be a station that has no height predictions at all, not a datum problem)", async () => {
+  await test("fetchNoaaPredictions surfaces NOAA's real 'Datum input is valid' error message, tagged noaaDataError -- this is the error a real subordinate station returns for interval=h specifically, once datum/time_zone are correct", async () => {
     const invalidDatumFetch = async () => ({ json: async () => ({ error: { message: "No Predictions data was found. Please make sure the Datum input is valid." } }) });
     try {
       await fetchNoaaPredictions("8534975", new Date(), new Date(), "h", "America/New_York", invalidDatumFetch);
@@ -258,6 +264,48 @@ function buildHourlySeries(startHour, endHour, fields) {
     await assert.rejects(
       () => fetchTideCardData({ lat: 39.2776, lon: -74.5746, stationId: "8534720" }, new Date("2026-07-15T16:00:00Z"), noaaFailsFetch),
       /simulated NOAA outage/
+    );
+  });
+
+  await test("a station with hi/lo predictions but no continuous curve (interval=h fails, interval=hilo succeeds) still produces a working card, with an empty tideCurve", async () => {
+    const hiloOnlyFetch = async (url) => {
+      const u = new URL(url);
+      if (u.hostname !== "api.tidesandcurrents.noaa.gov") return { json: async () => ({ hourly: { time: [] } }) };
+      const interval = u.searchParams.get("interval");
+      if (interval === "h") return { json: async () => ({ error: { message: "No Predictions data was found. Please make sure the Datum input is valid." } }) };
+      return { json: async () => ({ predictions: [{ t: "2026-07-15 03:14", v: "0.60", type: "L" }, { t: "2026-07-15 09:22", v: "4.40", type: "H" }] }) };
+    };
+    const data = await fetchTideCardData({ lat: 39.2776, lon: -74.5746, stationId: "8534975" }, new Date("2026-07-15T16:00:00Z"), hiloOnlyFetch);
+    assert.deepStrictEqual(data.tideCurve, []);
+    assert.strictEqual(data.tideExtrema.length, 2);
+    assert.ok(["Poor", "Fair", "Good", "Excellent"].includes(data.fishingScore));
+  });
+
+  await test("a hilo failure still fails the whole card even if the curve (interval=h) would have succeeded -- hilo is the one that's actually load-bearing", async () => {
+    const curveOnlyFetch = async (url) => {
+      const u = new URL(url);
+      if (u.hostname !== "api.tidesandcurrents.noaa.gov") return { json: async () => ({ hourly: { time: [] } }) };
+      const interval = u.searchParams.get("interval");
+      if (interval === "hilo") return { json: async () => ({ error: { message: "No Predictions data was found. Please make sure the Datum input is valid." } }) };
+      return { json: async () => ({ predictions: [{ t: "2026-07-15 08:00", v: "2.00" }] }) };
+    };
+    await assert.rejects(
+      () => fetchTideCardData({ lat: 39.2776, lon: -74.5746, stationId: "8534975" }, new Date("2026-07-15T16:00:00Z"), curveOnlyFetch),
+      /Datum input is valid/
+    );
+  });
+
+  await test("a genuine (non-noaaDataError) failure on the curve request alone still fails the whole card -- only a confirmed 'no data' response degrades gracefully, not a real connectivity error", async () => {
+    const curveNetworkFailsFetch = async (url) => {
+      const u = new URL(url);
+      if (u.hostname !== "api.tidesandcurrents.noaa.gov") return { json: async () => ({ hourly: { time: [] } }) };
+      const interval = u.searchParams.get("interval");
+      if (interval === "h") throw new Error("simulated network failure on the curve request");
+      return { json: async () => ({ predictions: [{ t: "2026-07-15 03:14", v: "0.60", type: "L" }, { t: "2026-07-15 09:22", v: "4.40", type: "H" }] }) };
+    };
+    await assert.rejects(
+      () => fetchTideCardData({ lat: 39.2776, lon: -74.5746, stationId: "8534975" }, new Date("2026-07-15T16:00:00Z"), curveNetworkFailsFetch),
+      /simulated network failure on the curve request/
     );
   });
 

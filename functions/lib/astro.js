@@ -103,23 +103,25 @@ function parseNoaaLocalTimestamp(t, timeZone) {
   return new Date(naiveUtc.getTime() - (asIfUtc - naiveUtc.getTime()));
 }
 
-// datum is "STND" (station datum), not "MLLW" -- MLLW is only computed
-// for stations with enough tidal-epoch data behind them; plenty of
-// subordinate/harmonic prediction stations don't have it and only
-// support STND, the arbitrary local reference every CO-OPS station is
-// guaranteed to have. Safe to use everywhere: the card never displays
-// which datum a height is relative to, and NOAA's hi/lo "type": "H"/"L"
-// classification is about local curve shape, not the datum -- switching
-// only shifts every height by a constant, it doesn't change which points
-// count as highs/lows.
+// datum is "MLLW" -- an earlier attempt switched this to "STND" on the
+// theory that STND is universally supported and MLLW isn't, but that
+// theory was wrong: confirmed directly against NOAA for a real
+// subordinate station (stationId=8534975, with time_zone already fixed
+// to lst_ldt -- see below), STND failed on both interval=h and
+// interval=hilo, while MLLW succeeded. NOAA's own docs call STND the
+// universal fallback, but real subordinate-station behavior doesn't
+// bear that out, at least for this station -- MLLW is what actually
+// works, matching ordinary usage (nautical charts, other tide clocks),
+// so that's what's used, with no fallback chain to STND since there's
+// no evidence it's ever actually needed.
 //
 // time_zone is "lst_ldt" (the station's own local time), not "gmt" --
-// this turned out to be the actual, complete cause of a live 502/422 for
-// stationId=8534975 that switching datum alone did NOT fix (identical
-// error with both MLLW and STND). Confirmed directly against NOAA, no
-// code involved: requesting this station's predictions with
-// time_zone=gmt failed for every datum and every interval (h and hilo
-// both), but the exact same request with time_zone=lst_ldt instead
+// this is the actual cause of a live 502/422 for stationId=8534975 that
+// switching datum alone did NOT fix (identical error with both MLLW and
+// STND, when both were tried under time_zone=gmt). Confirmed directly
+// against NOAA, no code involved: requesting this station's predictions
+// with time_zone=gmt failed for every datum and every interval (h and
+// hilo both), but the exact same request with time_zone=lst_ldt instead
 // succeeded -- for both this subordinate station and a reference station
 // (Atlantic City) that already worked fine either way. Likely
 // explanation: subordinate-station predictions are computed as a time/
@@ -134,7 +136,7 @@ async function fetchNoaaPredictions(stationId, begin, end, interval, timeZone, f
   const params = new URLSearchParams({
     station: stationId,
     product: "predictions",
-    datum: "STND",
+    datum: "MLLW",
     time_zone: "lst_ldt",
     units: "english",
     format: "json",
@@ -150,9 +152,14 @@ async function fetchNoaaPredictions(stationId, begin, end, interval, timeZone, f
     // separately from a thrown/network-level failure (a timeout, DNS
     // failure, etc.) so astroProxyHandler can tell a customer something
     // more useful than "couldn't reach NOAA" when the real story is "this
-    // specific station has no predictions data at all" (a genuine gap in
-    // NOAA's own data, confirmed by hitting NOAA directly and getting the
-    // same error for every datum/time_zone/interval combination tried).
+    // station has no predictions data for this specific request" -- which,
+    // once datum/time_zone are both right, can still legitimately happen
+    // for interval=h alone: some subordinate stations only carry
+    // time/height-offset hi/lo predictions (interval=hilo) from a
+    // reference station, with no continuous harmonic curve computed for
+    // them at all. fetchTideCardData below treats that one case as
+    // recoverable (empty curve, hi/lo points only) and everything else
+    // (interval=hilo failing, or a genuine connectivity error) as fatal.
     const err = new Error(data.error.message || "NOAA returned an error");
     err.noaaDataError = true;
     throw err;
@@ -511,10 +518,42 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
   const dawn = times.dawn;
   const dusk = times.dusk;
 
-  const [curve, extrema] = await Promise.all([
-    fetchNoaaPredictions(stationId, dawn, dusk, "h", timeZone, fetchImpl),
-    fetchNoaaPredictions(stationId, dawn, dusk, "hilo", timeZone, fetchImpl)
-  ]);
+  // hilo (the day's high/low points) is the one thing this card can't
+  // function without -- if NOAA has no predictions data for this station
+  // at all, there's nothing to draw and the whole card should fail, same
+  // as before. The continuous curve (interval=h) is a nice-to-have on
+  // top of that: confirmed for a real production station that some
+  // subordinate stations only carry hi/lo predictions (a time/height
+  // offset from a reference station) with no continuous curve computed
+  // for them at all -- interval=h failed there under every datum/
+  // time_zone combination tried, while interval=hilo succeeded once
+  // datum/time_zone were both right. So only a hilo failure fails the
+  // whole card; an h-specific noaaDataError degrades to an empty curve.
+  // drawTideCard already skips the curve line entirely when tideCurve
+  // has 0-1 points (see dynamic.js), showing just the hi/lo dots and
+  // labels -- and its height-scale calculation includes extrema heights
+  // precisely so that still-shown case scales correctly with no curve
+  // data to derive a range from.
+  const hiloPromise = fetchNoaaPredictions(stationId, dawn, dusk, "hilo", timeZone, fetchImpl);
+  const curvePromise = fetchNoaaPredictions(stationId, dawn, dusk, "h", timeZone, fetchImpl);
+  // Both promises start concurrently, but only get awaited (and their
+  // rejection handled) below, at different points -- if hiloPromise
+  // rejects first, curvePromise's own independent rejection would
+  // otherwise be a real unhandled promise rejection (Node treats that as
+  // fatal). Attaching a no-op .catch() here doesn't swallow the real
+  // handling below -- a promise can have multiple independent .then/
+  // .catch/await chains off the same settled value, so the try/catch
+  // around "await curvePromise" further down still sees and handles the
+  // original rejection; this just stops it from ever being unhandled.
+  curvePromise.catch(() => {});
+  const extrema = await hiloPromise;
+  let curve = [];
+  try {
+    curve = await curvePromise;
+  } catch (err) {
+    if (!err.noaaDataError) throw err; // a genuine connectivity failure should still fail the whole card
+    console.error("NOAA has no continuous tide curve for stationId=" + stationId + " (continuing with hi/lo points only):", err);
+  }
 
   function labeled(date) {
     return date ? { t: date.toISOString(), label: formatLocalTime(date, timeZone) } : null;

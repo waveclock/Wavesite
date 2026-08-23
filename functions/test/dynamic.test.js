@@ -964,6 +964,35 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(c.width, CANVAS_WIDTH);
     assert.strictEqual(c.height, CANVAS_HEIGHT);
   });
+  await test("with no tideCurve at all (a station with hi/lo-only predictions, no continuous curve), the height scale still derives its range from tideExtrema -- regression test for a real bug: without this, real hi/lo heights (e.g. 3.777ft) would clip off the top of the plot instead of scaling to fit", () => {
+    const PLOT_TOP = 112, PLOT_BOTTOM = 176; // TOP_STRIP_END(72)+40, CANVAS_HEIGHT(272)-96 -- mirrors lib/dynamic.js's local (unexported) consts
+    const card = Object.assign({}, SAMPLE_TIDE_CARD, {
+      tideCurve: [],
+      tideExtrema: [
+        { t: "2026-07-15T11:14:00.000Z", label: "7:14 AM", heightFt: 1.175, isHigh: false },
+        { t: "2026-07-15T17:22:00.000Z", label: "1:22 PM", heightFt: 3.777, isHigh: true }
+      ]
+    });
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawTideCard(c.getContext("2d"), card); // must not throw with an empty curve
+
+    const dawnMs = new Date(SAMPLE_TIDE_CARD.dawn.t).getTime(), duskMs = new Date(SAMPLE_TIDE_CARD.dusk.t).getTime();
+    const highMs = new Date("2026-07-15T17:22:00.000Z").getTime();
+    const highX = Math.round(46 + ((highMs - dawnMs) / (duskMs - dawnMs)) * (CANVAS_WIDTH - 92));
+
+    // Scan a vertical strip around the high-tide dot's x position for a
+    // black pixel within the plot's own y-range -- if the height scale had
+    // fallen back to [0,1] (ignoring extrema, the pre-fix behavior),
+    // 3.777ft would land well above PLOT_TOP, off the top of the plot
+    // area entirely, and this scan would find nothing.
+    const data = c.getContext("2d").getImageData(Math.max(0, highX - 6), PLOT_TOP, 12, PLOT_BOTTOM - PLOT_TOP).data;
+    let foundDot = false;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] < 50 && data[i + 3] > 200) { foundDot = true; break; }
+    }
+    assert.ok(foundDot, "expected the high-tide dot to be visible within the plot's own y-range");
+  });
+
   await test("tolerates a moonless day (rise/set both null) and an extremum outside the dawn-dusk window without throwing", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const card = Object.assign({}, SAMPLE_TIDE_CARD, {
