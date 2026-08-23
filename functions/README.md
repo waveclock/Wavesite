@@ -280,6 +280,56 @@ contrasting this against the still-502 generic-network-failure case, and
 `test/astro.test.js`'s tests confirming the tag on both the original
 unknown-station error and this real "Datum input is valid" one.
 
+**The "time only" subordinate-station theory above was also wrong.** A
+second station (`8535838`) hit the exact same error, which pointed away
+from "one unlucky station" and toward something systemic. Confirmed by
+bypassing this codebase entirely -- hitting NOAA directly from a browser
+with the customer's own connection, comparing a known-good reference
+station (Atlantic City, `8534720`) against the two failing ones:
+
+- Atlantic City worked fine with this code's exact request shape
+  (`time_zone=gmt`, `datum=STND`, a narrow same-day window) -- so the
+  request format itself was never the problem.
+- The failing station returned the identical error under `interval=h`
+  **and** `interval=hilo` -- ruling out a curve-vs-hilo capability split.
+- The failing station's predictions request succeeded the moment
+  `time_zone` changed from `gmt` to `lst_ldt` -- same station, same
+  interval, same datum, nothing else different.
+
+That's the actual, complete cause: **`time_zone=gmt` silently breaks
+predictions for subordinate stations.** Best-guess mechanism (not
+verified against NOAA's internals, just consistent with everything
+observed): a subordinate station's predictions are computed as a time/
+height offset applied to a reference station, anchored to *local*
+calendar days -- a GMT-specified request window can straddle a different
+local calendar day than intended, breaking that computation, while a
+reference station's own full harmonic computation doesn't care either
+way. That's exactly why Atlantic City worked under both time zones the
+whole time, masking the bug until a subordinate station was actually
+tried against it.
+
+Fixed by switching every request to `time_zone=lst_ldt` (the station's
+own local time) instead of `gmt`. That means `begin_date`/`end_date` must
+now be sent in local wall-clock time too (not UTC), and the returned `t`
+values need converting from local-wall-clock-in-a-zone back to a UTC
+instant -- neither direction has a JS built-in, so `noaaLocalDateParam`
+and `parseNoaaLocalTimestamp` replace the old `noaaDateParam`/
+`parseNoaaGmtTimestamp`, using the same `timeZone` (from `tzlookup`)
+already computed for display formatting elsewhere in this file. The
+datum (`STND`) and header (`OUTBOUND_FETCH_HEADERS`) fixes from the two
+earlier attempts remain in place -- neither was wrong to make, just not
+this bug -- and this is why: a live error surviving three independent,
+individually-plausible fixes (network headers, then datum, then a wrong
+theory about station capability) meant the actual cause was still
+unfound, and the only way to pin it down for certain was a controlled,
+one-variable-at-a-time comparison against NOAA directly, bypassing this
+codebase's own request-building code so a bug in the code couldn't hide
+in the result. See `test/astro.test.js`'s tests for `noaaLocalDateParam`/
+`parseNoaaLocalTimestamp` (including a same-string-different-zone case,
+and a same-zone-different-season case to confirm DST is resolved
+correctly rather than a fixed offset), and the test asserting
+`time_zone=lst_ldt` is actually sent.
+
 **Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
 unlike everything else here -- there's no closed-form time for lunar
 transit the way there is for solar noon. `computeSolunarPeriods` finds
