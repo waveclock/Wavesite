@@ -330,6 +330,79 @@ and a same-zone-different-season case to confirm DST is resolved
 correctly rather than a fixed offset), and the test asserting
 `time_zone=lst_ldt` is actually sent.
 
+**`time_zone=lst_ldt` was necessary but not sufficient.** The customer
+retested after that fix deployed and the card still didn't load. Isolated
+it one variable at a time again, hitting NOAA directly, keeping
+`time_zone=lst_ldt` fixed throughout:
+
+- `datum=STND` failed on **both** `interval=h` and `interval=hilo`.
+- `datum=MLLW` also failed on `interval=h` -- but succeeded on
+  `interval=hilo`.
+
+Two more things this whole investigation had gotten wrong turned out to
+both be real, at the same time:
+
+1. **`STND` isn't actually universal.** The earlier switch from `MLLW` to
+   `STND` was based on NOAA's own documentation calling `STND` the
+   guaranteed fallback every station supports -- true in principle,
+   apparently not true in practice for this station. Reverted to `MLLW`,
+   which is what actually works, and which is also what real customers
+   would expect anyway (the datum ordinary tide charts and other tide
+   clocks use). No fallback chain between the two -- there's no evidence
+   `STND` is ever actually needed, and adding speculative complexity for
+   an unconfirmed case isn't worth it.
+2. **This station has no continuous curve at all, at any datum.** This
+   was the *original* theory (a "time only" subordinate station), dropped
+   too early -- the test that seemed to disprove it (`interval=h` and
+   `interval=hilo` failing identically under `STND`) was confounded by
+   also being under the wrong `time_zone`, which broke everything
+   regardless of interval and masked the real, narrower distinction.
+   With `time_zone` and `datum` both correct, the split is real and
+   specific to `interval=h`: this subordinate station only has time/
+   height-offset hi/lo predictions from a reference station, with no
+   harmonic curve ever computed for it.
+
+`fetchTideCardData` now treats these two NOAA calls with different
+criticality, the same resilience principle used everywhere else in this
+file: `interval=hilo` (the day's actual high/low points) is the one
+thing the card can't function without, so a failure there still fails
+the whole card. `interval=h` (the continuous curve, nice-to-have on top)
+degrades to an empty array on a confirmed `noaaDataError` -- but NOT on
+a genuine network-level failure, which still fails the whole card, since
+that's a real problem rather than a known data-availability fact. Both
+NOAA calls still fire concurrently for latency; `curvePromise` gets a
+no-op `.catch()` attached immediately so its own rejection is never
+"unhandled" if `hiloPromise` throws first and execution never reaches
+its own `try`/`catch` -- a real crash caught only by actually running
+these two failure paths together in a test, not by inspecting the code.
+
+`drawTideCard` already skipped drawing the curve line entirely for
+`tideCurve.length <= 1` (from earlier sparse-data handling), so an empty
+curve doesn't crash rendering -- but its height-scale calculation only
+looked at `tideCurve`, which silently fell back to a fixed `[0,1]` range
+whenever the curve was empty. That would have clipped real hi/lo values
+(e.g. a real `3.777` from this exact station) off the top of the plot
+instead of scaling to fit them. Fixed in both `dynamic.js` and
+`design-v2/index.html` (the client copy) by deriving the height range
+from `tideExtrema` too, not just `tideCurve` -- a no-op in the normal
+case (extrema already fall within the curve's own range) but load-bearing
+for a hi/lo-only station. See `test/dynamic.test.js`'s regression test
+rendering exactly that scenario and confirming the high-tide dot lands
+within the plot's own y-range rather than off the top, plus
+`test/astro.test.js`'s three tests covering: hilo-succeeds/curve-fails
+(degrades, card still works), hilo-fails/curve-succeeds (still fails,
+hilo is the load-bearing one), and a genuine non-`noaaDataError` failure
+on the curve request alone (still fails -- only a confirmed "no data"
+response degrades).
+
+The moral, worth remembering the next time a live error survives a fix
+that seemed to nail it: **isolate one variable at a time against the
+real system, not against this codebase's assumptions about it** -- every
+wrong turn in this investigation (headers, a too-broad datum theory, a
+too-early-abandoned interval theory) came from changing more than one
+thing at once, or trusting NOAA's documentation over what NOAA actually
+does for a specific real station.
+
 **Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
 unlike everything else here -- there's no closed-form time for lunar
 transit the way there is for solar noon. `computeSolunarPeriods` finds

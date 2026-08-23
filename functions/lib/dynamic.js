@@ -1044,7 +1044,13 @@ function drawTideCard(ctx, card) {
     }
   }
 
-  const heights = card.tideCurve.map((p) => p.heightFt);
+  // Includes extrema heights, not just the curve's -- normally a no-op
+  // (extrema fall within the curve's own range), but load-bearing when
+  // tideCurve is empty (a subordinate station with hi/lo-only
+  // predictions, no continuous curve -- see astro.js's fetchTideCardData):
+  // without this, the scale would fall back to [0,1] and clip real hi/lo
+  // values well outside that range instead of scaling to fit them.
+  const heights = card.tideCurve.map((p) => p.heightFt).concat((card.tideExtrema || []).map((p) => p.heightFt));
   const minH = (heights.length ? Math.min(...heights) : 0) - 0.4;
   const maxH = (heights.length ? Math.max(...heights) : 1) + 0.4;
   function heightToY(h) {

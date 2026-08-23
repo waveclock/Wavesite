@@ -2942,7 +2942,10 @@
       }
     }
 
-    const heights = card.tideCurve.map((p) => p.heightFt);
+    // Includes extrema heights too -- see dynamic.js's drawTideCard for why
+    // (load-bearing when tideCurve is empty, a subordinate station with no
+    // continuous curve, hi/lo predictions only).
+    const heights = card.tideCurve.map((p) => p.heightFt).concat((card.tideExtrema || []).map((p) => p.heightFt));
     const minH = (heights.length ? Math.min(...heights) : 0) - 0.4;
     const maxH = (heights.length ? Math.max(...heights) : 1) + 0.4;
     function heightToY(v) { return PLOT_BOTTOM - ((v - minH) / (maxH - minH)) * (PLOT_BOTTOM - PLOT_TOP); }
