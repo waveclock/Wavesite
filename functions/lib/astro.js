@@ -15,22 +15,20 @@
 // nor api.open-meteo.com are reachable from it (both returned a 403 from
 // the sandbox's own egress proxy, not from NOAA/Open-Meteo). Built against
 // NOAA's long-stable, publicly documented CO-OPS "datagetter" JSON shape;
-// verify against a real station once this is deployed, the same way
-// espnProxy's live reachability was confirmed after the fact (see
-// README's "Known tradeoffs").
+// see fetchNoaaPredictions below for how a real production failure was
+// actually diagnosed instead -- by asking the customer to hit NOAA
+// directly from their own browser and compare responses, since this
+// sandbox can't reach it either.
 //
 // All three outbound fetches (NOAA, Open-Meteo weather, Open-Meteo
-// marine) now send OUTBOUND_FETCH_HEADERS (lib/http.js) -- a real
-// browser User-Agent instead of Node's own default ("User-Agent: node",
-// a plain bot signal). A live 502 from astroProxy after deploy couldn't
-// be reproduced from this sandbox (both hosts are policy-blocked here
-// too, same as before), so this isn't a confirmed repro -- it's the same
-// fix applied to fetchDitheredLogo (dynamic.js) after a real live ESPN
-// CDN failure, tried here on the same theory since Node's bare "node"
-// User-Agent is a plausible reason for a CDN/API to reject the request.
-// If a live check after deploy shows this wasn't it, see this file's
-// header comment above (and dynamic.js's fetchHeadlines) for the
-// header-flip-flop history -- it's not a fix that's worked everywhere.
+// marine) send OUTBOUND_FETCH_HEADERS (lib/http.js) -- a real browser
+// User-Agent instead of Node's own default ("User-Agent: node", a plain
+// bot signal) -- the same fix applied to fetchDitheredLogo (dynamic.js)
+// after a real live ESPN CDN failure. This did NOT turn out to be the
+// cause of a live NOAA 502 that came up after deploy (see
+// fetchNoaaPredictions's comment for the actual cause -- time_zone, not
+// headers or datum), but it's a real improvement in its own right and
+// left in place.
 
 const SunCalc = require("suncalc");
 const tzlookup = require("tz-lookup");
@@ -67,47 +65,81 @@ function formatLocalTime(date, timeZone) {
   return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone }).format(date);
 }
 
-// NOAA's begin_date/end_date, precise to the minute, in the station's
-// (irrelevant here, since we request time_zone=gmt) or GMT clock --
-// "yyyyMMdd HH:mm".
-function noaaDateParam(date) {
-  const pad = (n) => String(n).padStart(2, "0");
-  return (
-    date.getUTCFullYear() + pad(date.getUTCMonth() + 1) + pad(date.getUTCDate()) +
-    " " + pad(date.getUTCHours()) + ":" + pad(date.getUTCMinutes())
-  );
+// NOAA's begin_date/end_date, precise to the minute, in the station's own
+// local wall-clock time (time_zone=lst_ldt -- see the fetchNoaaPredictions
+// comment below for why this has to be local time, not GMT) --
+// "yyyyMMdd HH:mm". Intl.DateTimeFormat already does the UTC-instant ->
+// local-wall-clock conversion directly; no offset math needed in this
+// direction.
+function noaaLocalDateParam(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type).value;
+  const hour = get("hour") === "24" ? "00" : get("hour"); // some ICU versions format midnight as "24:00" with hour12:false
+  return get("year") + get("month") + get("day") + " " + hour + ":" + get("minute");
 }
 
-// NOAA's "t" field under time_zone=gmt is "yyyy-MM-dd HH:mm" with no
-// timezone marker -- parsed as local time by JS's Date constructor if
-// handed to it as-is, which would silently corrupt every timestamp on any
-// machine not already running in UTC. Force it to be read as UTC instead.
-function parseNoaaGmtTimestamp(t) {
-  return new Date(t.replace(" ", "T") + "Z");
+// NOAA's "t" field under time_zone=lst_ldt is "yyyy-MM-dd HH:mm" in the
+// station's own local wall-clock time (LST or LDT, whichever applies on
+// that date -- NOAA picks the right one; this uses the same IANA zone
+// tzlookup derived for this lat/lon, which should always agree). JS has
+// no built-in "wall time in this zone -> UTC instant" conversion, so this
+// uses the standard trick: parse the string as if it were UTC (a
+// guess), format that guess back out in `timeZone` to see what wall
+// clock time it actually represents there, and correct by the
+// difference -- one pass is enough since zone offsets are whole/half
+// hours, not something that drifts across a single correction.
+function parseNoaaLocalTimestamp(t, timeZone) {
+  const naiveUtc = new Date(t.replace(" ", "T") + "Z");
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+  }).formatToParts(naiveUtc);
+  const get = (type) => Number(parts.find((p) => p.type === type).value);
+  const hour = parts.find((p) => p.type === "hour").value === "24" ? 0 : get("hour");
+  const asIfUtc = Date.UTC(get("year"), get("month") - 1, get("day"), hour, get("minute"), get("second"));
+  return new Date(naiveUtc.getTime() - (asIfUtc - naiveUtc.getTime()));
 }
 
-// datum is "STND" (station datum), not "MLLW" -- confirmed via a real
-// production 502 (Cloud Function logs: "No Predictions data was found.
-// Please make sure the Datum input is valid.", for stationId=8534975).
-// MLLW is only computed for stations with enough tidal-epoch data behind
-// them; plenty of subordinate/harmonic prediction stations (this one
-// included) don't have it and only support STND, the arbitrary local
-// reference every CO-OPS station is guaranteed to have. Safe to use
-// everywhere: the card never displays which datum a height is relative
-// to, and NOAA's hi/lo "type": "H"/"L" classification is about local
-// curve shape, not the datum -- switching only shifts every height by a
-// constant, it doesn't change which points count as highs/lows.
-async function fetchNoaaPredictions(stationId, begin, end, interval, fetchImpl) {
+// datum is "STND" (station datum), not "MLLW" -- MLLW is only computed
+// for stations with enough tidal-epoch data behind them; plenty of
+// subordinate/harmonic prediction stations don't have it and only
+// support STND, the arbitrary local reference every CO-OPS station is
+// guaranteed to have. Safe to use everywhere: the card never displays
+// which datum a height is relative to, and NOAA's hi/lo "type": "H"/"L"
+// classification is about local curve shape, not the datum -- switching
+// only shifts every height by a constant, it doesn't change which points
+// count as highs/lows.
+//
+// time_zone is "lst_ldt" (the station's own local time), not "gmt" --
+// this turned out to be the actual, complete cause of a live 502/422 for
+// stationId=8534975 that switching datum alone did NOT fix (identical
+// error with both MLLW and STND). Confirmed directly against NOAA, no
+// code involved: requesting this station's predictions with
+// time_zone=gmt failed for every datum and every interval (h and hilo
+// both), but the exact same request with time_zone=lst_ldt instead
+// succeeded -- for both this subordinate station and a reference station
+// (Atlantic City) that already worked fine either way. Likely
+// explanation: subordinate-station predictions are computed as a time/
+// height offset from a reference station, anchored to local calendar
+// days -- a gmt-specified window can straddle different local calendar
+// days than intended, breaking that computation, while a reference
+// station's full harmonic computation doesn't care either way (hence it
+// working under both time zones, masking the real bug until a
+// subordinate station was actually tried).
+async function fetchNoaaPredictions(stationId, begin, end, interval, timeZone, fetchImpl) {
   const doFetch = fetchImpl || fetch;
   const params = new URLSearchParams({
     station: stationId,
     product: "predictions",
     datum: "STND",
-    time_zone: "gmt",
+    time_zone: "lst_ldt",
     units: "english",
     format: "json",
-    begin_date: noaaDateParam(begin),
-    end_date: noaaDateParam(end),
+    begin_date: noaaLocalDateParam(begin, timeZone),
+    end_date: noaaLocalDateParam(end, timeZone),
     interval
   });
   const resp = await doFetch(NOAA_BASE + "?" + params.toString(), { headers: OUTBOUND_FETCH_HEADERS });
@@ -118,18 +150,15 @@ async function fetchNoaaPredictions(stationId, begin, end, interval, fetchImpl) 
     // separately from a thrown/network-level failure (a timeout, DNS
     // failure, etc.) so astroProxyHandler can tell a customer something
     // more useful than "couldn't reach NOAA" when the real story is "this
-    // specific station has no predictions data" (switching datum from
-    // MLLW to STND didn't change this error at all for stationId=8534975
-    // in production -- same message, byte for byte -- which means it
-    // isn't a datum problem: this looks like a subordinate station that
-    // only has time-offset predictions, not full height predictions, and
-    // no datum will ever produce a height curve for one of those).
+    // specific station has no predictions data at all" (a genuine gap in
+    // NOAA's own data, confirmed by hitting NOAA directly and getting the
+    // same error for every datum/time_zone/interval combination tried).
     const err = new Error(data.error.message || "NOAA returned an error");
     err.noaaDataError = true;
     throw err;
   }
   return (data.predictions || []).map((p) => ({
-    t: parseNoaaGmtTimestamp(p.t),
+    t: parseNoaaLocalTimestamp(p.t, timeZone),
     heightFt: parseFloat(p.v),
     isHigh: p.type === "H" ? true : p.type === "L" ? false : null
   }));
@@ -483,8 +512,8 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
   const dusk = times.dusk;
 
   const [curve, extrema] = await Promise.all([
-    fetchNoaaPredictions(stationId, dawn, dusk, "h", fetchImpl),
-    fetchNoaaPredictions(stationId, dawn, dusk, "hilo", fetchImpl)
+    fetchNoaaPredictions(stationId, dawn, dusk, "h", timeZone, fetchImpl),
+    fetchNoaaPredictions(stationId, dawn, dusk, "hilo", timeZone, fetchImpl)
   ]);
 
   function labeled(date) {
@@ -534,8 +563,8 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
 module.exports = {
   moonPhaseName,
   formatLocalTime,
-  noaaDateParam,
-  parseNoaaGmtTimestamp,
+  noaaLocalDateParam,
+  parseNoaaLocalTimestamp,
   fetchNoaaPredictions,
   findMoonAltitudeExtrema,
   computeSolunarPeriods,

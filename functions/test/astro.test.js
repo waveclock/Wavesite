@@ -8,8 +8,8 @@ const assert = require("assert");
 const {
   moonPhaseName,
   formatLocalTime,
-  noaaDateParam,
-  parseNoaaGmtTimestamp,
+  noaaLocalDateParam,
+  parseNoaaLocalTimestamp,
   fetchNoaaPredictions,
   findMoonAltitudeExtrema,
   computeSolunarPeriods,
@@ -113,25 +113,33 @@ function buildHourlySeries(startHour, endHour, fields) {
     assert.strictEqual(formatLocalTime(null, "America/New_York"), null);
   });
 
-  await test("noaaDateParam formats a UTC date as NOAA's \"yyyyMMdd HH:mm\"", () => {
-    assert.strictEqual(noaaDateParam(new Date("2026-07-05T06:07:00Z")), "20260705 06:07");
+  await test("noaaLocalDateParam formats a UTC instant as NOAA's \"yyyyMMdd HH:mm\" in the station's own local wall-clock time", () => {
+    // 06:07 UTC in July is 02:07 EDT (UTC-4) in America/New_York.
+    assert.strictEqual(noaaLocalDateParam(new Date("2026-07-05T06:07:00Z"), "America/New_York"), "20260705 02:07");
+    // Same instant, different zone -> different local wall-clock string.
+    assert.strictEqual(noaaLocalDateParam(new Date("2026-07-05T06:07:00Z"), "America/Los_Angeles"), "20260704 23:07");
   });
 
-  await test("parseNoaaGmtTimestamp reads NOAA's space-separated string as UTC, not local time", () => {
-    const parsed = parseNoaaGmtTimestamp("2026-07-15 14:00");
-    assert.strictEqual(parsed.toISOString(), "2026-07-15T14:00:00.000Z");
+  await test("parseNoaaLocalTimestamp reads NOAA's space-separated string as local wall-clock time in the given zone, not UTC", () => {
+    // "14:00" local in EDT (UTC-4) is 18:00 UTC.
+    const summer = parseNoaaLocalTimestamp("2026-07-15 14:00", "America/New_York");
+    assert.strictEqual(summer.toISOString(), "2026-07-15T18:00:00.000Z");
+    // Same wall-clock string in EST (UTC-5, January) is 19:00 UTC -- confirms
+    // this resolves the zone's DST correctly for the given date, not a fixed offset.
+    const winter = parseNoaaLocalTimestamp("2026-01-15 14:00", "America/New_York");
+    assert.strictEqual(winter.toISOString(), "2026-01-15T19:00:00.000Z");
   });
 
   await test("fetchNoaaPredictions parses heights as numbers and flags isHigh only for interval=hilo", () => {
     return (async () => {
       const curveFetch = mockNoaaFetch({ h: [{ t: "2026-07-15 10:00", v: "2.345" }] });
-      const curve = await fetchNoaaPredictions("8534720", new Date(), new Date(), "h", curveFetch);
+      const curve = await fetchNoaaPredictions("8534720", new Date(), new Date(), "h", "America/New_York", curveFetch);
       assert.strictEqual(curve.length, 1);
       assert.strictEqual(curve[0].heightFt, 2.345);
       assert.strictEqual(curve[0].isHigh, null);
 
       const hiloFetch = mockNoaaFetch({ hilo: [{ t: "2026-07-15 13:22", v: "4.4", type: "H" }, { t: "2026-07-15 07:14", v: "0.6", type: "L" }] });
-      const hilo = await fetchNoaaPredictions("8534720", new Date(), new Date(), "hilo", hiloFetch);
+      const hilo = await fetchNoaaPredictions("8534720", new Date(), new Date(), "hilo", "America/New_York", hiloFetch);
       assert.strictEqual(hilo.length, 2);
       assert.strictEqual(hilo[0].isHigh, true);
       assert.strictEqual(hilo[1].isHigh, false);
@@ -141,7 +149,7 @@ function buildHourlySeries(startHour, endHour, fields) {
   await test("fetchNoaaPredictions throws on a NOAA-reported error (e.g. an unknown/retired station) instead of returning garbage, tagged as noaaDataError (not a connectivity failure)", async () => {
     const errorFetch = async () => ({ json: async () => ({ error: { message: "No data was found. This product may not be offered at this station." } }) });
     try {
-      await fetchNoaaPredictions("0000000", new Date(), new Date(), "h", errorFetch);
+      await fetchNoaaPredictions("0000000", new Date(), new Date(), "h", "America/New_York", errorFetch);
       assert.fail("expected fetchNoaaPredictions to throw");
     } catch (err) {
       assert.match(err.message, /No data was found/);
@@ -149,21 +157,31 @@ function buildHourlySeries(startHour, endHour, fields) {
     }
   });
 
-  await test("fetchNoaaPredictions requests datum=STND, not MLLW -- a real subordinate station (8534975) rejected MLLW in production", async () => {
+  await test("fetchNoaaPredictions requests datum=STND (not MLLW) and time_zone=lst_ldt (not gmt)", async () => {
     let capturedUrl = null;
     const capturingFetch = async (url) => {
       capturedUrl = url;
       return { json: async () => ({ predictions: [] }) };
     };
-    await fetchNoaaPredictions("8534975", new Date(), new Date(), "h", capturingFetch);
-    const datum = new URL(capturedUrl).searchParams.get("datum");
-    assert.strictEqual(datum, "STND");
+    await fetchNoaaPredictions("8534975", new Date("2026-07-15T10:00:00Z"), new Date("2026-07-15T20:00:00Z"), "h", "America/New_York", capturingFetch);
+    const params = new URL(capturedUrl).searchParams;
+    assert.strictEqual(params.get("datum"), "STND");
+    // time_zone=lst_ldt is the actual, complete fix for a real production
+    // 502/422 (stationId=8534975) that datum alone did NOT resolve --
+    // confirmed by hitting NOAA directly: gmt failed for every datum and
+    // interval combination on this subordinate station, lst_ldt succeeded.
+    assert.strictEqual(params.get("time_zone"), "lst_ldt");
+    // begin_date/end_date must be in the station's LOCAL wall-clock time to
+    // match time_zone=lst_ldt, not the UTC values passed in -- 10:00 UTC is
+    // 06:00 EDT in July.
+    assert.strictEqual(params.get("begin_date"), "20260715 06:00");
+    assert.strictEqual(params.get("end_date"), "20260715 16:00");
   });
 
   await test("fetchNoaaPredictions surfaces NOAA's real 'Datum input is valid' error message (still tagged noaaDataError even with STND -- this turned out to be a station that has no height predictions at all, not a datum problem)", async () => {
     const invalidDatumFetch = async () => ({ json: async () => ({ error: { message: "No Predictions data was found. Please make sure the Datum input is valid." } }) });
     try {
-      await fetchNoaaPredictions("8534975", new Date(), new Date(), "h", invalidDatumFetch);
+      await fetchNoaaPredictions("8534975", new Date(), new Date(), "h", "America/New_York", invalidDatumFetch);
       assert.fail("expected fetchNoaaPredictions to throw");
     } catch (err) {
       assert.match(err.message, /Datum input is valid/);
@@ -177,15 +195,20 @@ function buildHourlySeries(startHour, endHour, fields) {
       capturedOptions = options;
       return { json: async () => ({ predictions: [] }) };
     };
-    await fetchNoaaPredictions("8534720", new Date(), new Date(), "h", capturingFetch);
+    await fetchNoaaPredictions("8534720", new Date(), new Date(), "h", "America/New_York", capturingFetch);
     assert.strictEqual(capturedOptions.headers, OUTBOUND_FETCH_HEADERS);
   });
 
   await test("fetchTideCardData assembles one payload from suncalc + both NOAA calls, filtering tideExtrema to only real hi/lo points", async () => {
+    // NOAA's "t" is now the station's own local wall-clock time (see
+    // fetchNoaaPredictions's time_zone=lst_ldt comment), so these fixtures
+    // are written as local (America/New_York, EDT/UTC-4 in July) --
+    // 4 hours behind the equivalent UTC values this test's assertions
+    // below were originally written against.
     const mockFetch = mockAllApisFetch({
       noaa: {
-        h: [{ t: "2026-07-15 12:00", v: "2.00" }, { t: "2026-07-15 13:00", v: "2.50" }],
-        hilo: [{ t: "2026-07-15 07:14", v: "0.60", type: "L" }, { t: "2026-07-15 13:22", v: "4.40", type: "H" }]
+        h: [{ t: "2026-07-15 08:00", v: "2.00" }, { t: "2026-07-15 09:00", v: "2.50" }],
+        hilo: [{ t: "2026-07-15 03:14", v: "0.60", type: "L" }, { t: "2026-07-15 09:22", v: "4.40", type: "H" }]
       }
     });
     const now = new Date("2026-07-15T16:00:00Z");
