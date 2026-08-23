@@ -965,7 +965,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(c.height, CANVAS_HEIGHT);
   });
   await test("with no tideCurve at all (a station with hi/lo-only predictions, no continuous curve), the height scale still derives its range from tideExtrema -- regression test for a real bug: without this, real hi/lo heights (e.g. 3.777ft) would clip off the top of the plot instead of scaling to fit", () => {
-    const PLOT_TOP = 120, PLOT_BOTTOM = 160; // TOP_STRIP_END(74)+46, PLOT_TOP+40 -- mirrors lib/dynamic.js's local (unexported) consts
+    const PLOT_TOP = 124, PLOT_BOTTOM = 168; // TOP_STRIP_END(74)+50, PLOT_TOP+44 -- mirrors lib/dynamic.js's local (unexported) consts
     const card = Object.assign({}, SAMPLE_TIDE_CARD, {
       tideCurve: [],
       tideExtrema: [
@@ -1039,22 +1039,29 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     drawTideCard(c.getContext("2d"), card); // must not throw
   });
   await test("the alert strip replaces the quiet Sunrise/Sunset line when there's rain or a wind ramp to call out, and falls back to Sunrise/Sunset when there isn't", () => {
-    const alertY = BANNER_HEIGHT + 12; // roughly mid-way down the top-strip row
-    function hasInkAt(card, x) {
+    // Sunrise text at 18px now visually spans roughly the same x-range as
+    // the warning triangle (both sit near the left edge, x~21-58), so a
+    // single shared y no longer discriminates one from the other the way
+    // it did at the old, smaller sizes. The triangle's apex is a few px
+    // above where the (bigger) text's own ink starts, so checking there
+    // instead still cleanly tells the two apart.
+    function hasInkAt(card, x, y) {
       const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
       drawTideCard(c.getContext("2d"), card);
-      const data = c.getContext("2d").getImageData(x, alertY, 1, 1).data;
+      const data = c.getContext("2d").getImageData(x, y, 1, 1).data;
       return data[0] < 200;
     }
+    const triangleApexY = BANNER_HEIGHT + 2; // above the text's own ink, only the triangle's apex reaches this high
+    const textY = BANNER_HEIGHT + 12; // roughly mid-way down the top-strip row
     const withAlert = Object.assign({}, SAMPLE_TIDE_CARD, {
       weather: { rainWindows: [{ start: "2026-07-15T18:00:00.000Z", end: "2026-07-15T20:00:00.000Z", label: "RAIN LIKELY 2:00 PM-4:00 PM" }], windRamp: null }
     });
     const withoutAlert = Object.assign({}, SAMPLE_TIDE_CARD, { weather: {} });
-    // Around x=30 is where the warning triangle sits -- only present with an alert.
-    assert.ok(hasInkAt(withAlert, 30), "expected the warning triangle when there's a rain window");
-    assert.ok(!hasInkAt(withoutAlert, 30), "expected no warning triangle on a normal day");
+    // Around x=31 is where the warning triangle's apex sits -- only present with an alert.
+    assert.ok(hasInkAt(withAlert, 31, triangleApexY), "expected the warning triangle when there's a rain window");
+    assert.ok(!hasInkAt(withoutAlert, 31, triangleApexY), "expected no warning triangle on a normal day");
     // Sunrise's plain-text line sits at the far left, x=24-ish -- present only without an alert.
-    assert.ok(hasInkAt(withoutAlert, 26), "expected the Sunrise label to fall back in without an alert");
+    assert.ok(hasInkAt(withoutAlert, 26, textY), "expected the Sunrise label to fall back in without an alert");
   });
   await test("the weather footer row draws wind/pressure/swell/water-temp without throwing, and omits fields that are null (no crash on sparse Open-Meteo coverage)", () => {
     const full = Object.assign({}, SAMPLE_TIDE_CARD, {

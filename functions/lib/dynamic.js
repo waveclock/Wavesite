@@ -921,23 +921,6 @@ function drawRainTick(ctx, x, y, size) {
   ctx.stroke();
   ctx.restore();
 }
-// Draws "label value" with the value bold/solid black and the label in a
-// lighter weight -- used throughout the weather row so the actual
-// NUMBERS are what stand out, not the words around them. Returns the x
-// position immediately after what was drawn, for chaining more segments
-// on the same line (textAlign must be "left" going in).
-function drawLabelThenValue(ctx, label, value, x, y, serifFamily) {
-  ctx.textAlign = "left"; // self-contained: never depends on a caller having reset alignment first
-  ctx.font = "bold 14px \"" + serifFamily + "\"";
-  ctx.fillStyle = "rgba(0,0,0,0.75)";
-  ctx.fillText(label, x, y);
-  const labelW = ctx.measureText(label).width;
-  ctx.font = "bold 15px \"" + serifFamily + "\"";
-  ctx.fillStyle = "#000";
-  ctx.fillText(value, x + labelW, y);
-  return x + labelW + ctx.measureText(value).width;
-}
-
 // A diagonal-hatch "highlight" -- deliberately not a gray fill, since a
 // semi-transparent wash would just get thresholded away to solid black or
 // white once this is packed to 1-bit for the real e-ink display. Denser
@@ -985,16 +968,20 @@ function drawTideCard(ctx, card) {
   // mockup iteration that led here: floating a label relative to its
   // dot's data-driven height is what caused repeated overlap bugs.
   //
-  // The plot itself is trimmed from its original 64px down to 40px --
+  // The plot itself is trimmed from its original 64px down to 30px --
   // it's just a simple rise-and-fall shape, and doesn't need much
   // vertical resolution to read clearly -- to make room for larger text
   // everywhere else (bigger fonts need more line height, not just wider
-  // glyphs). The reclaimed space is split across the top strip and the
-  // hi/lo label zones (both top and bottom) and the footer.
+  // glyphs; nothing on this card is smaller than 18px, matching the
+  // fishing badge/moon phase, per an explicit "minimum font size" ask).
+  // The reclaimed space is split across the hi/lo label zones (both top
+  // and bottom, which each grew to fit an 18px time label under the
+  // 22px height label) and the footer (now two full 18px lines instead
+  // of one row of smaller mixed sizes).
   const TOP_STRIP_END = BANNER_HEIGHT + 26;
-  const PLOT_TOP = TOP_STRIP_END + 46;
-  const PLOT_BOTTOM = PLOT_TOP + 40;
-  const FOOTER_START = PLOT_BOTTOM + 46;
+  const PLOT_TOP = TOP_STRIP_END + 50;
+  const PLOT_BOTTOM = PLOT_TOP + 44;
+  const FOOTER_START = PLOT_BOTTOM + 50;
 
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
@@ -1039,7 +1026,7 @@ function drawTideCard(ctx, card) {
     ctx.textAlign = "left";
     ctx.fillText(alertParts.join("   ·   "), 50, (BANNER_HEIGHT + TOP_STRIP_END) / 2 + 6);
   } else {
-    ctx.font = "bold 15px \"" + FONT_FAMILY.serif + "\"";
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
     ctx.fillStyle = "rgba(0,0,0,0.75)";
     if (card.sunrise.label) {
       ctx.textAlign = "left";
@@ -1137,10 +1124,10 @@ function drawTideCard(ctx, card) {
       }
       ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "#000";
-      ctx.fillText(heightLabel, x, TOP_STRIP_END + 22);
-      ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillText(heightLabel, x, TOP_STRIP_END + 24);
+      ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "rgba(0,0,0,0.8)";
-      ctx.fillText(e.label, x, TOP_STRIP_END + 41);
+      ctx.fillText(e.label, x, TOP_STRIP_END + 43);
     } else {
       if (PLOT_BOTTOM - y > 14) {
         ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
@@ -1148,33 +1135,38 @@ function drawTideCard(ctx, card) {
       }
       ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "#000";
-      ctx.fillText(heightLabel, x, PLOT_BOTTOM + 24);
-      ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillText(heightLabel, x, PLOT_BOTTOM + 26);
+      ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "rgba(0,0,0,0.8)";
-      ctx.fillText(e.label, x, PLOT_BOTTOM + 43);
+      ctx.fillText(e.label, x, PLOT_BOTTOM + 45);
     }
   });
 
   // MAJOR/MINOR band labels sit just above the baseline, with a small
   // white halo so the hatch lines behind them don't cut through the text.
+  // At 18px the label is often wider than a MINOR band itself (a minor
+  // period is only ~50min wide, well under an hour of plot width) -- the
+  // white halo box is sized to the text, not the band, so it can extend
+  // past the band's own hatched edges into the plain plot on either side
+  // without clipping or overlapping the tide curve/dots there.
   solunarPeriods.forEach((p) => {
     const pStartMs = new Date(p.start).getTime(), pEndMs = new Date(p.end).getTime();
     if (pEndMs < dawnMs || pStartMs > duskMs) return;
     const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
     const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
-    ctx.font = "italic bold 12px \"" + FONT_FAMILY.serif + "\"";
+    ctx.font = "italic bold 18px \"" + FONT_FAMILY.serif + "\"";
     ctx.textAlign = "center";
     const bandLabel = p.kind.toUpperCase();
     const labelW = ctx.measureText(bandLabel).width;
     const labelCx = (x0 + x1) / 2;
     ctx.fillStyle = "#fff";
-    ctx.fillRect(labelCx - labelW / 2 - 4, PLOT_BOTTOM - 20, labelW + 8, 16);
+    ctx.fillRect(labelCx - labelW / 2 - 4, PLOT_BOTTOM - 25, labelW + 8, 22);
     ctx.fillStyle = "#000";
-    ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 6);
+    ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 8);
   });
 
   // Footer row 1: moon phase + rise/set.
-  const footerY1 = FOOTER_START + 27;
+  const footerY1 = FOOTER_START + 24;
   drawMoonIcon(ctx, 60, footerY1 - 10, 13, card.moon.illumination, card.moon.waxing);
   ctx.textAlign = "left";
   ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
@@ -1185,7 +1177,7 @@ function drawTideCard(ctx, card) {
   if (card.moon.rise && card.moon.rise.label) riseSetParts.push("Moonrise " + card.moon.rise.label);
   if (card.moon.set && card.moon.set.label) riseSetParts.push("Moonset " + card.moon.set.label);
   if (riseSetParts.length) {
-    ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
     ctx.fillStyle = "rgba(0,0,0,0.75)";
     ctx.textAlign = "right";
     ctx.fillText(riseSetParts.join("   ·   "), CANVAS_WIDTH - 24, footerY1 - 3);
@@ -1195,15 +1187,28 @@ function drawTideCard(ctx, card) {
   // both from Open-Meteo. Omitted entirely if there's nothing at all to
   // show (e.g. the weather fetch came back sparse), rather than drawing
   // an empty row.
-  const footerY2 = CANVAS_HEIGHT - 15;
+  //
+  // "Wind"/"Swell"/"water" label words are dropped here (unlike the
+  // moonrise/moonset line above, which keeps its words and still fits) --
+  // at 18px, a full label-then-value row for both clusters no longer fits
+  // in the card's width. Each icon (wind arrow, pressure trend arrow,
+  // wave glyph) already identifies what its number means, the same
+  // convention "H"/"L" and the pressure trend arrow already used even
+  // before this -- so the words were redundant, not essential.
+  const footerY2 = CANVAS_HEIGHT - 8;
   let cx = 84;
   if (weather.wind) {
     drawWindArrow(ctx, 58, footerY2 - 8, 8);
-    cx = drawLabelThenValue(ctx, "Wind ", weather.wind.mph + " mph" + (weather.wind.dir ? " " + weather.wind.dir : ""), cx, footerY2 - 3, FONT_FAMILY.serif);
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "left";
+    const windValue = weather.wind.mph + " mph" + (weather.wind.dir ? " " + weather.wind.dir : "");
+    ctx.fillText(windValue, cx, footerY2 - 3);
+    cx += ctx.measureText(windValue).width;
   }
   if (weather.pressure && weather.pressure.hpa != null) {
     if (cx > 84) {
-      ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+      ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "rgba(0,0,0,0.75)";
       ctx.textAlign = "left";
       ctx.fillText("   ·   ", cx, footerY2 - 3);
@@ -1213,42 +1218,25 @@ function drawTideCard(ctx, card) {
       drawTrendArrow(ctx, cx + 8, footerY2 - 8, 8, weather.pressure.trend === "falling" ? "down" : "up");
       cx += 18;
     }
-    const pressureValue = weather.pressure.hpa + " hPa" + (weather.pressure.deltaHpa != null ? " (" + weather.pressure.deltaHpa + " in 6h)" : "");
-    ctx.font = "bold 16px \"" + FONT_FAMILY.serif + "\"";
+    const pressureValue = weather.pressure.hpa + " hPa" + (weather.pressure.deltaHpa != null ? " (" + weather.pressure.deltaHpa + ")" : "");
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
     ctx.fillStyle = "#000";
     ctx.textAlign = "left";
     ctx.fillText(pressureValue, cx, footerY2 - 3);
   }
 
-  let rx = CANVAS_WIDTH - 24;
   const rightParts = [];
-  if (weather.swell) rightParts.push({ label: "Swell ", value: weather.swell.heightFt.toFixed(1) + " ft" + (weather.swell.periodS != null ? " @ " + weather.swell.periodS + "s" : "") });
-  if (weather.waterTempF != null) rightParts.push({ label: "", value: weather.waterTempF + "°F water" });
+  if (weather.swell) rightParts.push(weather.swell.heightFt.toFixed(1) + " ft" + (weather.swell.periodS != null ? " @ " + weather.swell.periodS + "s" : ""));
+  if (weather.waterTempF != null) rightParts.push(weather.waterTempF + "°F");
   if (rightParts.length) {
-    const fullPlain = rightParts.map((p) => p.label + p.value).join("   ·   ");
-    ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+    const fullPlain = rightParts.join("   ·   ");
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
     const fullW = ctx.measureText(fullPlain).width;
     let px = CANVAS_WIDTH - 24 - fullW;
     drawWaveGlyph(ctx, px - 34, footerY2 - 7, 28, 6);
+    ctx.fillStyle = "#000";
     ctx.textAlign = "left";
-    rightParts.forEach((part, i) => {
-      if (i > 0) {
-        ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
-        ctx.fillStyle = "rgba(0,0,0,0.75)";
-        ctx.fillText("   ·   ", px, footerY2 - 3);
-        px += ctx.measureText("   ·   ").width;
-      }
-      if (part.label) {
-        ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
-        ctx.fillStyle = "rgba(0,0,0,0.75)";
-        ctx.fillText(part.label, px, footerY2 - 3);
-        px += ctx.measureText(part.label).width;
-      }
-      ctx.font = "bold 15px \"" + FONT_FAMILY.serif + "\"";
-      ctx.fillStyle = "#000";
-      ctx.fillText(part.value, px, footerY2 - 3);
-      px += ctx.measureText(part.value).width;
-    });
+    ctx.fillText(fullPlain, px, footerY2 - 3);
   }
 }
 

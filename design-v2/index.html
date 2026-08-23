@@ -2843,18 +2843,6 @@
     ctx.stroke();
     ctx.restore();
   }
-  // Mirrors functions/lib/dynamic.js's drawLabelThenValue exactly.
-  function drawLabelThenValueClient(ctx, label, value, x, y) {
-    ctx.textAlign = "left"; // self-contained: never depends on a caller having reset alignment first
-    ctx.font = "bold 14px Georgia, serif";
-    ctx.fillStyle = "rgba(0,0,0,0.75)";
-    ctx.fillText(label, x, y);
-    const labelW = ctx.measureText(label).width;
-    ctx.font = "bold 15px Georgia, serif";
-    ctx.fillStyle = "#000";
-    ctx.fillText(value, x + labelW, y);
-    return x + labelW + ctx.measureText(value).width;
-  }
 
   // Mirrors functions/lib/dynamic.js's drawHatchBand exactly -- see the
   // comment there for why this is a hatch, not a gray fill.
@@ -2887,13 +2875,15 @@
       return 46 + ((clamped - dawnMs) / (duskMs - dawnMs)) * (w - 92);
     }
 
-    // See lib/dynamic.js's drawTideCard for why the plot is trimmed to
-    // 40px (from 64) -- it's just a simple shape and doesn't need much
-    // vertical resolution, freeing up room for larger text everywhere else.
+    // See lib/dynamic.js's drawTideCard for why the plot is trimmed --
+    // it's just a simple shape and doesn't need much vertical resolution,
+    // freeing up room for larger text everywhere else (nothing on this
+    // card is smaller than 18px, matching the fishing badge/moon phase,
+    // per an explicit "minimum font size" ask).
     const TOP_STRIP_END = BANNER_HEIGHT + 26;
-    const PLOT_TOP = TOP_STRIP_END + 46;
-    const PLOT_BOTTOM = PLOT_TOP + 40;
-    const FOOTER_START = PLOT_BOTTOM + 46;
+    const PLOT_TOP = TOP_STRIP_END + 50;
+    const PLOT_BOTTOM = PLOT_TOP + 44;
+    const FOOTER_START = PLOT_BOTTOM + 50;
 
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#000";
@@ -2933,7 +2923,7 @@
       ctx.textAlign = "left";
       ctx.fillText(alertParts.join("   ·   "), 50, (BANNER_HEIGHT + TOP_STRIP_END) / 2 + 6);
     } else {
-      ctx.font = "bold 15px Georgia, serif";
+      ctx.font = "bold 18px Georgia, serif";
       ctx.fillStyle = "rgba(0,0,0,0.75)";
       if (card.sunrise.label) {
         ctx.textAlign = "left";
@@ -3023,10 +3013,10 @@
         }
         ctx.font = "bold 22px Georgia, serif";
         ctx.fillStyle = "#000";
-        ctx.fillText(heightLabel, x, TOP_STRIP_END + 22);
-        ctx.font = "bold 14px Georgia, serif";
+        ctx.fillText(heightLabel, x, TOP_STRIP_END + 24);
+        ctx.font = "bold 18px Georgia, serif";
         ctx.fillStyle = "rgba(0,0,0,0.8)";
-        ctx.fillText(e.label, x, TOP_STRIP_END + 41);
+        ctx.fillText(e.label, x, TOP_STRIP_END + 43);
       } else {
         if (PLOT_BOTTOM - y > 14) {
           ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
@@ -3034,10 +3024,10 @@
         }
         ctx.font = "bold 22px Georgia, serif";
         ctx.fillStyle = "#000";
-        ctx.fillText(heightLabel, x, PLOT_BOTTOM + 24);
-        ctx.font = "bold 14px Georgia, serif";
+        ctx.fillText(heightLabel, x, PLOT_BOTTOM + 26);
+        ctx.font = "bold 18px Georgia, serif";
         ctx.fillStyle = "rgba(0,0,0,0.8)";
-        ctx.fillText(e.label, x, PLOT_BOTTOM + 43);
+        ctx.fillText(e.label, x, PLOT_BOTTOM + 45);
       }
     });
 
@@ -3046,19 +3036,19 @@
       if (pEndMs < dawnMs || pStartMs > duskMs) return;
       const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
       const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
-      ctx.font = "italic bold 12px Georgia, serif";
+      ctx.font = "italic bold 18px Georgia, serif";
       ctx.textAlign = "center";
       const bandLabel = p.kind.toUpperCase();
       const labelW = ctx.measureText(bandLabel).width;
       const labelCx = (x0 + x1) / 2;
       ctx.fillStyle = "#fff";
-      ctx.fillRect(labelCx - labelW / 2 - 4, PLOT_BOTTOM - 20, labelW + 8, 16);
+      ctx.fillRect(labelCx - labelW / 2 - 4, PLOT_BOTTOM - 25, labelW + 8, 22);
       ctx.fillStyle = "#000";
-      ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 6);
+      ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 8);
     });
 
     // Footer row 1: moon phase + rise/set.
-    const footerY1 = FOOTER_START + 27;
+    const footerY1 = FOOTER_START + 24;
     drawMoonIconClient(ctx, 60, footerY1 - 10, 13, card.moon.illumination, card.moon.waxing);
     ctx.textAlign = "left";
     ctx.font = "bold 18px Georgia, serif";
@@ -3069,22 +3059,30 @@
     if (card.moon.rise && card.moon.rise.label) riseSetParts.push("Moonrise " + card.moon.rise.label);
     if (card.moon.set && card.moon.set.label) riseSetParts.push("Moonset " + card.moon.set.label);
     if (riseSetParts.length) {
-      ctx.font = "bold 14px Georgia, serif";
+      ctx.font = "bold 18px Georgia, serif";
       ctx.fillStyle = "rgba(0,0,0,0.75)";
       ctx.textAlign = "right";
       ctx.fillText(riseSetParts.join("   ·   "), w - 24, footerY1 - 3);
     }
 
     // Footer row 2: wind + pressure (left), swell + water temp (right).
-    const footerY2 = h - 15;
+    // "Wind"/"Swell"/"water" label words are dropped -- see dynamic.js's
+    // drawTideCard for why (at 18px, a full label-then-value row for both
+    // clusters no longer fits; each icon already identifies its number).
+    const footerY2 = h - 8;
     let cx = 84;
     if (weather.wind) {
       drawWindArrowClient(ctx, 58, footerY2 - 8, 8);
-      cx = drawLabelThenValueClient(ctx, "Wind ", weather.wind.mph + " mph" + (weather.wind.dir ? " " + weather.wind.dir : ""), cx, footerY2 - 3);
+      ctx.font = "bold 18px Georgia, serif";
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      const windValue = weather.wind.mph + " mph" + (weather.wind.dir ? " " + weather.wind.dir : "");
+      ctx.fillText(windValue, cx, footerY2 - 3);
+      cx += ctx.measureText(windValue).width;
     }
     if (weather.pressure && weather.pressure.hpa != null) {
       if (cx > 84) {
-        ctx.font = "bold 14px Georgia, serif";
+        ctx.font = "bold 18px Georgia, serif";
         ctx.fillStyle = "rgba(0,0,0,0.75)";
         ctx.textAlign = "left";
         ctx.fillText("   ·   ", cx, footerY2 - 3);
@@ -3094,41 +3092,25 @@
         drawTrendArrowClient(ctx, cx + 8, footerY2 - 8, 8, weather.pressure.trend === "falling" ? "down" : "up");
         cx += 18;
       }
-      const pressureValue = weather.pressure.hpa + " hPa" + (weather.pressure.deltaHpa != null ? " (" + weather.pressure.deltaHpa + " in 6h)" : "");
-      ctx.font = "bold 16px Georgia, serif";
+      const pressureValue = weather.pressure.hpa + " hPa" + (weather.pressure.deltaHpa != null ? " (" + weather.pressure.deltaHpa + ")" : "");
+      ctx.font = "bold 18px Georgia, serif";
       ctx.fillStyle = "#000";
       ctx.textAlign = "left";
       ctx.fillText(pressureValue, cx, footerY2 - 3);
     }
 
     const rightParts = [];
-    if (weather.swell) rightParts.push({ label: "Swell ", value: weather.swell.heightFt.toFixed(1) + " ft" + (weather.swell.periodS != null ? " @ " + weather.swell.periodS + "s" : "") });
-    if (weather.waterTempF != null) rightParts.push({ label: "", value: weather.waterTempF + "°F water" });
+    if (weather.swell) rightParts.push(weather.swell.heightFt.toFixed(1) + " ft" + (weather.swell.periodS != null ? " @ " + weather.swell.periodS + "s" : ""));
+    if (weather.waterTempF != null) rightParts.push(weather.waterTempF + "°F");
     if (rightParts.length) {
-      const fullPlain = rightParts.map((p) => p.label + p.value).join("   ·   ");
-      ctx.font = "bold 14px Georgia, serif";
+      const fullPlain = rightParts.join("   ·   ");
+      ctx.font = "bold 18px Georgia, serif";
       const fullW = ctx.measureText(fullPlain).width;
       let px = w - 24 - fullW;
       drawWaveGlyphClient(ctx, px - 34, footerY2 - 7, 28, 6);
+      ctx.fillStyle = "#000";
       ctx.textAlign = "left";
-      rightParts.forEach((part, i) => {
-        if (i > 0) {
-          ctx.font = "bold 14px Georgia, serif";
-          ctx.fillStyle = "rgba(0,0,0,0.75)";
-          ctx.fillText("   ·   ", px, footerY2 - 3);
-          px += ctx.measureText("   ·   ").width;
-        }
-        if (part.label) {
-          ctx.font = "bold 14px Georgia, serif";
-          ctx.fillStyle = "rgba(0,0,0,0.75)";
-          ctx.fillText(part.label, px, footerY2 - 3);
-          px += ctx.measureText(part.label).width;
-        }
-        ctx.font = "bold 15px Georgia, serif";
-        ctx.fillStyle = "#000";
-        ctx.fillText(part.value, px, footerY2 - 3);
-        px += ctx.measureText(part.value).width;
-      });
+      ctx.fillText(fullPlain, px, footerY2 - 3);
     }
   }
 

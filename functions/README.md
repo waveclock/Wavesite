@@ -439,6 +439,48 @@ this project (the `textAlign` leak). Applied identically to `dynamic.js`
 and the `design-v2/index.html` client copy, per this file's usual
 duplication convention.
 
+**A second pass, with a hard floor: nothing on the card smaller than
+18px** (matching the fishing badge/moon phase), plus trimmed wording
+where the words no longer fit next to bigger numbers. Measured actual
+text widths with `ctx.measureText` before touching layout, rather than
+guessing:
+
+- Moonrise/moonset kept its full words -- at 18px it still fits
+  comfortably next to the moon phase name, even the longest one
+  (`Waning Crescent`).
+- The wind/pressure/swell/water-temp row did NOT fit at 18px with its
+  old "Wind 8 mph NW · 1015 hPa (-6 in 6h)" / "Swell 2.1 ft @ 8s · 68°F
+  water" wording -- the two clusters' widths overlapped by ~35px at the
+  canvas's actual width. Dropped the "Wind"/"Swell"/"water" label words
+  (each icon -- the wind arrow, the pressure trend arrow, the wave
+  glyph -- already identifies its own number, the same convention
+  "H"/"L" and the trend arrow already used even before this row was
+  touched) and shortened the pressure delta from "(-6 in 6h)" to "(-6)"
+  (always 6h, so the words added nothing). `drawLabelThenValue` (and its
+  design-v2 client copy) became dead code once its only caller no longer
+  needed a separate label -- removed rather than left unused.
+- The MAJOR/MINOR solunar band label went from 11px to 18px italic --
+  often wider than a MINOR period's own hatch band (only ~50min wide),
+  which briefly looked like a real overlap bug with the curve/dot at a
+  glance. A closer, full-resolution crop of the render showed the curve
+  actually clears the label cleanly; the label's white halo box is sized
+  to the text, not the band, and was already designed to extend past a
+  narrow band's edges rather than clip -- worth noting since a low-res
+  thumbnail read as broken when the real pixels weren't.
+- The plot band itself needed to grow back from 40px to 44px (with the
+  hi/lo label zones trimmed slightly to compensate) once the MAJOR/MINOR
+  label doubled in height (16px box to 22px) -- the first attempt at 30px
+  genuinely did put the badge and the curve in the same few pixels.
+  Caught the same way as everything else here: by rendering and looking,
+  not by computing the numbers on paper and assuming they'd work.
+
+See `test/dynamic.test.js`'s alert-strip test, updated for this pass --
+at the old, smaller sizes, checking one pixel worked for telling the
+warning triangle apart from the fallback Sunrise text, but at 18px the
+two now occupy overlapping x-ranges near the card's left edge (both
+start close to the edge), so the test now checks a y just above where
+the text's own ink starts, where only the triangle's apex reaches.
+
 **Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
 unlike everything else here -- there's no closed-form time for lunar
 transit the way there is for solar noon. `computeSolunarPeriods` finds
