@@ -13,6 +13,7 @@ const {
   fetchNoaaPredictions,
   findMoonAltitudeExtrema,
   computeSolunarPeriods,
+  interpolateTideCurveFromExtrema,
   tideRateOfChange,
   fishingScore,
   parseOpenMeteoTimestamp,
@@ -267,7 +268,7 @@ function buildHourlySeries(startHour, endHour, fields) {
     );
   });
 
-  await test("a station with hi/lo predictions but no continuous curve (interval=h fails, interval=hilo succeeds) still produces a working card, with an empty tideCurve", async () => {
+  await test("a station with hi/lo predictions but no continuous curve (interval=h fails, interval=hilo succeeds) still produces a working card, with an interpolated tideCurve instead of an empty one", async () => {
     const hiloOnlyFetch = async (url) => {
       const u = new URL(url);
       if (u.hostname !== "api.tidesandcurrents.noaa.gov") return { json: async () => ({ hourly: { time: [] } }) };
@@ -276,7 +277,16 @@ function buildHourlySeries(startHour, endHour, fields) {
       return { json: async () => ({ predictions: [{ t: "2026-07-15 03:14", v: "0.60", type: "L" }, { t: "2026-07-15 09:22", v: "4.40", type: "H" }] }) };
     };
     const data = await fetchTideCardData({ lat: 39.2776, lon: -74.5746, stationId: "8534975" }, new Date("2026-07-15T16:00:00Z"), hiloOnlyFetch);
-    assert.deepStrictEqual(data.tideCurve, []);
+    // Interpolated from the two hi/lo points, not empty -- drawTideCard can
+    // draw a real connecting line instead of just two disconnected dots.
+    assert.ok(data.tideCurve.length > 1);
+    assert.strictEqual(data.tideCurve[0].heightFt, 0.60);
+    assert.strictEqual(data.tideCurve[data.tideCurve.length - 1].heightFt, 4.40);
+    // Monotonically rising throughout (low to high, no dip) -- a cosine
+    // interpolation between two points never overshoots or reverses.
+    for (let i = 1; i < data.tideCurve.length; i++) {
+      assert.ok(data.tideCurve[i].heightFt >= data.tideCurve[i - 1].heightFt);
+    }
     assert.strictEqual(data.tideExtrema.length, 2);
     assert.ok(["Poor", "Fair", "Good", "Excellent"].includes(data.fishingScore));
   });
@@ -345,6 +355,48 @@ function buildHourlySeries(startHour, endHour, fields) {
     const dusk = new Date("2026-07-15T09:20:00Z"); // absurdly narrow, unlikely to catch a transit's center
     const periods = computeSolunarPeriods(LAT, LON, dawn, dusk, null, null);
     assert.ok(Array.isArray(periods));
+  });
+
+  console.log("interpolateTideCurveFromExtrema");
+  await test("interpolates a smooth (cosine) curve between two extrema, flat-sloped at both ends, not a straight line", () => {
+    const extrema = [
+      { t: new Date("2026-07-15T09:12:00.000Z"), heightFt: 1.0 },
+      { t: new Date("2026-07-15T13:12:00.000Z"), heightFt: 5.0 } // exactly 4h later, 4ft higher
+    ];
+    const curve = interpolateTideCurveFromExtrema(extrema);
+    assert.strictEqual(curve[0].heightFt, 1.0);
+    assert.strictEqual(curve[curve.length - 1].heightFt, 5.0);
+    // Monotonically non-decreasing throughout -- a cosine ease never dips
+    // below its start or overshoots its end between two points.
+    for (let i = 1; i < curve.length; i++) assert.ok(curve[i].heightFt >= curve[i - 1].heightFt);
+    // Flat-sloped at both ends (a real tide's rate of change is ~0 right
+    // at a high/low) -- the first step's rise should be much smaller than
+    // a straight line's would be (1/16 of the total span, since there are
+    // 16 steps of 15min across 4h), and the same near the far end.
+    const straightLineStep = 4.0 / 16;
+    assert.ok(curve[1].heightFt - curve[0].heightFt < straightLineStep * 0.5, "expected a slow start, not a straight-line pace");
+    assert.ok(curve[curve.length - 1].heightFt - curve[curve.length - 2].heightFt < straightLineStep * 0.5, "expected a slow finish, not a straight-line pace");
+  });
+  await test("interpolates across multiple consecutive extrema (a full low-high-low-high day), not just one pair", () => {
+    const extrema = [
+      { t: new Date("2026-07-15T07:00:00.000Z"), heightFt: 0.5 },
+      { t: new Date("2026-07-15T13:00:00.000Z"), heightFt: 4.5 },
+      { t: new Date("2026-07-15T19:00:00.000Z"), heightFt: 0.8 },
+      { t: new Date("2026-07-16T01:00:00.000Z"), heightFt: 4.2 }
+    ];
+    const curve = interpolateTideCurveFromExtrema(extrema);
+    assert.strictEqual(curve[0].heightFt, 0.5);
+    assert.strictEqual(curve[curve.length - 1].heightFt, 4.2);
+    // Every original extremum shows up exactly at its own height somewhere
+    // in the interpolated curve (the segment boundaries), not smoothed away.
+    extrema.forEach((e) => {
+      assert.ok(curve.some((p) => p.t.getTime() === e.t.getTime() && p.heightFt === e.heightFt));
+    });
+  });
+  await test("returns an empty curve for zero extrema, and a single point (not a throw) for exactly one -- neither has a pair to interpolate between", () => {
+    assert.deepStrictEqual(interpolateTideCurveFromExtrema([]), []);
+    const one = [{ t: new Date("2026-07-15T09:12:00.000Z"), heightFt: 2.0 }];
+    assert.deepStrictEqual(interpolateTideCurveFromExtrema(one), [{ t: one[0].t, heightFt: 2.0 }]);
   });
 
   console.log("tideRateOfChange");

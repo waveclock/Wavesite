@@ -921,23 +921,6 @@ function drawRainTick(ctx, x, y, size) {
   ctx.stroke();
   ctx.restore();
 }
-// Draws "label value" with the value bold/solid black and the label in a
-// lighter weight -- used throughout the weather row so the actual
-// NUMBERS are what stand out, not the words around them. Returns the x
-// position immediately after what was drawn, for chaining more segments
-// on the same line (textAlign must be "left" going in).
-function drawLabelThenValue(ctx, label, value, x, y, serifFamily) {
-  ctx.textAlign = "left"; // self-contained: never depends on a caller having reset alignment first
-  ctx.font = "13px \"" + serifFamily + "\"";
-  ctx.fillStyle = "rgba(0,0,0,0.65)";
-  ctx.fillText(label, x, y);
-  const labelW = ctx.measureText(label).width;
-  ctx.font = "bold 13px \"" + serifFamily + "\"";
-  ctx.fillStyle = "#000";
-  ctx.fillText(value, x + labelW, y);
-  return x + labelW + ctx.measureText(value).width;
-}
-
 // A diagonal-hatch "highlight" -- deliberately not a gray fill, since a
 // semi-transparent wash would just get thresholded away to solid black or
 // white once this is packed to 1-bit for the real e-ink display. Denser
@@ -984,25 +967,36 @@ function drawTideCard(ctx, card) {
   // the top strip or footer on a day with an unusual tide range. See the
   // mockup iteration that led here: floating a label relative to its
   // dot's data-driven height is what caused repeated overlap bugs.
-  const TOP_STRIP_END = BANNER_HEIGHT + 24;
-  const PLOT_TOP = TOP_STRIP_END + 40;
-  const PLOT_BOTTOM = CANVAS_HEIGHT - 96;
-  const FOOTER_START = PLOT_BOTTOM + 40;
+  //
+  // The plot itself is trimmed from its original 64px down to 30px --
+  // it's just a simple rise-and-fall shape, and doesn't need much
+  // vertical resolution to read clearly -- to make room for larger text
+  // everywhere else (bigger fonts need more line height, not just wider
+  // glyphs; nothing on this card is smaller than 18px, matching the
+  // fishing badge/moon phase, per an explicit "minimum font size" ask).
+  // The reclaimed space is split across the hi/lo label zones (both top
+  // and bottom, which each grew to fit an 18px time label under the
+  // 22px height label) and the footer (now two full 18px lines instead
+  // of one row of smaller mixed sizes).
+  const TOP_STRIP_END = BANNER_HEIGHT + 26;
+  const PLOT_TOP = TOP_STRIP_END + 50;
+  const PLOT_BOTTOM = PLOT_TOP + 44;
+  const FOOTER_START = PLOT_BOTTOM + 50;
 
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
   const bannerTitle = "TODAY'S TIDE";
-  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 210, FONT_FAMILY.block, 26, 14);
+  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 210, FONT_FAMILY.block, 28, 16);
   ctx.fillText(bannerTitle, CANVAS_WIDTH / 2 - 46, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
 
   if (card.fishingScore) {
-    ctx.font = "bold 16px \"" + FONT_FAMILY.serif + "\"";
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
     const badgeLabel = "FISHING: " + card.fishingScore.toUpperCase();
     const badgeTextWidth = ctx.measureText(badgeLabel).width;
-    const badgeW = badgeTextWidth + 26;
-    const badgeH = 28;
+    const badgeW = badgeTextWidth + 28;
+    const badgeH = 32;
     const badgeX = CANVAS_WIDTH - 24 - badgeW;
     const badgeY = (BANNER_HEIGHT - badgeH) / 2;
     ctx.fillStyle = "#fff";
@@ -1011,7 +1005,7 @@ function drawTideCard(ctx, card) {
     ctx.fill();
     ctx.fillStyle = "#000";
     ctx.textAlign = "left";
-    ctx.fillText(badgeLabel, badgeX + 13, BANNER_HEIGHT / 2 + 5.5);
+    ctx.fillText(badgeLabel, badgeX + 14, BANNER_HEIGHT / 2 + 6);
   }
 
   // The alert strip (rain/wind call-outs) is the single boldest thing on
@@ -1026,21 +1020,21 @@ function drawTideCard(ctx, card) {
     weather.windRamp ? [weather.windRamp.label] : []
   );
   if (alertParts.length) {
-    drawWarningTriangle(ctx, 30, (BANNER_HEIGHT + TOP_STRIP_END) / 2, 10);
-    ctx.font = "bold 16px \"" + FONT_FAMILY.serif + "\"";
+    drawWarningTriangle(ctx, 32, (BANNER_HEIGHT + TOP_STRIP_END) / 2, 11);
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
     ctx.fillStyle = "#000";
     ctx.textAlign = "left";
-    ctx.fillText(alertParts.join("   ·   "), 48, (BANNER_HEIGHT + TOP_STRIP_END) / 2 + 6);
+    ctx.fillText(alertParts.join("   ·   "), 50, (BANNER_HEIGHT + TOP_STRIP_END) / 2 + 6);
   } else {
-    ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "#000";
     if (card.sunrise.label) {
       ctx.textAlign = "left";
-      ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 6);
+      ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 7);
     }
     if (card.sunset.label) {
       ctx.textAlign = "right";
-      ctx.fillText("Sunset " + card.sunset.label, CANVAS_WIDTH - 24, TOP_STRIP_END - 6);
+      ctx.fillText("Sunset " + card.sunset.label, CANVAS_WIDTH - 24, TOP_STRIP_END - 7);
     }
   }
 
@@ -1128,56 +1122,63 @@ function drawTideCard(ctx, card) {
         ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x, PLOT_TOP + 2); ctx.stroke();
       }
+      ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "#000";
+      ctx.fillText(heightLabel, x, TOP_STRIP_END + 24);
       ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "#000";
-      ctx.fillText(heightLabel, x, TOP_STRIP_END + 18);
-      ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-      ctx.fillText(e.label, x, TOP_STRIP_END + 34);
+      ctx.fillText(e.label, x, TOP_STRIP_END + 43);
     } else {
       if (PLOT_BOTTOM - y > 14) {
         ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(x, y + 6); ctx.lineTo(x, PLOT_BOTTOM - 2); ctx.stroke();
       }
+      ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "#000";
+      ctx.fillText(heightLabel, x, PLOT_BOTTOM + 26);
       ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "#000";
-      ctx.fillText(heightLabel, x, PLOT_BOTTOM + 20);
-      ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-      ctx.fillText(e.label, x, PLOT_BOTTOM + 36);
+      ctx.fillText(e.label, x, PLOT_BOTTOM + 45);
     }
   });
 
   // MAJOR/MINOR band labels sit just above the baseline, with a small
   // white halo so the hatch lines behind them don't cut through the text.
+  // At 18px the label is often wider than a MINOR band itself (a minor
+  // period is only ~50min wide, well under an hour of plot width) -- the
+  // white halo box is sized to the text, not the band, so it can extend
+  // past the band's own hatched edges into the plain plot on either side
+  // without clipping or overlapping the tide curve/dots there.
   solunarPeriods.forEach((p) => {
     const pStartMs = new Date(p.start).getTime(), pEndMs = new Date(p.end).getTime();
     if (pEndMs < dawnMs || pStartMs > duskMs) return;
     const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
     const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
-    ctx.font = "italic bold 11px \"" + FONT_FAMILY.serif + "\"";
+    ctx.font = "italic bold 18px \"" + FONT_FAMILY.serif + "\"";
     ctx.textAlign = "center";
     const bandLabel = p.kind.toUpperCase();
     const labelW = ctx.measureText(bandLabel).width;
     const labelCx = (x0 + x1) / 2;
     ctx.fillStyle = "#fff";
-    ctx.fillRect(labelCx - labelW / 2 - 4, PLOT_BOTTOM - 20, labelW + 8, 16);
+    ctx.fillRect(labelCx - labelW / 2 - 4, PLOT_BOTTOM - 25, labelW + 8, 22);
     ctx.fillStyle = "#000";
-    ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 6);
+    ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 8);
   });
 
   // Footer row 1: moon phase + rise/set.
-  const footerY1 = FOOTER_START + 22;
-  drawMoonIcon(ctx, 58, footerY1 - 9, 11, card.moon.illumination, card.moon.waxing);
+  const footerY1 = FOOTER_START + 24;
+  drawMoonIcon(ctx, 60, footerY1 - 10, 13, card.moon.illumination, card.moon.waxing);
   ctx.textAlign = "left";
-  ctx.font = "bold 15px \"" + FONT_FAMILY.serif + "\"";
+  ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
   ctx.fillStyle = "#000";
-  ctx.fillText(card.moon.phaseName, 78, footerY1 - 3);
+  ctx.fillText(card.moon.phaseName, 82, footerY1 - 3);
 
   const riseSetParts = [];
   if (card.moon.rise && card.moon.rise.label) riseSetParts.push("Moonrise " + card.moon.rise.label);
   if (card.moon.set && card.moon.set.label) riseSetParts.push("Moonset " + card.moon.set.label);
   if (riseSetParts.length) {
-    ctx.font = "12px \"" + FONT_FAMILY.serif + "\"";
-    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "#000";
     ctx.textAlign = "right";
     ctx.fillText(riseSetParts.join("   ·   "), CANVAS_WIDTH - 24, footerY1 - 3);
   }
@@ -1186,60 +1187,56 @@ function drawTideCard(ctx, card) {
   // both from Open-Meteo. Omitted entirely if there's nothing at all to
   // show (e.g. the weather fetch came back sparse), rather than drawing
   // an empty row.
-  const footerY2 = CANVAS_HEIGHT - 12;
-  let cx = 80;
+  //
+  // "Wind"/"Swell"/"water" label words are dropped here (unlike the
+  // moonrise/moonset line above, which keeps its words and still fits) --
+  // at 18px, a full label-then-value row for both clusters no longer fits
+  // in the card's width. Each icon (wind arrow, pressure trend arrow,
+  // wave glyph) already identifies what its number means, the same
+  // convention "H"/"L" and the pressure trend arrow already used even
+  // before this -- so the words were redundant, not essential.
+  const footerY2 = CANVAS_HEIGHT - 8;
+  let cx = 84;
   if (weather.wind) {
-    drawWindArrow(ctx, 56, footerY2 - 7, 7);
-    cx = drawLabelThenValue(ctx, "Wind ", weather.wind.mph + " mph" + (weather.wind.dir ? " " + weather.wind.dir : ""), cx, footerY2 - 3, FONT_FAMILY.serif);
+    drawWindArrow(ctx, 58, footerY2 - 8, 8);
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "left";
+    const windValue = weather.wind.mph + " mph" + (weather.wind.dir ? " " + weather.wind.dir : "");
+    ctx.fillText(windValue, cx, footerY2 - 3);
+    cx += ctx.measureText(windValue).width;
   }
   if (weather.pressure && weather.pressure.hpa != null) {
-    if (cx > 80) {
-      ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-      ctx.fillStyle = "rgba(0,0,0,0.65)";
+    if (cx > 84) {
+      ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "#000";
       ctx.textAlign = "left";
       ctx.fillText("   ·   ", cx, footerY2 - 3);
       cx += ctx.measureText("   ·   ").width;
     }
     if (weather.pressure.deltaHpa != null && weather.pressure.trend !== "steady") {
-      drawTrendArrow(ctx, cx + 7, footerY2 - 7, 7, weather.pressure.trend === "falling" ? "down" : "up");
-      cx += 16;
+      drawTrendArrow(ctx, cx + 8, footerY2 - 8, 8, weather.pressure.trend === "falling" ? "down" : "up");
+      cx += 18;
     }
-    const pressureValue = weather.pressure.hpa + " hPa" + (weather.pressure.deltaHpa != null ? " (" + weather.pressure.deltaHpa + " in 6h)" : "");
-    ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+    const pressureValue = weather.pressure.hpa + " hPa" + (weather.pressure.deltaHpa != null ? " (" + weather.pressure.deltaHpa + ")" : "");
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
     ctx.fillStyle = "#000";
     ctx.textAlign = "left";
     ctx.fillText(pressureValue, cx, footerY2 - 3);
   }
 
-  let rx = CANVAS_WIDTH - 24;
   const rightParts = [];
-  if (weather.swell) rightParts.push({ label: "Swell ", value: weather.swell.heightFt.toFixed(1) + " ft" + (weather.swell.periodS != null ? " @ " + weather.swell.periodS + "s" : "") });
-  if (weather.waterTempF != null) rightParts.push({ label: "", value: weather.waterTempF + "°F water" });
+  if (weather.swell) rightParts.push(weather.swell.heightFt.toFixed(1) + " ft" + (weather.swell.periodS != null ? " @ " + weather.swell.periodS + "s" : ""));
+  if (weather.waterTempF != null) rightParts.push(weather.waterTempF + "°F");
   if (rightParts.length) {
-    const fullPlain = rightParts.map((p) => p.label + p.value).join("   ·   ");
-    ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+    const fullPlain = rightParts.join("   ·   ");
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
     const fullW = ctx.measureText(fullPlain).width;
     let px = CANVAS_WIDTH - 24 - fullW;
-    drawWaveGlyph(ctx, px - 32, footerY2 - 6, 26, 5);
+    drawWaveGlyph(ctx, px - 34, footerY2 - 7, 28, 6);
+    ctx.fillStyle = "#000";
     ctx.textAlign = "left";
-    rightParts.forEach((part, i) => {
-      if (i > 0) {
-        ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-        ctx.fillStyle = "rgba(0,0,0,0.65)";
-        ctx.fillText("   ·   ", px, footerY2 - 3);
-        px += ctx.measureText("   ·   ").width;
-      }
-      if (part.label) {
-        ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-        ctx.fillStyle = "rgba(0,0,0,0.65)";
-        ctx.fillText(part.label, px, footerY2 - 3);
-        px += ctx.measureText(part.label).width;
-      }
-      ctx.font = "bold 13px \"" + FONT_FAMILY.serif + "\"";
-      ctx.fillStyle = "#000";
-      ctx.fillText(part.value, px, footerY2 - 3);
-      px += ctx.measureText(part.value).width;
-    });
+    ctx.fillText(fullPlain, px, footerY2 - 3);
   }
 }
 

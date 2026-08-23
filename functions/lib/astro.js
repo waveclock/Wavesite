@@ -245,6 +245,35 @@ function computeSolunarPeriods(lat, lon, dawn, dusk, moonRiseDate, moonSetDate) 
   });
 }
 
+// Some subordinate stations have no continuous curve at all (see
+// fetchNoaaPredictions's comment) -- only discrete hi/lo points. Rather
+// than draw nothing between them, approximate the shape with a cosine
+// ("versine") interpolation between each consecutive pair: a tide
+// genuinely flattens out right at each high/low (zero rate of change at
+// the extremum itself) and moves fastest around the midpoint, which is
+// exactly the shape a cosine interpolation produces -- unlike a straight
+// line, which would draw a sharp, physically-wrong corner at every
+// hi/lo. This is the same shape behind the "rule of twelfths" mariners
+// have used by hand for centuries to estimate tide height between known
+// highs and lows. Purely a visual approximation for stations lacking
+// real curve data -- fetchTideCardData only calls this when the real
+// curve came back empty.
+const CURVE_INTERPOLATION_STEP_MIN = 15;
+function interpolateTideCurveFromExtrema(extrema) {
+  const points = [];
+  for (let i = 0; i < extrema.length - 1; i++) {
+    const a = extrema[i], b = extrema[i + 1];
+    const aMs = a.t.getTime(), bMs = b.t.getTime();
+    for (let ms = aMs; ms < bMs; ms += CURVE_INTERPOLATION_STEP_MIN * 60000) {
+      const frac = (ms - aMs) / (bMs - aMs);
+      const eased = (1 - Math.cos(Math.PI * frac)) / 2; // 0 at a, 1 at b, flat-sloped at both ends
+      points.push({ t: new Date(ms), heightFt: a.heightFt + (b.heightFt - a.heightFt) * eased });
+    }
+  }
+  if (extrema.length) points.push({ t: extrema[extrema.length - 1].t, heightFt: extrema[extrema.length - 1].heightFt });
+  return points;
+}
+
 // Feet-per-hour at a given instant, from the two curve points bracketing
 // it (or the nearest edge point if outside the curve's own range).
 function tideRateOfChange(curve, atMs) {
@@ -552,7 +581,10 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
     curve = await curvePromise;
   } catch (err) {
     if (!err.noaaDataError) throw err; // a genuine connectivity failure should still fail the whole card
-    console.error("NOAA has no continuous tide curve for stationId=" + stationId + " (continuing with hi/lo points only):", err);
+    console.error("NOAA has no continuous tide curve for stationId=" + stationId + " (continuing with an interpolated curve from hi/lo points):", err);
+  }
+  if (curve.length === 0 && extrema.length >= 2) {
+    curve = interpolateTideCurveFromExtrema(extrema);
   }
 
   function labeled(date) {
@@ -607,6 +639,7 @@ module.exports = {
   fetchNoaaPredictions,
   findMoonAltitudeExtrema,
   computeSolunarPeriods,
+  interpolateTideCurveFromExtrema,
   tideRateOfChange,
   fishingScore,
   parseOpenMeteoTimestamp,

@@ -403,6 +403,96 @@ too-early-abandoned interval theory) came from changing more than one
 thing at once, or trusting NOAA's documentation over what NOAA actually
 does for a specific real station.
 
+**A curved line for hi/lo-only stations, and larger/bolder text
+throughout.** Once the card was actually rendering for a hi/lo-only
+station, the two dots had no line connecting them at all -- correct
+(nothing to crash on) but not very useful. `interpolateTideCurveFromExtrema`
+(astro.js) synthesizes one: a cosine ("versine") ease between each pair
+of consecutive extrema, sampled every 15 minutes. This isn't arbitrary --
+a real tide's rate of change is genuinely ~0 right at a high or low and
+fastest around the midpoint, which is exactly the shape a cosine
+interpolation produces (a straight line would draw a sharp, physically
+wrong corner at every hi/lo instead). It's the same curve shape behind
+the "rule of twelfths" mariners have used by hand for centuries to
+estimate tide height between known highs and lows. `fetchTideCardData`
+only reaches for it when the real curve came back empty -- never in
+place of real NOAA data. See `test/astro.test.js`'s tests confirming the
+shape (monotonic, flat-sloped at both ends, each original extremum still
+present exactly at the segment boundaries) and multi-extremum (a full
+low-high-low-high day) behavior.
+
+Every font on the card was bumped up, and several previously-light
+elements (Sunrise/Sunset, the hi/lo time labels, moonrise/moonset, the
+weather-row labels) switched to bold -- the request was simply "bigger
+and bolder, find the space." The space came from the plot band itself:
+trimmed from 64px to 40px, since it's just a simple rise-and-fall shape
+and doesn't need much vertical resolution to read clearly. The reclaimed
+~24px was redistributed across the top strip, both hi/lo label zones, and
+the footer, all of which needed more line-height for the bigger text, not
+just wider glyphs. Verified visually, not just by absence of exceptions:
+rendered real PNGs (normal day, an alert-strip day, a 4-extremum day, a
+hi/lo-only/interpolated-curve day, and a fully sparse weather day) and
+inspected each for overlap or clipping before settling on final sizes --
+same discipline as every other visual change in this file, since passing
+tests alone already missed at least one real rendering bug earlier in
+this project (the `textAlign` leak). Applied identically to `dynamic.js`
+and the `design-v2/index.html` client copy, per this file's usual
+duplication convention.
+
+**A second pass, with a hard floor: nothing on the card smaller than
+18px** (matching the fishing badge/moon phase), plus trimmed wording
+where the words no longer fit next to bigger numbers. Measured actual
+text widths with `ctx.measureText` before touching layout, rather than
+guessing:
+
+- Moonrise/moonset kept its full words -- at 18px it still fits
+  comfortably next to the moon phase name, even the longest one
+  (`Waning Crescent`).
+- The wind/pressure/swell/water-temp row did NOT fit at 18px with its
+  old "Wind 8 mph NW · 1015 hPa (-6 in 6h)" / "Swell 2.1 ft @ 8s · 68°F
+  water" wording -- the two clusters' widths overlapped by ~35px at the
+  canvas's actual width. Dropped the "Wind"/"Swell"/"water" label words
+  (each icon -- the wind arrow, the pressure trend arrow, the wave
+  glyph -- already identifies its own number, the same convention
+  "H"/"L" and the trend arrow already used even before this row was
+  touched) and shortened the pressure delta from "(-6 in 6h)" to "(-6)"
+  (always 6h, so the words added nothing). `drawLabelThenValue` (and its
+  design-v2 client copy) became dead code once its only caller no longer
+  needed a separate label -- removed rather than left unused.
+- The MAJOR/MINOR solunar band label went from 11px to 18px italic --
+  often wider than a MINOR period's own hatch band (only ~50min wide),
+  which briefly looked like a real overlap bug with the curve/dot at a
+  glance. A closer, full-resolution crop of the render showed the curve
+  actually clears the label cleanly; the label's white halo box is sized
+  to the text, not the band, and was already designed to extend past a
+  narrow band's edges rather than clip -- worth noting since a low-res
+  thumbnail read as broken when the real pixels weren't.
+- The plot band itself needed to grow back from 40px to 44px (with the
+  hi/lo label zones trimmed slightly to compensate) once the MAJOR/MINOR
+  label doubled in height (16px box to 22px) -- the first attempt at 30px
+  genuinely did put the badge and the curve in the same few pixels.
+  Caught the same way as everything else here: by rendering and looking,
+  not by computing the numbers on paper and assuming they'd work.
+
+See `test/dynamic.test.js`'s alert-strip test, updated for this pass --
+at the old, smaller sizes, checking one pixel worked for telling the
+warning triangle apart from the fallback Sunrise text, but at 18px the
+two now occupy overlapping x-ranges near the card's left edge (both
+start close to the edge), so the test now checks a y just above where
+the text's own ink starts, where only the triangle's apex reaches.
+
+**A third pass: every piece of text is solid black, no gray.** Several
+labels (Sunrise/Sunset, hi/lo time labels, moonrise/moonset, the footer
+separator dots) were still drawn at a partial alpha (`rgba(0,0,0,0.75-
+0.8)`) even after the two font-size passes above -- a holdover from when
+those elements were meant to read as visually secondary next to bolder
+neighbors. Switched every text `fillStyle` in `drawTideCard` (and the
+`design-v2/index.html` client copy) to solid `#000`. The dashed guide
+lines (sunrise/sunset verticals, the plot's baseline, the leader ticks
+connecting a dot to its label) are deliberately left at their existing
+partial alpha -- those are lines, not text, and stay a lighter weight on
+purpose so they read as structure rather than content.
+
 **Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
 unlike everything else here -- there's no closed-form time for lunar
 transit the way there is for solar noon. `computeSolunarPeriods` finds
