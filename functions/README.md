@@ -493,6 +493,58 @@ connecting a dot to its label) are deliberately left at their existing
 partial alpha -- those are lines, not text, and stay a lighter weight on
 purpose so they read as structure rather than content.
 
+**A fourth pass, from a reference mockup: a new title and an hourly
+axis.** Two specific asks, not a full redesign against the mockup --
+everything else about the card's structure stayed put.
+
+- **Title** changed from "TODAY'S TIDE" to "DAILY FISHING FORECAST:
+  TIDES & SOLUNAR", matching the reference image. Centering broke down
+  immediately at this length -- the old centering offset was tuned for a
+  ten-character title with nothing competing for space, and a
+  forty-character one pushed straight into the fishing badge. Switched to
+  left-aligned with a fixed 24px margin, which scales safely with title
+  length the way a centering offset tuned for one specific string never
+  can. `maxWidth` reserves room for the *widest possible* badge
+  ("FISHING: EXCELLENT", not whatever score happens to be showing
+  today) -- sizing against today's actual (possibly shorter) badge would
+  silently start overlapping it the day the score is longer than
+  whatever the reservation was tuned against. Caught a real version of
+  exactly that bug in testing: an early attempt reserved space using a
+  badge-width measurement taken *before* this card's fonts were
+  registered in-process, which used narrower fallback-font metrics than
+  the real bundled Bungee font -- looked fine in a quick check, then
+  failed the moment "FISHING: EXCELLENT" (the actual longest score) was
+  rendered with the real font. Worth remembering generally: canvas text
+  measurements are only trustworthy once `ensureFontsRegistered()` has
+  actually run in that process -- calling `drawTideCard` directly in a
+  fresh script, the way a quick manual check tends to, silently uses
+  fallback metrics unless something else already triggered registration.
+
+- **Hourly axis** along the plot's bottom edge -- tick marks and labels
+  ("6 AM", "9 AM", ...) so the curve's shape can be read against time of
+  day without cross-referencing the H/L dot labels for it. Ticks land on
+  round *local-clock* hours (using `card.timeZone`, the same field
+  `fetchTideCardData` already returns), 3 hours apart, computed by
+  reading dawn's local hour/minute via `Intl.DateTimeFormat` and rounding
+  up to the next multiple of 3 -- not raw UTC hours, which would land at
+  the wrong local clock times for any zone not on a whole-hour-from-UTC
+  offset relationship with 3. Deliberately smaller (12px) than the rest
+  of the card's 18px-minimum content text -- this is axis scaffolding,
+  not content, the same distinction a chart's own axis labels always get
+  and the reference mockup's own axis shows too.
+
+  Fitting a genuinely new row required real space the existing layout
+  hadn't budgeted for, not just visual tightening -- the plot's bottom
+  edge, the low-value hi/lo labels, and the footer all shifted down to
+  make room, verified the same way as every layout change in this
+  file: rendering real scenarios (a normal day, an alert-strip day, a
+  4-extremum day) at full resolution and checking for overlap before
+  settling on final offsets. See `test/dynamic.test.js`'s test asserting
+  a tick actually lands at the correct pixel for a known dawn time and
+  zone (confirming it uses local time, not UTC) and a companion test
+  confirming a card with no `timeZone` at all still renders without
+  throwing (falls back to the runtime's own local time).
+
 **Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
 unlike everything else here -- there's no closed-form time for lunar
 transit the way there is for solar noon. `computeSolunarPeriods` finds
