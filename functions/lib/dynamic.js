@@ -928,11 +928,11 @@ function drawRainTick(ctx, x, y, size) {
 // on the same line (textAlign must be "left" going in).
 function drawLabelThenValue(ctx, label, value, x, y, serifFamily) {
   ctx.textAlign = "left"; // self-contained: never depends on a caller having reset alignment first
-  ctx.font = "13px \"" + serifFamily + "\"";
-  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.font = "bold 14px \"" + serifFamily + "\"";
+  ctx.fillStyle = "rgba(0,0,0,0.75)";
   ctx.fillText(label, x, y);
   const labelW = ctx.measureText(label).width;
-  ctx.font = "bold 13px \"" + serifFamily + "\"";
+  ctx.font = "bold 15px \"" + serifFamily + "\"";
   ctx.fillStyle = "#000";
   ctx.fillText(value, x + labelW, y);
   return x + labelW + ctx.measureText(value).width;
@@ -984,25 +984,32 @@ function drawTideCard(ctx, card) {
   // the top strip or footer on a day with an unusual tide range. See the
   // mockup iteration that led here: floating a label relative to its
   // dot's data-driven height is what caused repeated overlap bugs.
-  const TOP_STRIP_END = BANNER_HEIGHT + 24;
-  const PLOT_TOP = TOP_STRIP_END + 40;
-  const PLOT_BOTTOM = CANVAS_HEIGHT - 96;
-  const FOOTER_START = PLOT_BOTTOM + 40;
+  //
+  // The plot itself is trimmed from its original 64px down to 40px --
+  // it's just a simple rise-and-fall shape, and doesn't need much
+  // vertical resolution to read clearly -- to make room for larger text
+  // everywhere else (bigger fonts need more line height, not just wider
+  // glyphs). The reclaimed space is split across the top strip and the
+  // hi/lo label zones (both top and bottom) and the footer.
+  const TOP_STRIP_END = BANNER_HEIGHT + 26;
+  const PLOT_TOP = TOP_STRIP_END + 46;
+  const PLOT_BOTTOM = PLOT_TOP + 40;
+  const FOOTER_START = PLOT_BOTTOM + 46;
 
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
   const bannerTitle = "TODAY'S TIDE";
-  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 210, FONT_FAMILY.block, 26, 14);
+  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 210, FONT_FAMILY.block, 28, 16);
   ctx.fillText(bannerTitle, CANVAS_WIDTH / 2 - 46, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
 
   if (card.fishingScore) {
-    ctx.font = "bold 16px \"" + FONT_FAMILY.serif + "\"";
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
     const badgeLabel = "FISHING: " + card.fishingScore.toUpperCase();
     const badgeTextWidth = ctx.measureText(badgeLabel).width;
-    const badgeW = badgeTextWidth + 26;
-    const badgeH = 28;
+    const badgeW = badgeTextWidth + 28;
+    const badgeH = 32;
     const badgeX = CANVAS_WIDTH - 24 - badgeW;
     const badgeY = (BANNER_HEIGHT - badgeH) / 2;
     ctx.fillStyle = "#fff";
@@ -1011,7 +1018,7 @@ function drawTideCard(ctx, card) {
     ctx.fill();
     ctx.fillStyle = "#000";
     ctx.textAlign = "left";
-    ctx.fillText(badgeLabel, badgeX + 13, BANNER_HEIGHT / 2 + 5.5);
+    ctx.fillText(badgeLabel, badgeX + 14, BANNER_HEIGHT / 2 + 6);
   }
 
   // The alert strip (rain/wind call-outs) is the single boldest thing on
@@ -1026,21 +1033,21 @@ function drawTideCard(ctx, card) {
     weather.windRamp ? [weather.windRamp.label] : []
   );
   if (alertParts.length) {
-    drawWarningTriangle(ctx, 30, (BANNER_HEIGHT + TOP_STRIP_END) / 2, 10);
-    ctx.font = "bold 16px \"" + FONT_FAMILY.serif + "\"";
+    drawWarningTriangle(ctx, 32, (BANNER_HEIGHT + TOP_STRIP_END) / 2, 11);
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
     ctx.fillStyle = "#000";
     ctx.textAlign = "left";
-    ctx.fillText(alertParts.join("   ·   "), 48, (BANNER_HEIGHT + TOP_STRIP_END) / 2 + 6);
+    ctx.fillText(alertParts.join("   ·   "), 50, (BANNER_HEIGHT + TOP_STRIP_END) / 2 + 6);
   } else {
-    ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.font = "bold 15px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "rgba(0,0,0,0.75)";
     if (card.sunrise.label) {
       ctx.textAlign = "left";
-      ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 6);
+      ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 7);
     }
     if (card.sunset.label) {
       ctx.textAlign = "right";
-      ctx.fillText("Sunset " + card.sunset.label, CANVAS_WIDTH - 24, TOP_STRIP_END - 6);
+      ctx.fillText("Sunset " + card.sunset.label, CANVAS_WIDTH - 24, TOP_STRIP_END - 7);
     }
   }
 
@@ -1128,21 +1135,23 @@ function drawTideCard(ctx, card) {
         ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x, PLOT_TOP + 2); ctx.stroke();
       }
-      ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
+      ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "#000";
-      ctx.fillText(heightLabel, x, TOP_STRIP_END + 18);
-      ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-      ctx.fillText(e.label, x, TOP_STRIP_END + 34);
+      ctx.fillText(heightLabel, x, TOP_STRIP_END + 22);
+      ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "rgba(0,0,0,0.8)";
+      ctx.fillText(e.label, x, TOP_STRIP_END + 41);
     } else {
       if (PLOT_BOTTOM - y > 14) {
         ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(x, y + 6); ctx.lineTo(x, PLOT_BOTTOM - 2); ctx.stroke();
       }
-      ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
+      ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "#000";
-      ctx.fillText(heightLabel, x, PLOT_BOTTOM + 20);
-      ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-      ctx.fillText(e.label, x, PLOT_BOTTOM + 36);
+      ctx.fillText(heightLabel, x, PLOT_BOTTOM + 24);
+      ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "rgba(0,0,0,0.8)";
+      ctx.fillText(e.label, x, PLOT_BOTTOM + 43);
     }
   });
 
@@ -1153,7 +1162,7 @@ function drawTideCard(ctx, card) {
     if (pEndMs < dawnMs || pStartMs > duskMs) return;
     const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
     const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
-    ctx.font = "italic bold 11px \"" + FONT_FAMILY.serif + "\"";
+    ctx.font = "italic bold 12px \"" + FONT_FAMILY.serif + "\"";
     ctx.textAlign = "center";
     const bandLabel = p.kind.toUpperCase();
     const labelW = ctx.measureText(bandLabel).width;
@@ -1165,19 +1174,19 @@ function drawTideCard(ctx, card) {
   });
 
   // Footer row 1: moon phase + rise/set.
-  const footerY1 = FOOTER_START + 22;
-  drawMoonIcon(ctx, 58, footerY1 - 9, 11, card.moon.illumination, card.moon.waxing);
+  const footerY1 = FOOTER_START + 27;
+  drawMoonIcon(ctx, 60, footerY1 - 10, 13, card.moon.illumination, card.moon.waxing);
   ctx.textAlign = "left";
-  ctx.font = "bold 15px \"" + FONT_FAMILY.serif + "\"";
+  ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
   ctx.fillStyle = "#000";
-  ctx.fillText(card.moon.phaseName, 78, footerY1 - 3);
+  ctx.fillText(card.moon.phaseName, 82, footerY1 - 3);
 
   const riseSetParts = [];
   if (card.moon.rise && card.moon.rise.label) riseSetParts.push("Moonrise " + card.moon.rise.label);
   if (card.moon.set && card.moon.set.label) riseSetParts.push("Moonset " + card.moon.set.label);
   if (riseSetParts.length) {
-    ctx.font = "12px \"" + FONT_FAMILY.serif + "\"";
-    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillStyle = "rgba(0,0,0,0.75)";
     ctx.textAlign = "right";
     ctx.fillText(riseSetParts.join("   ·   "), CANVAS_WIDTH - 24, footerY1 - 3);
   }
@@ -1186,26 +1195,26 @@ function drawTideCard(ctx, card) {
   // both from Open-Meteo. Omitted entirely if there's nothing at all to
   // show (e.g. the weather fetch came back sparse), rather than drawing
   // an empty row.
-  const footerY2 = CANVAS_HEIGHT - 12;
-  let cx = 80;
+  const footerY2 = CANVAS_HEIGHT - 15;
+  let cx = 84;
   if (weather.wind) {
-    drawWindArrow(ctx, 56, footerY2 - 7, 7);
+    drawWindArrow(ctx, 58, footerY2 - 8, 8);
     cx = drawLabelThenValue(ctx, "Wind ", weather.wind.mph + " mph" + (weather.wind.dir ? " " + weather.wind.dir : ""), cx, footerY2 - 3, FONT_FAMILY.serif);
   }
   if (weather.pressure && weather.pressure.hpa != null) {
-    if (cx > 80) {
-      ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-      ctx.fillStyle = "rgba(0,0,0,0.65)";
+    if (cx > 84) {
+      ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillStyle = "rgba(0,0,0,0.75)";
       ctx.textAlign = "left";
       ctx.fillText("   ·   ", cx, footerY2 - 3);
       cx += ctx.measureText("   ·   ").width;
     }
     if (weather.pressure.deltaHpa != null && weather.pressure.trend !== "steady") {
-      drawTrendArrow(ctx, cx + 7, footerY2 - 7, 7, weather.pressure.trend === "falling" ? "down" : "up");
-      cx += 16;
+      drawTrendArrow(ctx, cx + 8, footerY2 - 8, 8, weather.pressure.trend === "falling" ? "down" : "up");
+      cx += 18;
     }
     const pressureValue = weather.pressure.hpa + " hPa" + (weather.pressure.deltaHpa != null ? " (" + weather.pressure.deltaHpa + " in 6h)" : "");
-    ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+    ctx.font = "bold 16px \"" + FONT_FAMILY.serif + "\"";
     ctx.fillStyle = "#000";
     ctx.textAlign = "left";
     ctx.fillText(pressureValue, cx, footerY2 - 3);
@@ -1217,25 +1226,25 @@ function drawTideCard(ctx, card) {
   if (weather.waterTempF != null) rightParts.push({ label: "", value: weather.waterTempF + "°F water" });
   if (rightParts.length) {
     const fullPlain = rightParts.map((p) => p.label + p.value).join("   ·   ");
-    ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
+    ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
     const fullW = ctx.measureText(fullPlain).width;
     let px = CANVAS_WIDTH - 24 - fullW;
-    drawWaveGlyph(ctx, px - 32, footerY2 - 6, 26, 5);
+    drawWaveGlyph(ctx, px - 34, footerY2 - 7, 28, 6);
     ctx.textAlign = "left";
     rightParts.forEach((part, i) => {
       if (i > 0) {
-        ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+        ctx.fillStyle = "rgba(0,0,0,0.75)";
         ctx.fillText("   ·   ", px, footerY2 - 3);
         px += ctx.measureText("   ·   ").width;
       }
       if (part.label) {
-        ctx.font = "13px \"" + FONT_FAMILY.serif + "\"";
-        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        ctx.font = "bold 14px \"" + FONT_FAMILY.serif + "\"";
+        ctx.fillStyle = "rgba(0,0,0,0.75)";
         ctx.fillText(part.label, px, footerY2 - 3);
         px += ctx.measureText(part.label).width;
       }
-      ctx.font = "bold 13px \"" + FONT_FAMILY.serif + "\"";
+      ctx.font = "bold 15px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "#000";
       ctx.fillText(part.value, px, footerY2 - 3);
       px += ctx.measureText(part.value).width;

@@ -965,7 +965,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(c.height, CANVAS_HEIGHT);
   });
   await test("with no tideCurve at all (a station with hi/lo-only predictions, no continuous curve), the height scale still derives its range from tideExtrema -- regression test for a real bug: without this, real hi/lo heights (e.g. 3.777ft) would clip off the top of the plot instead of scaling to fit", () => {
-    const PLOT_TOP = 112, PLOT_BOTTOM = 176; // TOP_STRIP_END(72)+40, CANVAS_HEIGHT(272)-96 -- mirrors lib/dynamic.js's local (unexported) consts
+    const PLOT_TOP = 120, PLOT_BOTTOM = 160; // TOP_STRIP_END(74)+46, PLOT_TOP+40 -- mirrors lib/dynamic.js's local (unexported) consts
     const card = Object.assign({}, SAMPLE_TIDE_CARD, {
       tideCurve: [],
       tideExtrema: [

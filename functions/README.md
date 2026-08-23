@@ -403,6 +403,42 @@ too-early-abandoned interval theory) came from changing more than one
 thing at once, or trusting NOAA's documentation over what NOAA actually
 does for a specific real station.
 
+**A curved line for hi/lo-only stations, and larger/bolder text
+throughout.** Once the card was actually rendering for a hi/lo-only
+station, the two dots had no line connecting them at all -- correct
+(nothing to crash on) but not very useful. `interpolateTideCurveFromExtrema`
+(astro.js) synthesizes one: a cosine ("versine") ease between each pair
+of consecutive extrema, sampled every 15 minutes. This isn't arbitrary --
+a real tide's rate of change is genuinely ~0 right at a high or low and
+fastest around the midpoint, which is exactly the shape a cosine
+interpolation produces (a straight line would draw a sharp, physically
+wrong corner at every hi/lo instead). It's the same curve shape behind
+the "rule of twelfths" mariners have used by hand for centuries to
+estimate tide height between known highs and lows. `fetchTideCardData`
+only reaches for it when the real curve came back empty -- never in
+place of real NOAA data. See `test/astro.test.js`'s tests confirming the
+shape (monotonic, flat-sloped at both ends, each original extremum still
+present exactly at the segment boundaries) and multi-extremum (a full
+low-high-low-high day) behavior.
+
+Every font on the card was bumped up, and several previously-light
+elements (Sunrise/Sunset, the hi/lo time labels, moonrise/moonset, the
+weather-row labels) switched to bold -- the request was simply "bigger
+and bolder, find the space." The space came from the plot band itself:
+trimmed from 64px to 40px, since it's just a simple rise-and-fall shape
+and doesn't need much vertical resolution to read clearly. The reclaimed
+~24px was redistributed across the top strip, both hi/lo label zones, and
+the footer, all of which needed more line-height for the bigger text, not
+just wider glyphs. Verified visually, not just by absence of exceptions:
+rendered real PNGs (normal day, an alert-strip day, a 4-extremum day, a
+hi/lo-only/interpolated-curve day, and a fully sparse weather day) and
+inspected each for overlap or clipping before settling on final sizes --
+same discipline as every other visual change in this file, since passing
+tests alone already missed at least one real rendering bug earlier in
+this project (the `textAlign` leak). Applied identically to `dynamic.js`
+and the `design-v2/index.html` client copy, per this file's usual
+duplication convention.
+
 **Solunar major/minor periods** (Phase 2) aren't provided by suncalc,
 unlike everything else here -- there's no closed-form time for lunar
 transit the way there is for solar noon. `computeSolunarPeriods` finds
