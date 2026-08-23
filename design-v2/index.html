@@ -715,9 +715,6 @@
           <button class="icon-tool-btn" id="toolTideBtn" data-tool="tide" title="Tide &amp; Fishing">
             <svg viewBox="0 0 24 24"><path d="M3 15c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 19c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16.5" cy="6.5" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
           </button>
-          <button class="icon-tool-btn" id="toolNewsBtn" data-tool="news" title="News">
-            <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="7" y1="9" x2="17" y2="9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="7" y1="12.5" x2="17" y2="12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="7" y1="16" x2="13" y2="16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          </button>
           <button class="icon-tool-btn" id="toolLayersBtn" data-tool="layers" title="Layers">
             <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 13l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 17.5l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
           </button>
@@ -4049,6 +4046,23 @@
     setStatus("Publishing…");
 
     try {
+      // Publishing a screen that isn't checked into the rotation would
+      // leave the design saved but never actually shown on the device --
+      // a confusing "why isn't my new design showing up" trap. Publish
+      // implies "I want this on the board," so make sure the rotation
+      // setting agrees; non-fatal if it can't be saved (same reasoning
+      // as the preview-image/dynamic-meta steps below -- the design
+      // itself still published).
+      if (!rotationCheckbox.checked) {
+        try {
+          rotationCheckbox.checked = true;
+          await updateSettingsField(ROTATION_FIELD, true);
+        } catch (rotationErr) {
+          console.error("Couldn't turn on the rotation setting during publish:", rotationErr);
+          rotationCheckbox.checked = false;
+        }
+      }
+
       const composite = getCompositeCanvas();
       const packed = packTo1Bit(composite);
       const blob = new Blob([packed], { type: "application/octet-stream" });
