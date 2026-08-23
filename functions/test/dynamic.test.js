@@ -993,6 +993,33 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.ok(foundDot, "expected the high-tide dot to be visible within the plot's own y-range");
   });
 
+  await test("the hourly axis draws ticks on round LOCAL-clock hours using card.timeZone, not raw UTC", () => {
+    // dawn is 09:12 UTC, which is 5:12 AM EDT (America/New_York, UTC-4 in
+    // July) -- the next round hour that's also a multiple of 3 is 6 AM
+    // local, 48 minutes after dawn, i.e. 10:00 UTC. If the axis used raw
+    // UTC hours instead of this card's own timeZone, the first tick would
+    // land somewhere else entirely (UTC 9:12 is already within its own
+    // hour, so a UTC-based version would tick at a different, wrong x).
+    const card = Object.assign({}, SAMPLE_TIDE_CARD, { timeZone: "America/New_York" });
+    const dawnMs = new Date(card.dawn.t).getTime(), duskMs = new Date(card.dusk.t).getTime();
+    const firstTickMs = new Date("2026-07-15T10:00:00.000Z").getTime();
+    const expectedX = Math.round(46 + ((firstTickMs - dawnMs) / (duskMs - dawnMs)) * (CANVAS_WIDTH - 92));
+
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawTideCard(c.getContext("2d"), card);
+    const tickRowY = 162 + 2; // PLOT_BOTTOM(118+44) + 2 -- below the dashed baseline itself, where only a tick mark (not the baseline) would draw ink
+    let foundTick = false;
+    for (let x = expectedX - 3; x <= expectedX + 3; x++) {
+      const d = c.getContext("2d").getImageData(x, tickRowY, 1, 1).data;
+      if (d[0] < 200) { foundTick = true; break; }
+    }
+    assert.ok(foundTick, "expected a tick mark at the first round local hour (6 AM EDT), x~" + expectedX);
+  });
+  await test("the hourly axis tolerates a card with no timeZone at all (falls back to the runtime's own local time rather than throwing)", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawTideCard(c.getContext("2d"), SAMPLE_TIDE_CARD); // no timeZone field -- must not throw
+  });
+
   await test("tolerates a moonless day (rise/set both null) and an extremum outside the dawn-dusk window without throwing", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const card = Object.assign({}, SAMPLE_TIDE_CARD, {
@@ -1015,14 +1042,27 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     drawTideCard(withBadge.getContext("2d"), cardWithScore);
     const withoutBadge = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     drawTideCard(withoutBadge.getContext("2d"), SAMPLE_TIDE_CARD);
-    // The badge is a white pill somewhere in the banner's right half (its
-    // exact width depends on the score text) -- rather than guess one
-    // pixel, check whether ANY pixel in that half is white. A plain
-    // banner (no badge) is solid black out there; the "TODAY'S TIDE"
-    // title text is white but sits shifted toward the left-center, well
-    // clear of this scan region.
+    // The badge is a white pill somewhere in this scan region (its exact
+    // width depends on the score text) -- rather than guess one pixel,
+    // check whether ANY pixel there is white. A plain banner (no badge)
+    // is solid black out there.
+    //
+    // x=520 is a deliberately-safe boundary, not an arbitrary one -- it's
+    // derived from the same two constants drawTideCard's own banner code
+    // uses (see its maxWidth comment): a reserved worst-case badge width
+    // of 239px ("FISHING: EXCELLENT" + padding), 24px margins, and a 16px
+    // gap between title and badge. That puts the title's own worst-case
+    // right edge at 24+(792-24-239-24-16)=513, and that same reserved
+    // badge can never start left of 792-24-239=529 -- 520 sits in the
+    // gap between the two, so it never picks up title ink and never
+    // misses the badge, for any score value. (An earlier version of this
+    // boundary was computed from a title-width measurement taken before
+    // the card's own fonts were registered in-process, which silently
+    // used fallback font metrics narrower than the real bundled Bungee
+    // font -- worth remembering: canvas text measurements are only
+    // trustworthy once ensureFontsRegistered() has actually run.)
     function hasWhitePixelInRightHalf(canvas) {
-      const data = canvas.getContext("2d").getImageData(CANVAS_WIDTH / 2 + 80, 0, CANVAS_WIDTH / 2 - 80, BANNER_HEIGHT).data;
+      const data = canvas.getContext("2d").getImageData(520, 0, CANVAS_WIDTH - 520, BANNER_HEIGHT).data;
       for (let i = 0; i < data.length; i += 4) {
         if (data[i] > 200) return true;
       }
@@ -1052,7 +1092,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       return data[0] < 200;
     }
     const triangleApexY = BANNER_HEIGHT + 2; // above the text's own ink, only the triangle's apex reaches this high
-    const textY = BANNER_HEIGHT + 12; // roughly mid-way down the top-strip row
+    const textY = BANNER_HEIGHT + 10; // within the "S" glyph's body (a serif "S" has gaps at some y within its own height, so this isn't just "somewhere in the top-strip row" -- verified empirically against the actual rendered glyph)
     const withAlert = Object.assign({}, SAMPLE_TIDE_CARD, {
       weather: { rainWindows: [{ start: "2026-07-15T18:00:00.000Z", end: "2026-07-15T20:00:00.000Z", label: "RAIN LIKELY 2:00 PM-4:00 PM" }], windRamp: null }
     });

@@ -978,18 +978,29 @@ function drawTideCard(ctx, card) {
   // and bottom, which each grew to fit an 18px time label under the
   // 22px height label) and the footer (now two full 18px lines instead
   // of one row of smaller mixed sizes).
-  const TOP_STRIP_END = BANNER_HEIGHT + 26;
-  const PLOT_TOP = TOP_STRIP_END + 50;
+  const TOP_STRIP_END = BANNER_HEIGHT + 24;
+  const PLOT_TOP = TOP_STRIP_END + 46;
   const PLOT_BOTTOM = PLOT_TOP + 44;
-  const FOOTER_START = PLOT_BOTTOM + 50;
+  const FOOTER_START = PLOT_BOTTOM + 60;
 
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
   ctx.fillStyle = "#fff";
-  ctx.textAlign = "center";
-  const bannerTitle = "TODAY'S TIDE";
-  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 210, FONT_FAMILY.block, 28, 16);
-  ctx.fillText(bannerTitle, CANVAS_WIDTH / 2 - 46, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+  // Left-aligned with a fixed margin, not centered -- this title is long
+  // enough to nearly fill the space left of the fishing badge, so a
+  // centering offset tuned for the old, much shorter "TODAY'S TIDE"
+  // would push it into the badge instead of scaling safely with title
+  // length the way a fixed left margin does.
+  //
+  // maxWidth reserves room for the WIDEST possible badge ("FISHING:
+  // EXCELLENT", ~239px including its padding), not today's actual one --
+  // sizing against whatever score happens to be showing today would
+  // silently overlap the badge on a day the score is longer than
+  // whatever this was tuned against.
+  ctx.textAlign = "left";
+  const bannerTitle = "DAILY FISHING FORECAST: TIDES & SOLUNAR";
+  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 24 - 239 - 24 - 16, FONT_FAMILY.block, 28, 16);
+  ctx.fillText(bannerTitle, 24, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
 
   if (card.fishingScore) {
     ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
@@ -1105,6 +1116,34 @@ function drawTideCard(ctx, card) {
   ctx.stroke();
   ctx.setLineDash([]);
 
+  // Hourly axis along the plot's bottom edge -- lets the curve's shape
+  // be read against time of day directly, without cross-referencing the
+  // H/L dot labels for it. Ticks land on round LOCAL-clock hours (using
+  // this card's own timeZone, not raw UTC), spaced evenly by
+  // AXIS_TICK_INTERVAL_H -- 3h apart reliably gives 5-6 ticks across a
+  // typical dawn-dusk span (~14-16h) without crowding. Deliberately a
+  // smaller/lighter font than the rest of the card's 18px-minimum
+  // content text -- this is axis scaffolding, not content, the same
+  // distinction a chart's own axis labels always get.
+  const AXIS_TICK_INTERVAL_H = 3;
+  const dawnLocalParts = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: card.timeZone }).formatToParts(new Date(dawnMs));
+  const dawnLocalHour = Number(dawnLocalParts.find((p) => p.type === "hour").value) % 24;
+  const dawnLocalMinute = Number(dawnLocalParts.find((p) => p.type === "minute").value);
+  const minutesToFirstTick = ((AXIS_TICK_INTERVAL_H - (dawnLocalHour % AXIS_TICK_INTERVAL_H)) % AXIS_TICK_INTERVAL_H) * 60 - dawnLocalMinute;
+  const hourFmt = new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: true, timeZone: card.timeZone });
+  ctx.textAlign = "center";
+  ctx.font = "bold 12px \"" + FONT_FAMILY.serif + "\"";
+  ctx.fillStyle = "#000";
+  for (let tickMs = dawnMs + Math.max(0, minutesToFirstTick) * 60000; tickMs <= duskMs; tickMs += AXIS_TICK_INTERVAL_H * 3600000) {
+    const x = minutesToX(new Date(tickMs).toISOString());
+    ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, PLOT_BOTTOM - 3);
+    ctx.lineTo(x, PLOT_BOTTOM + 4);
+    ctx.stroke();
+    ctx.fillText(hourFmt.format(new Date(tickMs)), x, PLOT_BOTTOM + 16);
+  }
+
   ctx.textAlign = "center";
   card.tideExtrema.forEach((e) => {
     const eMs = new Date(e.t).getTime();
@@ -1127,7 +1166,7 @@ function drawTideCard(ctx, card) {
       ctx.fillText(heightLabel, x, TOP_STRIP_END + 24);
       ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "#000";
-      ctx.fillText(e.label, x, TOP_STRIP_END + 43);
+      ctx.fillText(e.label, x, TOP_STRIP_END + 40);
     } else {
       if (PLOT_BOTTOM - y > 14) {
         ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
@@ -1135,10 +1174,10 @@ function drawTideCard(ctx, card) {
       }
       ctx.font = "bold 22px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "#000";
-      ctx.fillText(heightLabel, x, PLOT_BOTTOM + 26);
+      ctx.fillText(heightLabel, x, PLOT_BOTTOM + 38);
       ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
       ctx.fillStyle = "#000";
-      ctx.fillText(e.label, x, PLOT_BOTTOM + 45);
+      ctx.fillText(e.label, x, PLOT_BOTTOM + 56);
     }
   });
 
@@ -1166,7 +1205,7 @@ function drawTideCard(ctx, card) {
   });
 
   // Footer row 1: moon phase + rise/set.
-  const footerY1 = FOOTER_START + 24;
+  const footerY1 = FOOTER_START + 22;
   drawMoonIcon(ctx, 60, footerY1 - 10, 13, card.moon.illumination, card.moon.waxing);
   ctx.textAlign = "left";
   ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
