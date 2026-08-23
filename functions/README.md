@@ -653,6 +653,33 @@ but the map specifically is worth a quick look after deploying.
 
 ## Known tradeoffs
 
+**At most one dynamic layer per screen, enforced client-side, not server-side**:
+publish (`design-v2/index.html`) only ever tracks the *first* Countdown/
+Team/News/Tide layer it finds in `layers` for the daily auto-update
+(`DYNAMIC_KINDS`); a second one of the same kind would render fine at
+publish time but stay frozen forever after, since the daily job never
+touches it. Team/News/Tide can't produce a duplicate -- they're
+full-screen cards that wipe/replace the whole `layers` array on
+creation. Countdown used to be the exception: it's a normal draggable/
+resizable stamp (so it can coexist with other layers), and the "Countdown"
+toolbar button used to stage a brand-new one every time it was clicked,
+with no check for an existing one -- so it was possible to end up with
+two Countdown layers, only one of which would ever actually update. It's
+now deduplicated the same way tapping an existing layer already worked:
+clicking the toolbar button pulls the existing Countdown back into
+editing instead of staging a second one alongside it. The panel's date/
+label/font controls also used to go silently dead the moment you hit the
+checkmark to place it -- they were only ever wired to the in-progress
+staged object, not the already-committed layer, so editing them after
+committing looked like it should work (still visibly enabled, still
+showing the right values) but had no effect at all. They're now bound to
+"whichever Countdown currently exists, staged or already committed" so
+they keep working right through a commit. (Fixing this also surfaced --
+and fixed -- a related bug: cancelling an edit of any reselected layer,
+of any kind, used to delete it outright instead of restoring it, since
+`selectLayer` pulls the layer out of `layers` to edit it and Cancel never
+put it back.)
+
 **Timezone**: this runs once, at a fixed UTC hour, for every device
 regardless of where it actually is. A device very close to its own local
 midnight can be briefly a day ahead or behind of the count for a few hours

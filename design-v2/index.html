@@ -1850,6 +1850,7 @@
     renderLayers();
     showToolPanel(TOOL_TAB_FOR_KIND[obj.kind] || activeTool);
     startStaging(obj);
+    stagedFromLayers = obj; // restore this exact object if the edit is cancelled instead of committed
     if (obj.kind === "text") {
       // startStaging only restores the object's data (x/y/size/content) --
       // the actual on-screen input still needs its value set explicitly,
@@ -1869,6 +1870,7 @@
         canvasTextInput.setSelectionRange(len, len);
       }, 0);
     } else if (obj.kind === "countdown") {
+      countdownDateInput.min = todayDateString();
       countdownDateInput.value = obj.targetDate;
       countdownLabelInput.value = obj.label || "";
       syncCountdownFontButtons(obj.fontKey);
@@ -2405,6 +2407,12 @@
   // ================= Staging: a movable/resizable text or icon,
   // shown only on the overlay canvas until committed =================
   let stagedObject = null;
+  // Set only when the current staging session pulled an EXISTING layer
+  // back out of `layers` to edit it (see selectLayer) -- holds that
+  // original, unmodified object so Cancel can put it back untouched.
+  // null for a brand-new object that was never committed in the first
+  // place, where Cancel should just discard it as before.
+  let stagedFromLayers = null;
 
   const stagingBar = document.getElementById("stagingBar");
   const stagingDragSizeLabel = document.getElementById("stagingDragSizeLabel");
@@ -2455,14 +2463,25 @@
         canvasTextInput.focus();
       }
       // Countdown similarly has no separate sub-choice step -- stage one
-      // right away with a default target date (30 days out) and today's
-      // label-free preview, and sync the date/label inputs to match.
+      // right away. Only one Countdown is ever allowed on a screen (its
+      // date/label only make sense once, and the daily auto-update job
+      // only ever redraws the first one it finds -- see DYNAMIC_KINDS
+      // below), so if one's already on the canvas, reopening this tab
+      // pulls THAT one back into staging to keep editing it (same as
+      // tapping it directly), instead of staging a second, independent
+      // one alongside it.
       if (tool === "countdown") {
-        const targetDate = defaultCountdownDate();
-        startStaging({ kind: "countdown", targetDate, label: "", font: selectedCountdownFont, outline: selectedCountdownOutline, fontKey: selectedCountdownFontKey });
-        countdownDateInput.min = todayDateString();
-        countdownDateInput.value = targetDate;
-        countdownLabelInput.value = "";
+        const existingIdx = layers.findIndex((l) => l.kind === "countdown");
+        if (existingIdx !== -1) {
+          selectLayer(existingIdx);
+        } else {
+          const targetDate = defaultCountdownDate();
+          startStaging({ kind: "countdown", targetDate, label: "", font: selectedCountdownFont, outline: selectedCountdownOutline, fontKey: selectedCountdownFontKey });
+          countdownDateInput.min = todayDateString();
+          countdownDateInput.value = targetDate;
+          countdownLabelInput.value = "";
+          syncCountdownFontButtons(selectedCountdownFontKey);
+        }
       }
       // News (like Team below) never goes through the staging/commit
       // flow at all -- it's a fixed full-screen card with nothing to
@@ -2531,6 +2550,26 @@
     countdownFontButtons.forEach((b) => b.classList.toggle("active", b.dataset.key === fontKey));
   }
 
+  // The one Countdown on the screen (see the dedup in the "countdown" tool
+  // tab handler above and DYNAMIC_KINDS below) -- staged if it's actively
+  // being positioned, otherwise the already-committed layer sitting in
+  // `layers`. The panel's date/label/font controls stay bound to this for
+  // as long as the Countdown tab is open, so editing them keeps working
+  // right after hitting the checkmark instead of going dead the moment
+  // staging ends.
+  function currentCountdownTarget() {
+    if (stagedObject && stagedObject.kind === "countdown") return stagedObject;
+    return layers.find((l) => l.kind === "countdown") || null;
+  }
+
+  // Staged edits redraw the overlay; edits to an already-committed layer
+  // redraw the real layers canvas (and the Layers panel list) instead,
+  // since there's no overlay/staging bar up for it any more.
+  function redrawCountdownTarget(target) {
+    if (target === stagedObject) redrawOverlay();
+    else renderLayers();
+  }
+
   countdownFontButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
       countdownFontButtons.forEach((b) => b.classList.remove("active"));
@@ -2538,24 +2577,28 @@
       selectedCountdownFont = btn.dataset.font;
       selectedCountdownOutline = btn.dataset.outline === "true";
       selectedCountdownFontKey = btn.dataset.key;
-      if (stagedObject && stagedObject.kind === "countdown") {
-        stagedObject.font = selectedCountdownFont;
-        stagedObject.outline = selectedCountdownOutline;
-        stagedObject.fontKey = selectedCountdownFontKey;
-        redrawOverlay();
+      const target = currentCountdownTarget();
+      if (target) {
+        target.font = selectedCountdownFont;
+        target.outline = selectedCountdownOutline;
+        target.fontKey = selectedCountdownFontKey;
+        redrawCountdownTarget(target);
       }
     });
   });
 
   countdownDateInput.addEventListener("change", () => {
-    if (!stagedObject || stagedObject.kind !== "countdown" || !countdownDateInput.value) return;
-    stagedObject.targetDate = countdownDateInput.value;
-    redrawOverlay();
+    if (!countdownDateInput.value) return;
+    const target = currentCountdownTarget();
+    if (!target) return;
+    target.targetDate = countdownDateInput.value;
+    redrawCountdownTarget(target);
   });
   countdownLabelInput.addEventListener("input", () => {
-    if (!stagedObject || stagedObject.kind !== "countdown") return;
-    stagedObject.label = countdownLabelInput.value;
-    redrawOverlay();
+    const target = currentCountdownTarget();
+    if (!target) return;
+    target.label = countdownLabelInput.value;
+    redrawCountdownTarget(target);
   });
 
   // ================= News tool =================
@@ -3720,6 +3763,11 @@
 
   function startStaging(obj) {
     if (stagedObject) return;
+    // Default to "nothing to restore" -- selectLayer overrides this right
+    // after calling startStaging, for the one case (editing an existing
+    // layer back out of `layers`) where there actually is an original to
+    // put back if the edit gets cancelled.
+    stagedFromLayers = null;
     const defaultSize = (obj.kind === "photo") ? 160 : 64;
     stagedObject = Object.assign({ x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: defaultSize }, obj);
     stagingSizeSlider.value = stagedObject.size;
@@ -3898,8 +3946,20 @@
   overlayCanvas.addEventListener("pointerup", releaseStagedPointer);
   overlayCanvas.addEventListener("pointercancel", releaseStagedPointer);
 
-  function endStaging() {
+  // restoreOriginal: true only from an explicit Cancel. Committing (or the
+  // "nothing to place" early-outs below) should never restore -- those
+  // already represent the user's final decision, not an abandoned edit.
+  function endStaging(restoreOriginal) {
+    if (restoreOriginal && stagedFromLayers) {
+      // Cancelling an edit of an EXISTING layer (pulled out of `layers` by
+      // selectLayer) used to just drop it on the floor -- Cancel silently
+      // deleted whatever you'd tapped to edit instead of leaving it as it
+      // was. Put it back unchanged.
+      layers.push(stagedFromLayers);
+      renderLayers();
+    }
     stagedObject = null;
+    stagedFromLayers = null;
     stagingBar.classList.remove("visible");
     overlayCanvas.classList.remove("staging");
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -3939,7 +3999,7 @@
     endStaging();
   });
 
-  cancelStageBtn.addEventListener("click", endStaging);
+  cancelStageBtn.addEventListener("click", () => endStaging(true));
 
   // Text stages live as you type into the overlay input sitting right on
   // the canvas -- there's no separate box/button elsewhere on the page.
@@ -3976,9 +4036,17 @@
   }
 
   // "Dynamic" layers are the ones the daily Cloud Function redraws on its
-  // own (Countdown, Team) -- at most one is treated as active per device
-  // for now. If more than one somehow exists, only the first is used for
-  // auto-updates; the rest render fine today but stay frozen after that.
+  // own (Countdown, Team, News, Tide) -- publish only ever tracks the
+  // FIRST one it finds for that daily auto-update (see below), so each
+  // kind's own tool code is responsible for making sure at most one of
+  // it ever lands in `layers` to begin with: Team/News/Tide are fixed
+  // full-screen cards that wipe/replace the whole layers array on
+  // creation (see loadTideLayer, findOrCreateTeamLayer, and News's own
+  // existing-layer lookup), and Countdown reuses its existing layer
+  // instead of staging a second one (see the "countdown" tool tab
+  // handler above). If a second one of any kind ever did slip through
+  // some other way, it would render fine at publish time but stay
+  // frozen from then on -- it wouldn't be the one the daily job updates.
   const DYNAMIC_KINDS = new Set(["countdown", "team", "news", "tide"]);
 
   // Same idea as getCompositeCanvas, but leaves out any dynamic layer --
