@@ -1027,7 +1027,7 @@ function drawTideCard(ctx, card) {
     ctx.fillText(alertParts.join("   ·   "), 50, (BANNER_HEIGHT + TOP_STRIP_END) / 2 + 6);
   } else {
     ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
-    ctx.fillStyle = "rgba(0,0,0,0.75)";
+    ctx.fillStyle = "#000";
     if (card.sunrise.label) {
       ctx.textAlign = "left";
       ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 7);
@@ -1126,7 +1126,7 @@ function drawTideCard(ctx, card) {
       ctx.fillStyle = "#000";
       ctx.fillText(heightLabel, x, TOP_STRIP_END + 24);
       ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
-      ctx.fillStyle = "rgba(0,0,0,0.8)";
+      ctx.fillStyle = "#000";
       ctx.fillText(e.label, x, TOP_STRIP_END + 43);
     } else {
       if (PLOT_BOTTOM - y > 14) {
@@ -1137,7 +1137,7 @@ function drawTideCard(ctx, card) {
       ctx.fillStyle = "#000";
       ctx.fillText(heightLabel, x, PLOT_BOTTOM + 26);
       ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
-      ctx.fillStyle = "rgba(0,0,0,0.8)";
+      ctx.fillStyle = "#000";
       ctx.fillText(e.label, x, PLOT_BOTTOM + 45);
     }
   });
@@ -1178,7 +1178,7 @@ function drawTideCard(ctx, card) {
   if (card.moon.set && card.moon.set.label) riseSetParts.push("Moonset " + card.moon.set.label);
   if (riseSetParts.length) {
     ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
-    ctx.fillStyle = "rgba(0,0,0,0.75)";
+    ctx.fillStyle = "#000";
     ctx.textAlign = "right";
     ctx.fillText(riseSetParts.join("   ·   "), CANVAS_WIDTH - 24, footerY1 - 3);
   }
@@ -1209,7 +1209,7 @@ function drawTideCard(ctx, card) {
   if (weather.pressure && weather.pressure.hpa != null) {
     if (cx > 84) {
       ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
-      ctx.fillStyle = "rgba(0,0,0,0.75)";
+      ctx.fillStyle = "#000";
       ctx.textAlign = "left";
       ctx.fillText("   ·   ", cx, footerY2 - 3);
       cx += ctx.measureText("   ·   ").width;
