@@ -773,6 +773,19 @@ function drawGameDayCard(ctx, card) {
   const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 40, FONT_FAMILY.block, 24, 14);
   ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
 
+  // Logos drawn BEFORE the headline text on purpose: ditheredLogoCanvas
+  // produces a fully opaque square (even its "white" pixels have alpha
+  // 255, see ditheredLogoCanvas), so whichever of these two draws last
+  // wins any pixel they both touch. A long headline (long team names,
+  // auto-shrunk toward its 16px floor) can genuinely reach into a logo's
+  // bounding box up here -- confirmed visually, not hypothetical -- and
+  // drawing the logo second used to silently erase the overlapping
+  // letters. Drawing logos first means the headline's actual ink always
+  // wins that overlap instead of disappearing into it.
+  const bodyMidY = BANNER_HEIGHT + (CANVAS_HEIGHT - BANNER_HEIGHT) / 2;
+  if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
+  if (card.oppLogo) ctx.drawImage(card.oppLogo, CANVAS_WIDTH - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
+
   ctx.fillStyle = "#000";
   // Tucked in tight under the banner (not vertically centered in its own
   // band, like the banner title is) -- the logos are back to their full
@@ -781,10 +794,6 @@ function drawGameDayCard(ctx, card) {
   // band of its own.
   const headlineSize = fitBannerFontSize(ctx, card.headline, CANVAS_WIDTH - 40, FONT_FAMILY.block, 24, 16);
   ctx.fillText(card.headline, CANVAS_WIDTH / 2, BANNER_HEIGHT + 4 + headlineSize);
-
-  const bodyMidY = BANNER_HEIGHT + (CANVAS_HEIGHT - BANNER_HEIGHT) / 2;
-  if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
-  if (card.oppLogo) ctx.drawImage(card.oppLogo, CANVAS_WIDTH - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
 
   // Constrained to the gap BETWEEN the logos, not the full card width --
   // unlike the headline/gameLine bands above/below, this (and the venue

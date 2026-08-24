@@ -1490,13 +1490,20 @@
     const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 24, 14);
     ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
 
-    ctx.fillStyle = "#000";
-    const headlineSize = fitBannerFontSize(ctx, card.headline, w - 40, "'Bungee', sans-serif", 24, 16);
-    ctx.fillText(card.headline, w / 2, BANNER_HEIGHT + 4 + headlineSize);
-
+    // Logos drawn BEFORE the headline text -- see the comment in
+    // functions/lib/dynamic.js's drawGameDayCard: ditheredLogoCanvasOpaque
+    // produces a fully opaque square, so whichever of these two draws
+    // last wins any pixel they both touch, and a long headline can
+    // genuinely reach into a logo's bounding box up here. Drawing the
+    // logos first means the headline's ink always wins that overlap
+    // instead of the logo silently erasing it.
     const bodyMidY = BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2;
     if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
     if (card.oppLogo) ctx.drawImage(card.oppLogo, w - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
+
+    ctx.fillStyle = "#000";
+    const headlineSize = fitBannerFontSize(ctx, card.headline, w - 40, "'Bungee', sans-serif", 24, 16);
+    ctx.fillText(card.headline, w / 2, BANNER_HEIGHT + 4 + headlineSize);
 
     const daysMaxWidth = w - 2 * (LOGO_MARGIN + LOGO_SIZE) - 20;
     if (card.daysLeft <= 0) {
