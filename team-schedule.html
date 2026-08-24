@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Team Schedule</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --line: rgba(31, 51, 71, 0.14);
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; }
+
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+
+  header.hero {
+    padding: 40px 0 24px;
+  }
+
+  .kicker {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--navy);
+    margin: 0 0 8px;
+  }
+
+  h1.title {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: clamp(26px, 5.5vw, 38px);
+    margin: 0 0 14px;
+    color: var(--navy-dark);
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 14px;
+    padding: 9px 16px;
+    border-radius: 999px;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+
+  .btn-primary { background: var(--coral); color: #fff; }
+  .btn-primary:hover { background: var(--coral-dark); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--navy);
+    border-color: var(--line);
+  }
+  .btn-ghost:hover { background: rgba(31, 51, 71, 0.06); }
+
+  .updated-note {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 10px 0 0;
+  }
+
+  main { padding-bottom: 60px; }
+
+  .state-box {
+    background: var(--foam);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 22px;
+    color: var(--ink-soft);
+    font-size: 15px;
+  }
+  .state-box.error { color: var(--coral-dark); }
+
+  .next-up {
+    background: var(--navy-dark);
+    color: var(--foam);
+    border-radius: 16px;
+    padding: 22px 24px;
+    margin-bottom: 28px;
+  }
+  .next-up .kicker { color: var(--wax); }
+  .next-up h2 {
+    font-family: var(--heading);
+    font-size: clamp(20px, 4.5vw, 26px);
+    margin: 0 0 8px;
+  }
+  .next-up .meta { font-size: 14px; color: rgba(248, 242, 228, 0.8); margin: 2px 0; }
+
+  .month-heading {
+    font-family: var(--heading);
+    font-weight: 600;
+    font-size: 18px;
+    color: var(--navy);
+    margin: 30px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  .month-heading:first-of-type { margin-top: 0; }
+
+  .event-card {
+    display: flex;
+    gap: 16px;
+    background: var(--foam);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    align-items: flex-start;
+  }
+
+  .event-date {
+    flex: 0 0 56px;
+    text-align: center;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 6px 4px;
+  }
+  .event-date .dow {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--coral-dark);
+  }
+  .event-date .num {
+    display: block;
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 20px;
+    color: var(--navy-dark);
+    line-height: 1.2;
+  }
+
+  .event-body { flex: 1; min-width: 0; }
+  .event-summary {
+    font-weight: 600;
+    font-size: 16px;
+    margin: 0 0 4px;
+    color: var(--navy-dark);
+  }
+  .event-meta {
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    margin: 2px 0;
+  }
+  .event-meta a { text-decoration: underline; text-decoration-color: var(--line); }
+  .event-links { margin-top: 8px; }
+  .event-links a {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--navy);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .badge-soon {
+    display: inline-block;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: var(--wax);
+    color: var(--navy-dark);
+    border-radius: 999px;
+    padding: 2px 8px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+
+  details.past-events { margin-top: 34px; }
+  details.past-events > summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--navy);
+    padding: 8px 0;
+  }
+  details.past-events .event-card { opacity: 0.7; }
+
+  footer {
+    text-align: center;
+    padding: 30px 0 50px;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+  footer a { text-decoration: underline; }
+  footer p { margin: 4px 0; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="hero">
+    <p class="kicker">Team Schedule</p>
+    <h1 class="title" id="calendarTitle">Loading schedule&hellip;</h1>
+    <div class="hero-actions">
+      <a class="btn btn-primary" id="subscribeLink" href="#">Subscribe in your calendar app &rarr;</a>
+      <button class="btn btn-ghost" id="refreshBtn" type="button">Refresh</button>
+    </div>
+    <p class="updated-note" id="updatedNote"></p>
+  </header>
+
+  <main id="main">
+    <div class="state-box" id="stateBox">Loading the schedule&hellip;</div>
+  </main>
+
+  <footer>
+    <p>Synced live from TeamSnap</p>
+    <p><a href="index.html">&larr; waveclock.net</a></p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // Same Cloud Functions base every other proxy on this site uses (see
+  // design/index.html's ESPN_PROXY_BASE/NEWS_PROXY_BASE/ASTRO_PROXY_BASE)
+  // -- functions/index.js exports teamsnapProxy alongside those.
+  var PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/teamsnapProxy";
+  var DEFAULT_ICS_URL = "https://ical-cdn.teamsnap.com/team_schedule/bc5a413c-e630-470d-8537-0fd2d1d90720.ics";
+
+  // Lets this same page serve a different team's feed via
+  // team-schedule.html?ics=https://ical-cdn.teamsnap.com/... -- falls
+  // back to the default whenever the param is missing or isn't a
+  // plausible TeamSnap .ics URL (the proxy re-validates this properly
+  // server-side regardless; this is just so a bad param fails obviously
+  // instead of silently hitting the proxy with junk).
+  function resolveIcsUrl() {
+    var param = new URLSearchParams(window.location.search).get("ics");
+    if (param) {
+      try {
+        var u = new URL(param);
+        if (u.protocol === "https:" && /\.teamsnap\.com$/i.test(u.hostname) && /\.ics$/i.test(u.pathname)) {
+          return param;
+        }
+      } catch (err) { /* fall through to default */ }
+    }
+    return DEFAULT_ICS_URL;
+  }
+
+  var icsUrl = resolveIcsUrl();
+
+  var calendarTitleEl = document.getElementById("calendarTitle");
+  var subscribeLinkEl = document.getElementById("subscribeLink");
+  var updatedNoteEl = document.getElementById("updatedNote");
+  var stateBoxEl = document.getElementById("stateBox");
+  var mainEl = document.getElementById("main");
+  var refreshBtn = document.getElementById("refreshBtn");
+
+  subscribeLinkEl.href = icsUrl.replace(/^https:/, "webcal:");
+
+  var DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+  function monthKey(d) { return d.getFullYear() + "-" + d.getMonth(); }
+
+  function formatTimeRange(ev) {
+    if (ev.allDay) return "All day";
+    var start = new Date(ev.start);
+    var startStr = start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    if (!ev.end) return startStr;
+    var end = new Date(ev.end);
+    var endStr = end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return startStr + " – " + endStr;
+  }
+
+  function mapsUrl(location) {
+    return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(location);
+  }
+
+  // Builds a Google Calendar "quick add" link so a visitor can save one
+  // event to their own calendar without subscribing to the whole feed.
+  function googleCalendarUrl(ev) {
+    var fmt = function (iso) { return iso.replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z"); };
+    var start = ev.start;
+    var end = ev.end || ev.start;
+    var dates = ev.allDay
+      ? fmt(start).slice(0, 8) + "/" + fmt(new Date(new Date(end).getTime() + 86400000).toISOString()).slice(0, 8)
+      : fmt(start) + "/" + fmt(end);
+    var params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: ev.summary || "Team event",
+      dates: dates,
+      location: ev.location || "",
+      details: ev.description || ""
+    });
+    return "https://calendar.google.com/calendar/render?" + params.toString();
+  }
+
+  function eventCard(ev, opts) {
+    opts = opts || {};
+    var start = new Date(ev.start);
+    var card = document.createElement("div");
+    card.className = "event-card";
+
+    var dateBox = document.createElement("div");
+    dateBox.className = "event-date";
+    dateBox.innerHTML =
+      '<span class="dow">' + DOW[start.getDay()] + '</span>' +
+      '<span class="num">' + start.getDate() + '</span>';
+    card.appendChild(dateBox);
+
+    var body = document.createElement("div");
+    body.className = "event-body";
+
+    var summary = document.createElement("p");
+    summary.className = "event-summary";
+    summary.textContent = ev.summary || "(Untitled event)";
+    if (opts.soon) {
+      var badge = document.createElement("span");
+      badge.className = "badge-soon";
+      badge.textContent = "Soon";
+      summary.appendChild(badge);
+    }
+    body.appendChild(summary);
+
+    var timeLine = document.createElement("p");
+    timeLine.className = "event-meta";
+    timeLine.textContent = formatTimeRange(ev);
+    body.appendChild(timeLine);
+
+    if (ev.location) {
+      var locLine = document.createElement("p");
+      locLine.className = "event-meta";
+      var link = document.createElement("a");
+      link.href = mapsUrl(ev.location);
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = ev.location;
+      locLine.appendChild(link);
+      body.appendChild(locLine);
+    }
+
+    if (!opts.hideAddLink) {
+      var links = document.createElement("p");
+      links.className = "event-links";
+      var addLink = document.createElement("a");
+      addLink.href = googleCalendarUrl(ev);
+      addLink.target = "_blank";
+      addLink.rel = "noopener";
+      addLink.textContent = "+ Add to Google Calendar";
+      links.appendChild(addLink);
+      body.appendChild(links);
+    }
+
+    card.appendChild(body);
+    return card;
+  }
+
+  function render(data) {
+    calendarTitleEl.textContent = data.calendarName || "Team Schedule";
+    document.title = (data.calendarName || "Team Schedule");
+
+    var now = new Date();
+    var events = (data.events || []).slice();
+    var upcoming = events.filter(function (ev) { return new Date(ev.end || ev.start) >= now; });
+    var past = events.filter(function (ev) { return new Date(ev.end || ev.start) < now; }).reverse();
+
+    mainEl.innerHTML = "";
+
+    if (!events.length) {
+      var empty = document.createElement("div");
+      empty.className = "state-box";
+      empty.textContent = "No events found on this schedule yet.";
+      mainEl.appendChild(empty);
+      return;
+    }
+
+    if (upcoming.length) {
+      var next = upcoming[0];
+      var soonCutoff = now.getTime() + 48 * 3600 * 1000;
+      var nextUp = document.createElement("div");
+      nextUp.className = "next-up";
+      var startNext = new Date(next.start);
+      nextUp.innerHTML =
+        '<p class="kicker">Next up</p>' +
+        '<h2>' + (next.summary || "(Untitled event)") + '</h2>' +
+        '<p class="meta">' + DOW[startNext.getDay()] + ", " + MONTHS[startNext.getMonth()] + " " + startNext.getDate() + " · " + formatTimeRange(next) + '</p>' +
+        (next.location ? '<p class="meta">' + next.location + '</p>' : "");
+      mainEl.appendChild(nextUp);
+
+      var currentMonth = null;
+      upcoming.forEach(function (ev) {
+        var start = new Date(ev.start);
+        var key = monthKey(start);
+        if (key !== currentMonth) {
+          currentMonth = key;
+          var heading = document.createElement("p");
+          heading.className = "month-heading";
+          heading.textContent = MONTHS[start.getMonth()] + " " + start.getFullYear();
+          mainEl.appendChild(heading);
+        }
+        mainEl.appendChild(eventCard(ev, { soon: new Date(ev.start).getTime() <= soonCutoff }));
+      });
+    } else {
+      var noneUpcoming = document.createElement("div");
+      noneUpcoming.className = "state-box";
+      noneUpcoming.textContent = "No upcoming events — check back later, or see past events below.";
+      mainEl.appendChild(noneUpcoming);
+    }
+
+    if (past.length) {
+      var details = document.createElement("details");
+      details.className = "past-events";
+      var summaryEl = document.createElement("summary");
+      summaryEl.textContent = "Past events (" + past.length + ")";
+      details.appendChild(summaryEl);
+      past.forEach(function (ev) {
+        details.appendChild(eventCard(ev, { hideAddLink: true }));
+      });
+      mainEl.appendChild(details);
+    }
+  }
+
+  function load() {
+    stateBoxEl.textContent = "Loading the schedule…";
+    stateBoxEl.className = "state-box";
+    mainEl.innerHTML = "";
+    mainEl.appendChild(stateBoxEl);
+    refreshBtn.disabled = true;
+
+    var url = PROXY_BASE + "?url=" + encodeURIComponent(icsUrl);
+    fetch(url)
+      .then(function (resp) {
+        if (!resp.ok) throw new Error("proxy returned " + resp.status);
+        return resp.json();
+      })
+      .then(function (data) {
+        render(data);
+        updatedNoteEl.textContent = "Last updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      })
+      .catch(function (err) {
+        mainEl.innerHTML = "";
+        var errBox = document.createElement("div");
+        errBox.className = "state-box error";
+        errBox.textContent = "Couldn't load the schedule right now. Try refreshing in a bit.";
+        mainEl.appendChild(errBox);
+        calendarTitleEl.textContent = "Team Schedule";
+        console.error("TeamSnap schedule load failed:", err);
+      })
+      .finally(function () {
+        refreshBtn.disabled = false;
+      });
+  }
+
+  refreshBtn.addEventListener("click", load);
+  load();
+})();
+</script>
+
+</body>
+</html>

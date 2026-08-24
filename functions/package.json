@@ -7,7 +7,7 @@
   },
   "main": "index.js",
   "scripts": {
-    "test": "node test/dynamic.test.js && node test/orchestration.test.js && node test/espnProxy.test.js && node test/newsProxy.test.js && node test/astro.test.js && node test/astroProxy.test.js"
+    "test": "node test/dynamic.test.js && node test/orchestration.test.js && node test/espnProxy.test.js && node test/newsProxy.test.js && node test/astro.test.js && node test/astroProxy.test.js && node test/teamsnap.test.js && node test/teamsnapProxy.test.js"
   },
   "dependencies": {
     "canvas": "^2.11.2",
