@@ -925,15 +925,15 @@
   const screen = (screenParam === 2 || screenParam === 3) ? screenParam : 1;
 
   // Screen 1 writes to BOTH the legacy unsuffixed path and the new
-  // "_1"-suffixed one. Every Wave Clock in the field right now runs
-  // single-screen firmware that only ever reads the unsuffixed
-  // designs/{id}.bin -- the 3-screen firmware hasn't shipped yet (still
-  // pending a RAM/caching check on real hardware). Dual-writing keeps
-  // today's customers' boards updating normally while also building out
-  // the new path old firmware simply ignores, so nothing breaks in
-  // production the moment this ships. Screens 2/3 have no legacy
-  // equivalent to preserve -- old firmware never looked for a second or
-  // third screen, so there's nothing there to keep working.
+  // "_1"-suffixed one. The 3-screen firmware shipped, but not every
+  // Wave Clock in the field has necessarily picked it up yet (OTA
+  // rollout, offline devices, etc.) -- older firmware only ever reads
+  // the unsuffixed designs/{id}.bin. Dual-writing keeps those boards
+  // updating normally while also keeping the new "_1" path (which
+  // updated firmware reads) current, so nothing breaks for a device
+  // that hasn't updated. Screens 2/3 have no legacy equivalent to
+  // preserve -- old firmware never looked for a second or third
+  // screen, so there's nothing there to keep working.
   function screenDesignPaths(suffix) {
     if (screen === 1) return ["designs/" + deviceId + suffix, "designs/" + deviceId + "_1" + suffix];
     return ["designs/" + deviceId + "_" + screen + suffix];
