@@ -1,10 +1,10 @@
 // Daily job: for every device with an active "dynamic layer" (a Countdown
-// or a Team schedule, published from /design-v2/), redraw today's content
+// or a Team schedule, published from /design/), redraw today's content
 // onto its saved base design and overwrite designs/{id}.bin + .png -- the
 // same two files the device already reads unconditionally, so no firmware
 // change is needed for this to show up.
 //
-// Also exports espnProxy, an HTTP function design-v2's Team tool calls
+// Also exports espnProxy, an HTTP function design's Team tool calls
 // from the browser to get a live schedule preview before publishing --
 // see the comment above it for why that can't just call ESPN directly.
 "use strict";
@@ -104,7 +104,7 @@ exports.regenerateCountdownDesigns = onSchedule(
 );
 
 // ================= ESPN proxy =================
-// design-v2's Team tool needs a live schedule fetch to show an accurate
+// design's Team tool needs a live schedule fetch to show an accurate
 // preview BEFORE the customer publishes, from the customer's own browser.
 // Calling ESPN's site.api.espn.com directly from there fails: the browser
 // blocks the response as a cross-origin request ESPN doesn't grant CORS
@@ -120,7 +120,7 @@ exports.regenerateCountdownDesigns = onSchedule(
 // server-to-server call was never subject to CORS in the first place.
 //
 // Only forwards to a small whitelist of known sport/league pairs (the
-// same ones design-v2's League dropdown offers) rather than proxying any
+// same ones design's League dropdown offers) rather than proxying any
 // URL a caller asks for, so this can't be used as an open relay to
 // arbitrary sites.
 const ALLOWED_LEAGUES = new Set([
@@ -157,7 +157,7 @@ async function espnProxyHandler(req, res) {
   // image URL (already returned to the browser by a prior "teams" or
   // "schedule" call) rather than building one from sport/league, so it
   // skips that validation and does its own (the CDN-domain check above)
-  // instead. design-v2's Team tool uses this to draw the real Game Day
+  // instead. design's Team tool uses this to draw the real Game Day
   // card -- including dithered logos -- directly in the live preview,
   // which needs CORS-clean pixel access to the logo image the same way
   // "teams"/"schedule" need CORS-clean JSON access.
@@ -223,7 +223,7 @@ async function espnProxyHandler(req, res) {
 exports.espnProxy = onRequest({ cors: true, region: "us-central1" }, espnProxyHandler);
 
 // ================= News proxy =================
-// design-v2's News tool needs a live headline fetch to show an accurate
+// design's News tool needs a live headline fetch to show an accurate
 // preview before publishing, same reasoning as espnProxy above -- an
 // arbitrary RSS feed almost never sends CORS headers a browser fetch()
 // needs. Unlike espnProxy there's no fixed API to whitelist by hostname
@@ -269,7 +269,7 @@ exports.newsProxy = onRequest({ cors: true, region: "us-central1" }, newsProxyHa
 
 // Unlike espnProxy/newsProxy above (thin passthroughs of raw upstream
 // JSON -- the "what does this data mean" logic is duplicated client-side
-// in design-v2 for those), this one does the FULL computation
+// in design for those), this one does the FULL computation
 // server-side and returns a ready-to-draw payload. Twilight bounds, moon
 // phase naming, and NOAA's timezone handling are exactly the kind of
 // thing that quietly drifts out of sync if reimplemented a second time in

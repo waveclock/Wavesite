@@ -2,7 +2,7 @@
 
 // Sun/moon/twilight (via suncalc) + NOAA tide predictions, shaped into one
 // ready-to-draw payload for the Tide & Fishing card. Both the live preview
-// (astroProxy, called from design-v2's browser) and the daily regeneration
+// (astroProxy, called from design's browser) and the daily regeneration
 // job call fetchTideCardData directly -- neither duplicates this
 // computation, unlike Team's findNextGame (which IS duplicated
 // client/server because it's simple enough to keep in sync by hand). This

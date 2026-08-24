@@ -9,6 +9,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Press+Start+2P&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Only used by the Tide & Fishing tool's "pick a different fishing
+     spot" picker (Phase 4) -- same Leaflet + OpenStreetMap-tiles setup
+     already used in location/index.html, no API key needed. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root {
     --sand: #F1E6CF;
@@ -62,6 +67,61 @@
     margin: 0;
   }
 
+  .feature-callout {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 14px auto 0;
+    max-width: 420px;
+    padding: 10px 14px;
+    background: var(--foam);
+    border: 2px dashed var(--coral);
+    border-radius: 14px;
+    text-align: left;
+  }
+  .feature-callout-icons {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .feature-callout-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--navy);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .feature-callout-icon svg { width: 17px; height: 17px; color: #fff; }
+  .feature-callout-text { flex: 1; min-width: 0; }
+  .feature-callout-title {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 13.5px;
+    margin: 0 0 2px;
+    color: var(--ink);
+  }
+  .feature-callout-title .badge-pill {
+    display: inline-block;
+    background: var(--coral);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    vertical-align: middle;
+    margin-right: 6px;
+    transform: translateY(-1px);
+  }
+  .feature-callout-desc {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 0;
+    line-height: 1.35;
+  }
+
   .device-tag {
     display: inline-block;
     margin-top: 10px;
@@ -81,6 +141,49 @@
     background: var(--coral);
     color: var(--foam);
   }
+
+  .screen-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 10px;
+    font-size: 13px;
+  }
+  .screen-nav-label {
+    color: var(--ink-soft);
+    margin-right: 2px;
+  }
+  .screen-nav-item {
+    display: inline-block;
+    min-width: 22px;
+    text-align: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    text-decoration: none;
+    font-weight: 700;
+  }
+  .screen-nav-item.current {
+    background: var(--navy);
+    color: var(--foam);
+  }
+  a.screen-nav-item {
+    background: var(--foam);
+    border: 1px solid var(--line);
+    color: var(--navy);
+  }
+  a.screen-nav-item:hover { background: var(--sand); }
+
+  .rotation-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+  .rotation-toggle-row input { width: 16px; height: 16px; }
 
   .current-board {
     display: none;
@@ -314,6 +417,32 @@
     gap: 8px;
     margin-bottom: 10px;
   }
+
+  .countdown-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .countdown-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink-soft);
+  }
+  .countdown-field input,
+  .countdown-field select {
+    font-family: var(--heading);
+    font-size: 15px;
+    padding: 10px 12px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .countdown-field select:disabled { background: var(--foam); color: var(--ink-soft); }
   .clipart-search-row input[type="text"] {
     flex: 1;
     font-family: var(--heading);
@@ -344,6 +473,74 @@
     color: var(--ink-soft);
     margin: 0 0 8px;
     min-height: 14px;
+  }
+
+  /* Fishing Spot picker (Phase 4) -- deliberately mirrors the existing
+     station-row/station-map look from location/index.html so it reads as
+     a piece the customer has already seen, not a new pattern to learn. */
+  .spot-choice { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .spot-choice-row {
+    display: flex; align-items: center; gap: 10px;
+    border: 2px solid var(--ink); border-radius: 8px;
+    padding: 10px 12px; cursor: pointer; background: #fff;
+  }
+  .spot-choice-row.selected { background: var(--foam); border-color: var(--navy); box-shadow: 2px 2px 0 var(--navy); }
+  .spot-choice-row input[type="radio"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--navy); }
+  .spot-choice-text { font-size: 13px; }
+  .spot-choice-text .sub { display: block; font-size: 11px; color: var(--ink-soft); margin-top: 1px; }
+
+  #fishingSpotPicker.hidden { display: none; }
+  .fishing-search-row { position: relative; margin-bottom: 8px; }
+  .fishing-search-row input {
+    width: 100%; box-sizing: border-box;
+    border: 2px solid var(--ink); border-radius: 8px;
+    padding: 9px 12px; font-size: 13px; font-family: var(--body);
+  }
+  .fishing-search-results {
+    border: 2px solid var(--ink); border-top: none; border-radius: 0 0 8px 8px;
+    margin: -8px 0 8px; overflow: hidden; background: #fff;
+  }
+  .fishing-search-results:empty { display: none; margin: 0; border: none; }
+  .fishing-search-result-row { padding: 8px 12px; font-size: 13px; cursor: pointer; border-top: 1px solid var(--line); }
+  .fishing-search-result-row:first-child { border-top: none; }
+  .fishing-search-result-row:hover, .fishing-search-result-row:focus { background: var(--foam); }
+
+  .fishing-station-map {
+    display: none;
+    height: 180px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    margin-bottom: 10px;
+  }
+  .fishing-town-marker svg { display: block; filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff); }
+  .fishing-station-marker span {
+    display: block; width: 100%; height: 100%; border-radius: 50%;
+    background: var(--navy); border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink);
+  }
+  .fishing-station-marker.selected span { background: var(--coral); }
+
+  .fishing-station-row {
+    display: flex; align-items: center; gap: 10px;
+    border: 2px solid var(--ink); border-radius: 8px;
+    padding: 10px 12px; cursor: pointer; background: #fff; margin-bottom: 7px;
+  }
+  .fishing-station-row.selected { background: var(--foam); border-color: var(--navy); box-shadow: 2px 2px 0 var(--navy); }
+  .fishing-station-row input[type="radio"] { flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--navy); }
+  .fishing-station-name { font-weight: 600; font-size: 13.5px; }
+  .fishing-station-meta { font-size: 11.5px; color: var(--ink-soft); }
+
+  .fishing-save-btn {
+    width: 100%; padding: 10px; margin-top: 4px;
+    border: 2px solid var(--navy); border-radius: 8px;
+    background: var(--navy); color: #fff; font-weight: 700; font-size: 13px;
+    cursor: pointer;
+  }
+  .fishing-save-btn:disabled { opacity: 0.4; cursor: default; }
+  .fishing-remove-btn {
+    width: 100%; padding: 8px; margin-top: 6px;
+    border: 2px solid var(--coral); border-radius: 8px;
+    background: #fff; color: var(--coral-dark); font-weight: 700; font-size: 12px;
+    cursor: pointer;
   }
 
   .clipart-results {
@@ -467,8 +664,27 @@
 <div class="wrap">
   <header>
     <h1>DESIGN YOUR<br>WAVE CLOCK</h1>
-    <p class="subtitle">Draw something, write something &mdash; whatever you want to see every time it cycles by.</p>
+    <p class="subtitle">Draw something, write something, upload a picture &mdash; whatever you want to see every time it cycles by.</p>
+    <div class="feature-callout">
+      <div class="feature-callout-icons">
+        <span class="feature-callout-icon" title="Countdown">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="feature-callout-icon" title="Team Schedule">
+          <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </span>
+      </div>
+      <div class="feature-callout-text">
+        <p class="feature-callout-title"><span class="badge-pill">NEW</span>Countdown &amp; Team Schedule</p>
+        <p class="feature-callout-desc">Set it once and it keeps itself current &mdash; counting down the days, or pulling your team's next game &mdash; every single day, automatically.</p>
+      </div>
+    </div>
     <span class="device-tag" id="deviceTag">Loading device&hellip;</span>
+    <div class="screen-nav" id="screenNav" style="display:none;"></div>
+    <label class="rotation-toggle-row" id="rotationToggleRow" style="display:none;">
+      <input type="checkbox" id="rotationCheckbox">
+      <span id="rotationToggleLabel">Include this screen in the rotation</span>
+    </label>
   </header>
 
   <p class="status error" id="noDeviceMsg" style="display:none;">This link is missing your device ID, so there's nothing to design for &mdash; scan the QR code on your Wave Clock to get a working link.</p>
@@ -490,11 +706,23 @@
           <button class="icon-tool-btn" id="toolTextBtn" data-tool="text" title="Text">T</button>
           <button class="icon-tool-btn" id="toolStickerBtn" data-tool="sticker" title="Sticker">&#11088;</button>
           <button class="icon-tool-btn" id="toolPhotoBtn" data-tool="photo" title="Photo">&#128247;</button>
-          <button class="icon-tool-btn" id="toolLayersBtn" data-tool="layers" title="Layers">
-            <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 13l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 17.5l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          <button class="icon-tool-btn" id="toolCountdownBtn" data-tool="countdown" title="Countdown">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="icon-tool-btn" id="toolTeamBtn" data-tool="team" title="Team Schedule">
+            <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </button>
+          <!-- Tide & Fishing: hidden until the feature's ready -- data-tool
+               stays intact so the tool-tab wiring is untouched and this
+               only needs its style attribute removed to bring it back. -->
+          <button class="icon-tool-btn" id="toolTideBtn" data-tool="tide" title="Tide &amp; Fishing" style="display:none;">
+            <svg viewBox="0 0 24 24"><path d="M3 15c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 19c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16.5" cy="6.5" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
           </button>
         </div>
         <div class="quick-toolbar-row">
+          <button class="icon-tool-btn" id="toolLayersBtn" data-tool="layers" title="Layers">
+            <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 13l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 17.5l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </button>
           <button class="icon-tool-btn" id="eraserBtn" title="Erase">
             <svg viewBox="0 0 24 24"><g transform="rotate(-35 12 12)"><rect x="4" y="8" width="16" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="4" y1="12.5" x2="20" y2="12.5" stroke="currentColor" stroke-width="1.6"/></g></svg>
           </button>
@@ -521,7 +749,7 @@
       <input type="range" id="sensitivitySlider" min="10" max="150" value="50">
     </div>
     <div class="staging-bar-row">
-      <span>Drag to move &middot; Size</span>
+      <span id="stagingDragSizeLabel">Drag to move &middot; Size</span>
       <input type="range" id="stagingSizeSlider" min="20" max="800" value="64">
       <button class="commit-btn" id="commitBtn" title="Place it">&#10003;</button>
       <button class="cancel-btn" id="cancelStageBtn" title="Cancel">&#10005;</button>
@@ -561,6 +789,89 @@
     </div>
   </div>
 
+  <div class="tool-panel hidden" id="countdownPanel">
+    <div class="countdown-fields">
+      <label class="countdown-field">
+        <span>Count down to</span>
+        <input type="date" id="countdownDateInput">
+      </label>
+      <label class="countdown-field">
+        <span>Label (optional)</span>
+        <input type="text" id="countdownLabelInput" placeholder="e.g. WEDDING" maxlength="20">
+      </label>
+    </div>
+    <div class="toolbar" id="countdownFontRow">
+      <button class="tool-btn active" id="cdFontSerifBtn" data-font="Georgia, serif" data-key="serif">Serif</button>
+      <button class="tool-btn" id="cdFontBlockBtn" data-font="'Bungee', sans-serif" data-outline="true" data-key="block">Block</button>
+      <button class="tool-btn" id="cdFontPixelBtn" data-font="'Press Start 2P', monospace" data-key="pixel">Pixel</button>
+    </div>
+    <p class="clipart-status">Updates on its own once a day after you publish &mdash; no need to redesign it.</p>
+  </div>
+
+  <div class="tool-panel hidden" id="teamPanel">
+    <div class="countdown-fields">
+      <label class="countdown-field">
+        <span>League</span>
+        <select id="teamLeagueSelect">
+          <option value="">Choose a league&hellip;</option>
+          <option value="football/nfl">NFL</option>
+          <option value="football/college-football">College Football</option>
+          <option value="basketball/nba">NBA</option>
+          <option value="baseball/mlb">MLB</option>
+          <option value="hockey/nhl">NHL</option>
+        </select>
+      </label>
+      <label class="countdown-field">
+        <span>Team</span>
+        <select id="teamNameSelect" disabled>
+          <option value="">Choose a league first&hellip;</option>
+        </select>
+      </label>
+    </div>
+    <p class="clipart-status" id="teamStatus">Pick a team to see when they play next.</p>
+  </div>
+
+  <div class="tool-panel hidden" id="tidePanel">
+    <div class="spot-choice">
+      <label class="spot-choice-row" data-value="device">
+        <input type="radio" name="spotChoice" id="spotChoiceDevice" value="device" checked>
+        <span class="spot-choice-text">Use my device's saved location<span class="sub" id="deviceLocationSub"></span></span>
+      </label>
+      <label class="spot-choice-row" data-value="custom">
+        <input type="radio" name="spotChoice" id="spotChoiceCustom" value="custom">
+        <span class="spot-choice-text">Pick a different fishing spot<span class="sub">A favorite pier, inlet, or jetty</span></span>
+      </label>
+    </div>
+
+    <div id="fishingSpotPicker" class="hidden">
+      <div class="fishing-search-row">
+        <input type="text" id="fishingTownSearch" placeholder="Town, city, or zip code&hellip;" autocomplete="off">
+      </div>
+      <div class="fishing-search-results" id="fishingSearchResults"></div>
+      <div class="fishing-station-map" id="fishingStationMap"></div>
+      <div id="fishingStationListWrap"></div>
+      <p class="clipart-status" id="fishingSpotStatus"></p>
+      <button type="button" class="fishing-save-btn" id="fishingSaveBtn" disabled>Save This Fishing Spot</button>
+      <button type="button" class="fishing-remove-btn hidden" id="fishingRemoveBtn">Remove custom spot &mdash; use device location instead</button>
+    </div>
+
+    <p class="clipart-status" id="tideStatus">Loading tide, sun &amp; moon data for your location&hellip;</p>
+  </div>
+
+  <div class="tool-panel hidden" id="newsPanel">
+    <div class="countdown-fields">
+      <label class="countdown-field">
+        <span>Location</span>
+        <input type="text" id="newsLocationInput" placeholder="e.g. Ocean City, NJ" maxlength="40">
+      </label>
+      <label class="countdown-field">
+        <span>Or a specific RSS feed URL (optional, overrides Location)</span>
+        <input type="text" id="newsFeedUrlInput" placeholder="https://example.com/feed.xml" maxlength="300">
+      </label>
+    </div>
+    <p class="clipart-status" id="newsStatus">Type a location (or paste a specific RSS feed URL) to get today's headlines once you publish.</p>
+  </div>
+
   <div class="tool-panel hidden" id="layersPanel">
     <div class="layers-list" id="layersList"></div>
   </div>
@@ -580,7 +891,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getStorage, ref, uploadBytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+  import { getStorage, ref, uploadBytes, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
@@ -603,6 +914,46 @@
   const noDeviceMsg = document.getElementById("noDeviceMsg");
   const editor = document.getElementById("editor");
   const backToManageLink = document.getElementById("backToManageLink");
+  const screenNav = document.getElementById("screenNav");
+  const rotationToggleRow = document.getElementById("rotationToggleRow");
+  const rotationCheckbox = document.getElementById("rotationCheckbox");
+
+  // Which of the customer's 3 independent custom-design slots this page
+  // load is editing -- defaults to 1 for a bare `?id=` link (every
+  // existing bookmark/QR code), never anything outside 1-3.
+  const screenParam = parseInt(params.get("screen"), 10);
+  const screen = (screenParam === 2 || screenParam === 3) ? screenParam : 1;
+
+  // Screen 1 writes to BOTH the legacy unsuffixed path and the new
+  // "_1"-suffixed one. Every Wave Clock in the field right now runs
+  // single-screen firmware that only ever reads the unsuffixed
+  // designs/{id}.bin -- the 3-screen firmware hasn't shipped yet (still
+  // pending a RAM/caching check on real hardware). Dual-writing keeps
+  // today's customers' boards updating normally while also building out
+  // the new path old firmware simply ignores, so nothing breaks in
+  // production the moment this ships. Screens 2/3 have no legacy
+  // equivalent to preserve -- old firmware never looked for a second or
+  // third screen, so there's nothing there to keep working.
+  function screenDesignPaths(suffix) {
+    if (screen === 1) return ["designs/" + deviceId + suffix, "designs/" + deviceId + "_1" + suffix];
+    return ["designs/" + deviceId + "_" + screen + suffix];
+  }
+
+  async function uploadToScreenPaths(suffix, blob) {
+    const paths = screenDesignPaths(suffix);
+    await uploadBytes(ref(storage, paths[0]), blob);
+    for (const path of paths.slice(1)) {
+      try {
+        await uploadBytes(ref(storage, path), blob);
+      } catch (err) {
+        console.error("Couldn't write the new multi-screen path " + path + " (non-critical while Storage Rules haven't been updated yet):", err);
+      }
+    }
+  }
+
+  async function deleteFromScreenPaths(suffix) {
+    await Promise.all(screenDesignPaths(suffix).map((path) => deleteObject(ref(storage, path)).catch(() => {})));
+  }
 
   if (!deviceId) {
     deviceTag.textContent = "No device ID found in link";
@@ -611,8 +962,29 @@
     noDeviceMsg.style.display = "block";
     editor.style.display = "none";
   } else {
-    deviceTag.textContent = "Designing for " + deviceId;
+    deviceTag.textContent = "Designing for " + deviceId + " — Screen " + screen;
     if (backToManageLink) backToManageLink.href = "../manage/?id=" + encodeURIComponent(deviceId);
+
+    screenNav.style.display = "flex";
+    screenNav.innerHTML = "";
+    const navLabel = document.createElement("span");
+    navLabel.className = "screen-nav-label";
+    navLabel.textContent = "Screen:";
+    screenNav.appendChild(navLabel);
+    [1, 2, 3].forEach((n) => {
+      if (n === screen) {
+        const cur = document.createElement("span");
+        cur.className = "screen-nav-item current";
+        cur.textContent = String(n);
+        screenNav.appendChild(cur);
+      } else {
+        const link = document.createElement("a");
+        link.className = "screen-nav-item";
+        link.href = "?id=" + encodeURIComponent(deviceId) + "&screen=" + n;
+        link.textContent = String(n);
+        screenNav.appendChild(link);
+      }
+    });
   }
 
   function withTimeout(promise, ms) {
@@ -622,14 +994,106 @@
     ]);
   }
 
+  async function fetchJsonFromStorage(path, timeoutMs) {
+    const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + encodeURIComponent(path) + "?alt=media";
+    const resp = await withTimeout(fetch(url), timeoutMs);
+    if (resp.status === 404) return null;
+    if (!resp.ok) throw new Error("fetch failed: " + resp.status);
+    return resp.json();
+  }
+
+  // Mirrors settings/index.html's own defaults exactly -- the firmware's
+  // parser requires every one of these fields present and boolean/enum-
+  // typed, or it silently rejects the WHOLE settings payload, not just
+  // whatever's missing (confirmed directly from the firmware's parsing
+  // code). These are the fallback values used to fill in anything a
+  // device's existing settings/{id}.json doesn't have yet -- most
+  // relevantly, a device that's never had one at all.
+  const SETTINGS_DEFAULTS = {
+    cycleMode: "1MIN",
+    showWaveForecast: true,
+    showWeatherForecast: true,
+    showBeach: true,
+    showLifeguard: true,
+    showCustomScreen: true, // legacy field, still required by current firmware -- see updateSettingsField
+    showCustomScreen1: true,
+    showCustomScreen2: true,
+    showCustomScreen3: false,
+    sunsetAllDay: false,
+    sunsetReminder: "NONE"
+  };
+
+  // Genuine read-merge-write, never a partial write: Firebase Storage
+  // replaces the whole file on each uploadBytes call (no server-side
+  // JSON merge), and settings/index.html does the same full-object
+  // write on its own Save -- so writing anything less than the complete,
+  // valid shape here would either drop fields that page just saved, or
+  // (for a field genuinely missing everywhere, e.g. a brand new device)
+  // get the ENTIRE settings sync rejected by the firmware, not just miss
+  // the one field intended.
+  async function updateSettingsField(field, value) {
+    let current = null;
+    try {
+      current = await fetchJsonFromStorage("settings/" + deviceId + ".json", 12000);
+    } catch (err) {
+      console.error("Couldn't read existing settings before updating " + field + " (filling gaps from defaults):", err);
+    }
+    const payload = Object.assign({}, SETTINGS_DEFAULTS, current || {}, { [field]: value });
+    // Current firmware still requires the legacy singular field; mirror it from
+    // screen 1 (the only slot legacy firmware can actually display) until firmware ships.
+    payload.showCustomScreen = payload.showCustomScreen1;
+    const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+    await uploadBytes(ref(storage, "settings/" + deviceId + ".json"), blob);
+  }
+
+  const ROTATION_FIELD = "showCustomScreen" + screen;
+
+  async function initRotationToggle() {
+    if (!deviceId) return;
+    rotationToggleRow.style.display = "flex";
+    let existing = null;
+    try {
+      existing = await fetchJsonFromStorage("settings/" + deviceId + ".json", 12000);
+    } catch (err) {
+      console.error("Couldn't load current rotation setting (defaulting):", err);
+    }
+    const current = existing && ROTATION_FIELD in existing ? existing[ROTATION_FIELD] : SETTINGS_DEFAULTS[ROTATION_FIELD];
+    rotationCheckbox.checked = !!current;
+  }
+  initRotationToggle();
+
+  rotationCheckbox.addEventListener("change", async () => {
+    if (!deviceId) return;
+    const value = rotationCheckbox.checked;
+    rotationCheckbox.disabled = true;
+    try {
+      await updateSettingsField(ROTATION_FIELD, value);
+    } catch (err) {
+      console.error("Couldn't save the rotation setting:", err);
+      rotationCheckbox.checked = !value; // revert the visible state to match what's actually saved
+      setStatus("Couldn't save that — try again in a moment.", "error");
+    } finally {
+      rotationCheckbox.disabled = false;
+    }
+  });
+
   // A snapshot of whatever was last published, saved alongside the .bin
   // (see publishBtn handler below) so a returning customer can see what's
   // actually on their board right now before they start drawing over it.
   // A missing file just means nothing's been published yet -- not an error.
+  // Screen 1 checks the LEGACY unsuffixed path -- that's the one every
+  // design published before this feature shipped actually lives at, and
+  // the dual-write in screenDesignPaths keeps it current going forward.
+  // Screens 2/3 have no legacy path; they only ever exist at their own
+  // "_N" suffix.
+  function primaryPreviewPath() {
+    return screen === 1 ? ("designs/" + deviceId + ".png") : ("designs/" + deviceId + "_" + screen + ".png");
+  }
+
   async function loadCurrentBoardPreview() {
     if (!deviceId) return;
     try {
-      const path = encodeURIComponent("designs/" + deviceId + ".png");
+      const path = encodeURIComponent(primaryPreviewPath());
       const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + path + "?alt=media";
       const resp = await withTimeout(fetch(url), 10000);
       if (!resp.ok) return; // 404 or otherwise -- nothing published yet
@@ -694,18 +1158,442 @@
   // Draws one committed layer object -- shared between the layers-canvas
   // full re-render and the staging overlay's live preview so the two
   // never drift out of sync with each other.
+  // ================= Countdown/Team text: NOTE this exact formatting/
+  // day-math/next-game logic is duplicated (deliberately kept simple/
+  // dependency-free so it's easy to hand-port) in functions/lib/dynamic.js,
+  // which redraws this same text server-side once a day after publish. If
+  // either changes, the other must be updated to match or the daily-
+  // refreshed board will read differently than what was shown/previewed
+  // here at publish time. =====
+  function daysUntil(targetDateStr) {
+    const [ty, tm, td] = targetDateStr.split("-").map(Number);
+    const target = Date.UTC(ty, tm - 1, td);
+    const now = new Date();
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    return Math.round((target - today) / 86400000);
+  }
+
+  function formatCountdownText(daysLeft, label) {
+    const lbl = (label || "").trim().toUpperCase();
+    if (daysLeft <= 0) return lbl ? (lbl + " TODAY!") : "TODAY!";
+    const unit = daysLeft === 1 ? "DAY" : "DAYS";
+    return lbl ? (daysLeft + " " + unit + " TO " + lbl) : (daysLeft + " " + unit);
+  }
+
+  // ================= Team schedule (ESPN, via espnProxy) =================
+  // Uses ESPN's unofficial "site API" -- no key, same URL shape across
+  // every league. Not officially documented/supported; see
+  // functions/lib/dynamic.js for the full shape notes.
+  //
+  // Confirmed live: ESPN does NOT send CORS headers permitting a browser
+  // to fetch() this directly from waveclock.net (the same URL loads fine
+  // when opened as a plain page, which isn't subject to CORS -- only a
+  // script-initiated cross-origin request is). So this goes through
+  // espnProxy, a small Cloud Function that makes the same request
+  // server-to-server (never subject to CORS) and hands the result back
+  // with its own permissive CORS headers. See functions/index.js for that
+  // side. This requires the Cloud Function to actually be deployed --
+  // until then, the Team tool can't load a team list or schedule at all.
+  const ESPN_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/espnProxy";
+
+  async function fetchLeagueTeams(sport, league) {
+    const resp = await fetch(ESPN_PROXY_BASE + "?kind=teams&sport=" + encodeURIComponent(sport) + "&league=" + encodeURIComponent(league));
+    if (!resp.ok) throw new Error("ESPN teams fetch failed: " + resp.status);
+    const data = await resp.json();
+    const entries = (data.sports && data.sports[0] && data.sports[0].leagues && data.sports[0].leagues[0] && data.sports[0].leagues[0].teams) || [];
+    return entries
+      .map((e) => e.team)
+      .filter(Boolean)
+      .map((t) => ({ id: String(t.id), name: t.displayName || t.shortDisplayName || t.name, abbrev: t.abbreviation || t.shortDisplayName || "" }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // Unverified field names (mirrors functions/lib/dynamic.js's comment):
+  // tries the shapes seen in ESPN's teams-list responses (a "logos" array
+  // of {href}) and a simpler possible "logo" string, falls back to null
+  // (no logo shown) rather than guessing wrong and breaking image loading.
+  function extractLogoUrl(team) {
+    if (!team) return null;
+    if (typeof team.logo === "string" && team.logo) return team.logo;
+    if (Array.isArray(team.logos) && team.logos[0] && team.logos[0].href) return team.logos[0].href;
+    return null;
+  }
+
+  function extractVenueName(comp) {
+    const v = comp && comp.venue;
+    if (!v) return null;
+    return v.fullName || v.name || null;
+  }
+
+  // Returns { nextGame: {homeAway,opponentAbbrev,opponentLogo,venue,
+  // gameDateISO,daysLeft} | null, myAbbrev, myLogo }. myAbbrev/myLogo are
+  // captured from ANY event including this team -- even a past one -- so
+  // a genuinely-empty upcoming schedule can still be labeled with the
+  // team's own name instead of a bare, unattributed message. Only used
+  // here to build the illustrative Game Day preview box below the League/
+  // Team pickers -- the canvas itself (and what actually gets published on
+  // day one) still just draws the plain formatTeamText line; the daily
+  // Cloud Function is what draws the real bordered card with dithered
+  // logos, starting from its first run after publish.
+  function findNextGame(events, teamId) {
+    const now = new Date();
+    const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    let best = null;
+    let myAbbrev = null;
+    let myLogo = null;
+    for (const ev of events || []) {
+      if (!ev) continue;
+      const comp = ev.competitions && ev.competitions[0];
+      const competitors = comp && comp.competitors;
+      if (!competitors) continue;
+      const me = competitors.find((c) => c && c.team && String(c.team.id) === String(teamId));
+      if (!me) continue;
+      if (!myAbbrev) {
+        // shortDisplayName ("Marshall") first, NOT abbreviation ("MRSH")
+        // -- mirrors functions/lib/dynamic.js's findNextGame; see the
+        // comment there for why.
+        myAbbrev = (me.team.shortDisplayName || me.team.abbreviation || me.team.displayName || "").toUpperCase() || null;
+      }
+      if (!myLogo) myLogo = extractLogoUrl(me.team);
+
+      if (!ev.date) continue;
+      const evDate = new Date(ev.date);
+      if (isNaN(evDate.getTime())) continue;
+      const evDayUTC = Date.UTC(evDate.getUTCFullYear(), evDate.getUTCMonth(), evDate.getUTCDate());
+      if (evDayUTC < todayUTC) continue;
+      const opp = competitors.find((c) => c && c.team && String(c.team.id) !== String(teamId));
+      if (!opp) continue;
+      if (!best || evDayUTC < best.dayUTC) {
+        best = {
+          dayUTC: evDayUTC,
+          homeAway: me.homeAway,
+          opponentAbbrev: (opp.team.shortDisplayName || opp.team.abbreviation || opp.team.displayName || "TBD").toUpperCase(),
+          opponentLogo: extractLogoUrl(opp.team),
+          venue: extractVenueName(comp),
+          gameDateISO: ev.date
+        };
+      }
+    }
+    const nextGame = best ? {
+      homeAway: best.homeAway,
+      opponentAbbrev: best.opponentAbbrev,
+      opponentLogo: best.opponentLogo,
+      venue: best.venue,
+      gameDateISO: best.gameDateISO,
+      daysLeft: Math.round((best.dayUTC - todayUTC) / 86400000)
+    } : null;
+    return { nextGame, myAbbrev, myLogo };
+  }
+
+  async function fetchNextGame(sport, league, teamId) {
+    const resp = await fetch(ESPN_PROXY_BASE + "?kind=schedule&sport=" + encodeURIComponent(sport) + "&league=" + encodeURIComponent(league) + "&teamId=" + encodeURIComponent(teamId));
+    if (!resp.ok) throw new Error("ESPN schedule fetch failed: " + resp.status);
+    const data = await resp.json();
+    return findNextGame(data.events, teamId);
+  }
+
+  // Splits the weekday+date and kickoff time into two separate strings
+  // so the card's bottom line can draw the venue at a larger font size
+  // IN BETWEEN them. Mirrors functions/lib/dynamic.js's
+  // formatGameDateTimeParts exactly. Always Eastern time, matching US
+  // sports broadcast convention, regardless of the visitor's own
+  // timezone.
+  function formatGameDateTimeParts(isoString) {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return null;
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short", month: "short", day: "numeric",
+      hour: "numeric", minute: "2-digit", hour12: true
+    }).formatToParts(d);
+    const get = (type) => (parts.find((p) => p.type === type) || {}).value || "";
+    const weekday = get("weekday").toUpperCase();
+    const month = get("month").toUpperCase();
+    const day = get("day");
+    const hour = get("hour");
+    const minute = get("minute");
+    const dayPeriod = get("dayPeriod").toUpperCase();
+    if (!weekday || !month || !day || !hour || !minute) return null;
+    return {
+      dateLabel: weekday + " " + month + " " + day,
+      timeLabel: hour + ":" + minute + " " + dayPeriod + " ET"
+    };
+  }
+
+  // ================= Game Day card (live preview) =================
+  // Mirrors functions/lib/dynamic.js's drawGameDayCard/gameDayBannerTitle/
+  // fitBannerFontSize/ditheredLogoCanvas exactly -- same deliberate
+  // duplication as the rest of this file. This is what actually gets
+  // drawn onto the canvas (and published on day one) once a game's found;
+  // previewContent/formatTeamText above remain only as the fallback while
+  // this is loading or if a logo fetch fails.
+  const BANNER_HEIGHT = 48;
+  const LOGO_SIZE = 175;
+  const LOGO_MARGIN = 28;
+  const LEAGUE_DISPLAY_NAME = {
+    "football/nfl": "NFL",
+    "football/college-football": "COLLEGE FOOTBALL",
+    "basketball/nba": "NBA",
+    "baseball/mlb": "MLB",
+    "hockey/nhl": "NHL"
+  };
+
+  function gameDayBannerTitle(sport, league) {
+    const name = LEAGUE_DISPLAY_NAME[sport + "/" + league];
+    return name ? name + " GAME DAY" : "GAME DAY";
+  }
+
+  function fitBannerFontSize(ctx, text, maxWidth, family, maxSize, minSize) {
+    for (let size = maxSize; size > minSize; size--) {
+      ctx.font = size + "px " + family;
+      if (ctx.measureText(text).width <= maxWidth) return size;
+    }
+    ctx.font = minSize + "px " + family;
+    return minSize;
+  }
+
+  // Pads sourceImage onto a white size x size square (preserving aspect
+  // ratio) and dithers it, same as the server's ditheredLogoCanvas --
+  // opaque output (no transparency needed, drawn directly onto the card's
+  // white background), reusing the same toGrayscale/ditherAtkinson the
+  // Photo tool's "Normal Photo" style already uses below.
+  function ditheredLogoCanvasOpaque(sourceImage, size) {
+    const padded = document.createElement("canvas");
+    padded.width = size;
+    padded.height = size;
+    const pctx = padded.getContext("2d");
+    pctx.fillStyle = "#fff";
+    pctx.fillRect(0, 0, size, size);
+    const pad = size * 0.08;
+    const scale = Math.min((size - pad * 2) / sourceImage.width, (size - pad * 2) / sourceImage.height);
+    const w = sourceImage.width * scale, h = sourceImage.height * scale;
+    pctx.drawImage(sourceImage, (size - w) / 2, (size - h) / 2, w, h);
+
+    const imgData = pctx.getImageData(0, 0, size, size).data;
+    const gray = toGrayscale(imgData, size, size);
+    const bits = ditherAtkinson(gray, size, size);
+
+    const out = document.createElement("canvas");
+    out.width = size;
+    out.height = size;
+    const octx = out.getContext("2d");
+    const id = octx.createImageData(size, size);
+    for (let i = 0; i < size * size; i++) {
+      const v = bits[i] ? 0 : 255;
+      id.data[i * 4] = v; id.data[i * 4 + 1] = v; id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255;
+    }
+    octx.putImageData(id, 0, 0);
+    return out;
+  }
+
+  // Fetches a team logo through espnProxy's "logo" kind (needed for
+  // CORS-clean pixel access -- see the comment above ESPN_PROXY_BASE) and
+  // dithers it. A fetch()-then-blob-URL image never taints the canvas
+  // regardless of the ORIGINAL image's own CORS headers, since the blob
+  // URL itself is same-origin as far as the canvas is concerned -- that's
+  // what makes this safe to read pixels from at all. Returns null on ANY
+  // failure (missing URL, network error, bad status, decode error) rather
+  // than breaking the whole card over one missing logo.
+  async function fetchDitheredLogoClient(url, size) {
+    if (!url) return null;
+    let objectUrl = null;
+    try {
+      const resp = await fetch(ESPN_PROXY_BASE + "?kind=logo&url=" + encodeURIComponent(url));
+      if (!resp.ok) return null;
+      const blob = await resp.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const img = await new Promise((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = () => reject(new Error("logo image failed to decode"));
+        im.src = objectUrl;
+      });
+      return ditheredLogoCanvasOpaque(img, size);
+    } catch (err) {
+      return null;
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  // Draws one edge-to-edge line -- dateLabel, then venue (if given) at a
+  // LARGER size than the rest, then timeLabel -- all sharing one
+  // baseline. Mirrors functions/lib/dynamic.js's drawGameLine exactly;
+  // see the comment there for why fitBannerFontSize (single string,
+  // single size) can't do this and how the lockstep shrink works.
+  const VENUE_SIZE_BOOST = 6;
+  const MIN_DATE_SIZE = 13;
+  function drawGameLine(ctx, w, dateLabel, venue, timeLabel, maxWidth, y) {
+    const family = "Georgia, serif";
+    const sep = "  ·  ";
+    let dateSize = 20;
+    let venueSize, totalWidth, sepWidth, dateWidth, venueWidth, timeWidth;
+    for (;;) {
+      venueSize = dateSize + VENUE_SIZE_BOOST;
+      ctx.font = "bold " + dateSize + "px " + family;
+      sepWidth = ctx.measureText(sep).width;
+      dateWidth = ctx.measureText(dateLabel).width;
+      timeWidth = ctx.measureText(timeLabel).width;
+      venueWidth = 0;
+      if (venue) {
+        ctx.font = "bold " + venueSize + "px " + family;
+        venueWidth = ctx.measureText(venue).width;
+      }
+      const segCount = venue ? 3 : 2;
+      totalWidth = dateWidth + timeWidth + venueWidth + sepWidth * (segCount - 1);
+      if (totalWidth <= maxWidth || dateSize <= MIN_DATE_SIZE) break;
+      dateSize--;
+    }
+
+    const prevAlign = ctx.textAlign;
+    ctx.textAlign = "left";
+    let x = w / 2 - totalWidth / 2;
+
+    ctx.font = "bold " + dateSize + "px " + family;
+    ctx.fillText(dateLabel, x, y);
+    x += dateWidth;
+
+    if (venue) {
+      ctx.fillText(sep, x, y);
+      x += sepWidth;
+      ctx.font = "bold " + venueSize + "px " + family;
+      ctx.fillText(venue, x, y);
+      x += venueWidth;
+      ctx.font = "bold " + dateSize + "px " + family;
+    }
+    ctx.fillText(sep, x, y);
+    x += sepWidth;
+    ctx.fillText(timeLabel, x, y);
+
+    ctx.textAlign = prevAlign;
+  }
+
+  // Full-screen layout: solid black title banner in white block letters,
+  // optional logos either side, matchup headline, days-left, and one
+  // edge-to-edge date/venue/time line -- no drawn border, the board's
+  // own bezel frames it. Missing optional fields (no logo, unparseable
+  // date, no venue) are simply skipped, same as the server. Explicitly
+  // resets textBaseline -- unlike the server (a fresh canvas per
+  // render), this shares its 2d context with whatever layer drew before
+  // it in the same pass, and drawText above leaves it set to "middle".
+  // Mirrors functions/lib/dynamic.js's drawGameDayCard exactly -- see
+  // the comment there for the reasoning behind each band.
+  function drawGameDayCardClient(ctx, card) {
+    const w = baseCanvas.width, h = baseCanvas.height;
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    const bannerTitle = card.bannerTitle || "GAME DAY";
+    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 24, 14);
+    ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+    ctx.fillStyle = "#000";
+    const headlineSize = fitBannerFontSize(ctx, card.headline, w - 40, "'Bungee', sans-serif", 24, 16);
+    ctx.fillText(card.headline, w / 2, BANNER_HEIGHT + 4 + headlineSize);
+
+    const bodyMidY = BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2;
+    if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
+    if (card.oppLogo) ctx.drawImage(card.oppLogo, w - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
+
+    const daysMaxWidth = w - 2 * (LOGO_MARGIN + LOGO_SIZE) - 20;
+    if (card.daysLeft <= 0) {
+      const size = fitBannerFontSize(ctx, "TODAY!", daysMaxWidth, "'Bungee', sans-serif", 56, 26);
+      ctx.fillText("TODAY!", w / 2, bodyMidY - 6 + Math.round(size * 0.35));
+    } else {
+      // Mirrors functions/lib/dynamic.js's equal-gap approach exactly:
+      // hang "IN"/"DAY(S)" off the number's own actual glyph box (not an
+      // approximated cap-height) plus a fixed gap on each side, so the
+      // gap stays equal regardless of how big the number's font ends up.
+      const GAP = 10;
+      const numberText = String(card.daysLeft);
+      const numberSize = fitBannerFontSize(ctx, numberText, daysMaxWidth, "'Bungee', sans-serif", 92, 40);
+      ctx.font = numberSize + "px 'Bungee', sans-serif";
+      const numMetrics = ctx.measureText(numberText);
+      const numHeight = numMetrics.actualBoundingBoxAscent + numMetrics.actualBoundingBoxDescent;
+      const numTop = bodyMidY - numHeight / 2;
+      const numBaseline = numTop + numMetrics.actualBoundingBoxAscent;
+      const numBottom = numBaseline + numMetrics.actualBoundingBoxDescent;
+      ctx.fillText(numberText, w / 2, numBaseline);
+
+      ctx.font = "bold 20px Georgia, serif";
+      const inMetrics = ctx.measureText("IN");
+      ctx.fillText("IN", w / 2, numTop - GAP - inMetrics.actualBoundingBoxDescent);
+
+      const unitText = card.daysUnit || "DAYS";
+      const unitMetrics = ctx.measureText(unitText);
+      ctx.fillText(unitText, w / 2, numBottom + GAP + unitMetrics.actualBoundingBoxAscent);
+    }
+
+    if (card.dateLabel && card.timeLabel) {
+      ctx.fillStyle = "#000";
+      drawGameLine(ctx, w, card.dateLabel, card.venue, card.timeLabel, w - 48, h - 14);
+    }
+  }
+
+  function formatTeamText(nextGame, myAbbrev) {
+    if (!nextGame) return myAbbrev ? myAbbrev + ": NO UPCOMING GAMES" : "NO UPCOMING GAMES";
+    const prefix = myAbbrev ? myAbbrev + " " : "";
+    const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
+    if (nextGame.daysLeft <= 0) return prefix + vsOrAt + " " + nextGame.opponentAbbrev + " TODAY!";
+    const unit = nextGame.daysLeft === 1 ? "DAY" : "DAYS";
+    return prefix + vsOrAt + " " + nextGame.opponentAbbrev + " IN " + nextGame.daysLeft + " " + unit;
+  }
+
+  // Placeholder only -- no live headline fetch here, see the News tool
+  // section below for why. Kept simple/positioned, unlike Team's card:
+  // there's no illustrative preview to build without a real headline.
+  function formatNewsPreviewText(obj) {
+    if (obj.feedUrl) return "NEWS: CUSTOM FEED";
+    const loc = (obj.location || "").trim().toUpperCase();
+    return loc ? loc + " NEWS" : "NEWS";
+  }
+
+  function drawText(ctx, content, obj) {
+    ctx.font = "bold " + obj.size + "px " + obj.font;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    if (obj.outline) {
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = Math.max(1, obj.size * 0.07);
+      ctx.strokeText(content, obj.x, obj.y);
+    } else {
+      ctx.fillStyle = "#000";
+      ctx.fillText(content, obj.x, obj.y);
+    }
+  }
+
   function drawStampObject(ctx, obj) {
     if (obj.kind === "text") {
-      ctx.font = "bold " + obj.size + "px " + obj.font;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      if (obj.outline) {
-        ctx.strokeStyle = "#000";
-        ctx.lineWidth = Math.max(1, obj.size * 0.07);
-        ctx.strokeText(obj.content, obj.x, obj.y);
+      drawText(ctx, obj.content, obj);
+    } else if (obj.kind === "countdown") {
+      drawText(ctx, formatCountdownText(daysUntil(obj.targetDate), obj.label), obj);
+    } else if (obj.kind === "team") {
+      // obj.card (headline/logos/days-left/gameLine) is resolved asynchronously
+      // -- see the Team select handler -- and cached here rather than
+      // recomputed on every redraw. Falls back to the plain text line
+      // while that's loading, or if no game/logo could be found.
+      if (obj.card) {
+        drawGameDayCardClient(ctx, obj.card);
       } else {
-        ctx.fillStyle = "#000";
-        ctx.fillText(obj.content, obj.x, obj.y);
+        drawText(ctx, obj.previewContent || "LOADING…", obj);
+      }
+    } else if (obj.kind === "news") {
+      // Same idea: obj.headlines is resolved asynchronously by the News
+      // tool's input handlers below.
+      if (obj.headlines && obj.headlines.length) {
+        drawNewsCardClient(ctx, { headerLabel: obj.location || "", headlines: obj.headlines, updatedLabel: "UPDATED " + formatShortDateClient(new Date()) });
+      } else {
+        drawText(ctx, formatNewsPreviewText(obj), obj);
+      }
+    } else if (obj.kind === "tide") {
+      // Same idea again: obj.cardData is resolved asynchronously by
+      // loadTideLayer above.
+      if (obj.cardData) {
+        drawTideCardClient(ctx, obj.cardData);
+      } else {
+        drawText(ctx, obj.previewContent || "LOADING…", obj);
       }
     } else if (obj.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(obj);
@@ -727,6 +1615,10 @@
 
   function layerLabel(obj) {
     if (obj.kind === "text") return "Text: " + (obj.content || "(empty)");
+    if (obj.kind === "countdown") return "Countdown: " + (obj.label || (daysUntil(obj.targetDate) + "d"));
+    if (obj.kind === "team") return "Team: " + (obj.teamName || "(choose a team)");
+    if (obj.kind === "tide") return "Tide & Fishing" + (obj.cardData ? "" : " (loading…)");
+    if (obj.kind === "news") return "News: " + (obj.feedUrl || obj.location || "(add a location)");
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
     if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Normal") + ")";
     if (obj.kind === "stroke") return "Drawing";
@@ -900,17 +1792,28 @@
   // Finds which committed layer (if any) sits under canvas point (px, py),
   // topmost first. Freehand strokes aren't selectable this way -- they
   // don't have a single size/position the way a stamped object does.
+  // Team and News render as a fixed full-screen card (once loaded), not a
+  // positioned stamp like everything else here -- x/y/size only matter
+  // for their loading-state placeholder text. Used below to skip
+  // drag/pinch-resize and treat a tap anywhere on the canvas as hitting
+  // whichever one is topmost.
+  const FULL_CARD_KINDS = new Set(["team", "news", "tide"]);
+
   function hitTestLayers(px, py) {
     for (let i = layers.length - 1; i >= 0; i--) {
       const obj = layers[i];
       if (obj.kind === "stroke") continue; // freehand ink isn't a selectable object
+      if (FULL_CARD_KINDS.has(obj.kind)) {
+        if (px >= 0 && px <= baseCanvas.width && py >= 0 && py <= baseCanvas.height) return i;
+        continue;
+      }
       const half = obj.size * 0.65; // matches the selection box drawn while staging
       if (Math.abs(px - obj.x) <= half && Math.abs(py - obj.y) <= half) return i;
     }
     return -1;
   }
 
-  const TOOL_TAB_FOR_KIND = { text: "text", icon: "sticker", photo: "photo" };
+  const TOOL_TAB_FOR_KIND = { text: "text", icon: "sticker", photo: "photo", countdown: "countdown", team: "team", tide: "tide", news: "news" };
 
   // Pulls a committed layer back into the staging flow (drag/pinch-resize/
   // slider all just work), switching to that layer's own tool tab so its
@@ -920,10 +1823,37 @@
   // directly on the canvas and clicking its row in the Layers panel.
   function selectLayer(index) {
     if (index < 0 || index >= layers.length) return false;
-    const [obj] = layers.splice(index, 1);
+    const obj = layers[index];
+    // Team/News never leave `layers` to be edited -- they're fixed
+    // full-screen cards with no drag/commit step (see
+    // handleTeamSelection/handleNewsInputChange), so "selecting" one
+    // just opens its panel pre-filled, in place.
+    if (FULL_CARD_KINDS.has(obj.kind)) {
+      showToolPanel(TOOL_TAB_FOR_KIND[obj.kind] || activeTool);
+      if (obj.kind === "team") {
+        teamLeagueSelect.value = obj.sport + "/" + obj.league;
+        populateTeamSelect(obj.sport, obj.league, obj.teamId);
+        teamStatus.textContent = obj.card
+          ? "This is the real card — it updates itself once a day after you publish."
+          : (obj.previewContent ? "Updates on its own once a day after you publish — no need to redesign it." : "Pick a team to see when they play next.");
+      } else if (obj.kind === "tide") {
+        tideStatus.textContent = obj.cardData
+          ? "This is the real card — it updates itself once a day after you publish."
+          : "Couldn't load tide data right now — it'll try again on its own each day.";
+      } else {
+        newsLocationInput.value = obj.location || "";
+        newsFeedUrlInput.value = obj.feedUrl || "";
+        newsStatus.textContent = (obj.headlines && obj.headlines.length)
+          ? "This is the real card — it updates itself once a day after you publish."
+          : "Type a location (or paste a specific RSS feed URL) to see today's headlines.";
+      }
+      return true;
+    }
+    layers.splice(index, 1);
     renderLayers();
     showToolPanel(TOOL_TAB_FOR_KIND[obj.kind] || activeTool);
     startStaging(obj);
+    stagedFromLayers = obj; // restore this exact object if the edit is cancelled instead of committed
     if (obj.kind === "text") {
       // startStaging only restores the object's data (x/y/size/content) --
       // the actual on-screen input still needs its value set explicitly,
@@ -942,6 +1872,11 @@
         const len = canvasTextInput.value.length;
         canvasTextInput.setSelectionRange(len, len);
       }, 0);
+    } else if (obj.kind === "countdown") {
+      countdownDateInput.min = todayDateString();
+      countdownDateInput.value = obj.targetDate;
+      countdownLabelInput.value = obj.label || "";
+      syncCountdownFontButtons(obj.fontKey);
     }
     return true;
   }
@@ -1475,8 +2410,15 @@
   // ================= Staging: a movable/resizable text or icon,
   // shown only on the overlay canvas until committed =================
   let stagedObject = null;
+  // Set only when the current staging session pulled an EXISTING layer
+  // back out of `layers` to edit it (see selectLayer) -- holds that
+  // original, unmodified object so Cancel can put it back untouched.
+  // null for a brand-new object that was never committed in the first
+  // place, where Cancel should just discard it as before.
+  let stagedFromLayers = null;
 
   const stagingBar = document.getElementById("stagingBar");
+  const stagingDragSizeLabel = document.getElementById("stagingDragSizeLabel");
   const stagingSizeSlider = document.getElementById("stagingSizeSlider");
   const commitBtn = document.getElementById("commitBtn");
   const cancelStageBtn = document.getElementById("cancelStageBtn");
@@ -1491,6 +2433,10 @@
     text: document.getElementById("textPanel"),
     sticker: document.getElementById("stickerPanel"),
     photo: document.getElementById("photoPanel"),
+    countdown: document.getElementById("countdownPanel"),
+    team: document.getElementById("teamPanel"),
+    tide: document.getElementById("tidePanel"),
+    news: document.getElementById("newsPanel"),
     layers: document.getElementById("layersPanel")
   };
 
@@ -1519,8 +2465,63 @@
         canvasTextInput.value = "";
         canvasTextInput.focus();
       }
+      // Countdown similarly has no separate sub-choice step -- stage one
+      // right away. Only one Countdown is ever allowed on a screen (its
+      // date/label only make sense once, and the daily auto-update job
+      // only ever redraws the first one it finds -- see DYNAMIC_KINDS
+      // below), so if one's already on the canvas, reopening this tab
+      // pulls THAT one back into staging to keep editing it (same as
+      // tapping it directly), instead of staging a second, independent
+      // one alongside it.
+      if (tool === "countdown") {
+        const existingIdx = layers.findIndex((l) => l.kind === "countdown");
+        if (existingIdx !== -1) {
+          selectLayer(existingIdx);
+        } else {
+          const targetDate = defaultCountdownDate();
+          startStaging({ kind: "countdown", targetDate, label: "", font: selectedCountdownFont, outline: selectedCountdownOutline, fontKey: selectedCountdownFontKey });
+          countdownDateInput.min = todayDateString();
+          countdownDateInput.value = targetDate;
+          countdownLabelInput.value = "";
+          syncCountdownFontButtons(selectedCountdownFontKey);
+        }
+      }
+      // News (like Team below) never goes through the staging/commit
+      // flow at all -- it's a fixed full-screen card with nothing to
+      // drag or place, so there's nothing to "confirm." Typing a
+      // location straight into `layers` (see handleNewsInputChange)
+      // takes effect immediately, and Publish is live the moment it's
+      // valid. Opening the tab just shows whatever's already there (or
+      // a blank slate for a new one).
+      if (tool === "news") {
+        const existing = layers.find((l) => l.kind === "news");
+        newsLocationInput.value = existing ? (existing.location || "") : "";
+        newsFeedUrlInput.value = existing ? (existing.feedUrl || "") : "";
+        newsStatus.textContent = existing && existing.headlines && existing.headlines.length
+          ? "This is the real card — it updates itself once a day after you publish."
+          : "Type a location (or paste a specific RSS feed URL) to get today's headlines once you publish.";
+      }
+      // Tide & Fishing has no picker at all (Phase 1 -- no fishing-spot
+      // override yet, see the roadmap) -- it just uses the device's own
+      // saved location, so opening the tab is the only "action" there is.
+      // Same never-goes-through-staging model as Team/News.
+      if (tool === "tide") {
+        initFishingSpotUIOnce();
+        loadTideLayer();
+      }
     });
   });
+
+  function todayDateString() {
+    const now = new Date();
+    return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+  }
+
+  function defaultCountdownDate() {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
 
   const fontButtons = document.querySelectorAll("#fontRow .tool-btn");
   let selectedTextFont = fontButtons[0].dataset.font;
@@ -1541,6 +2542,1117 @@
       }
     });
   });
+  const countdownDateInput = document.getElementById("countdownDateInput");
+  const countdownLabelInput = document.getElementById("countdownLabelInput");
+  const countdownFontButtons = document.querySelectorAll("#countdownFontRow .tool-btn");
+  let selectedCountdownFont = countdownFontButtons[0].dataset.font;
+  let selectedCountdownOutline = countdownFontButtons[0].dataset.outline === "true";
+  let selectedCountdownFontKey = countdownFontButtons[0].dataset.key;
+
+  function syncCountdownFontButtons(fontKey) {
+    countdownFontButtons.forEach((b) => b.classList.toggle("active", b.dataset.key === fontKey));
+  }
+
+  // The one Countdown on the screen (see the dedup in the "countdown" tool
+  // tab handler above and DYNAMIC_KINDS below) -- staged if it's actively
+  // being positioned, otherwise the already-committed layer sitting in
+  // `layers`. The panel's date/label/font controls stay bound to this for
+  // as long as the Countdown tab is open, so editing them keeps working
+  // right after hitting the checkmark instead of going dead the moment
+  // staging ends.
+  function currentCountdownTarget() {
+    if (stagedObject && stagedObject.kind === "countdown") return stagedObject;
+    return layers.find((l) => l.kind === "countdown") || null;
+  }
+
+  // Staged edits redraw the overlay; edits to an already-committed layer
+  // redraw the real layers canvas (and the Layers panel list) instead,
+  // since there's no overlay/staging bar up for it any more.
+  function redrawCountdownTarget(target) {
+    if (target === stagedObject) redrawOverlay();
+    else renderLayers();
+  }
+
+  countdownFontButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      countdownFontButtons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      selectedCountdownFont = btn.dataset.font;
+      selectedCountdownOutline = btn.dataset.outline === "true";
+      selectedCountdownFontKey = btn.dataset.key;
+      const target = currentCountdownTarget();
+      if (target) {
+        target.font = selectedCountdownFont;
+        target.outline = selectedCountdownOutline;
+        target.fontKey = selectedCountdownFontKey;
+        redrawCountdownTarget(target);
+      }
+    });
+  });
+
+  countdownDateInput.addEventListener("change", () => {
+    if (!countdownDateInput.value) return;
+    const target = currentCountdownTarget();
+    if (!target) return;
+    target.targetDate = countdownDateInput.value;
+    redrawCountdownTarget(target);
+  });
+  countdownLabelInput.addEventListener("input", () => {
+    const target = currentCountdownTarget();
+    if (!target) return;
+    target.label = countdownLabelInput.value;
+    redrawCountdownTarget(target);
+  });
+
+  // ================= News tool =================
+  // Live headlines come from newsProxy, a Cloud Function that fetches +
+  // parses the feed server-to-server (same CORS reasoning as espnProxy)
+  // and hands back already-parsed headline strings -- so this reuses the
+  // exact same headlines the daily regeneration job would draw, never a
+  // separately-parsed copy that could disagree with it.
+  const NEWS_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/newsProxy";
+
+  async function fetchHeadlinesPreview(location, feedUrl) {
+    const params = new URLSearchParams();
+    if (feedUrl && feedUrl.trim()) params.set("feedUrl", feedUrl.trim());
+    else params.set("location", location || "");
+    const resp = await fetch(NEWS_PROXY_BASE + "?" + params.toString());
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("News feed fetch failed: " + resp.status));
+    return data.headlines || [];
+  }
+
+  // Shrinks `text` (appending an ellipsis) until it fits maxWidth at
+  // ctx's current font -- mirrors truncateToWidth in lib/dynamic.js.
+  function truncateToWidth(ctx, text, maxWidth) {
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    let t = text;
+    while (t.length > 0 && ctx.measureText(t + "…").width > maxWidth) {
+      t = t.slice(0, -1);
+    }
+    return t + "…";
+  }
+
+  // Mirrors wrapToLines in lib/dynamic.js exactly -- see the comment
+  // there for the maxLines-overflow (fold + ellipsize the last line)
+  // reasoning.
+  function wrapToLines(ctx, text, maxWidth, maxLines) {
+    const words = text.split(/\s+/).filter(Boolean);
+    const lines = [];
+    let current = "";
+    for (const word of words) {
+      const candidate = current ? current + " " + word : word;
+      if (current && ctx.measureText(candidate).width > maxWidth) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current) lines.push(current);
+
+    if (lines.length <= maxLines) return lines;
+
+    const kept = lines.slice(0, maxLines - 1);
+    const rest = lines.slice(maxLines - 1).join(" ");
+    kept.push(truncateToWidth(ctx, rest, maxWidth));
+    return kept;
+  }
+
+  function formatShortDateClient(now) {
+    const at = now || new Date();
+    return new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })
+      .format(at)
+      .toUpperCase();
+  }
+
+  // Mirrors drawNewsCard in lib/dynamic.js exactly (see the comment above
+  // drawGameDayCardClient for why textBaseline is reset here).
+  function drawNewsCardClient(ctx, card) {
+    const w = baseCanvas.width, h = baseCanvas.height;
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    const kicker = card.headerLabel ? card.headerLabel.toUpperCase() + " NEWS" : "NEWS";
+    const kickerSize = fitBannerFontSize(ctx, kicker, w - 40, "'Bungee', sans-serif", 22, 14);
+    ctx.fillText(kicker, w / 2, BANNER_HEIGHT / 2 + Math.round(kickerSize * 0.35));
+
+    ctx.fillStyle = "#000";
+    const leftX = 34;
+    const maxTextWidth = w - 34 - 34;
+    let y = BANNER_HEIGHT + 40;
+    const lineGap = 32;
+    const headlineGap = 16;
+    ctx.textAlign = "left";
+    card.headlines.forEach((headline) => {
+      ctx.font = "bold 26px Georgia, serif";
+      const bullet = "•  ";
+      const bulletWidth = ctx.measureText(bullet).width;
+      const lines = wrapToLines(ctx, headline, maxTextWidth - bulletWidth, 2);
+      lines.forEach((line, i) => {
+        if (i === 0) ctx.fillText(bullet, leftX, y);
+        ctx.fillText(line, leftX + bulletWidth, y);
+        y += lineGap;
+      });
+      y += headlineGap;
+    });
+
+    if (card.updatedLabel) {
+      ctx.textAlign = "right";
+      ctx.font = "italic 16px Georgia, serif";
+      ctx.fillText(card.updatedLabel, w - 24, h - 14);
+    }
+  }
+
+  const newsLocationInput = document.getElementById("newsLocationInput");
+  const newsFeedUrlInput = document.getElementById("newsFeedUrlInput");
+  const newsStatus = document.getElementById("newsStatus");
+
+  let newsFetchToken = 0; // guards a slow/stale fetch from clobbering a newer edit
+  let newsDebounceTimer = null;
+
+  function loadNewsPreview(layer) {
+    const location = layer.location || "";
+    const feedUrl = layer.feedUrl || "";
+    const token = ++newsFetchToken;
+    newsStatus.textContent = "Loading headlines…";
+    fetchHeadlinesPreview(location, feedUrl).then((headlines) => {
+      if (token !== newsFetchToken) return; // superseded by a newer edit
+      layer.headlines = headlines;
+      newsStatus.textContent = headlines.length
+        ? "This is the real card -- it updates itself once a day after you publish."
+        : "No headlines found for that " + (feedUrl.trim() ? "feed" : "location") + " right now. It'll try again on its own each day.";
+      renderLayers();
+    }).catch((err) => {
+      console.error("Couldn't load headlines:", err);
+      if (token !== newsFetchToken) return;
+      layer.headlines = null;
+      newsStatus.textContent = "Couldn't load headlines right now (" + err.message + ") -- it'll try again on its own each day.";
+      renderLayers();
+    });
+  }
+
+  function scheduleNewsPreview(layer) {
+    clearTimeout(newsDebounceTimer);
+    newsDebounceTimer = setTimeout(() => loadNewsPreview(layer), 600);
+  }
+
+  // News never goes through staging/commit either -- same reasoning as
+  // Team above. Typing a location (or feed URL) creates/updates the
+  // "news" layer in `layers` directly and immediately; clearing both
+  // back to empty removes it again, rather than leaving an
+  // unpublishable empty layer sitting around.
+  function handleNewsInputChange() {
+    const location = newsLocationInput.value;
+    const feedUrl = newsFeedUrlInput.value.trim();
+    const idx = layers.findIndex((l) => l.kind === "news");
+    if (!location.trim() && !feedUrl) {
+      if (idx !== -1) { layers.splice(idx, 1); renderLayers(); }
+      newsStatus.textContent = "Type a location (or paste a specific RSS feed URL) to see today's headlines.";
+      clearTimeout(newsDebounceTimer);
+      return;
+    }
+    let layer;
+    if (idx === -1) {
+      // Same reasoning as Team's findOrCreateTeamLayer -- News is also a
+      // full-screen card redrawn fresh every day, so starting one clears
+      // anything else already on the design rather than leaving it
+      // permanently hidden underneath from here on.
+      pushUndoState();
+      layers.length = 0;
+      layer = {
+        kind: "news", id: nextLayerId++,
+        x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
+        font: "Georgia, serif", outline: false,
+        location, feedUrl, headlines: null
+      };
+      layers.push(layer);
+    } else {
+      layer = layers[idx];
+      layer.location = location;
+      layer.feedUrl = feedUrl;
+      layer.headlines = null;
+    }
+    renderLayers();
+    scheduleNewsPreview(layer);
+  }
+
+  newsLocationInput.addEventListener("input", handleNewsInputChange);
+  newsFeedUrlInput.addEventListener("input", handleNewsInputChange);
+
+  // ================= Tide & Fishing tool (Phase 1: tide + moon only) =================
+  // astroProxy does the FULL computation server-side (twilight bounds,
+  // moon phase, NOAA tide predictions clipped to the dawn-dusk window)
+  // and hands back a ready-to-draw payload -- unlike Team/News's proxies,
+  // there's no raw-JSON-parsing logic to duplicate here at all. See the
+  // comment above astroProxyHandler in functions/index.js for why.
+  const tideStatus = document.getElementById("tideStatus");
+  const ASTRO_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/astroProxy";
+  let tideFetchToken = 0; // guards a slow/stale fetch from clobbering a newer load
+
+  async function fetchTideCardDataClient(lat, lon, stationId) {
+    const params = new URLSearchParams({ lat: String(lat), lon: String(lon), stationId: String(stationId) });
+    const resp = await fetch(ASTRO_PROXY_BASE + "?" + params.toString());
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("Tide data fetch failed: " + resp.status));
+    return data;
+  }
+
+  // Mirrors functions/lib/dynamic.js's drawMoonIcon exactly (verified
+  // against a 6-case reference render there -- see that file's comment).
+  function drawMoonIconClient(ctx, cx, cy, r, illum, waxing) {
+    const k = Math.max(0, Math.min(1, illum));
+    const rx = r * Math.abs(1 - 2 * k);
+    const gibbous = k > 0.5;
+    const bulgeAnticlockwise = waxing ? gibbous : !gibbous;
+    ctx.save();
+    ctx.beginPath();
+    ctx.fillStyle = "#000";
+    if (waxing) ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+    else ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
+    ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, bulgeAnticlockwise);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Mirror functions/lib/dynamic.js's small drawn glyphs exactly -- no
+  // emoji, same reasoning as there.
+  function drawWindArrowClient(ctx, x, y, size) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI / 4);
+    ctx.beginPath();
+    ctx.moveTo(0, -size); ctx.lineTo(0, size);
+    ctx.moveTo(-size * 0.5, -size * 0.4); ctx.lineTo(0, -size); ctx.lineTo(size * 0.5, -size * 0.4);
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.stroke();
+    ctx.restore();
+  }
+  function drawWaveGlyphClient(ctx, x, y, w, h) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.quadraticCurveTo(x + w * 0.25, y - h, x + w * 0.5, y);
+    ctx.quadraticCurveTo(x + w * 0.75, y + h, x + w, y);
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.lineCap = "round";
+    ctx.stroke();
+    ctx.restore();
+  }
+  function drawTrendArrowClient(ctx, x, y, size, direction) {
+    ctx.save();
+    ctx.translate(x, y);
+    if (direction === "down") ctx.rotate(Math.PI);
+    ctx.beginPath();
+    ctx.moveTo(0, -size); ctx.lineTo(size * 0.8, size * 0.6); ctx.lineTo(-size * 0.8, size * 0.6);
+    ctx.closePath();
+    ctx.fillStyle = "#000";
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawWarningTriangleClient(ctx, x, y, size) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.moveTo(0, -size); ctx.lineTo(size * 0.95, size * 0.75); ctx.lineTo(-size * 0.95, size * 0.75);
+    ctx.closePath();
+    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = "#000";
+    ctx.stroke();
+    ctx.fillStyle = "#000";
+    ctx.fillRect(-1.3, -size * 0.35, 2.6, size * 0.7);
+    ctx.beginPath();
+    ctx.arc(0, size * 0.52, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  function drawRainTickClient(ctx, x, y, size) {
+    ctx.save();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(x - size * 0.3, y);
+    ctx.lineTo(x - size * 0.7, y + size);
+    ctx.moveTo(x + size * 0.3, y);
+    ctx.lineTo(x - size * 0.1, y + size);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Mirrors functions/lib/dynamic.js's drawHatchBand exactly -- see the
+  // comment there for why this is a hatch, not a gray fill.
+  function drawHatchBandClient(ctx, x0, x1, yTop, yBottom, spacing) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, yTop, x1 - x0, yBottom - yTop);
+    ctx.clip();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1;
+    for (let x = x0 - (yBottom - yTop); x < x1; x += spacing) {
+      ctx.beginPath();
+      ctx.moveTo(x, yBottom);
+      ctx.lineTo(x + (yBottom - yTop), yTop);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Mirrors functions/lib/dynamic.js's drawTideCard exactly -- same fixed
+  // -band layout (see the comment there for why the high/low labels are
+  // pinned to their own reserved rows instead of floated off the dot).
+  function drawTideCardClient(ctx, card) {
+    const w = baseCanvas.width, h = baseCanvas.height;
+    const dawnMs = new Date(card.dawn.t).getTime();
+    const duskMs = new Date(card.dusk.t).getTime();
+    function minutesToX(iso) {
+      const ms = new Date(iso).getTime();
+      const clamped = Math.max(dawnMs, Math.min(duskMs, ms));
+      return 46 + ((clamped - dawnMs) / (duskMs - dawnMs)) * (w - 92);
+    }
+
+    // See lib/dynamic.js's drawTideCard for why the plot is trimmed --
+    // it's just a simple shape and doesn't need much vertical resolution,
+    // freeing up room for larger text everywhere else (nothing on this
+    // card is smaller than 18px, matching the fishing badge/moon phase,
+    // per an explicit "minimum font size" ask).
+    const TOP_STRIP_END = BANNER_HEIGHT + 24;
+    const PLOT_TOP = TOP_STRIP_END + 46;
+    const PLOT_BOTTOM = PLOT_TOP + 44;
+    const FOOTER_START = PLOT_BOTTOM + 60;
+
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    // Left-aligned with a fixed margin, not centered -- see
+    // lib/dynamic.js's drawTideCard for why. maxWidth reserves room for
+    // the WIDEST possible badge ("FISHING: EXCELLENT", ~239px including
+    // padding), not today's actual one.
+    ctx.textAlign = "left";
+    const bannerTitle = "DAILY FISHING FORECAST: TIDES & SOLUNAR";
+    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 24 - 239 - 24 - 16, "'Bungee', sans-serif", 28, 16);
+    ctx.fillText(bannerTitle, 24, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+    if (card.fishingScore) {
+      ctx.font = "bold 18px Georgia, serif";
+      const badgeLabel = "FISHING: " + card.fishingScore.toUpperCase();
+      const badgeTextWidth = ctx.measureText(badgeLabel).width;
+      const badgeW = badgeTextWidth + 28;
+      const badgeH = 32;
+      const badgeX = w - 24 - badgeW;
+      const badgeY = (BANNER_HEIGHT - badgeH) / 2;
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+      ctx.fill();
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      ctx.fillText(badgeLabel, badgeX + 14, BANNER_HEIGHT / 2 + 6);
+    }
+
+    const weather = card.weather || {};
+    const alertParts = [].concat(
+      (weather.rainWindows || []).map((wnd) => wnd.label),
+      weather.windRamp ? [weather.windRamp.label] : []
+    );
+    if (alertParts.length) {
+      drawWarningTriangleClient(ctx, 32, (BANNER_HEIGHT + TOP_STRIP_END) / 2, 11);
+      ctx.font = "bold 18px Georgia, serif";
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      ctx.fillText(alertParts.join("   ·   "), 50, (BANNER_HEIGHT + TOP_STRIP_END) / 2 + 6);
+    } else {
+      ctx.font = "bold 18px Georgia, serif";
+      ctx.fillStyle = "#000";
+      if (card.sunrise.label) {
+        ctx.textAlign = "left";
+        ctx.fillText("Sunrise " + card.sunrise.label, 24, TOP_STRIP_END - 7);
+      }
+      if (card.sunset.label) {
+        ctx.textAlign = "right";
+        ctx.fillText("Sunset " + card.sunset.label, w - 24, TOP_STRIP_END - 7);
+      }
+    }
+
+    // Includes extrema heights too -- see dynamic.js's drawTideCard for why
+    // (load-bearing when tideCurve is empty, a subordinate station with no
+    // continuous curve, hi/lo predictions only).
+    const heights = card.tideCurve.map((p) => p.heightFt).concat((card.tideExtrema || []).map((p) => p.heightFt));
+    const minH = (heights.length ? Math.min(...heights) : 0) - 0.4;
+    const maxH = (heights.length ? Math.max(...heights) : 1) + 0.4;
+    function heightToY(v) { return PLOT_BOTTOM - ((v - minH) / (maxH - minH)) * (PLOT_BOTTOM - PLOT_TOP); }
+
+    const solunarPeriods = card.solunarPeriods || [];
+    solunarPeriods.forEach((p) => {
+      const pStartMs = new Date(p.start).getTime(), pEndMs = new Date(p.end).getTime();
+      if (pEndMs < dawnMs || pStartMs > duskMs) return;
+      const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
+      const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
+      drawHatchBandClient(ctx, x0, x1, PLOT_TOP, PLOT_BOTTOM, p.kind === "major" ? 7 : 13);
+    });
+
+    (weather.rainWindows || []).forEach((wnd) => {
+      const wStartMs = new Date(wnd.start).getTime(), wEndMs = new Date(wnd.end).getTime();
+      if (wEndMs < dawnMs || wStartMs > duskMs) return;
+      const rx0 = minutesToX(new Date(Math.max(wStartMs, dawnMs)).toISOString());
+      const rx1 = minutesToX(new Date(Math.min(wEndMs, duskMs)).toISOString());
+      for (let x = rx0; x <= rx1; x += 14) drawRainTickClient(ctx, x, PLOT_TOP + 4, 8);
+    });
+
+    ctx.strokeStyle = "rgba(0,0,0,0.2)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    [card.sunrise, card.sunset].forEach((point) => {
+      if (!point) return;
+      const x = minutesToX(point.t);
+      ctx.beginPath();
+      ctx.moveTo(x, PLOT_TOP);
+      ctx.lineTo(x, PLOT_BOTTOM);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+
+    if (card.tideCurve.length > 1) {
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      card.tideCurve.forEach((p, i) => {
+        const x = minutesToX(p.t);
+        const y = heightToY(p.heightFt);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "rgba(0,0,0,0.25)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(46, PLOT_BOTTOM);
+    ctx.lineTo(w - 46, PLOT_BOTTOM);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Hourly axis along the plot's bottom edge -- see lib/dynamic.js's
+    // drawTideCard for the full reasoning. Deliberately smaller than the
+    // card's 18px-minimum content text -- this is axis scaffolding, not
+    // content.
+    const AXIS_TICK_INTERVAL_H = 3;
+    const dawnLocalParts = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: card.timeZone }).formatToParts(new Date(dawnMs));
+    const dawnLocalHour = Number(dawnLocalParts.find((p) => p.type === "hour").value) % 24;
+    const dawnLocalMinute = Number(dawnLocalParts.find((p) => p.type === "minute").value);
+    const minutesToFirstTick = ((AXIS_TICK_INTERVAL_H - (dawnLocalHour % AXIS_TICK_INTERVAL_H)) % AXIS_TICK_INTERVAL_H) * 60 - dawnLocalMinute;
+    const hourFmt = new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: true, timeZone: card.timeZone });
+    ctx.textAlign = "center";
+    ctx.font = "bold 12px Georgia, serif";
+    ctx.fillStyle = "#000";
+    for (let tickMs = dawnMs + Math.max(0, minutesToFirstTick) * 60000; tickMs <= duskMs; tickMs += AXIS_TICK_INTERVAL_H * 3600000) {
+      const x = minutesToX(new Date(tickMs).toISOString());
+      ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, PLOT_BOTTOM - 3);
+      ctx.lineTo(x, PLOT_BOTTOM + 4);
+      ctx.stroke();
+      ctx.fillText(hourFmt.format(new Date(tickMs)), x, PLOT_BOTTOM + 16);
+    }
+
+    ctx.textAlign = "center";
+    card.tideExtrema.forEach((e) => {
+      const eMs = new Date(e.t).getTime();
+      if (eMs < dawnMs || eMs > duskMs) return;
+      const x = minutesToX(e.t);
+      const y = heightToY(e.heightFt);
+      ctx.beginPath();
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "#000";
+      ctx.fill();
+
+      const heightLabel = (e.isHigh ? "H " : "L ") + e.heightFt.toFixed(1) + "ft";
+      if (e.isHigh) {
+        if (y - PLOT_TOP > 14) {
+          ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x, PLOT_TOP + 2); ctx.stroke();
+        }
+        ctx.font = "bold 22px Georgia, serif";
+        ctx.fillStyle = "#000";
+        ctx.fillText(heightLabel, x, TOP_STRIP_END + 24);
+        ctx.font = "bold 18px Georgia, serif";
+        ctx.fillStyle = "#000";
+        ctx.fillText(e.label, x, TOP_STRIP_END + 40);
+      } else {
+        if (PLOT_BOTTOM - y > 14) {
+          ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x, y + 6); ctx.lineTo(x, PLOT_BOTTOM - 2); ctx.stroke();
+        }
+        ctx.font = "bold 22px Georgia, serif";
+        ctx.fillStyle = "#000";
+        ctx.fillText(heightLabel, x, PLOT_BOTTOM + 38);
+        ctx.font = "bold 18px Georgia, serif";
+        ctx.fillStyle = "#000";
+        ctx.fillText(e.label, x, PLOT_BOTTOM + 56);
+      }
+    });
+
+    solunarPeriods.forEach((p) => {
+      const pStartMs = new Date(p.start).getTime(), pEndMs = new Date(p.end).getTime();
+      if (pEndMs < dawnMs || pStartMs > duskMs) return;
+      const x0 = minutesToX(new Date(Math.max(pStartMs, dawnMs)).toISOString());
+      const x1 = minutesToX(new Date(Math.min(pEndMs, duskMs)).toISOString());
+      ctx.font = "italic bold 18px Georgia, serif";
+      ctx.textAlign = "center";
+      const bandLabel = p.kind.toUpperCase();
+      const labelW = ctx.measureText(bandLabel).width;
+      const labelCx = (x0 + x1) / 2;
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(labelCx - labelW / 2 - 4, PLOT_BOTTOM - 25, labelW + 8, 22);
+      ctx.fillStyle = "#000";
+      ctx.fillText(bandLabel, labelCx, PLOT_BOTTOM - 8);
+    });
+
+    // Footer row 1: moon phase + rise/set.
+    const footerY1 = FOOTER_START + 22;
+    drawMoonIconClient(ctx, 60, footerY1 - 10, 13, card.moon.illumination, card.moon.waxing);
+    ctx.textAlign = "left";
+    ctx.font = "bold 18px Georgia, serif";
+    ctx.fillStyle = "#000";
+    ctx.fillText(card.moon.phaseName, 82, footerY1 - 3);
+
+    const riseSetParts = [];
+    if (card.moon.rise && card.moon.rise.label) riseSetParts.push("Moonrise " + card.moon.rise.label);
+    if (card.moon.set && card.moon.set.label) riseSetParts.push("Moonset " + card.moon.set.label);
+    if (riseSetParts.length) {
+      ctx.font = "bold 18px Georgia, serif";
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "right";
+      ctx.fillText(riseSetParts.join("   ·   "), w - 24, footerY1 - 3);
+    }
+
+    // Footer row 2: wind + pressure (left), swell + water temp (right).
+    // "Wind"/"Swell"/"water" label words are dropped -- see dynamic.js's
+    // drawTideCard for why (at 18px, a full label-then-value row for both
+    // clusters no longer fits; each icon already identifies its number).
+    const footerY2 = h - 8;
+    let cx = 84;
+    if (weather.wind) {
+      drawWindArrowClient(ctx, 58, footerY2 - 8, 8);
+      ctx.font = "bold 18px Georgia, serif";
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      const windValue = weather.wind.mph + " mph" + (weather.wind.dir ? " " + weather.wind.dir : "");
+      ctx.fillText(windValue, cx, footerY2 - 3);
+      cx += ctx.measureText(windValue).width;
+    }
+    if (weather.pressure && weather.pressure.hpa != null) {
+      if (cx > 84) {
+        ctx.font = "bold 18px Georgia, serif";
+        ctx.fillStyle = "#000";
+        ctx.textAlign = "left";
+        ctx.fillText("   ·   ", cx, footerY2 - 3);
+        cx += ctx.measureText("   ·   ").width;
+      }
+      if (weather.pressure.deltaHpa != null && weather.pressure.trend !== "steady") {
+        drawTrendArrowClient(ctx, cx + 8, footerY2 - 8, 8, weather.pressure.trend === "falling" ? "down" : "up");
+        cx += 18;
+      }
+      const pressureValue = weather.pressure.hpa + " hPa" + (weather.pressure.deltaHpa != null ? " (" + weather.pressure.deltaHpa + ")" : "");
+      ctx.font = "bold 18px Georgia, serif";
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      ctx.fillText(pressureValue, cx, footerY2 - 3);
+    }
+
+    const rightParts = [];
+    if (weather.swell) rightParts.push(weather.swell.heightFt.toFixed(1) + " ft" + (weather.swell.periodS != null ? " @ " + weather.swell.periodS + "s" : ""));
+    if (weather.waterTempF != null) rightParts.push(weather.waterTempF + "°F");
+    if (rightParts.length) {
+      const fullPlain = rightParts.join("   ·   ");
+      ctx.font = "bold 18px Georgia, serif";
+      const fullW = ctx.measureText(fullPlain).width;
+      let px = w - 24 - fullW;
+      drawWaveGlyphClient(ctx, px - 34, footerY2 - 7, 28, 6);
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      ctx.fillText(fullPlain, px, footerY2 - 3);
+    }
+  }
+
+  // Tide never goes through staging/commit either -- same reasoning as
+  // Team/News (a fixed full-screen card, redrawn fresh every day). Unlike
+  // them there's no picker at all in Phase 1 -- it just uses the device's
+  // own saved location -- so opening the tab is the only trigger there is,
+  // and it only actually fetches once per layer (reopening the tab just
+  // re-shows status, same as Team/News do).
+  async function loadTideLayer() {
+    let layer = layers.find((l) => l.kind === "tide");
+    if (layer && layer.cardData) {
+      tideStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
+      return;
+    }
+    if (!layer) {
+      pushUndoState();
+      layers.length = 0;
+      layer = {
+        kind: "tide", id: nextLayerId++,
+        x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
+        font: "Georgia, serif", outline: false,
+        lat: null, lon: null, stationId: null, cardData: null, previewContent: "LOADING…"
+      };
+      layers.push(layer);
+    }
+    if (!deviceId) return;
+
+    renderLayers();
+    const token = ++tideFetchToken;
+    try {
+      const location = await resolveTideLocation();
+      if (token !== tideFetchToken) return;
+      if (!location || typeof location.lat !== "number" || typeof location.lon !== "number" || !location.stationId) {
+        layer.previewContent = "Set your location first, then come back here.";
+        tideStatus.textContent = "This device doesn't have a saved location yet — set one first (see Location in Manage), then come back here.";
+        renderLayers();
+        return;
+      }
+      layer.lat = location.lat;
+      layer.lon = location.lon;
+      layer.stationId = location.stationId;
+
+      tideStatus.textContent = "Loading tide, sun & moon data for your location…";
+      const data = await fetchTideCardDataClient(location.lat, location.lon, location.stationId);
+      if (token !== tideFetchToken) return; // superseded by a newer load
+      layer.cardData = data;
+      layer.previewContent = null;
+      tideStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
+    } catch (err) {
+      if (token !== tideFetchToken) return;
+      console.error("Couldn't load tide/moon data:", err);
+      layer.previewContent = "Couldn't load tide data right now — it'll try again on its own each day.";
+      tideStatus.textContent = "Couldn't load tide data right now (" + err.message + ") — it'll try again on its own each day.";
+    }
+    renderLayers();
+  }
+
+  // ================= Fishing Spot picker (Phase 4) =================
+  // A second, independent location just for this card -- most people's
+  // favorite fishing spot isn't where the clock itself sits. Saved
+  // separately (locations/{id}-fishing.json) so it never touches the
+  // device's actual location settings (used by Wave/Weather Forecast,
+  // Sunset, etc.). When absent, the tide card just uses the device's main
+  // location, same as Phase 1-3 always did.
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  const FISHING_SPOT_SUFFIX = "-fishing.json";
+  const spotChoiceDevice = document.getElementById("spotChoiceDevice");
+  const spotChoiceCustom = document.getElementById("spotChoiceCustom");
+  const deviceLocationSub = document.getElementById("deviceLocationSub");
+  const fishingSpotPickerEl = document.getElementById("fishingSpotPicker");
+  const fishingTownSearch = document.getElementById("fishingTownSearch");
+  const fishingSearchResults = document.getElementById("fishingSearchResults");
+  const fishingStationMapEl = document.getElementById("fishingStationMap");
+  const fishingStationListWrap = document.getElementById("fishingStationListWrap");
+  const fishingSpotStatus = document.getElementById("fishingSpotStatus");
+  const fishingSaveBtn = document.getElementById("fishingSaveBtn");
+  const fishingRemoveBtn = document.getElementById("fishingRemoveBtn");
+
+  async function resolveTideLocation() {
+    if (!deviceId) return null;
+    try {
+      const fishing = await fetchJsonFromStorage("locations/" + deviceId + FISHING_SPOT_SUFFIX, 8000);
+      if (fishing && typeof fishing.lat === "number" && typeof fishing.lon === "number" && fishing.stationId) {
+        return fishing;
+      }
+    } catch (err) {
+      console.error("Couldn't check for a custom fishing spot (falling back to device location):", err);
+    }
+    return fetchJsonFromStorage("locations/" + deviceId + ".json", 12000);
+  }
+
+  let fishingSpotInitialized = false;
+  let fishingTown = null; // { name, lat, lon }
+  let fishingStations = [];
+  let fishingSelectedStation = null; // { id, name, lat, lon, distance }
+  let fishingAllStationsCache = null;
+  let fishingMap = null;
+  let fishingMarkers = [];
+  let fishingSearchAbort = null;
+  let fishingSearchTimer = null;
+  let fishingExistingSpot = null; // the currently-saved -fishing.json, if any
+
+  function haversineMilesClient(lat1, lon1, lat2, lon2) {
+    const R = 3958.8;
+    const toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.asin(Math.sqrt(a));
+  }
+
+  async function fetchAllTideStations() {
+    if (fishingAllStationsCache) return fishingAllStationsCache;
+    const resp = await fetch("https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions");
+    if (!resp.ok) throw new Error("NOAA station list request failed: " + resp.status);
+    const data = await resp.json();
+    fishingAllStationsCache = data.stations || [];
+    return fishingAllStationsCache;
+  }
+
+  function clearFishingMap() {
+    if (fishingMap) { fishingMap.remove(); fishingMap = null; }
+    fishingMarkers = [];
+    fishingStationMapEl.style.display = "none";
+  }
+
+  function renderFishingStationMap() {
+    clearFishingMap();
+    if (typeof L === "undefined" || !fishingStations.length) return;
+    try {
+      fishingStationMapEl.style.display = "block";
+      fishingMap = L.map(fishingStationMapEl, { zoomControl: true, attributionControl: true }).setView([fishingTown.lat, fishingTown.lon], 11);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(fishingMap);
+
+      const townIcon = L.divIcon({ className: "fishing-town-marker", html: '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2c-4 0-7 3-7 7 0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z" fill="#C97456" stroke="#1F3347" stroke-width="1"/><circle cx="12" cy="9" r="2.4" fill="#fff"/></svg>', iconSize: [20, 20] });
+      const stationIcon = L.divIcon({ className: "fishing-station-marker", html: "<span></span>", iconSize: [12, 12] });
+      const selectedIcon = L.divIcon({ className: "fishing-station-marker selected", html: "<span></span>", iconSize: [16, 16] });
+
+      const townMarker = L.marker([fishingTown.lat, fishingTown.lon], { icon: townIcon }).addTo(fishingMap);
+      fishingMarkers.push(townMarker);
+      fishingStations.forEach((s) => {
+        const marker = L.marker([s.lat, s.lon], { icon: fishingSelectedStation && fishingSelectedStation.id === s.id ? selectedIcon : stationIcon }).addTo(fishingMap);
+        marker._stationId = s.id;
+        marker.on("click", () => selectFishingStation(s, "map"));
+        fishingMarkers.push(marker);
+      });
+    } catch (err) {
+      console.error("Fishing spot map failed to load:", err);
+      clearFishingMap();
+    }
+  }
+
+  function renderFishingStationList() {
+    fishingStationListWrap.innerHTML = "";
+    fishingStations.forEach((s) => {
+      const row = document.createElement("label");
+      row.className = "fishing-station-row" + (fishingSelectedStation && fishingSelectedStation.id === s.id ? " selected" : "");
+      row.dataset.stationId = String(s.id);
+      row.innerHTML =
+        '<input type="radio" name="fishingStation">' +
+        '<span class="fishing-station-info"><span class="fishing-station-name">' + escapeHtml(s.name) + '</span>' +
+        '<span class="fishing-station-meta">Station ' + escapeHtml(String(s.id)) + " &middot; " + s.distance.toFixed(1) + " mi away</span></span>";
+      row.querySelector("input").checked = !!(fishingSelectedStation && fishingSelectedStation.id === s.id);
+      row.addEventListener("click", (e) => { e.preventDefault(); selectFishingStation(s, "list"); });
+      fishingStationListWrap.appendChild(row);
+    });
+  }
+
+  function selectFishingStation(s, source) {
+    fishingSelectedStation = s;
+    fishingStationListWrap.querySelectorAll(".fishing-station-row").forEach((r) => {
+      const match = r.dataset.stationId === String(s.id);
+      r.classList.toggle("selected", match);
+      r.querySelector("input").checked = match;
+    });
+    fishingMarkers.forEach((m) => {
+      if (m._stationId) m.setIcon(L.divIcon({ className: "fishing-station-marker" + (m._stationId === s.id ? " selected" : ""), html: "<span></span>", iconSize: m._stationId === s.id ? [16, 16] : [12, 12] }));
+    });
+    fishingSaveBtn.disabled = false;
+    fishingSpotStatus.textContent = "Selected: " + s.name + " (Station " + s.id + ")";
+  }
+
+  async function loadFishingStations(town) {
+    fishingSpotStatus.textContent = "Finding nearby tide stations…";
+    try {
+      const all = await fetchAllTideStations();
+      fishingStations = all
+        .map((s) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lng !== undefined ? s.lng : s.lon }))
+        .map((s) => Object.assign(s, { distance: haversineMilesClient(town.lat, town.lon, s.lat, s.lon) }))
+        .filter((s) => s.distance <= 100)
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 8);
+      if (!fishingStations.length) {
+        fishingSpotStatus.textContent = "No tide stations found within 100 miles of that spot.";
+        return;
+      }
+      fishingSelectedStation = null;
+      fishingSaveBtn.disabled = true;
+      fishingSpotStatus.textContent = "Pick the closest tide station.";
+      renderFishingStationMap();
+      renderFishingStationList();
+    } catch (err) {
+      console.error("Couldn't load nearby tide stations:", err);
+      fishingSpotStatus.textContent = "Couldn't load nearby tide stations right now.";
+    }
+  }
+
+  async function runFishingSearch(q) {
+    if (fishingSearchAbort) fishingSearchAbort.abort();
+    fishingSearchAbort = new AbortController();
+    fishingSearchResults.innerHTML = '<div class="fishing-search-result-row">Searching…</div>';
+    try {
+      const resp = await fetch(
+        "https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=us&addressdetails=1&limit=6&q=" + encodeURIComponent(q),
+        { signal: fishingSearchAbort.signal }
+      );
+      const results = await resp.json();
+      fishingSearchResults.innerHTML = "";
+      if (!results.length) {
+        fishingSearchResults.innerHTML = '<div class="fishing-search-result-row">No matches</div>';
+        return;
+      }
+      results.forEach((r) => {
+        const row = document.createElement("div");
+        row.className = "fishing-search-result-row";
+        row.textContent = r.display_name;
+        row.addEventListener("click", () => {
+          fishingSearchResults.innerHTML = "";
+          fishingTownSearch.value = r.display_name;
+          fishingTown = { name: (r.address && (r.address.city || r.address.town || r.address.village)) || r.name || r.display_name, lat: parseFloat(r.lat), lon: parseFloat(r.lon) };
+          loadFishingStations(fishingTown);
+        });
+        fishingSearchResults.appendChild(row);
+      });
+    } catch (err) {
+      if (err.name === "AbortError") return;
+      console.error("Fishing spot town search failed:", err);
+      fishingSearchResults.innerHTML = '<div class="fishing-search-result-row">Search failed -- try again</div>';
+    }
+  }
+
+  fishingTownSearch.addEventListener("input", () => {
+    const q = fishingTownSearch.value.trim();
+    clearTimeout(fishingSearchTimer);
+    if (q.length < 3) { fishingSearchResults.innerHTML = ""; return; }
+    fishingSearchTimer = setTimeout(() => runFishingSearch(q), 350);
+  });
+
+  fishingSaveBtn.addEventListener("click", async () => {
+    if (!deviceId || !fishingTown || !fishingSelectedStation) return;
+    fishingSaveBtn.disabled = true;
+    fishingSpotStatus.textContent = "Saving…";
+    try {
+      const payload = { name: fishingTown.name, stationId: String(fishingSelectedStation.id), lat: fishingTown.lat, lon: fishingTown.lon };
+      const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+      await uploadBytes(ref(storage, "locations/" + deviceId + FISHING_SPOT_SUFFIX), blob);
+      fishingExistingSpot = payload;
+      fishingSpotStatus.textContent = "Saved! Refreshing your tide card…";
+      fishingRemoveBtn.classList.remove("hidden");
+      const layer = layers.find((l) => l.kind === "tide");
+      if (layer) layer.cardData = null; // force loadTideLayer to actually refetch
+      await loadTideLayer();
+    } catch (err) {
+      console.error("Couldn't save the fishing spot:", err);
+      fishingSpotStatus.textContent = "Couldn't save that spot right now — try again in a moment.";
+      fishingSaveBtn.disabled = false;
+    }
+  });
+
+  fishingRemoveBtn.addEventListener("click", async () => {
+    if (!deviceId) return;
+    try {
+      await deleteObject(ref(storage, "locations/" + deviceId + FISHING_SPOT_SUFFIX));
+    } catch (err) {
+      // Already gone (or never existed) is fine -- nothing left to remove.
+      if (!err || err.code !== "storage/object-not-found") console.error("Couldn't remove the fishing spot:", err);
+    }
+    fishingExistingSpot = null;
+    spotChoiceDevice.checked = true;
+    updateSpotChoiceUI();
+    const layer = layers.find((l) => l.kind === "tide");
+    if (layer) layer.cardData = null;
+    await loadTideLayer();
+  });
+
+  function updateSpotChoiceUI() {
+    document.querySelectorAll('.spot-choice-row').forEach((row) => {
+      row.classList.toggle("selected", row.dataset.value === (spotChoiceCustom.checked ? "custom" : "device"));
+    });
+    fishingSpotPickerEl.classList.toggle("hidden", !spotChoiceCustom.checked);
+    fishingRemoveBtn.classList.toggle("hidden", !fishingExistingSpot);
+    if (spotChoiceCustom.checked && fishingExistingSpot && !fishingTown) {
+      fishingSpotStatus.textContent = "Currently: " + fishingExistingSpot.name + " (Station " + fishingExistingSpot.stationId + ")";
+    }
+  }
+  [spotChoiceDevice, spotChoiceCustom].forEach((el) => el.addEventListener("change", updateSpotChoiceUI));
+
+  // Runs once, the first time the Tide tool is opened -- pre-fills the
+  // device's main location name and whether a custom fishing spot is
+  // already saved, without disturbing whichever spot is actually in use.
+  async function initFishingSpotUIOnce() {
+    if (fishingSpotInitialized || !deviceId) return;
+    fishingSpotInitialized = true;
+    try {
+      const deviceLocation = await fetchJsonFromStorage("locations/" + deviceId + ".json", 8000);
+      deviceLocationSub.textContent = deviceLocation && deviceLocation.name ? deviceLocation.name : "";
+    } catch (err) {
+      console.error("Couldn't load the device's main location name:", err);
+    }
+    try {
+      fishingExistingSpot = await fetchJsonFromStorage("locations/" + deviceId + FISHING_SPOT_SUFFIX, 8000);
+    } catch (err) {
+      console.error("Couldn't check for an existing fishing spot:", err);
+    }
+    if (fishingExistingSpot) spotChoiceCustom.checked = true;
+    updateSpotChoiceUI();
+  }
+
+  // ================= Team tool =================
+  const teamLeagueSelect = document.getElementById("teamLeagueSelect");
+  const teamNameSelect = document.getElementById("teamNameSelect");
+  const teamStatus = document.getElementById("teamStatus");
+  let teamsCache = {}; // "sport/league" -> [{id,name,abbrev}], fetched once per league per page load
+  let teamFetchToken = 0; // guards a slow/stale fetch from clobbering a newer selection
+
+  function fillTeamOptions(teams) {
+    teamNameSelect.textContent = "";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose a team…";
+    teamNameSelect.appendChild(placeholder);
+    teams.forEach((t) => {
+      const opt = document.createElement("option");
+      opt.value = t.id;
+      opt.textContent = t.name; // textContent, not innerHTML -- team names come from ESPN, treat as untrusted
+      teamNameSelect.appendChild(opt);
+    });
+  }
+
+  async function populateTeamSelect(sport, league, preselectId) {
+    const key = sport + "/" + league;
+    teamNameSelect.disabled = true;
+    teamNameSelect.textContent = "";
+    const loadingOpt = document.createElement("option");
+    loadingOpt.textContent = "Loading teams…";
+    teamNameSelect.appendChild(loadingOpt);
+    teamStatus.textContent = "Loading teams…";
+    try {
+      const teams = teamsCache[key] || (teamsCache[key] = await fetchLeagueTeams(sport, league));
+      fillTeamOptions(teams);
+      if (preselectId) teamNameSelect.value = preselectId;
+      teamNameSelect.disabled = false;
+      teamStatus.textContent = "Pick a team to see when they play next.";
+    } catch (err) {
+      console.error("Couldn't load teams for " + key + ":", err);
+      teamNameSelect.textContent = "";
+      const errOpt = document.createElement("option");
+      errOpt.textContent = "Couldn't load teams";
+      teamNameSelect.appendChild(errOpt);
+      teamStatus.textContent = "Couldn't load the team list — try again in a moment.";
+    }
+  }
+
+  teamLeagueSelect.addEventListener("change", () => {
+    const val = teamLeagueSelect.value;
+    if (!val) {
+      teamNameSelect.disabled = true;
+      teamNameSelect.textContent = "";
+      const opt = document.createElement("option");
+      opt.textContent = "Choose a league first…";
+      teamNameSelect.appendChild(opt);
+      return;
+    }
+    const [sport, league] = val.split("/");
+    populateTeamSelect(sport, league);
+  });
+
+  // Team never goes through staging/commit at all -- it's a fixed
+  // full-screen card with nothing to drag or place, so picking a team
+  // takes effect immediately: creates (or updates) the "team" layer in
+  // `layers` directly, live, with Publish already valid the moment a
+  // real game is found. font/outline are fixed (not user-facing -- see
+  // the removed Serif/Block/Pixel buttons) but still needed by
+  // drawText's fallback rendering (the plain "LOADING…"/error line shown
+  // before the real card resolves, or if it never does).
+  function findOrCreateTeamLayer() {
+    let layer = layers.find((l) => l.kind === "team");
+    if (!layer) {
+      // Team fills the whole screen and gets redrawn fresh every day --
+      // anything else already on the design (drawings, text, stickers,
+      // a Countdown) would just sit permanently hidden underneath it
+      // from here on, so starting one clears the slate instead of
+      // leaving dead weight behind.
+      pushUndoState();
+      layers.length = 0;
+      layer = {
+        kind: "team", id: nextLayerId++,
+        x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
+        font: "Georgia, serif", outline: false,
+        previewContent: null, card: null
+      };
+      layers.push(layer);
+    }
+    return layer;
+  }
+
+  teamNameSelect.addEventListener("change", async () => {
+    const teamId = teamNameSelect.value;
+    const leagueVal = teamLeagueSelect.value;
+    if (!teamId || !leagueVal) return;
+    const [sport, league] = leagueVal.split("/");
+    const teamName = teamNameSelect.options[teamNameSelect.selectedIndex].textContent;
+
+    const layer = findOrCreateTeamLayer();
+    layer.sport = sport;
+    layer.league = league;
+    layer.teamId = teamId;
+    layer.teamName = teamName;
+    layer.previewContent = null;
+    layer.card = null;
+    renderLayers();
+
+    const token = ++teamFetchToken;
+    teamStatus.textContent = "Loading " + teamName + "'s schedule…";
+    try {
+      const { nextGame, myAbbrev, myLogo } = await fetchNextGame(sport, league, teamId);
+      if (token !== teamFetchToken || layer.teamId !== teamId) return; // superseded by a newer selection
+      layer.previewContent = formatTeamText(nextGame, myAbbrev);
+      if (!nextGame) {
+        teamStatus.textContent = "Updates on its own once a day after you publish — no need to redesign it.";
+        renderLayers();
+        return;
+      }
+
+      teamStatus.textContent = "Loading the Game Day card…";
+      renderLayers();
+
+      const [myLogoCanvas, oppLogoCanvas] = await Promise.all([
+        fetchDitheredLogoClient(myLogo, LOGO_SIZE),
+        fetchDitheredLogoClient(nextGame.opponentLogo, LOGO_SIZE)
+      ]);
+      if (token !== teamFetchToken || layer.teamId !== teamId) return; // superseded while logos were loading
+
+      const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
+      const dateTimeParts = formatGameDateTimeParts(nextGame.gameDateISO);
+      layer.card = {
+        bannerTitle: gameDayBannerTitle(sport, league),
+        headline: (myAbbrev || "") + " " + vsOrAt + " " + nextGame.opponentAbbrev,
+        daysLeft: nextGame.daysLeft,
+        daysUnit: nextGame.daysLeft === 1 ? "DAY" : "DAYS",
+        venue: nextGame.venue,
+        dateLabel: dateTimeParts ? dateTimeParts.dateLabel : null,
+        timeLabel: dateTimeParts ? dateTimeParts.timeLabel : null,
+        myLogo: myLogoCanvas,
+        oppLogo: oppLogoCanvas
+      };
+      teamStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
+      renderLayers();
+    } catch (err) {
+      console.error("Couldn't load schedule for team " + teamId + ":", err);
+      if (token !== teamFetchToken) return;
+      layer.previewContent = "COULDN'T LOAD SCHEDULE";
+      layer.card = null;
+      teamStatus.textContent = "Couldn't load the schedule right now — try picking the team again.";
+      renderLayers();
+    }
+  });
+
   const photoInput = document.getElementById("photoInput");
   // Each button both picks the photo style AND triggers the upload picker
   // in one tap, instead of a separate select-a-style-then-upload step.
@@ -1636,16 +3748,40 @@
     // starting over.
     const textCtxEnabled = enabled || (stagedObject && stagedObject.kind === "text");
     fontButtons.forEach((el) => { el.disabled = !textCtxEnabled; });
+    // Same idea for a staged Countdown: its date/label/font controls need
+    // to stay live so the preview updates as they're adjusted.
+    const countdownCtxEnabled = enabled || (stagedObject && stagedObject.kind === "countdown");
+    countdownFontButtons.forEach((el) => { el.disabled = !countdownCtxEnabled; });
+    countdownDateInput.disabled = !countdownCtxEnabled;
+    countdownLabelInput.disabled = !countdownCtxEnabled;
+    // Team/News never go through staging at all (see
+    // findOrCreateTeamLayer/handleNewsInputChange) -- they follow
+    // `enabled` directly like every other non-staging control above.
+    teamLeagueSelect.disabled = !enabled;
+    teamNameSelect.disabled = !enabled || teamNameSelect.options.length <= 1;
+    newsLocationInput.disabled = !enabled;
+    newsFeedUrlInput.disabled = !enabled;
     updateClipartSearchEnabled();
   }
 
   function startStaging(obj) {
     if (stagedObject) return;
+    // Default to "nothing to restore" -- selectLayer overrides this right
+    // after calling startStaging, for the one case (editing an existing
+    // layer back out of `layers`) where there actually is an original to
+    // put back if the edit gets cancelled.
+    stagedFromLayers = null;
     const defaultSize = (obj.kind === "photo") ? 160 : 64;
     stagedObject = Object.assign({ x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: defaultSize }, obj);
     stagingSizeSlider.value = stagedObject.size;
     sensitivityRow.classList.toggle("hidden", obj.photoStyle !== "sketch");
     if (obj.photoStyle === "sketch") sensitivitySlider.value = obj.sensitivity;
+    // Team/News fill the whole screen as a fixed-layout card -- there's
+    // nothing to drag or resize, so hide those controls (commit/cancel
+    // stay put either way).
+    const isFullCard = FULL_CARD_KINDS.has(obj.kind);
+    stagingDragSizeLabel.style.display = isFullCard ? "none" : "";
+    stagingSizeSlider.style.display = isFullCard ? "none" : "";
     stagingBar.classList.add("visible");
     overlayCanvas.classList.add("staging");
     setControlsEnabled(false);
@@ -1697,11 +3833,16 @@
     // kind === "text": no canvas draw here, canvasTextInput shows it instead
     if (stagedObject.kind !== "text") drawStampObject(overlayCtx, stagedObject);
 
-    const half = stagedObject.size * 0.65;
-    overlayCtx.setLineDash([6, 5]);
-    overlayCtx.strokeStyle = "#2C4A63";
-    overlayCtx.lineWidth = 2;
-    overlayCtx.strokeRect(stagedObject.x - half, stagedObject.y - half, half * 2, half * 2);
+    // Team/News fill the whole canvas -- a small dashed selection box
+    // around their nominal x/y/size would be meaningless clutter over a
+    // full-screen card, so skip it for those.
+    if (!FULL_CARD_KINDS.has(stagedObject.kind)) {
+      const half = stagedObject.size * 0.65;
+      overlayCtx.setLineDash([6, 5]);
+      overlayCtx.strokeStyle = "#2C4A63";
+      overlayCtx.lineWidth = 2;
+      overlayCtx.strokeRect(stagedObject.x - half, stagedObject.y - half, half * 2, half * 2);
+    }
     overlayCtx.restore();
   }
 
@@ -1744,6 +3885,12 @@
     }
 
     overlayCanvas.setPointerCapture(evt.pointerId);
+
+    // Team/News have a fixed full-screen layout -- nothing to drag or
+    // pinch-resize, so capture the pointer (keeps the tap from falling
+    // through to baseCanvas) and stop there.
+    if (FULL_CARD_KINDS.has(stagedObject.kind)) return;
+
     activePointers.set(evt.pointerId, p);
 
     if (activePointers.size === 2) {
@@ -1802,8 +3949,20 @@
   overlayCanvas.addEventListener("pointerup", releaseStagedPointer);
   overlayCanvas.addEventListener("pointercancel", releaseStagedPointer);
 
-  function endStaging() {
+  // restoreOriginal: true only from an explicit Cancel. Committing (or the
+  // "nothing to place" early-outs below) should never restore -- those
+  // already represent the user's final decision, not an abandoned edit.
+  function endStaging(restoreOriginal) {
+    if (restoreOriginal && stagedFromLayers) {
+      // Cancelling an edit of an EXISTING layer (pulled out of `layers` by
+      // selectLayer) used to just drop it on the floor -- Cancel silently
+      // deleted whatever you'd tapped to edit instead of leaving it as it
+      // was. Put it back unchanged.
+      layers.push(stagedFromLayers);
+      renderLayers();
+    }
     stagedObject = null;
+    stagedFromLayers = null;
     stagingBar.classList.remove("visible");
     overlayCanvas.classList.remove("staging");
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
@@ -1817,6 +3976,10 @@
     if (stagedObject.kind === "text" && !stagedObject.content.trim()) {
       // Nothing was typed -- there's nothing to place, so committing just
       // cancels instead of stamping a blank space onto the design.
+      endStaging();
+      return;
+    }
+    if (stagedObject.kind === "countdown" && !stagedObject.targetDate) {
       endStaging();
       return;
     }
@@ -1839,7 +4002,7 @@
     endStaging();
   });
 
-  cancelStageBtn.addEventListener("click", endStaging);
+  cancelStageBtn.addEventListener("click", () => endStaging(true));
 
   // Text stages live as you type into the overlay input sitting right on
   // the canvas -- there's no separate box/button elsewhere on the page.
@@ -1872,6 +4035,37 @@
     ctx.fillRect(0, 0, out.width, out.height);
     ctx.drawImage(layersCanvas, 0, 0);
     ctx.drawImage(baseCanvas, 0, 0);
+    return out;
+  }
+
+  // "Dynamic" layers are the ones the daily Cloud Function redraws on its
+  // own (Countdown, Team, News, Tide) -- publish only ever tracks the
+  // FIRST one it finds for that daily auto-update (see below), so each
+  // kind's own tool code is responsible for making sure at most one of
+  // it ever lands in `layers` to begin with: Team/News/Tide are fixed
+  // full-screen cards that wipe/replace the whole layers array on
+  // creation (see loadTideLayer, findOrCreateTeamLayer, and News's own
+  // existing-layer lookup), and Countdown reuses its existing layer
+  // instead of staging a second one (see the "countdown" tool tab
+  // handler above). If a second one of any kind ever did slip through
+  // some other way, it would render fine at publish time but stay
+  // frozen from then on -- it wouldn't be the one the daily job updates.
+  const DYNAMIC_KINDS = new Set(["countdown", "team", "news", "tide"]);
+
+  // Same idea as getCompositeCanvas, but leaves out any dynamic layer --
+  // this is what the daily Cloud Function redraws the current content
+  // onto, so it always starts from everything else you drew/placed rather
+  // than compounding on top of yesterday's text. Always non-inverted (see
+  // packTo1Bit below for why): inversion is applied once, at the very end,
+  // after the day's dynamic text is drawn on top server-side too.
+  function getBaseCanvas() {
+    const out = document.createElement("canvas");
+    out.width = baseCanvas.width;
+    out.height = baseCanvas.height;
+    const ctx = out.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, out.width, out.height);
+    layers.forEach((obj) => { if (!DYNAMIC_KINDS.has(obj.kind)) drawStampObject(ctx, obj); });
     return out;
   }
 
@@ -1923,19 +4117,34 @@
     setStatus("Publishing…");
 
     try {
+      // Publishing a screen that isn't checked into the rotation would
+      // leave the design saved but never actually shown on the device --
+      // a confusing "why isn't my new design showing up" trap. Publish
+      // implies "I want this on the board," so make sure the rotation
+      // setting agrees; non-fatal if it can't be saved (same reasoning
+      // as the preview-image/dynamic-meta steps below -- the design
+      // itself still published).
+      if (!rotationCheckbox.checked) {
+        try {
+          rotationCheckbox.checked = true;
+          await updateSettingsField(ROTATION_FIELD, true);
+        } catch (rotationErr) {
+          console.error("Couldn't turn on the rotation setting during publish:", rotationErr);
+          rotationCheckbox.checked = false;
+        }
+      }
+
       const composite = getCompositeCanvas();
       const packed = packTo1Bit(composite);
       const blob = new Blob([packed], { type: "application/octet-stream" });
-      const storageRef = ref(storage, "designs/" + deviceId + ".bin");
 
       const previewCanvas = getPublishPreviewCanvas(composite);
       const pngBlob = await new Promise((resolve) => previewCanvas.toBlob(resolve, "image/png"));
-      const previewRef = ref(storage, "designs/" + deviceId + ".png");
 
-      await uploadBytes(storageRef, blob);
+      await uploadToScreenPaths(".bin", blob);
       if (pngBlob) {
         try {
-          await uploadBytes(previewRef, pngBlob);
+          await uploadToScreenPaths(".png", pngBlob);
           currentBoardImg.src = URL.createObjectURL(pngBlob);
           currentBoardCard.classList.add("visible");
         } catch (previewErr) {
@@ -1944,7 +4153,49 @@
           console.error("Design published, but saving the preview image failed:", previewErr);
         }
       }
-      setStatus("Published! It'll appear on your Wave Clock within the hour.", "success");
+
+      // A dynamic layer (Countdown or Team) needs two more things saved so
+      // the daily Cloud Function can redraw it: the rest of the design
+      // flattened WITHOUT that layer's text (so it has a clean surface to
+      // redraw fresh content onto each day), and the layer's own settings.
+      // If there's no dynamic layer, clean up any of those left over from
+      // a previous publish so the daily job has nothing stale to find.
+      const dynamicLayer = layers.find((l) => DYNAMIC_KINDS.has(l.kind));
+      if (dynamicLayer) {
+        try {
+          const baseCanvasFlat = getBaseCanvas();
+          const baseBlob = await new Promise((resolve) => baseCanvasFlat.toBlob(resolve, "image/png"));
+          if (baseBlob) await uploadToScreenPaths("-base.png", baseBlob);
+
+          const shared = { x: dynamicLayer.x, y: dynamicLayer.y, size: dynamicLayer.size, fontKey: dynamicLayer.fontKey, outline: !!dynamicLayer.outline, inverted };
+          let dynamicMeta;
+          if (dynamicLayer.kind === "countdown") {
+            dynamicMeta = Object.assign({ type: "countdown", targetDate: dynamicLayer.targetDate, label: dynamicLayer.label || "" }, shared);
+          } else if (dynamicLayer.kind === "team") {
+            dynamicMeta = Object.assign({ type: "team", sport: dynamicLayer.sport, league: dynamicLayer.league, teamId: dynamicLayer.teamId, teamName: dynamicLayer.teamName }, shared);
+          } else if (dynamicLayer.kind === "tide") {
+            dynamicMeta = Object.assign({ type: "tide", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId }, shared);
+          } else {
+            dynamicMeta = Object.assign({ type: "news", location: dynamicLayer.location || "", feedUrl: dynamicLayer.feedUrl || "" }, shared);
+          }
+
+          const metaBlob = new Blob([JSON.stringify(dynamicMeta)], { type: "application/json" });
+          await uploadToScreenPaths("-dynamic.json", metaBlob);
+        } catch (dynErr) {
+          // The board still got today's design either way (see above) --
+          // only the DAILY auto-update wouldn't work, so this shouldn't
+          // fail the whole publish, just warn about it.
+          console.error("Published, but this won't auto-update daily:", dynErr);
+          setStatus("Published — but the daily auto-update couldn't be saved. It'll still show today's content.", "error");
+        }
+      } else {
+        await deleteFromScreenPaths("-base.png");
+        await deleteFromScreenPaths("-dynamic.json");
+      }
+
+      if (!statusMsg.classList.contains("error")) {
+        setStatus("Published! It'll appear on your Wave Clock within the hour.", "success");
+      }
     } catch (err) {
       console.error(err);
       setStatus("Something went wrong publishing — try again in a moment.", "error");

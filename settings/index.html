@@ -361,15 +361,14 @@
           <div class="segmented"><button type="button" class="segmented-btn" data-value="true">Yes</button><button type="button" class="segmented-btn" data-value="false">No</button></div>
         </div>
         <!-- This toggle controls showCustomScreen1 -- the only one of the
-             3 planned custom-screen slots any customer can actually create
-             a design for today (via the live /design/ editor). design-v2
-             adds 2 more screens with their own per-screen rotation toggle,
-             but design-v2 isn't public yet, so showCustomScreen2/3 have no
-             UI here on purpose -- there's nothing for them to control until
-             a customer can actually reach design-v2 to make a screen 2/3
-             design. This page still reads/writes showCustomScreen2/3
-             transparently (see `state` below) so saving settings here
-             never clobbers whatever design-v2 last set for those slots. -->
+             3 custom-screen slots this settings wizard exposes a toggle
+             for. /design/ itself supports all 3 screens, each with its
+             own per-screen rotation toggle right there in the editor, so
+             there's nothing more for this page to add for screens 2/3 --
+             they're managed entirely in /design/. This page still reads/
+             writes showCustomScreen2/3 transparently (see `state` below)
+             so saving settings here never clobbers whatever /design/ last
+             set for those slots. -->
         <div class="toggle-row" data-field="sunsetAllDay">
           <span class="toggle-label">Sunset Screen<span class="toggle-sub">Still appears via the Sunset Reminder even on Sunset Only</span></span>
           <div class="segmented"><button type="button" class="segmented-btn" data-value="true">All Day</button><button type="button" class="segmented-btn" data-value="false">Sunset Only</button></div>
@@ -488,16 +487,14 @@
     // showCustomScreen1 on every save below until firmware ships and switches
     // to the three per-slot fields.
     showCustomScreen: true,
-    // showCustomScreen1 has a real toggle row above (it's the only screen a
-    // customer can actually design today, via the live /design/ editor).
-    // showCustomScreen2/3 have no UI here -- see the comment above the
-    // toggle row. They're carried in `state` purely so
-    // loadExistingSettings()/the save payload below preserve whatever
-    // design-v2 last set instead of dropping them on every unrelated
-    // save here (Storage writes replace the whole file, there's no
-    // server-side merge). Defaults here only matter for a device that's
-    // never had a settings file at all -- see the same defaults used in
-    // design-v2's own settingsDefaults().
+    // showCustomScreen1 has a real toggle row above; showCustomScreen2/3
+    // have no UI here -- see the comment above the toggle row. They're
+    // carried in `state` purely so loadExistingSettings()/the save
+    // payload below preserve whatever /design/ last set instead of
+    // dropping them on every unrelated save here (Storage writes replace
+    // the whole file, there's no server-side merge). Defaults here only
+    // matter for a device that's never had a settings file at all -- see
+    // the same defaults used in /design/'s own SETTINGS_DEFAULTS.
     showCustomScreen1: true,
     showCustomScreen2: true,
     showCustomScreen3: false,

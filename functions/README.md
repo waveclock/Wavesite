@@ -1,7 +1,7 @@
 # Dynamic-layer auto-update Cloud Function
 
 Runs once a day (09:00 UTC) and redraws the current content for every
-device with an active "dynamic layer" published from `/design-v2/` -- a
+device with an active "dynamic layer" published from `/design/` -- a
 **Countdown** (a target date), a **Team Schedule** (next game for a
 picked sports team), **News** (headlines for a location or RSS feed), or
 **Tide & Fishing** (tide curve + moon phase/rise/set for the device's
@@ -11,7 +11,7 @@ files unconditionally.
 
 ## How it fits together
 
-`design-v2/index.html` publishes up to four files per device when a
+`design/index.html` publishes up to four files per device when a
 Countdown, Team, or News layer is on the canvas:
 
 - `designs/{id}.bin` / `.png` -- today's design, exactly as before (so the
@@ -25,7 +25,7 @@ Countdown, Team, or News layer is on the canvas:
   - `{ type: "team", sport, league, teamId, teamName, x, y, size, fontKey, outline, inverted }`
   - `{ type: "news", location, feedUrl, x, y, size, fontKey, outline, inverted }`
 
-If there's no Countdown, Team, or News layer, `design-v2` deletes the
+If there's no Countdown, Team, or News layer, `design` deletes the
 `-base.png` / `-dynamic.json` files instead (best-effort) so this job has
 nothing to find for that device. At most one dynamic layer is treated as
 active per device for now -- if a customer somehow adds more than one,
@@ -72,7 +72,7 @@ Each run:
 
 ## The Game Day card
 
-`design-v2`'s live preview draws the REAL Game Day card -- banner, both
+`design`'s live preview draws the REAL Game Day card -- banner, both
 teams' dithered logos, matchup, days-remaining, date/venue -- directly
 onto the canvas as soon as a game is found, and that's what publishes on
 day one too. Getting there needed CORS-clean pixel access to the logo
@@ -124,7 +124,7 @@ slip through and yield zero headlines, which just renders the same
 "NO HEADLINES FOUND" fallback as a genuinely empty feed rather than
 erroring.
 
-`design-v2`'s live preview shows the real card (banner + real headlines)
+`design`'s live preview shows the real card (banner + real headlines)
 too, via `newsProxy`: an `onRequest` function that fetches + parses the
 feed server-to-server -- same CORS reasoning as `espnProxy` -- and hands
 back already-**parsed** headline strings (not raw feed XML), reusing
@@ -273,7 +273,7 @@ response body). `astroProxyHandler` checks for that tag and responds
 `422` with an actionable message ("This tide station doesn't have full
 predictions available... try picking a different station in Fishing Spot
 settings") instead of the generic `502` "Couldn't reach NOAA" message,
-which wrongly implied retrying later would help. design-v2 already
+which wrongly implied retrying later would help. design already
 surfaces `err.message` verbatim in the tide tool's status line, so this
 message reaches the customer as-is. See `test/astroProxy.test.js`'s test
 contrasting this against the still-502 generic-network-failure case, and
@@ -383,7 +383,7 @@ looked at `tideCurve`, which silently fell back to a fixed `[0,1]` range
 whenever the curve was empty. That would have clipped real hi/lo values
 (e.g. a real `3.777` from this exact station) off the top of the plot
 instead of scaling to fit them. Fixed in both `dynamic.js` and
-`design-v2/index.html` (the client copy) by deriving the height range
+`design/index.html` (the client copy) by deriving the height range
 from `tideExtrema` too, not just `tideCurve` -- a no-op in the normal
 case (extrema already fall within the curve's own range) but load-bearing
 for a hi/lo-only station. See `test/dynamic.test.js`'s regression test
@@ -436,7 +436,7 @@ inspected each for overlap or clipping before settling on final sizes --
 same discipline as every other visual change in this file, since passing
 tests alone already missed at least one real rendering bug earlier in
 this project (the `textAlign` leak). Applied identically to `dynamic.js`
-and the `design-v2/index.html` client copy, per this file's usual
+and the `design/index.html` client copy, per this file's usual
 duplication convention.
 
 **A second pass, with a hard floor: nothing on the card smaller than
@@ -457,7 +457,7 @@ guessing:
   "H"/"L" and the trend arrow already used even before this row was
   touched) and shortened the pressure delta from "(-6 in 6h)" to "(-6)"
   (always 6h, so the words added nothing). `drawLabelThenValue` (and its
-  design-v2 client copy) became dead code once its only caller no longer
+  design client copy) became dead code once its only caller no longer
   needed a separate label -- removed rather than left unused.
 - The MAJOR/MINOR solunar band label went from 11px to 18px italic --
   often wider than a MINOR period's own hatch band (only ~50min wide),
@@ -487,7 +487,7 @@ separator dots) were still drawn at a partial alpha (`rgba(0,0,0,0.75-
 0.8)`) even after the two font-size passes above -- a holdover from when
 those elements were meant to read as visually secondary next to bolder
 neighbors. Switched every text `fillStyle` in `drawTideCard` (and the
-`design-v2/index.html` client copy) to solid `#000`. The dashed guide
+`design/index.html` client copy) to solid `#000`. The dashed guide
 lines (sunrise/sunset verticals, the plot's baseline, the leader ticks
 connecting a dot to its label) are deliberately left at their existing
 partial alpha -- those are lines, not text, and stay a lighter weight on
@@ -620,7 +620,7 @@ self-contained (it sets its own `textAlign` unconditionally now), with
 a regression test added afterward that specifically renders the two
 lines in sequence.
 
-**The Fishing Spot picker** (Phase 4, in `design-v2/index.html`) lets a
+**The Fishing Spot picker** (Phase 4, in `design/index.html`) lets a
 customer point this card at a second, independent location -- a favorite
 pier or inlet, not necessarily where the clock itself sits. Saved to
 `locations/{deviceId}-fishing.json` (Storage Rules updated to allow the
@@ -654,7 +654,7 @@ but the map specifically is worth a quick look after deploying.
 ## Known tradeoffs
 
 **At most one dynamic layer per screen, enforced client-side, not server-side**:
-publish (`design-v2/index.html`) only ever tracks the *first* Countdown/
+publish (`design/index.html`) only ever tracks the *first* Countdown/
 Team/News/Tide layer it finds in `layers` for the daily auto-update
 (`DYNAMIC_KINDS`); a second one of the same kind would render fine at
 publish time but stay frozen forever after, since the daily job never
@@ -766,7 +766,7 @@ this -- it's never shown a live problem, so there's no reason to risk it
 just for theoretical consistency with the RSS fetch.
 
 **ESPN blocks direct browser calls (CORS) -- confirmed live, and fixed**:
-design-v2's Team tool originally called `site.api.espn.com` straight from
+design's Team tool originally called `site.api.espn.com` straight from
 the browser for its live preview. That failed in production ("Couldn't
 load teams") -- confirmed by loading the same URL directly in a browser
 tab (works, returns real JSON) versus the page's own `fetch()` call to it
@@ -775,7 +775,7 @@ doesn't include headers granting waveclock.net's JavaScript permission to
 read it, even though the URL itself is publicly reachable.
 
 The fix is `espnProxy`, an `onRequest` HTTP function in this same
-`functions/` deployment: design-v2 now calls `espnProxy` (same-origin as
+`functions/` deployment: design now calls `espnProxy` (same-origin as
 far as CORS logic goes, since the function itself sends permissive CORS
 headers back), which makes the actual ESPN request server-to-server --
 and server-to-server calls were never subject to CORS in the first place,
