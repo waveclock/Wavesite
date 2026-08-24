@@ -127,6 +127,7 @@ const ALLOWED_LEAGUES = new Set([
   "football/nfl",
   "football/college-football",
   "basketball/nba",
+  "basketball/womens-college-basketball",
   "baseball/mlb",
   "hockey/nhl"
 ]);

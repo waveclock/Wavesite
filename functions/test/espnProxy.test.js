@@ -40,10 +40,10 @@ async function test(name, fn) {
 }
 
 (async () => {
-  await test("ALLOWED_LEAGUES matches the 5 leagues design offers", () => {
+  await test("ALLOWED_LEAGUES matches the leagues design offers", () => {
     assert.deepStrictEqual(
       Array.from(ALLOWED_LEAGUES).sort(),
-      ["baseball/mlb", "basketball/nba", "football/college-football", "football/nfl", "hockey/nhl"]
+      ["baseball/mlb", "basketball/nba", "basketball/womens-college-basketball", "football/college-football", "football/nfl", "hockey/nhl"]
     );
   });
 

@@ -113,7 +113,7 @@ function espnTeamsUrl(sport, league) {
   return ESPN_BASE + "/" + sport + "/" + league + "/teams?limit=400";
 }
 
-// Same 5 sport/league pairs design's League dropdown offers (and
+// Same sport/league pairs design's League dropdown offers (and
 // ALLOWED_LEAGUES in index.js whitelists) -- used only for the Game Day
 // card's banner title ("COLLEGE FOOTBALL GAME DAY" reads as a real
 // section header; a bare "NEXT GAME" didn't feel like a hero title). An
@@ -123,6 +123,7 @@ const LEAGUE_DISPLAY_NAME = {
   "football/nfl": "NFL",
   "football/college-football": "COLLEGE FOOTBALL",
   "basketball/nba": "NBA",
+  "basketball/womens-college-basketball": "WOMEN'S COLLEGE BASKETBALL",
   "baseball/mlb": "MLB",
   "hockey/nhl": "NHL"
 };

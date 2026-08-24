@@ -695,6 +695,15 @@ community knowledge and has since been confirmed reachable live (see the
 CORS note below), though a full live schedule response hasn't been
 diffed field-by-field against what was assumed while building this.
 
+**`basketball/womens-college-basketball` hasn't been confirmed against a
+live response**: added to `ALLOWED_LEAGUES`/the League dropdown/
+`LEAGUE_DISPLAY_NAME` on the strength of the same widely-documented ESPN
+slug convention as the other 5 leagues (all of which HAVE been confirmed
+live), but this specific one hasn't itself been smoke-tested yet --
+publish a Team layer against it and check the live preview/next game
+before fully trusting it, same as the News feature's own
+not-yet-confirmed caveat above.
+
 **ESPN started returning an HTML block page instead of JSON, then started
 working again on its own -- still not fully understood**: right after the
 live-preview proxies shipped, every `espnProxy` request for "teams"/
