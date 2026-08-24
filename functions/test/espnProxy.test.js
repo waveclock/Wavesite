@@ -2,7 +2,7 @@
 
 // Exercises espnProxyHandler directly (fake req/res, stubbed global
 // fetch) -- no live network call, no Functions Framework needed. This is
-// the fix for the confirmed-live bug where design-v2's Team tool couldn't
+// the fix for the confirmed-live bug where design's Team tool couldn't
 // call ESPN directly from the browser (CORS): the proxy makes the same
 // request server-to-server instead.
 
@@ -40,7 +40,7 @@ async function test(name, fn) {
 }
 
 (async () => {
-  await test("ALLOWED_LEAGUES matches the 5 leagues design-v2 offers", () => {
+  await test("ALLOWED_LEAGUES matches the 5 leagues design offers", () => {
     assert.deepStrictEqual(
       Array.from(ALLOWED_LEAGUES).sort(),
       ["baseball/mlb", "basketball/nba", "football/college-football", "football/nfl", "hockey/nhl"]

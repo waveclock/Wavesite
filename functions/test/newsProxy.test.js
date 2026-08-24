@@ -2,7 +2,7 @@
 
 // Exercises newsProxyHandler directly (fake req/res, stubbed global
 // fetch) -- no live network call needed. Mirrors espnProxy.test.js's
-// approach: this proxy exists so design-v2's News tool can show real
+// approach: this proxy exists so design's News tool can show real
 // headlines in its live preview, the same way espnProxy lets the Team
 // tool show a real schedule/logos -- an arbitrary RSS feed almost never
 // sends the CORS headers a browser fetch() needs.

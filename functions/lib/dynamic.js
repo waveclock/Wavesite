@@ -1,14 +1,14 @@
 // Pure rendering/packing logic for the daily "dynamic layer" regeneration
 // job -- kept dependency-free (besides `canvas`) and separate from
 // index.js so it can be unit-tested without a live Firebase project (see
-// test/). Covers both dynamic-layer types published from design-v2:
+// test/). Covers both dynamic-layer types published from design:
 // "countdown" (a target date) and "team" (a sports team's next game,
 // rendered as a full "Game Day" card with logos when a game is found).
 //
 // IMPORTANT: daysUntil(), formatCountdownText(), formatTeamText(),
 // findNextGame(), the dithering functions, and drawGameDayCard() are
 // deliberately duplicated (not shared via a build step) in
-// design-v2/index.html, which is the browser-side code that first
+// design/index.html, which is the browser-side code that first
 // renders/previews this same content at publish time. If any of these
 // change here, they must change there too, or what a customer previewed
 // at publish time won't match what the board shows once this job
@@ -32,7 +32,7 @@ const LOGO_MARGIN = 28;
 const BANNER_HEIGHT = 48;
 
 // fontKey (stored in designs/{id}-dynamic.json, set by the "Serif" /
-// "Block" / "Pixel" buttons in design-v2's Countdown tool) -> the family
+// "Block" / "Pixel" buttons in design's Countdown tool) -> the family
 // name registered below. Kept as a stable short key rather than storing a
 // raw CSS font-family string, since browser font-family syntax ("'Bungee',
 // sans-serif") isn't what registerFont() needs here. The Game Day card
@@ -61,7 +61,7 @@ function ensureFontsRegistered() {
 // Calendar-date difference, ignoring time-of-day -- targetDateStr is
 // "YYYY-MM-DD". `now` defaults to the function's own current time, in UTC
 // (there's no single "local" timezone that makes sense for a server-side
-// job covering devices nationwide -- see the design-v2 build notes for the
+// job covering devices nationwide -- see the design build notes for the
 // known tradeoff this introduces: a device very close to its own local
 // midnight can be briefly a day ahead/behind of this UTC-dated count).
 function daysUntil(targetDateStr, now) {
@@ -113,7 +113,7 @@ function espnTeamsUrl(sport, league) {
   return ESPN_BASE + "/" + sport + "/" + league + "/teams?limit=400";
 }
 
-// Same 5 sport/league pairs design-v2's League dropdown offers (and
+// Same 5 sport/league pairs design's League dropdown offers (and
 // ALLOWED_LEAGUES in index.js whitelists) -- used only for the Game Day
 // card's banner title ("COLLEGE FOOTBALL GAME DAY" reads as a real
 // section header; a bare "NEXT GAME" didn't feel like a hero title). An
@@ -205,7 +205,7 @@ async function findNextGame(events, teamId, now) {
 
 // `fetchImpl` is injectable so tests never make a real network call --
 // defaults to the platform global (Node 20's built-in fetch in the actual
-// Cloud Function, or a browser's fetch in design-v2).
+// Cloud Function, or a browser's fetch in design).
 //
 // Deliberately NOT sending OUTBOUND_FETCH_HEADERS here -- this endpoint
 // is currently working live without it (headers were tried, then pulled
@@ -533,7 +533,7 @@ function formatShortDate(now) {
 
 // ================= Shared rendering/packing =================
 
-// Mirrors design-v2/index.html's packTo1Bit exactly: row-major, MSB-first
+// Mirrors design/index.html's packTo1Bit exactly: row-major, MSB-first
 // bit packing, threshold 180, with the black/white decision flipped (not
 // the pixels themselves) when inverted.
 function packTo1Bit(canvas, inverted) {
@@ -560,7 +560,7 @@ function packTo1Bit(canvas, inverted) {
 }
 
 // Mirrors the browser's `ctx.filter = "invert(1)"` used for the PUBLISHED
-// PREVIEW png in design-v2/index.html -- a plain per-channel 255-v, alpha
+// PREVIEW png in design/index.html -- a plain per-channel 255-v, alpha
 // untouched. Returns a NEW canvas; doesn't mutate the one passed in, since
 // packTo1Bit above needs the original (non-inverted) pixels.
 function invertedCopy(canvas) {
@@ -594,7 +594,7 @@ function drawDynamicText(ctx, content, meta) {
 }
 
 // ================= Logo dithering =================
-// Same Atkinson dither used by design-v2's "Normal Photo" tool (see
+// Same Atkinson dither used by design's "Normal Photo" tool (see
 // stageDither/ditherAtkinson there) -- team logos are photo-like assets
 // (gradients, fine detail, color-only contrast) that don't survive a
 // naive black/white threshold, same reasoning as why photos get dithered
@@ -633,7 +633,7 @@ function ditherAtkinson(gray, width, height) {
 }
 
 // Pads sourceImage onto a white size x size square (preserving aspect
-// ratio, same as design-v2 does for clip art) and dithers it. Returns an
+// ratio, same as design does for clip art) and dithers it. Returns an
 // opaque white/black canvas -- unlike the client's version (which keeps
 // ink-only pixels transparent so it can be layered over other content),
 // this one doesn't need transparency since it's drawn directly onto the
