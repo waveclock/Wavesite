@@ -15,6 +15,7 @@ const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
 const { fetchTideCardData } = require("./lib/astro");
+const { isTeamsnapIcsUrl, fetchIcsSchedule } = require("./lib/teamsnap");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -309,7 +310,37 @@ async function astroProxyHandler(req, res) {
 
 exports.astroProxy = onRequest({ cors: true, region: "us-central1" }, astroProxyHandler);
 
+// ================= TeamSnap proxy =================
+// team-schedule.html needs to fetch a team's exported .ics feed from the
+// visitor's browser. Same problem as espnProxy/newsProxy above:
+// TeamSnap's ical-cdn doesn't send CORS headers for a script-initiated
+// fetch(), so this fetches it server-to-server (never subject to CORS)
+// and hands back already-parsed events as JSON, with permissive CORS
+// headers of its own.
+//
+// Restricted to https://*.teamsnap.com URLs ending in .ics (see
+// isTeamsnapIcsUrl in lib/teamsnap.js) so this can't be used as an open
+// relay to arbitrary sites -- the same boundary espnProxy uses for its
+// own fixed-hostname CDN.
+async function teamsnapProxyHandler(req, res) {
+  const url = req.query.url;
+  if (typeof url !== "string" || !isTeamsnapIcsUrl(url)) {
+    res.status(400).json({ error: "url must be an https://*.teamsnap.com feed ending in .ics" });
+    return;
+  }
+
+  try {
+    const { calendarName, events } = await fetchIcsSchedule(url);
+    res.status(200).json({ calendarName, events });
+  } catch (err) {
+    logger.error("TeamSnap proxy request failed for " + url + ":", err);
+    res.status(502).json({ error: "Couldn't reach that TeamSnap feed" });
+  }
+}
+
+exports.teamsnapProxy = onRequest({ cors: true, region: "us-central1" }, teamsnapProxyHandler);
+
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, espnProxyHandler, newsProxyHandler, astroProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, espnProxyHandler, newsProxyHandler, astroProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
