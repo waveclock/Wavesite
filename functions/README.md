@@ -98,6 +98,55 @@ or a thrown error) if either team has none. A failed logo fetch (network
 error, 404, bad image data) is likewise swallowed to "no logo for that
 side," never a reason to fail the whole card.
 
+### Win-loss records
+
+Each team's current record (e.g. "8-3") comes from a THIRD ESPN
+endpoint, distinct from the two already in use: `espnTeamUrl` (the
+single-team detail endpoint, `.../teams/{teamId}`) rather than
+`espnTeamsUrl` (the whole-league list, used for the picker dropdown) or
+`espnScheduleUrl` (this team's games, which carries no record field).
+`extractRecordSummary` reads `team.record.items[].summary`, preferring
+the entry typed `"total"` over array order. Same unverified-field-name
+caveat as everything else here, and unlike the schedule/logo endpoints
+this one hasn't been confirmed against a live response at all yet --
+publish a Team layer and check the live preview before fully trusting
+it. Degrades to `null` on any failure (missing teamId, network error,
+bad status, unexpected shape) rather than throwing -- a record is a
+nice-to-have, not load-bearing, so a broken record fetch should never
+take the whole card down (see `fetchTeamRecord`).
+
+The live preview reaches this endpoint through `espnProxy`'s new
+`kind=record` mode, same CORS reasoning as `kind=schedule`/`kind=teams`.
+The daily job calls `fetchTeamRecord` directly (server-to-server, never
+subject to CORS), same as `fetchNextGame`. Neither the live preview nor
+the daily job cache the fetched record anywhere -- like the schedule and
+logos, it's fetched fresh every time from just `sport`/`league`/`teamId`
+in `designs/{id}-dynamic.json`, so there's no extra state to keep in
+sync or go stale.
+
+**Placement**: this card was already using every pixel of its 272px
+height before records existed (see `drawGameDayCard`'s own comment), so
+there was never a dedicated place to put a third piece of information
+without shrinking something that was already there. Two placements are
+tried, in order, neither of which shrinks the logos, the headline's own
+max font size, or anything else already on the card:
+
+1. **Over the logo**: the record is drawn as its own text, centered
+   over each logo, sharing the headline's baseline -- but only when the
+   plain "TEAM VS TEAM" headline, at its own completely unmodified
+   auto-fit size, already leaves enough real horizontal gap between its
+   own edge and that logo (see `fitRecordOverLogo`). This room has to
+   already exist, not be manufactured by shrinking the headline to make
+   space. In practice this needs short team names -- most pro-league
+   matchups get it, most full college names don't.
+2. **Folded into the headline**, bookending it with a dot separator
+   ("`8-3  ·  PENN STATE VS MARSHALL  ·  2-9`") when there isn't room
+   for #1. The extra spacing around each dot is purely cosmetic, so
+   `buildPaddedRecordHeadline` gives it up first -- one space at a time,
+   at the headline's full 24px size -- before the font itself is ever
+   allowed to shrink below that ceiling (down to the usual 16px floor).
+   Losing some whitespace is free; losing readable text size isn't.
+
 ## The News card
 
 Unlike Countdown (any date works) or Team (ESPN's API covers every team),

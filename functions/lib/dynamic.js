@@ -113,6 +113,17 @@ function espnTeamsUrl(sport, league) {
   return ESPN_BASE + "/" + sport + "/" + league + "/teams?limit=400";
 }
 
+// The single-team detail endpoint -- distinct from espnTeamsUrl (the
+// whole-league list, used for the picker dropdown) and espnScheduleUrl
+// (this team's games, no record on it). This is the one that carries a
+// team's current win-loss record, per the same kind of widely-documented
+// community knowledge the rest of this ESPN integration is built on --
+// NOT itself confirmed against a live response yet (see the Known
+// tradeoffs note in the README).
+function espnTeamUrl(sport, league, teamId) {
+  return ESPN_BASE + "/" + sport + "/" + league + "/teams/" + teamId;
+}
+
 // Same sport/league pairs design's League dropdown offers (and
 // ALLOWED_LEAGUES in index.js whitelists) -- used only for the Game Day
 // card's banner title ("COLLEGE FOOTBALL GAME DAY" reads as a real
@@ -148,6 +159,22 @@ function extractVenueName(comp) {
   const v = comp && comp.venue;
   if (!v) return null;
   return v.fullName || v.name || null;
+}
+
+// Unverified field name (see espnTeamUrl's comment) -- the single-team
+// detail response's team.record.items is documented (community-wide) as
+// an array of record breakdowns (overall/home/road/vs. conference, etc),
+// each with its own "summary" string like "8-3". Prefers the entry
+// explicitly typed "total" (the overall record, what a Game Day card
+// actually wants); falls back to the first entry if none is typed that
+// way, rather than assuming array order. Returns null on any shape
+// mismatch instead of guessing wrong and showing a bogus record.
+function extractRecordSummary(team) {
+  const items = team && team.record && team.record.items;
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const total = items.find((it) => it && it.type === "total");
+  const chosen = total || items[0];
+  return (chosen && typeof chosen.summary === "string" && chosen.summary) || null;
 }
 
 // Finds the earliest event whose calendar date is today-or-later. Returns
@@ -196,6 +223,7 @@ async function findNextGame(events, teamId, now) {
         homeAway: me.homeAway,
         opponentAbbrev: (opp.team.shortDisplayName || opp.team.abbreviation || opp.team.displayName || "TBD").toUpperCase(),
         opponentLogo: extractLogoUrl(opp.team),
+        opponentTeamId: opp.team.id != null ? String(opp.team.id) : null,
         venue: extractVenueName(comp),
         gameDateISO: ev.date
       };
@@ -219,6 +247,25 @@ async function fetchNextGame(sport, league, teamId, now, fetchImpl) {
   if (!resp.ok) throw new Error("ESPN schedule fetch failed: " + resp.status);
   const data = await resp.json();
   return findNextGame(data.events, teamId, now);
+}
+
+// A team's win-loss record is a nice-to-have on the Game Day card, not
+// load-bearing -- degrades to null on ANY failure (missing teamId,
+// network error, bad status, unexpected shape) rather than throwing,
+// same contract as fetchDitheredLogo. A missing record just means that
+// side's record doesn't render; it should never take down the whole
+// card the way a genuine schedule-fetch failure does.
+async function fetchTeamRecord(sport, league, teamId, fetchImpl) {
+  if (!teamId) return null;
+  try {
+    const doFetch = fetchImpl || fetch;
+    const resp = await doFetch(espnTeamUrl(sport, league, teamId));
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return extractRecordSummary(data && data.team);
+  } catch (err) {
+    return null;
+  }
 }
 
 // Plain single-line fallback -- used for the off-season case (no card,
@@ -742,6 +789,68 @@ function drawGameLine(ctx, dateLabel, venue, timeLabel, maxWidth, y) {
   ctx.textAlign = prevAlign;
 }
 
+// ================= Game Day card: record placement =================
+// A team's win-loss record is optional (see fetchTeamRecord) and there's
+// no space reserved for it anywhere on this already-fully-packed card --
+// see the README's "Known tradeoffs" note on this. Two ways to show it,
+// tried in order, both leaving every other element exactly where it
+// already was (never shrinking the logos, the headline's own max size,
+// or anything else):
+//
+//   1. PREFERRED -- "over the logo": drawn as its own text, centered
+//      over each logo, sharing the headline's own baseline. Only used
+//      when the plain "TEAM VS TEAM" headline (at ITS normal auto-fit
+//      size, totally unchanged) leaves enough real horizontal gap on
+//      that side between its own edge and the logo -- i.e. only when
+//      the room is actually and already there, not manufactured by
+//      shrinking something else. Short team names (most pro leagues)
+//      usually have this room; full college names usually don't.
+//   2. FALLBACK -- folded into the headline text itself, bookending it
+//      ("8-3  ·  PENN STATE VS MARSHALL  ·  2-9") padded with extra
+//      spaces around each dot for breathing room. The padding is purely
+//      cosmetic, so it's given up first, one space at a time, before
+//      the actual font size is ever allowed to shrink below its normal
+//      24px ceiling -- losing a little whitespace is free, losing
+//      readable text size is not.
+const RECORD_OVER_LOGO_MAX_SIZE = 22;
+const RECORD_OVER_LOGO_MIN_SIZE = 13;
+const RECORD_OVER_LOGO_CLEARANCE = 8; // kept between the record text and the headline's own edge
+const RECORD_PAD_MAX = 4; // spaces on each side of the dot separator
+const RECORD_PAD_MIN = 1; // the plain, unpadded dot -- last resort before shrinking the font
+
+// Largest size (within the over-logo range) at which `text` fits inside
+// `gapAvailable` (already excludes RECORD_OVER_LOGO_CLEARANCE) without
+// exceeding the logo's own width -- there's no point centering a record
+// over a logo wider than the logo itself. Returns null if even the
+// smallest size doesn't fit, meaning this placement isn't viable here.
+function fitRecordOverLogo(ctx, text, gapAvailable) {
+  const usable = gapAvailable - RECORD_OVER_LOGO_CLEARANCE;
+  if (usable <= 0) return null;
+  for (let size = RECORD_OVER_LOGO_MAX_SIZE; size >= RECORD_OVER_LOGO_MIN_SIZE; size--) {
+    ctx.font = "bold " + size + "px \"" + FONT_FAMILY.serif + "\"";
+    if (ctx.measureText(text).width <= Math.min(usable, LOGO_SIZE)) return size;
+  }
+  return null;
+}
+
+// Builds the fallback headline (records folded in, bookending the base
+// text) and its font size, per the "give up padding before font size"
+// contract above.
+function buildPaddedRecordHeadline(ctx, base, myRecord, oppRecord, maxWidth) {
+  const build = (pad) => {
+    const sep = " ".repeat(pad) + "·" + " ".repeat(pad);
+    return (myRecord ? myRecord + sep : "") + base + (oppRecord ? sep + oppRecord : "");
+  };
+  ctx.font = "24px \"" + FONT_FAMILY.block + "\"";
+  for (let pad = RECORD_PAD_MAX; pad > RECORD_PAD_MIN; pad--) {
+    const headline = build(pad);
+    if (ctx.measureText(headline).width <= maxWidth) return { headline, size: 24 };
+  }
+  const headline = build(RECORD_PAD_MIN);
+  const size = fitBannerFontSize(ctx, headline, maxWidth, FONT_FAMILY.block, 24, 16);
+  return { headline, size };
+}
+
 // ================= Game Day card =================
 // Full-screen layout -- NOT a positioned stamp like drawDynamicText.
 // meta.x/y/size/fontKey/outline don't apply here; the card always fills
@@ -753,7 +862,9 @@ function drawGameLine(ctx, dateLabel, venue, timeLabel, maxWidth, y) {
 //      moved up here (out of the logos' row) specifically so it isn't
 //      squeezed into the gap between them and doesn't need abbreviating
 //      to fit; long full team names ("PENN STATE VS MARSHALL") are the
-//      normal case, not the exception.
+//      normal case, not the exception. If card.myRecord/oppRecord are
+//      given, see the "record placement" comment above for where they
+//      end up.
 //   3. logos either side + the days-left count between them, split
 //      across 3 lines (IN / {number} / DAY(S)) with the number in a very
 //      large font -- this is the card's single most important fact, so
@@ -787,13 +898,55 @@ function drawGameDayCard(ctx, card) {
   if (card.oppLogo) ctx.drawImage(card.oppLogo, CANVAS_WIDTH - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
 
   ctx.fillStyle = "#000";
+  ctx.textAlign = "center";
   // Tucked in tight under the banner (not vertically centered in its own
   // band, like the banner title is) -- the logos are back to their full
   // 175px size, which leaves very little clearance above them, so this
   // needs to sit as high as it can rather than claiming a fixed-height
   // band of its own.
-  const headlineSize = fitBannerFontSize(ctx, card.headline, CANVAS_WIDTH - 40, FONT_FAMILY.block, 24, 16);
-  ctx.fillText(card.headline, CANVAS_WIDTH / 2, BANNER_HEIGHT + 4 + headlineSize);
+  const headlineMaxWidth = CANVAS_WIDTH - 40;
+  const headlineY = (size) => BANNER_HEIGHT + 4 + size;
+
+  if (card.myRecord || card.oppRecord) {
+    // Try the "over the logo" placement first -- see the "Game Day card:
+    // record placement" comment above. Checked at the headline's OWN
+    // normal size, completely unmodified: only used when that leaves
+    // genuine room, never manufactured by shrinking the headline to make
+    // room.
+    const headlineSize = fitBannerFontSize(ctx, card.headline, headlineMaxWidth, FONT_FAMILY.block, 24, 16);
+    ctx.font = headlineSize + "px \"" + FONT_FAMILY.block + "\"";
+    const headlineWidth = ctx.measureText(card.headline).width;
+    const headlineLeftEdge = CANVAS_WIDTH / 2 - headlineWidth / 2;
+    const headlineRightEdge = CANVAS_WIDTH / 2 + headlineWidth / 2;
+    const leftGap = headlineLeftEdge - (LOGO_MARGIN + LOGO_SIZE);
+    const rightGap = (CANVAS_WIDTH - LOGO_MARGIN - LOGO_SIZE) - headlineRightEdge;
+    const myFit = card.myRecord ? fitRecordOverLogo(ctx, card.myRecord, leftGap) : null;
+    const oppFit = card.oppRecord ? fitRecordOverLogo(ctx, card.oppRecord, rightGap) : null;
+    const bothFit = (!card.myRecord || myFit) && (!card.oppRecord || oppFit);
+
+    if (bothFit) {
+      ctx.font = headlineSize + "px \"" + FONT_FAMILY.block + "\"";
+      ctx.fillText(card.headline, CANVAS_WIDTH / 2, headlineY(headlineSize));
+      const y = headlineY(headlineSize);
+      if (myFit) {
+        ctx.font = "bold " + myFit + "px \"" + FONT_FAMILY.serif + "\"";
+        ctx.fillText(card.myRecord, LOGO_MARGIN + LOGO_SIZE / 2, y);
+      }
+      if (oppFit) {
+        ctx.font = "bold " + oppFit + "px \"" + FONT_FAMILY.serif + "\"";
+        ctx.fillText(card.oppRecord, CANVAS_WIDTH - LOGO_MARGIN - LOGO_SIZE / 2, y);
+      }
+    } else {
+      // Not enough room -- fold the records into the headline text
+      // itself instead (see buildPaddedRecordHeadline).
+      const { headline, size } = buildPaddedRecordHeadline(ctx, card.headline, card.myRecord, card.oppRecord, headlineMaxWidth);
+      ctx.font = size + "px \"" + FONT_FAMILY.block + "\"";
+      ctx.fillText(headline, CANVAS_WIDTH / 2, headlineY(size));
+    }
+  } else {
+    const headlineSize = fitBannerFontSize(ctx, card.headline, headlineMaxWidth, FONT_FAMILY.block, 24, 16);
+    ctx.fillText(card.headline, CANVAS_WIDTH / 2, headlineY(headlineSize));
+  }
 
   // Constrained to the gap BETWEEN the logos, not the full card width --
   // unlike the headline/gameLine bands above/below, this (and the venue
@@ -1346,9 +1499,11 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     const daysLeft = Math.round((rawNextGame.dayUTC - todayUTC) / 86400000);
     const vsOrAt = rawNextGame.homeAway === "home" ? "VS" : "@";
 
-    const [myLogoCanvas, oppLogoCanvas] = await Promise.all([
+    const [myLogoCanvas, oppLogoCanvas, myRecord, oppRecord] = await Promise.all([
       fetchDitheredLogo(myLogoUrl, LOGO_SIZE, fetchImpl),
-      fetchDitheredLogo(rawNextGame.opponentLogo, LOGO_SIZE, fetchImpl)
+      fetchDitheredLogo(rawNextGame.opponentLogo, LOGO_SIZE, fetchImpl),
+      fetchTeamRecord(meta.sport, meta.league, meta.teamId, fetchImpl),
+      fetchTeamRecord(meta.sport, meta.league, rawNextGame.opponentTeamId, fetchImpl)
     ]);
 
     const headline = (myAbbrev || "") + " " + vsOrAt + " " + rawNextGame.opponentAbbrev;
@@ -1368,7 +1523,9 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
       dateLabel: dateTimeParts ? dateTimeParts.dateLabel : null,
       timeLabel: dateTimeParts ? dateTimeParts.timeLabel : null,
       myLogo: myLogoCanvas,
-      oppLogo: oppLogoCanvas
+      oppLogo: oppLogoCanvas,
+      myRecord,
+      oppRecord
     };
 
     const result = await compositeAndPack(basePngBuffer, (ctx) => drawGameDayCard(ctx, card), meta);
@@ -1376,7 +1533,8 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     return Object.assign(result, {
       nextGame, myAbbrev,
       content: headline + " " + daysLabel,
-      hasMyLogo: !!myLogoCanvas, hasOppLogo: !!oppLogoCanvas
+      hasMyLogo: !!myLogoCanvas, hasOppLogo: !!oppLogoCanvas,
+      myRecord, oppRecord
     });
   }
 
@@ -1425,11 +1583,16 @@ module.exports = {
   drawGameLine,
   findNextGame,
   fetchNextGame,
+  fetchTeamRecord,
   espnScheduleUrl,
   espnTeamsUrl,
+  espnTeamUrl,
   gameDayBannerTitle,
   extractLogoUrl,
   extractVenueName,
+  extractRecordSummary,
+  fitRecordOverLogo,
+  buildPaddedRecordHeadline,
   packTo1Bit,
   invertedCopy,
   drawDynamicText,

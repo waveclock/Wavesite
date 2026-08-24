@@ -9,8 +9,12 @@ const {
   formatGameDateTimeParts,
   findNextGame,
   fetchNextGame,
+  fetchTeamRecord,
   extractLogoUrl,
   extractVenueName,
+  extractRecordSummary,
+  fitRecordOverLogo,
+  buildPaddedRecordHeadline,
   gameDayBannerTitle,
   fitBannerFontSize,
   packTo1Bit,
@@ -40,6 +44,7 @@ const {
   OUTBOUND_FETCH_HEADERS
 } = require("../lib/dynamic");
 const BANNER_HEIGHT = 48; // matches the constant in lib/dynamic.js (not exported)
+const LOGO_MARGIN = 28; // matches the constant in lib/dynamic.js (not exported)
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
@@ -391,6 +396,61 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(myAbbrev, "PENN STATE");
     assert.strictEqual(nextGame.opponentAbbrev, "MARSHALL");
   });
+  await test("captures the opponent's own team id, for a follow-up record lookup", async () => {
+    const now = new Date(Date.UTC(2026, 8, 1));
+    const events = [{
+      date: "2026-09-07T17:00Z",
+      competitions: [{
+        competitors: [
+          { homeAway: "home", team: { id: "213", abbreviation: "PSU" } },
+          { homeAway: "away", team: { id: "276", abbreviation: "MRSH" } }
+        ]
+      }]
+    }];
+    const { nextGame } = await findNextGame(events, "213", now);
+    assert.strictEqual(nextGame.opponentTeamId, "276");
+  });
+
+  console.log("extractRecordSummary / fetchTeamRecord (Game Day card win-loss record)");
+  await test("extractRecordSummary prefers the entry typed \"total\" over array order", () => {
+    const team = { record: { items: [
+      { type: "vsconf", summary: "5-2" },
+      { type: "total", summary: "8-3" }
+    ] } };
+    assert.strictEqual(extractRecordSummary(team), "8-3");
+  });
+  await test("extractRecordSummary falls back to the first entry when none is typed \"total\"", () => {
+    const team = { record: { items: [{ type: "home", summary: "4-1" }] } };
+    assert.strictEqual(extractRecordSummary(team), "4-1");
+  });
+  await test("extractRecordSummary returns null for a missing/empty/malformed record shape, never throws", () => {
+    assert.strictEqual(extractRecordSummary(null), null);
+    assert.strictEqual(extractRecordSummary({}), null);
+    assert.strictEqual(extractRecordSummary({ record: {} }), null);
+    assert.strictEqual(extractRecordSummary({ record: { items: [] } }), null);
+    assert.strictEqual(extractRecordSummary({ record: { items: [{ type: "total" }] } }), null);
+  });
+  await test("fetchTeamRecord returns null without fetching when teamId is missing (e.g. an opponent ESPN didn't tag with an id)", async () => {
+    let called = false;
+    const fetchImpl = async () => { called = true; return { ok: true, async json() { return {}; } }; };
+    const record = await fetchTeamRecord("football", "nfl", null, fetchImpl);
+    assert.strictEqual(record, null);
+    assert.strictEqual(called, false);
+  });
+  await test("fetchTeamRecord parses a real (shaped) response into a summary string", async () => {
+    const fetchImpl = async () => ({
+      ok: true,
+      async json() { return { team: { record: { items: [{ type: "total", summary: "10-1" }] } } }; }
+    });
+    const record = await fetchTeamRecord("football", "nfl", "21", fetchImpl);
+    assert.strictEqual(record, "10-1");
+  });
+  await test("fetchTeamRecord degrades to null on a non-ok response or a network error -- never throws (a record is a nice-to-have, not load-bearing)", async () => {
+    const notOk = await fetchTeamRecord("football", "nfl", "21", async () => ({ ok: false, status: 500 }));
+    assert.strictEqual(notOk, null);
+    const networkDown = await fetchTeamRecord("football", "nfl", "21", async () => { throw new Error("network down"); });
+    assert.strictEqual(networkDown, null);
+  });
 
   console.log("dithering (toGrayscale / ditherAtkinson / ditheredLogoCanvas / fetchDitheredLogo)");
   await test("toGrayscale collapses RGB to luminance, ignoring alpha", () => {
@@ -623,6 +683,90 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     });
   });
 
+  console.log("fitRecordOverLogo / buildPaddedRecordHeadline (Game Day card win-loss record placement)");
+  await test("fitRecordOverLogo finds a fitting size in a generous gap", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    const size = fitRecordOverLogo(ctx, "8-3", 120);
+    assert.ok(size !== null && size > 0);
+  });
+  await test("fitRecordOverLogo returns null when there's no real room -- this placement isn't always viable", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.strictEqual(fitRecordOverLogo(ctx, "8-3", 10), null);
+    assert.strictEqual(fitRecordOverLogo(ctx, "8-3", 0), null);
+  });
+  await test("buildPaddedRecordHeadline keeps max padding AND the full 24px size for a short matchup -- there's room to spare", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    ctx.textAlign = "center";
+    const { headline, size } = buildPaddedRecordHeadline(ctx, "PENN STATE VS MARSHALL", "8-3", "2-9", CANVAS_WIDTH - 40);
+    assert.strictEqual(size, 24);
+    assert.strictEqual(headline, "8-3    ·    PENN STATE VS MARSHALL    ·    2-9");
+  });
+  await test("buildPaddedRecordHeadline gives up padding (down to a plain single-space dot) before ever shrinking the font below 24px", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    ctx.textAlign = "center";
+    const { headline, size } = buildPaddedRecordHeadline(ctx, "SOUTHERN MISSISSIPPI VS MASSACHUSETTS MINUTEMEN", "8-3", "2-9", CANVAS_WIDTH - 40);
+    assert.ok(headline.includes(" · "), "expected the minimally-padded single-space dot: " + headline);
+    assert.ok(!headline.includes("  ·  "), "padding should already be at its minimum, not still doubled up: " + headline);
+    assert.ok(size <= 24 && size >= 16);
+  });
+  await test("buildPaddedRecordHeadline omits a side entirely when that team's record is missing, instead of an empty pair of dots", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    ctx.textAlign = "center";
+    const { headline } = buildPaddedRecordHeadline(ctx, "PENN STATE VS MARSHALL", "8-3", null, CANVAS_WIDTH - 40);
+    assert.strictEqual(headline, "8-3    ·    PENN STATE VS MARSHALL");
+  });
+
+  console.log("drawGameDayCard with a win-loss record");
+  await test("a short matchup with plenty of room draws the record over each logo, headline centered and untouched", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawGameDayCard(ctx, {
+        bannerTitle: "NFL GAME DAY",
+        headline: "EAGLES VS COWBOYS", daysLeft: 5, daysUnit: "DAYS",
+        venue: "Lincoln Financial Field", dateLabel: "SUN SEP 14", timeLabel: "1:00 PM ET",
+        myLogo: null, oppLogo: null, myRecord: "10-1", oppRecord: "6-5"
+      });
+    });
+    // The over-logo record sits in the region above the left logo, roughly
+    // where the headline's own centered text does NOT reach for a
+    // headline this short -- otherwise-blank space that should now have
+    // ink from "10-1".
+    const data = ctx.getImageData(LOGO_MARGIN, BANNER_HEIGHT + 2, LOGO_SIZE, 30).data;
+    let hasInk = false;
+    for (let i = 0; i < data.length; i += 4) { if (data[i] < 200) { hasInk = true; break; } }
+    assert.ok(hasInk, "expected the record to have drawn ink above the left logo");
+  });
+  await test("a long matchup with a record falls back to folding it into the headline text, without throwing", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawGameDayCard(ctx, {
+        bannerTitle: "COLLEGE FOOTBALL GAME DAY",
+        headline: "SOUTHERN MISSISSIPPI VS MASSACHUSETTS MINUTEMEN", daysLeft: 3, daysUnit: "DAYS",
+        venue: "Beaver Stadium", dateLabel: "SAT SEP 5", timeLabel: "3:30 PM ET",
+        myLogo: null, oppLogo: null, myRecord: "8-3", oppRecord: "2-9"
+      });
+    });
+  });
+  await test("no record on either side behaves exactly as before -- the plain headline, nothing extra drawn", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawGameDayCard(ctx, {
+        bannerTitle: "NFL GAME DAY",
+        headline: "EAGLES VS COWBOYS", daysLeft: 5, daysUnit: "DAYS",
+        venue: null, dateLabel: null, timeLabel: null,
+        myLogo: null, oppLogo: null, myRecord: null, oppRecord: null
+      });
+    });
+  });
+
   console.log("renderDynamicDesign (type: team, Game Day card with logos)");
   await test("hasMyLogo/hasOppLogo are true when both logos fetch successfully, card includes date/venue", async () => {
     const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
@@ -653,6 +797,35 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(result.hasOppLogo, true);
     assert.strictEqual(result.nextGame.venue, "Lincoln Financial Field");
     assert.ok(result.binBuffer.some((b) => b !== 0));
+  });
+  await test("fetches and includes both teams' win-loss records, keyed off the schedule's own opponentTeamId", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date(Date.UTC(2026, 8, 1));
+    const schedule = {
+      events: [{
+        date: "2026-09-08T17:00Z",
+        competitions: [{
+          competitors: [
+            { homeAway: "home", team: { id: "21", abbreviation: "ME" } },
+            { homeAway: "away", team: { id: "99", abbreviation: "OPP" } }
+          ]
+        }]
+      }]
+    };
+    const records = {
+      "21": { team: { record: { items: [{ type: "total", summary: "10-1" }] } } },
+      "99": { team: { record: { items: [{ type: "total", summary: "6-5" }] } } }
+    };
+    const meta = { type: "team", sport: "football", league: "nfl", teamId: "21", x: 396, y: 136, size: 48, fontKey: "block", outline: true, inverted: false };
+    const fetchImpl = async (url) => {
+      const s = String(url);
+      if (s.includes("/schedule")) return { ok: true, async json() { return schedule; } };
+      const teamId = s.match(/teams\/(\d+)$/)[1];
+      return { ok: true, async json() { return records[teamId]; } };
+    };
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.strictEqual(result.myRecord, "10-1");
+    assert.strictEqual(result.oppRecord, "6-5");
   });
   await test("renders the long 'COLLEGE FOOTBALL GAME DAY' banner title without throwing", async () => {
     const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
