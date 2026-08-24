@@ -40,10 +40,10 @@ async function test(name, fn) {
 }
 
 (async () => {
-  await test("ALLOWED_LEAGUES matches the 5 leagues design offers", () => {
+  await test("ALLOWED_LEAGUES matches the leagues design offers", () => {
     assert.deepStrictEqual(
       Array.from(ALLOWED_LEAGUES).sort(),
-      ["baseball/mlb", "basketball/nba", "football/college-football", "football/nfl", "hockey/nhl"]
+      ["baseball/mlb", "basketball/nba", "basketball/womens-college-basketball", "football/college-football", "football/nfl", "hockey/nhl"]
     );
   });
 
@@ -143,6 +143,32 @@ async function test(name, fn) {
       global.fetch = originalFetch;
     }
     assert.ok(requestedUrl.includes("seasontype=2"), "got: " + requestedUrl);
+  });
+
+  await test("record: requires a teamId", async () => {
+    const req = fakeReq({ sport: "football", league: "nfl", kind: "record" });
+    const res = fakeRes();
+    await espnProxyHandler(req, res);
+    assert.strictEqual(res.statusCode, 400);
+  });
+
+  await test("record: forwards to ESPN's single-team detail URL (not the schedule or teams-list URL) with the right teamId", async () => {
+    const req = fakeReq({ sport: "football", league: "nfl", kind: "record", teamId: "21" });
+    const res = fakeRes();
+    let requestedUrl = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      requestedUrl = url;
+      return { status: 200, async json() { return { team: { record: { items: [{ type: "total", summary: "10-1" }] } } }; } };
+    };
+    try {
+      await espnProxyHandler(req, res);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    assert.ok(requestedUrl.endsWith("/football/nfl/teams/21"), "got: " + requestedUrl);
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { team: { record: { items: [{ type: "total", summary: "10-1" }] } } });
   });
 
   await test("rejects an unknown kind", async () => {

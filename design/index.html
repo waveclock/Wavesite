@@ -817,6 +817,7 @@
           <option value="football/nfl">NFL</option>
           <option value="football/college-football">College Football</option>
           <option value="basketball/nba">NBA</option>
+          <option value="basketball/womens-college-basketball">Women's College Basketball</option>
           <option value="baseball/mlb">MLB</option>
           <option value="hockey/nhl">NHL</option>
         </select>
@@ -925,15 +926,15 @@
   const screen = (screenParam === 2 || screenParam === 3) ? screenParam : 1;
 
   // Screen 1 writes to BOTH the legacy unsuffixed path and the new
-  // "_1"-suffixed one. Every Wave Clock in the field right now runs
-  // single-screen firmware that only ever reads the unsuffixed
-  // designs/{id}.bin -- the 3-screen firmware hasn't shipped yet (still
-  // pending a RAM/caching check on real hardware). Dual-writing keeps
-  // today's customers' boards updating normally while also building out
-  // the new path old firmware simply ignores, so nothing breaks in
-  // production the moment this ships. Screens 2/3 have no legacy
-  // equivalent to preserve -- old firmware never looked for a second or
-  // third screen, so there's nothing there to keep working.
+  // "_1"-suffixed one. The 3-screen firmware shipped, but not every
+  // Wave Clock in the field has necessarily picked it up yet (OTA
+  // rollout, offline devices, etc.) -- older firmware only ever reads
+  // the unsuffixed designs/{id}.bin. Dual-writing keeps those boards
+  // updating normally while also keeping the new "_1" path (which
+  // updated firmware reads) current, so nothing breaks for a device
+  // that hasn't updated. Screens 2/3 have no legacy equivalent to
+  // preserve -- old firmware never looked for a second or third
+  // screen, so there's nothing there to keep working.
   function screenDesignPaths(suffix) {
     if (screen === 1) return ["designs/" + deviceId + suffix, "designs/" + deviceId + "_1" + suffix];
     return ["designs/" + deviceId + "_" + screen + suffix];
@@ -1269,6 +1270,7 @@
           homeAway: me.homeAway,
           opponentAbbrev: (opp.team.shortDisplayName || opp.team.abbreviation || opp.team.displayName || "TBD").toUpperCase(),
           opponentLogo: extractLogoUrl(opp.team),
+          opponentTeamId: opp.team.id != null ? String(opp.team.id) : null,
           venue: extractVenueName(comp),
           gameDateISO: ev.date
         };
@@ -1278,6 +1280,7 @@
       homeAway: best.homeAway,
       opponentAbbrev: best.opponentAbbrev,
       opponentLogo: best.opponentLogo,
+      opponentTeamId: best.opponentTeamId,
       venue: best.venue,
       gameDateISO: best.gameDateISO,
       daysLeft: Math.round((best.dayUTC - todayUTC) / 86400000)
@@ -1290,6 +1293,31 @@
     if (!resp.ok) throw new Error("ESPN schedule fetch failed: " + resp.status);
     const data = await resp.json();
     return findNextGame(data.events, teamId);
+  }
+
+  // Mirrors functions/lib/dynamic.js's extractRecordSummary/fetchTeamRecord
+  // exactly -- see the comments there. Degrades to null on ANY failure
+  // (missing teamId, network error, bad status, unexpected shape) since a
+  // record is a nice-to-have, not load-bearing -- never throws, so one
+  // team's record fetch failing can't take down the live preview.
+  function extractRecordSummary(team) {
+    const items = team && team.record && team.record.items;
+    if (!Array.isArray(items) || items.length === 0) return null;
+    const total = items.find((it) => it && it.type === "total");
+    const chosen = total || items[0];
+    return (chosen && typeof chosen.summary === "string" && chosen.summary) || null;
+  }
+
+  async function fetchTeamRecord(sport, league, teamId) {
+    if (!teamId) return null;
+    try {
+      const resp = await fetch(ESPN_PROXY_BASE + "?kind=record&sport=" + encodeURIComponent(sport) + "&league=" + encodeURIComponent(league) + "&teamId=" + encodeURIComponent(teamId));
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      return extractRecordSummary(data && data.team);
+    } catch (err) {
+      return null;
+    }
   }
 
   // Splits the weekday+date and kickoff time into two separate strings
@@ -1468,6 +1496,41 @@
     ctx.textAlign = prevAlign;
   }
 
+  // Mirrors functions/lib/dynamic.js's record-placement helpers exactly
+  // -- see the "Game Day card: record placement" comment there for the
+  // full reasoning (over-the-logo when there's genuine room, else folded
+  // into the headline with padding that gives way before font size does).
+  const RECORD_OVER_LOGO_MAX_SIZE = 22;
+  const RECORD_OVER_LOGO_MIN_SIZE = 13;
+  const RECORD_OVER_LOGO_CLEARANCE = 8;
+  const RECORD_PAD_MAX = 4;
+  const RECORD_PAD_MIN = 1;
+
+  function fitRecordOverLogoClient(ctx, text, gapAvailable) {
+    const usable = gapAvailable - RECORD_OVER_LOGO_CLEARANCE;
+    if (usable <= 0) return null;
+    for (let size = RECORD_OVER_LOGO_MAX_SIZE; size >= RECORD_OVER_LOGO_MIN_SIZE; size--) {
+      ctx.font = "bold " + size + "px Georgia, serif";
+      if (ctx.measureText(text).width <= Math.min(usable, LOGO_SIZE)) return size;
+    }
+    return null;
+  }
+
+  function buildPaddedRecordHeadlineClient(ctx, base, myRecord, oppRecord, maxWidth) {
+    const build = (pad) => {
+      const sep = " ".repeat(pad) + "·" + " ".repeat(pad);
+      return (myRecord ? myRecord + sep : "") + base + (oppRecord ? sep + oppRecord : "");
+    };
+    ctx.font = "24px 'Bungee', sans-serif";
+    for (let pad = RECORD_PAD_MAX; pad > RECORD_PAD_MIN; pad--) {
+      const headline = build(pad);
+      if (ctx.measureText(headline).width <= maxWidth) return { headline, size: 24 };
+    }
+    const headline = build(RECORD_PAD_MIN);
+    const size = fitBannerFontSize(ctx, headline, maxWidth, "'Bungee', sans-serif", 24, 16);
+    return { headline, size };
+  }
+
   // Full-screen layout: solid black title banner in white block letters,
   // optional logos either side, matchup headline, days-left, and one
   // edge-to-edge date/venue/time line -- no drawn border, the board's
@@ -1489,13 +1552,55 @@
     const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 24, 14);
     ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
 
-    ctx.fillStyle = "#000";
-    const headlineSize = fitBannerFontSize(ctx, card.headline, w - 40, "'Bungee', sans-serif", 24, 16);
-    ctx.fillText(card.headline, w / 2, BANNER_HEIGHT + 4 + headlineSize);
-
+    // Logos drawn BEFORE the headline text -- see the comment in
+    // functions/lib/dynamic.js's drawGameDayCard: ditheredLogoCanvasOpaque
+    // produces a fully opaque square, so whichever of these two draws
+    // last wins any pixel they both touch, and a long headline can
+    // genuinely reach into a logo's bounding box up here. Drawing the
+    // logos first means the headline's ink always wins that overlap
+    // instead of the logo silently erasing it.
     const bodyMidY = BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2;
     if (card.myLogo) ctx.drawImage(card.myLogo, LOGO_MARGIN, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
     if (card.oppLogo) ctx.drawImage(card.oppLogo, w - LOGO_MARGIN - LOGO_SIZE, bodyMidY - LOGO_SIZE / 2, LOGO_SIZE, LOGO_SIZE);
+
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "center";
+    const headlineMaxWidth = w - 40;
+    const headlineY = (size) => BANNER_HEIGHT + 4 + size;
+
+    if (card.myRecord || card.oppRecord) {
+      const headlineSize = fitBannerFontSize(ctx, card.headline, headlineMaxWidth, "'Bungee', sans-serif", 24, 16);
+      ctx.font = headlineSize + "px 'Bungee', sans-serif";
+      const headlineWidth = ctx.measureText(card.headline).width;
+      const headlineLeftEdge = w / 2 - headlineWidth / 2;
+      const headlineRightEdge = w / 2 + headlineWidth / 2;
+      const leftGap = headlineLeftEdge - (LOGO_MARGIN + LOGO_SIZE);
+      const rightGap = (w - LOGO_MARGIN - LOGO_SIZE) - headlineRightEdge;
+      const myFit = card.myRecord ? fitRecordOverLogoClient(ctx, card.myRecord, leftGap) : null;
+      const oppFit = card.oppRecord ? fitRecordOverLogoClient(ctx, card.oppRecord, rightGap) : null;
+      const bothFit = (!card.myRecord || myFit) && (!card.oppRecord || oppFit);
+
+      if (bothFit) {
+        ctx.font = headlineSize + "px 'Bungee', sans-serif";
+        ctx.fillText(card.headline, w / 2, headlineY(headlineSize));
+        const y = headlineY(headlineSize);
+        if (myFit) {
+          ctx.font = "bold " + myFit + "px Georgia, serif";
+          ctx.fillText(card.myRecord, LOGO_MARGIN + LOGO_SIZE / 2, y);
+        }
+        if (oppFit) {
+          ctx.font = "bold " + oppFit + "px Georgia, serif";
+          ctx.fillText(card.oppRecord, w - LOGO_MARGIN - LOGO_SIZE / 2, y);
+        }
+      } else {
+        const { headline, size } = buildPaddedRecordHeadlineClient(ctx, card.headline, card.myRecord, card.oppRecord, headlineMaxWidth);
+        ctx.font = size + "px 'Bungee', sans-serif";
+        ctx.fillText(headline, w / 2, headlineY(size));
+      }
+    } else {
+      const headlineSize = fitBannerFontSize(ctx, card.headline, headlineMaxWidth, "'Bungee', sans-serif", 24, 16);
+      ctx.fillText(card.headline, w / 2, headlineY(headlineSize));
+    }
 
     const daysMaxWidth = w - 2 * (LOGO_MARGIN + LOGO_SIZE) - 20;
     if (card.daysLeft <= 0) {
@@ -3622,9 +3727,11 @@
       teamStatus.textContent = "Loading the Game Day card…";
       renderLayers();
 
-      const [myLogoCanvas, oppLogoCanvas] = await Promise.all([
+      const [myLogoCanvas, oppLogoCanvas, myRecord, oppRecord] = await Promise.all([
         fetchDitheredLogoClient(myLogo, LOGO_SIZE),
-        fetchDitheredLogoClient(nextGame.opponentLogo, LOGO_SIZE)
+        fetchDitheredLogoClient(nextGame.opponentLogo, LOGO_SIZE),
+        fetchTeamRecord(sport, league, teamId),
+        fetchTeamRecord(sport, league, nextGame.opponentTeamId)
       ]);
       if (token !== teamFetchToken || layer.teamId !== teamId) return; // superseded while logos were loading
 
@@ -3639,7 +3746,9 @@
         dateLabel: dateTimeParts ? dateTimeParts.dateLabel : null,
         timeLabel: dateTimeParts ? dateTimeParts.timeLabel : null,
         myLogo: myLogoCanvas,
-        oppLogo: oppLogoCanvas
+        oppLogo: oppLogoCanvas,
+        myRecord,
+        oppRecord
       };
       teamStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
       renderLayers();
