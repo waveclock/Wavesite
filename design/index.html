@@ -3424,14 +3424,17 @@
     ctx.restore();
   }
 
-  // Mirrors drawTimelineHLValue -- splits "H 4.7ft" into "H " (larger) +
-  // "4.7ft" (smaller, plain weight) sharing one baseline.
+  // Mirrors drawTimelineHLValue -- splits "HIGH 4.7" into "HIGH " (larger,
+  // bold) + "4.7" (smaller, plain weight) sharing one baseline. Spells out
+  // HIGH/LOW rather than abbreviating, and drops the "ft" unit -- the card
+  // only ever shows one unit. Serif, not Bungee -- Bungee's "L" reads
+  // oddly at this size.
   function drawTimelineHLValueClient(ctx, isHigh, heightFt, x, y, align) {
-    const letter = (isHigh ? "H" : "L") + " ";
-    const value = heightFt.toFixed(1) + "ft";
-    ctx.font = TIMELINE_HL_LETTER_SIZE + "px 'Bungee', sans-serif";
+    const letter = (isHigh ? "HIGH" : "LOW") + " ";
+    const value = heightFt.toFixed(1);
+    ctx.font = "bold " + TIMELINE_HL_LETTER_SIZE + "px Georgia, serif";
     const letterWidth = ctx.measureText(letter).width;
-    ctx.font = TIMELINE_HL_VALUE_SIZE + "px 'Bungee', sans-serif";
+    ctx.font = TIMELINE_HL_VALUE_SIZE + "px Georgia, serif";
     const valueWidth = ctx.measureText(value).width;
     const totalWidth = letterWidth + valueWidth;
     let startX;
@@ -3439,10 +3442,21 @@
     else if (align === "right") startX = x - totalWidth;
     else startX = x - totalWidth / 2;
     ctx.textAlign = "left";
-    ctx.font = TIMELINE_HL_LETTER_SIZE + "px 'Bungee', sans-serif";
+    ctx.font = "bold " + TIMELINE_HL_LETTER_SIZE + "px Georgia, serif";
     ctx.fillText(letter, startX, y);
-    ctx.font = TIMELINE_HL_VALUE_SIZE + "px 'Bungee', sans-serif";
+    ctx.font = TIMELINE_HL_VALUE_SIZE + "px Georgia, serif";
     ctx.fillText(value, startX + letterWidth, y);
+  }
+
+  // Mirrors timelineIsNearMidnightEdge -- reads ex.label ("6:16 AM"/
+  // "12:23 AM"/"10:15 PM") rather than redoing a timezone lookup.
+  function timelineIsNearMidnightEdgeClient(label) {
+    const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(label || "");
+    if (!m) return false;
+    let hour = parseInt(m[1], 10) % 12;
+    if (m[3].toUpperCase() === "PM") hour += 12;
+    const totalMinutes = hour * 60 + parseInt(m[2], 10);
+    return totalMinutes < 3 * 60 + 30 || totalMinutes >= 22 * 60;
   }
 
   // Mirrors drawTimelineMoonIcon -- a reversed-fill variant of
@@ -3551,7 +3565,9 @@
       ctx.fillText(card.dateLabel, centerX, 44);
     }
 
-    ctx.strokeStyle = "rgba(0,0,0,0.4)";
+    // Solid opaque black, not translucent -- lets the night-side invert
+    // pass turn it genuinely white there instead of a blended gray.
+    ctx.strokeStyle = "#000";
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(0, TIMELINE_AXIS_Y);
@@ -3574,8 +3590,14 @@
       const timeBaseline = lineTop - 8;
       const valueBaseline = timeBaseline - 30;
       ctx.fillStyle = "#000";
-      drawTimelineHLValueClient(ctx, ex.isHigh, ex.heightFt, anchorX, valueBaseline, align);
-      drawTimelineTimeSplitAmPmClient(ctx, ex.label, anchorX, timeBaseline, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+      if (timelineIsNearMidnightEdgeClient(ex.label)) {
+        ctx.textAlign = align;
+        ctx.font = "bold " + TIMELINE_HL_LETTER_SIZE + "px Georgia, serif";
+        ctx.fillText(ex.isHigh ? "H" : "L", anchorX, timeBaseline);
+      } else {
+        drawTimelineHLValueClient(ctx, ex.isHigh, ex.heightFt, anchorX, valueBaseline, align);
+        drawTimelineTimeSplitAmPmClient(ctx, ex.label, anchorX, timeBaseline, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+      }
     });
 
     (card.moonEvents || []).forEach((ev) => {
@@ -3604,7 +3626,7 @@
       drawTimelineMoonIconClient(ctx, clusterX, iconY, TIMELINE_MOON_ICON_R, card.moonPhase.illumination, card.moonPhase.waxing);
 
       ctx.textAlign = "center";
-      ctx.fillText(word, clusterX, iconY + TIMELINE_MOON_ICON_R + 16);
+      ctx.fillText(word, clusterX, iconY + TIMELINE_MOON_ICON_R + 20);
     });
 
     if (sunriseX != null && sunsetX != null) {

@@ -39,6 +39,7 @@ const {
   drawTideCard,
   drawTideTimelineCard,
   drawTimelineMoonIcon,
+  timelineIsNearMidnightEdge,
   renderDynamicDesign,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -1485,6 +1486,23 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const dayIcon = iconCenterFor("2026-07-15T14:00:00.000Z");
     assert.ok(diskFillFraction(nightIcon.x, nightIcon.y, 15) < 0.35, "expected the night-zone full moon to come out mostly white");
     assert.ok(diskFillFraction(dayIcon.x, dayIcon.y, 15) > 0.65, "expected the day-zone full moon to stay mostly black");
+  });
+
+  console.log("timelineIsNearMidnightEdge (tide markers close enough to midnight that the value+time gets dropped)");
+  await test("flags labels before 3:30 AM and at/after 10:00 PM, not the ones just outside that window", () => {
+    assert.strictEqual(timelineIsNearMidnightEdge("12:23 AM"), true);
+    assert.strictEqual(timelineIsNearMidnightEdge("3:29 AM"), true);
+    assert.strictEqual(timelineIsNearMidnightEdge("3:30 AM"), false);
+    assert.strictEqual(timelineIsNearMidnightEdge("6:16 AM"), false);
+    assert.strictEqual(timelineIsNearMidnightEdge("9:59 PM"), false);
+    assert.strictEqual(timelineIsNearMidnightEdge("10:00 PM"), true);
+    assert.strictEqual(timelineIsNearMidnightEdge("11:34 PM"), true);
+    assert.strictEqual(timelineIsNearMidnightEdge("12:07 PM"), false); // noon, nowhere near midnight
+  });
+  await test("returns false for anything that doesn't parse as a label, rather than throwing", () => {
+    assert.strictEqual(timelineIsNearMidnightEdge(""), false);
+    assert.strictEqual(timelineIsNearMidnightEdge(null), false);
+    assert.strictEqual(timelineIsNearMidnightEdge("garbage"), false);
   });
 
   console.log("renderDynamicDesign (type: tideTimeline)");
