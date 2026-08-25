@@ -1477,13 +1477,15 @@ function drawTideCard(ctx, card) {
 // case needed.
 const TIMELINE_TIME_FONT_SIZE = 30; // every time on this card: sunrise, sunset, tide, moon
 const TIMELINE_AMPM_RATIO = 0.55; // the AM/PM suffix renders at this fraction of the main time's size
-const TIMELINE_WORD_FONT_SIZE = 16; // RISE / SET / OVER / UNDER
+const TIMELINE_WORD_FONT_SIZE = 22; // RISE / SET / OVER / UNDER
 const TIMELINE_TOP_ROW_HEIGHT = 54;
 const TIMELINE_AXIS_Y = 165; // "two thirds down" -- moved up a bit from a literal 2/3 (181) to leave more room below for the moon icon
 const TIMELINE_MOON_ICON_R = 17;
 const TIMELINE_HIGH_LINE_LEN = 36;
 const TIMELINE_LOW_LINE_LEN = 18;
 const TIMELINE_SUN_ICON_R = 11;
+const TIMELINE_HL_LETTER_SIZE = 28; // the "H"/"L" itself
+const TIMELINE_HL_VALUE_SIZE = 18; // the "4.7ft" that follows it, deliberately smaller and not bold
 
 // Splits "6:20AM" into "6:20" (mainSize) + "AM" (smaller, ampmSize),
 // sharing one baseline -- same mixed-size-one-line technique
@@ -1559,6 +1561,72 @@ function drawTimelineSunIcon(ctx, cx, cy, r) {
   ctx.restore();
 }
 
+// Splits "H 4.7ft" into "H " (larger) + "4.7ft" (smaller, plain weight)
+// sharing one baseline -- same mixed-size-one-line technique as
+// drawTimelineTimeSplitAmPm, just with the larger piece first instead of
+// last, and neither piece bold.
+function drawTimelineHLValue(ctx, isHigh, heightFt, x, y, align) {
+  const letter = (isHigh ? "H" : "L") + " ";
+  const value = heightFt.toFixed(1) + "ft";
+  const family = FONT_FAMILY.block;
+  ctx.font = TIMELINE_HL_LETTER_SIZE + "px \"" + family + "\"";
+  const letterWidth = ctx.measureText(letter).width;
+  ctx.font = TIMELINE_HL_VALUE_SIZE + "px \"" + family + "\"";
+  const valueWidth = ctx.measureText(value).width;
+  const totalWidth = letterWidth + valueWidth;
+  let startX;
+  if (align === "left") startX = x;
+  else if (align === "right") startX = x - totalWidth;
+  else startX = x - totalWidth / 2;
+  ctx.textAlign = "left";
+  ctx.font = TIMELINE_HL_LETTER_SIZE + "px \"" + family + "\"";
+  ctx.fillText(letter, startX, y);
+  ctx.font = TIMELINE_HL_VALUE_SIZE + "px \"" + family + "\"";
+  ctx.fillText(value, startX + letterWidth, y);
+}
+
+// A reversed-fill variant of drawMoonIcon, just for this card. drawMoonIcon
+// (used by the Tide & Fishing card's footer, which has no day/night zones)
+// inks the DARK side of the moon and leaves the LIT side blank -- confirmed
+// by its own test (a "full" moon there is drawn almost entirely blank, a
+// "new" moon almost entirely inked). That reads backwards here: this
+// card's invert-the-night-columns pass means whatever's inked in the night
+// zone comes out white, and whatever's inked in the day zone stays black --
+// so for "a full moon looks white at night, black by day" (the ask), the
+// LIT side needs to be what's inked, not the dark side. Fills the whole
+// disk black, then paints the same dark-side shape drawMoonIcon would have
+// inked back to OPAQUE white (not erased to transparent -- a destination-out
+// erase was tried first and technically "worked," but left truly
+// transparent holes rather than white, which only look right by accident
+// depending on how alpha survives the invert pass/PNG export/1-bit
+// packing downstream. An explicit opaque repaint has no such dependency).
+function drawTimelineMoonIcon(ctx, cx, cy, r, illum, waxing) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = "#000";
+  ctx.fill();
+
+  const k = Math.max(0, Math.min(1, illum));
+  const rx = r * Math.abs(1 - 2 * k);
+  const gibbous = k > 0.5;
+  const bulgeAnticlockwise = waxing ? gibbous : !gibbous;
+  ctx.beginPath();
+  if (waxing) ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+  else ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
+  ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, bulgeAnticlockwise);
+  ctx.closePath();
+  ctx.fillStyle = "#fff";
+  ctx.fill();
+
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 // Inverts every pixel (RGB, not alpha) in the given x-range across the
 // card's full height -- the "apply the night rule" step. Cheap to call
 // twice (once per side of the daylight span) since each call only
@@ -1615,7 +1683,7 @@ function drawTideTimelineCard(ctx, card) {
   }
 
   ctx.strokeStyle = "rgba(0,0,0,0.4)";
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 2.5;
   ctx.beginPath();
   ctx.moveTo(0, TIMELINE_AXIS_Y);
   ctx.lineTo(CANVAS_WIDTH, TIMELINE_AXIS_Y);
@@ -1641,9 +1709,7 @@ function drawTideTimelineCard(ctx, card) {
     const timeBaseline = lineTop - 8;
     const valueBaseline = timeBaseline - 30;
     ctx.fillStyle = "#000";
-    ctx.textAlign = align;
-    ctx.font = "bold 20px \"" + FONT_FAMILY.block + "\"";
-    ctx.fillText((ex.isHigh ? "H" : "L") + " " + ex.heightFt.toFixed(1) + "ft", anchorX, valueBaseline);
+    drawTimelineHLValue(ctx, ex.isHigh, ex.heightFt, anchorX, valueBaseline, align);
     drawTimelineTimeSplitAmPm(ctx, ex.label, anchorX, timeBaseline, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
   });
 
@@ -1671,7 +1737,7 @@ function drawTideTimelineCard(ctx, card) {
     const clusterX = timelineClampCenterX(x, wordHalfWidth);
 
     const iconY = timeY + 9 + TIMELINE_MOON_ICON_R;
-    drawMoonIcon(ctx, clusterX, iconY, TIMELINE_MOON_ICON_R, card.moonPhase.illumination, card.moonPhase.waxing);
+    drawTimelineMoonIcon(ctx, clusterX, iconY, TIMELINE_MOON_ICON_R, card.moonPhase.illumination, card.moonPhase.waxing);
 
     ctx.textAlign = "center";
     ctx.fillText(word, clusterX, iconY + TIMELINE_MOON_ICON_R + 16);
@@ -1869,6 +1935,7 @@ module.exports = {
   drawMoonIcon,
   drawTideCard,
   drawTideTimelineCard,
+  drawTimelineMoonIcon,
   renderDynamicDesign,
   ensureFontsRegistered
 };

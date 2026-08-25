@@ -38,6 +38,7 @@ const {
   drawMoonIcon,
   drawTideCard,
   drawTideTimelineCard,
+  drawTimelineMoonIcon,
   renderDynamicDesign,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -1415,6 +1416,75 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const card = Object.assign({}, SAMPLE_TIMELINE_CARD, { moonEvents: [], tideExtrema: [] });
     drawTideTimelineCard(c.getContext("2d"), card);
+  });
+
+  console.log("drawTimelineMoonIcon (reversed fill from drawMoonIcon, just for this card)");
+  // Same measurement approach as drawMoonIcon's own "waxing progresses
+  // monotonically" test, but the fill convention this card wants is the
+  // opposite of drawMoonIcon's: drawMoonIcon inks the DARK side (confirmed
+  // by that test -- a "full" moon there ends up almost entirely blank/lit-
+  // colored). This card's night-side invert pass means the LIT side has to
+  // be what's inked instead, so a near-full moon should be almost entirely
+  // BLACK here -- backwards from drawMoonIcon's own near-full case.
+  function inkedFraction(illum, waxing) {
+    const c = whiteCanvas(60, 60);
+    drawTimelineMoonIcon(c.getContext("2d"), 30, 30, 25, illum, waxing);
+    const data = c.getContext("2d").getImageData(0, 0, 60, 60).data;
+    let inked = 0, total = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const dx = (i / 4) % 60 - 30, dy = Math.floor(i / 4 / 60) - 30;
+      if (dx * dx + dy * dy > 24 * 24) continue; // inside the disk only
+      total++;
+      if (data[i] < 128) inked++;
+    }
+    return inked / total;
+  }
+  await test("a near-full moon (illum close to 1) is almost entirely inked black -- the opposite of drawMoonIcon's near-full case, on purpose", () => {
+    assert.ok(inkedFraction(0.97, true) > 0.9, "expected a near-full moon to be almost entirely black ink here");
+  });
+  await test("a near-new moon (illum close to 0) is almost entirely left blank -- again the opposite of drawMoonIcon's near-new case", () => {
+    assert.ok(inkedFraction(0.03, true) < 0.1, "expected a near-new moon to be almost entirely unfilled here");
+  });
+  await test("a near-full moon drawn by drawTimelineMoonIcon lands in the night zone and comes out mostly white, while the same card's day-zone moon markers stay mostly black -- end-to-end proof this card shows a full moon as white at night, black by day", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const card = Object.assign({}, SAMPLE_TIMELINE_CARD, {
+      moonPhase: { illumination: 0.97, waxing: true, phaseName: "Full Moon" },
+      moonEvents: [
+        { t: "2026-07-15T07:00:00.000Z", label: "3:00 AM", kind: "set" }, // before sunrise (09:44Z) -- night zone
+        { t: "2026-07-15T14:00:00.000Z", label: "10:00 AM", kind: "rise" } // well after sunrise, before sunset -- day zone
+      ]
+    });
+    drawTideTimelineCard(c.getContext("2d"), card);
+    const ctx = c.getContext("2d");
+    // Night-zone marker ("set") -- sample its icon center, expect mostly
+    // white (the invert pass flipped the inked-black lit side).
+    function diskFillFraction(cx, cy, r) {
+      const data = ctx.getImageData(cx - r, cy - r, r * 2, r * 2).data;
+      let dark = 0, total = 0;
+      for (let py = 0; py < r * 2; py++) {
+        for (let px = 0; px < r * 2; px++) {
+          const dx = px - r, dy = py - r;
+          if (dx * dx + dy * dy > (r - 2) * (r - 2)) continue;
+          total++;
+          const idx = (py * r * 2 + px) * 4;
+          if (data[idx] < 128) dark++;
+        }
+      }
+      return dark / total;
+    }
+    // x/y for each marker's icon center, computed the same way
+    // drawTideTimelineCard does: xForTime, then lineBottom+20+9+R.
+    const dayStartMs = new Date(card.dayStart).getTime(), dayEndMs = new Date(card.dayEnd).getTime();
+    function iconCenterFor(iso) {
+      const frac = (new Date(iso).getTime() - dayStartMs) / (dayEndMs - dayStartMs);
+      const x = Math.round(frac * CANVAS_WIDTH);
+      const y = (165 + 12) + 20 + 9 + 17; // TIMELINE_AXIS_Y + lineBottom offset + timeY offset + iconY offset + R
+      return { x, y };
+    }
+    const nightIcon = iconCenterFor("2026-07-15T07:00:00.000Z");
+    const dayIcon = iconCenterFor("2026-07-15T14:00:00.000Z");
+    assert.ok(diskFillFraction(nightIcon.x, nightIcon.y, 15) < 0.35, "expected the night-zone full moon to come out mostly white");
+    assert.ok(diskFillFraction(dayIcon.x, dayIcon.y, 15) > 0.65, "expected the day-zone full moon to stay mostly black");
   });
 
   console.log("renderDynamicDesign (type: tideTimeline)");
