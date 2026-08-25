@@ -37,6 +37,7 @@ const {
   formatShortDate,
   drawMoonIcon,
   drawTideCard,
+  drawTideTimelineCard,
   renderDynamicDesign,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -1343,6 +1344,100 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
     const now = new Date("2026-07-15T16:00:00Z");
     const meta = { type: "tide", lat: 39.2776, lon: -74.5746, stationId: "8534720" };
+    const fetchImpl = async () => { throw new Error("network down"); };
+    await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
+  });
+
+  console.log("drawTideTimelineCard (Sun/Moon/Tide Timeline card)");
+  // x-positions below are derived from this card's own dayStart/dayEnd
+  // (a 24h window) the same way drawTideTimelineCard computes them
+  // (xForTime: frac * CANVAS_WIDTH), so the pixel-scan tests can target
+  // exact spots without guessing:
+  //   sunrise 09:44Z, dayStart 04:00Z -> frac 0.2389 -> x=189
+  //   sunset  00:24Z next day         -> frac 0.85   -> x=673
+  const SAMPLE_TIMELINE_CARD = {
+    timeZone: "America/New_York",
+    dayStart: "2026-07-15T04:00:00.000Z",
+    dayEnd: "2026-07-16T04:00:00.000Z",
+    sunrise: { t: "2026-07-15T09:44:00.000Z", label: "5:44 AM" },
+    sunset: { t: "2026-07-16T00:24:00.000Z", label: "8:24 PM" },
+    moonPhase: { illumination: 0.78, waxing: true, phaseName: "Waxing Gibbous" },
+    moonEvents: [
+      { t: "2026-07-15T14:15:00.000Z", label: "10:15 AM", kind: "rise" },
+      { t: "2026-07-15T18:00:00.000Z", label: "2:00 PM", kind: "overhead" },
+      { t: "2026-07-15T22:42:00.000Z", label: "6:42 PM", kind: "set" }
+    ],
+    tideExtrema: [
+      { t: "2026-07-15T11:14:00.000Z", label: "7:14 AM", heightFt: 0.6, isHigh: false },
+      { t: "2026-07-15T17:22:00.000Z", label: "1:22 PM", heightFt: 4.4, isHigh: true }
+    ],
+    townName: "OCEAN CITY, NJ",
+    dateLabel: "July 15, 2026"
+  };
+  await test("draws onto an otherwise-blank canvas without throwing, at the right size", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawTideTimelineCard(c.getContext("2d"), SAMPLE_TIMELINE_CARD);
+    assert.strictEqual(c.width, CANVAS_WIDTH);
+    assert.strictEqual(c.height, CANVAS_HEIGHT);
+  });
+  await test("the night background is inverted outside [sunrise, sunset] -- background goes black with white ink, day stays white with black ink (draw-then-invert technique)", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawTideTimelineCard(c.getContext("2d"), SAMPLE_TIMELINE_CARD);
+    const ctx = c.getContext("2d");
+    // x=20/y=100 and x=400/y=100 both sit clear of every marker's own
+    // x-position (189, 673, 238, 441, 338, 445, 550) and clear of the
+    // axis (y=165) and top-row text (y<=44), so both are plain background.
+    const night = ctx.getImageData(20, 100, 1, 1).data;
+    const day = ctx.getImageData(400, 100, 1, 1).data;
+    assert.ok(night[0] < 50, "expected the pre-sunrise background to invert to black, got " + night[0]);
+    assert.ok(day[0] > 200, "expected the daytime background to stay white, got " + day[0]);
+  });
+  await test("the sun icon straddles the sunrise boundary and gets bisected by the invert pass -- white ink on black (night side), black ink on white (day side)", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawTideTimelineCard(c.getContext("2d"), SAMPLE_TIMELINE_CARD);
+    const ctx = c.getContext("2d");
+    const sunriseX = 189; // see the x-math comment above
+    const nightSide = ctx.getImageData(sunriseX - 5, 43, 1, 1).data; // inside the r=11 icon, night side
+    const daySide = ctx.getImageData(sunriseX + 5, 43, 1, 1).data; // inside the r=11 icon, day side
+    assert.ok(nightSide[0] > 200, "expected the night-side half of the sun icon to invert to white ink, got " + nightSide[0]);
+    assert.ok(daySide[0] < 50, "expected the day-side half of the sun icon to stay black ink, got " + daySide[0]);
+  });
+  await test("tolerates a card with no sunrise/sunset at all (e.g. polar day/night) without throwing, and skips the invert pass entirely", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const card = Object.assign({}, SAMPLE_TIMELINE_CARD, { sunrise: null, sunset: null });
+    drawTideTimelineCard(c.getContext("2d"), card);
+    // With no day/night boundary, nothing should ever invert -- the
+    // background should still be white everywhere.
+    const data = c.getContext("2d").getImageData(20, 100, 1, 1).data;
+    assert.ok(data[0] > 200, "expected the background to stay white with no sunrise/sunset to invert around");
+  });
+  await test("tolerates an empty moonEvents/tideExtrema without throwing", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const card = Object.assign({}, SAMPLE_TIMELINE_CARD, { moonEvents: [], tideExtrema: [] });
+    drawTideTimelineCard(c.getContext("2d"), card);
+  });
+
+  console.log("renderDynamicDesign (type: tideTimeline)");
+  await test("renders a Sun/Moon/Tide Timeline card from real (mocked) suncalc + NOAA data", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = { type: "tideTimeline", lat: 39.2776, lon: -74.5746, stationId: "8534720", townName: "Ocean City, NJ" };
+    const fetchImpl = fakeNoaaFetch({
+      hilo: [{ t: "2026-07-15 02:10", v: "0.40", type: "L" }, { t: "2026-07-15 08:25", v: "4.10", type: "H" }]
+    });
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.ok(result);
+    assert.ok(result.timelineData.moonPhase.phaseName);
+    assert.ok(result.content.startsWith("OCEAN CITY, NJ"));
+    assert.ok(result.binBuffer.some((b) => b !== 0));
+    const decoded = await loadImage(result.pngBuffer);
+    assert.strictEqual(decoded.width, CANVAS_WIDTH);
+    assert.strictEqual(decoded.height, CANVAS_HEIGHT);
+  });
+  await test("a real NOAA-fetch failure throws instead of returning null (must not be cleaned up -- perpetual, like tide/team/news)", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = { type: "tideTimeline", lat: 39.2776, lon: -74.5746, stationId: "8534720", townName: "Ocean City, NJ" };
     const fetchImpl = async () => { throw new Error("network down"); };
     await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
   });

@@ -65,6 +65,12 @@ function formatLocalTime(date, timeZone) {
   return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone }).format(date);
 }
 
+// "August 25, 2026" -- the Sun/Moon/Tide Timeline card's date line.
+function formatLongDate(date, timeZone) {
+  if (!date) return null;
+  return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone }).format(date);
+}
+
 // NOAA's begin_date/end_date, precise to the minute, in the station's own
 // local wall-clock time (time_zone=lst_ldt -- see the fetchNoaaPredictions
 // comment below for why this has to be local time, not GMT) --
@@ -195,6 +201,13 @@ const MINOR_HALF_WIDTH_MIN = 25; // minor period = ~50min total, centered on moo
 const SOLUNAR_SAMPLE_STEP_MIN = 2;
 const SOLUNAR_MARGIN_MS = 3 * 3600000; // how far outside [dawn, dusk] a period's CENTER may still fall and be considered relevant
 
+// extremaType distinguishes which kind of transit this is -- "overhead"
+// (altitude local max, the moon crossing the local meridian) vs
+// "underfoot" (altitude local min, the antitransit on the opposite side
+// of the earth) -- added for the Sun/Moon/Tide Timeline card, which
+// draws these as two different markers. computeSolunarPeriods below
+// only ever needed "this is a major-period center," so it ignores this
+// field; adding it here is non-breaking for that caller.
 function findMoonAltitudeExtrema(lat, lon, from, to, stepMinutes) {
   const extrema = [];
   let prevAlt = SunCalc.getMoonPosition(from, lat, lon).altitude;
@@ -204,8 +217,8 @@ function findMoonAltitudeExtrema(lat, lon, from, to, stepMinutes) {
     const t = new Date(ms);
     const alt = SunCalc.getMoonPosition(t, lat, lon).altitude;
     if (prevPrevAlt !== null) {
-      if (prevAlt > prevPrevAlt && prevAlt > alt) extrema.push({ kind: "major", t: prevT });
-      if (prevAlt < prevPrevAlt && prevAlt < alt) extrema.push({ kind: "major", t: prevT });
+      if (prevAlt > prevPrevAlt && prevAlt > alt) extrema.push({ kind: "major", extremaType: "overhead", t: prevT });
+      if (prevAlt < prevPrevAlt && prevAlt < alt) extrema.push({ kind: "major", extremaType: "underfoot", t: prevT });
     }
     prevPrevAlt = prevAlt;
     prevAlt = alt;
@@ -243,6 +256,86 @@ function computeSolunarPeriods(lat, lon, dawn, dusk, moonRiseDate, moonSetDate) 
     const mid = (new Date(p.start).getTime() + new Date(p.end).getTime()) / 2;
     return mid >= dawn.getTime() - SOLUNAR_MARGIN_MS && mid <= dusk.getTime() + SOLUNAR_MARGIN_MS;
   });
+}
+
+// The UTC instant that reads as 00:00:00 local, on the same local
+// calendar date as `now` -- for the Sun/Moon/Tide Timeline card's
+// midnight-to-midnight x-axis. JS has no built-in local-midnight
+// lookup, but this doesn't need one: `now`'s own local wall-clock time
+// (via Intl) is exactly how far past local midnight `now` already is,
+// so subtracting that off `now` lands on local midnight directly --
+// no guess-and-correct needed (unlike parseNoaaLocalTimestamp above,
+// which has to invert an arbitrary wall-clock STRING with no anchor
+// instant to measure from in the first place).
+function localMidnight(now, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+  }).formatToParts(now);
+  const get = (type) => Number(parts.find((p) => p.type === type).value);
+  const hour = get("hour") % 24; // some ICU versions format midnight as "24" with hour12:false
+  const msIntoLocalDay = hour * 3600000 + get("minute") * 60000 + get("second") * 1000;
+  return new Date(now.getTime() - msIntoLocalDay);
+}
+
+// Sun/moon/tide data for the Sun/Moon/Tide Timeline card -- a full
+// local calendar day (midnight to midnight), unlike fetchTideCardData's
+// dawn-to-dusk window. Doesn't need the continuous tide curve (only
+// hi/lo points), weather, or the fishing score, so it skips all three
+// -- lighter weight than fetchTideCardData on purpose. moonEvents
+// combines rise/set/overhead/underfoot into one time-ordered list (like
+// tideExtrema's own array-of-events shape) rather than fixed named
+// fields, since a 24h window can rarely hold zero or two of any of
+// them (the lunar day runs ~24h50m, not 24h).
+const TIMELINE_SAMPLE_MARGIN_MS = 3 * 3600000;
+async function fetchTideTimelineData({ lat, lon, stationId }, now, fetchImpl) {
+  const at = now || new Date();
+  const timeZone = tzlookup(lat, lon);
+  const dayStart = localMidnight(at, timeZone);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 3600000);
+
+  const times = SunCalc.getTimes(at, lat, lon);
+  const moonTimes = SunCalc.getMoonTimes(at, lat, lon);
+  const illum = SunCalc.getMoonIllumination(at);
+
+  const transits = findMoonAltitudeExtrema(
+    lat, lon,
+    new Date(dayStart.getTime() - TIMELINE_SAMPLE_MARGIN_MS),
+    new Date(dayEnd.getTime() + TIMELINE_SAMPLE_MARGIN_MS),
+    SOLUNAR_SAMPLE_STEP_MIN
+  );
+
+  const extrema = await fetchNoaaPredictions(stationId, dayStart, dayEnd, "hilo", timeZone, fetchImpl);
+
+  function labeled(date) {
+    return { t: date.toISOString(), label: formatLocalTime(date, timeZone) };
+  }
+  function labeledEvent(date, kind) {
+    return { t: date.toISOString(), label: formatLocalTime(date, timeZone), kind };
+  }
+  const inWindow = (d) => d >= dayStart && d < dayEnd;
+
+  const moonEvents = [];
+  if (moonTimes.rise && inWindow(moonTimes.rise)) moonEvents.push(labeledEvent(moonTimes.rise, "rise"));
+  if (moonTimes.set && inWindow(moonTimes.set)) moonEvents.push(labeledEvent(moonTimes.set, "set"));
+  transits.forEach((tr) => { if (inWindow(tr.t)) moonEvents.push(labeledEvent(tr.t, tr.extremaType)); });
+  moonEvents.sort((a, b) => new Date(a.t) - new Date(b.t));
+
+  return {
+    timeZone,
+    dayStart: dayStart.toISOString(),
+    dayEnd: dayEnd.toISOString(),
+    sunrise: inWindow(times.sunrise) ? labeled(times.sunrise) : null,
+    sunset: inWindow(times.sunset) ? labeled(times.sunset) : null,
+    moonPhase: {
+      illumination: illum.fraction,
+      waxing: illum.waxing,
+      phaseName: moonPhaseName(illum.phase)
+    },
+    moonEvents,
+    tideExtrema: extrema
+      .filter((p) => p.isHigh !== null && inWindow(p.t))
+      .map((p) => ({ t: p.t.toISOString(), label: formatLocalTime(p.t, timeZone), heightFt: p.heightFt, isHigh: p.isHigh }))
+  };
 }
 
 // Some subordinate stations have no continuous curve at all (see
@@ -634,11 +727,14 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
 module.exports = {
   moonPhaseName,
   formatLocalTime,
+  formatLongDate,
   noaaLocalDateParam,
   parseNoaaLocalTimestamp,
   fetchNoaaPredictions,
   findMoonAltitudeExtrema,
   computeSolunarPeriods,
+  localMidnight,
+  fetchTideTimelineData,
   interpolateTideCurveFromExtrema,
   tideRateOfChange,
   fishingScore,

@@ -25,7 +25,10 @@ const {
   fetchOpenMeteoWeather,
   fetchOpenMeteoMarine,
   fetchWeatherSignals,
-  fetchTideCardData
+  fetchTideCardData,
+  localMidnight,
+  formatLongDate,
+  fetchTideTimelineData
 } = require("../lib/astro");
 const { OUTBOUND_FETCH_HEADERS } = require("../lib/http");
 
@@ -335,6 +338,16 @@ function buildHourlySeries(startHour, endHour, fields) {
     }
   });
 
+  await test("findMoonAltitudeExtrema tags each transit's extremaType, alternating overhead (altitude max) and underfoot (altitude min) -- added for the Sun/Moon/Tide Timeline card, non-breaking for computeSolunarPeriods below which ignores this field", () => {
+    const from = new Date("2026-07-14T00:00:00Z");
+    const to = new Date("2026-07-17T00:00:00Z");
+    const extrema = findMoonAltitudeExtrema(LAT, LON, from, to, 2);
+    assert.ok(extrema.every((e) => e.extremaType === "overhead" || e.extremaType === "underfoot"));
+    for (let i = 1; i < extrema.length; i++) {
+      assert.notStrictEqual(extrema[i].extremaType, extrema[i - 1].extremaType, "expected overhead/underfoot to alternate");
+    }
+  });
+
   await test("computeSolunarPeriods only returns periods relevant to the display window, correctly clipped-to-center", () => {
     const dawn = new Date("2026-07-15T09:12:00Z");
     const dusk = new Date("2026-07-16T00:55:00Z");
@@ -624,6 +637,67 @@ function buildHourlySeries(startHour, endHour, fields) {
     assert.ok(weather.wind && weather.wind.mph === 10 && weather.wind.dir === "S");
     assert.strictEqual(weather.swell, null);
     assert.strictEqual(weather.waterTempF, null);
+  });
+
+  console.log("localMidnight / formatLongDate (Sun/Moon/Tide Timeline helpers)");
+  await test("localMidnight finds the UTC instant for local 00:00:00 on the same local calendar day as `now`, DST-aware", () => {
+    const summer = new Date("2026-07-15T19:15:00Z"); // 3:15 PM EDT (UTC-4)
+    assert.strictEqual(localMidnight(summer, "America/New_York").toISOString(), "2026-07-15T04:00:00.000Z");
+    const winter = new Date("2026-01-15T19:15:00Z"); // 2:15 PM EST (UTC-5)
+    assert.strictEqual(localMidnight(winter, "America/New_York").toISOString(), "2026-01-15T05:00:00.000Z");
+  });
+  await test("localMidnight handles an instant that's already just past local midnight without rolling back a day", () => {
+    const justAfterMidnight = new Date("2026-07-15T04:05:00Z"); // 12:05 AM EDT
+    assert.strictEqual(localMidnight(justAfterMidnight, "America/New_York").toISOString(), "2026-07-15T04:00:00.000Z");
+  });
+
+  await test("formatLongDate renders a full month/day/year in the given zone", () => {
+    assert.strictEqual(formatLongDate(new Date("2026-08-25T04:00:00Z"), "America/New_York"), "August 25, 2026");
+  });
+  await test("formatLongDate returns null for a null date", () => {
+    assert.strictEqual(formatLongDate(null, "America/New_York"), null);
+  });
+
+  console.log("fetchTideTimelineData (Sun/Moon/Tide Timeline card)");
+  await test("fetchTideTimelineData covers a full local midnight-to-midnight window, filters tide extrema/moon events to it, and skips the continuous curve/weather/fishing score fetchTideCardData has", async () => {
+    const timelineMockFetch = async (url) => {
+      const u = new URL(url);
+      if (u.hostname !== "api.tidesandcurrents.noaa.gov") throw new Error("unexpected host in test: " + u.hostname);
+      const interval = u.searchParams.get("interval");
+      if (interval !== "hilo") return { json: async () => ({ predictions: [] }) };
+      return {
+        json: async () => ({
+          predictions: [
+            { t: "2026-07-14 23:50", v: "0.50", type: "L" }, // just before local midnight -> out of window
+            { t: "2026-07-15 02:10", v: "0.40", type: "L" },
+            { t: "2026-07-15 08:25", v: "4.10", type: "H" }
+          ]
+        })
+      };
+    };
+    const now = new Date("2026-07-15T16:00:00Z"); // noon EDT, July 15
+    const data = await fetchTideTimelineData({ lat: LAT, lon: LON, stationId: "8534720" }, now, timelineMockFetch);
+
+    assert.strictEqual(data.timeZone, "America/New_York");
+    assert.strictEqual(data.dayStart, "2026-07-15T04:00:00.000Z");
+    assert.strictEqual(data.dayEnd, "2026-07-16T04:00:00.000Z");
+    assert.ok(data.sunrise && data.sunrise.label);
+    assert.ok(data.sunset && data.sunset.label);
+    assert.ok(typeof data.moonPhase.illumination === "number" && typeof data.moonPhase.phaseName === "string");
+    assert.ok(Array.isArray(data.moonEvents));
+    for (let i = 1; i < data.moonEvents.length; i++) {
+      assert.ok(new Date(data.moonEvents[i].t).getTime() >= new Date(data.moonEvents[i - 1].t).getTime(), "moonEvents should be time-sorted");
+    }
+    // The prior-day 23:50 low falls before dayStart and is filtered out --
+    // only the two in-window hi/lo points survive.
+    assert.strictEqual(data.tideExtrema.length, 2);
+    assert.strictEqual(data.tideExtrema[0].isHigh, false);
+    assert.strictEqual(data.tideExtrema[0].label, "2:10 AM");
+    assert.strictEqual(data.tideExtrema[1].isHigh, true);
+    assert.strictEqual(data.tideExtrema[1].label, "8:25 AM");
+    assert.strictEqual(data.tideCurve, undefined);
+    assert.strictEqual(data.weather, undefined);
+    assert.strictEqual(data.fishingScore, undefined);
   });
 
   console.log(passed + " passed, " + failed + " failed");

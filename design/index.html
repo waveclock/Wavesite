@@ -712,6 +712,9 @@
           <button class="icon-tool-btn" id="toolTeamBtn" data-tool="team" title="Team Schedule">
             <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
           </button>
+          <button class="icon-tool-btn" id="toolTimelineBtn" data-tool="timeline" title="Sun, Moon &amp; Tide Timeline">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4-1.4M17 7l1.4-1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
           <!-- Tide & Fishing: hidden until the feature's ready -- data-tool
                stays intact so the tool-tab wiring is untouched and this
                only needs its style attribute removed to bring it back. -->
@@ -857,6 +860,17 @@
     </div>
 
     <p class="clipart-status" id="tideStatus">Loading tide, sun &amp; moon data for your location&hellip;</p>
+  </div>
+
+  <div class="tool-panel hidden" id="timelinePanel">
+    <div class="fishing-search-row">
+      <input type="text" id="timelineTownSearch" placeholder="Town, city, or zip code&hellip;" autocomplete="off">
+    </div>
+    <div class="fishing-search-results" id="timelineSearchResults"></div>
+    <div class="fishing-station-map" id="timelineStationMap"></div>
+    <div id="timelineStationListWrap"></div>
+    <p class="clipart-status" id="timelineSpotStatus">Search for a town, then pick the closest tide station.</p>
+    <button type="button" class="fishing-save-btn" id="timelineUseBtn" disabled>Use This Location</button>
   </div>
 
   <div class="tool-panel hidden" id="newsPanel">
@@ -1700,6 +1714,14 @@
       } else {
         drawText(ctx, obj.previewContent || "LOADING…", obj);
       }
+    } else if (obj.kind === "tideTimeline") {
+      // Same idea again: obj.cardData is resolved asynchronously by
+      // loadTimelineLayer above.
+      if (obj.cardData) {
+        drawTideTimelineCardClient(ctx, obj.cardData);
+      } else {
+        drawText(ctx, obj.previewContent || "LOADING…", obj);
+      }
     } else if (obj.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(obj);
       ctx.imageSmoothingEnabled = false; // keeps sketch lines/dither dots crisp black-white instead of blurring into gray
@@ -1723,6 +1745,7 @@
     if (obj.kind === "countdown") return "Countdown: " + (obj.label || (daysUntil(obj.targetDate) + "d"));
     if (obj.kind === "team") return "Team: " + (obj.teamName || "(choose a team)");
     if (obj.kind === "tide") return "Tide & Fishing" + (obj.cardData ? "" : " (loading…)");
+    if (obj.kind === "tideTimeline") return "Sun/Moon/Tide Timeline" + (obj.townName ? ": " + obj.townName : "") + (obj.cardData ? "" : " (loading…)");
     if (obj.kind === "news") return "News: " + (obj.feedUrl || obj.location || "(add a location)");
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
     if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Normal") + ")";
@@ -2541,6 +2564,7 @@
     countdown: document.getElementById("countdownPanel"),
     team: document.getElementById("teamPanel"),
     tide: document.getElementById("tidePanel"),
+    timeline: document.getElementById("timelinePanel"),
     news: document.getElementById("newsPanel"),
     layers: document.getElementById("layersPanel")
   };
@@ -2613,6 +2637,21 @@
       if (tool === "tide") {
         initFishingSpotUIOnce();
         loadTideLayer();
+      }
+      // Sun/Moon/Tide Timeline: unlike Tide & Fishing, there's no device
+      // location fallback here at all -- the user picks a town + tide
+      // station specifically for this card (see the picker section
+      // below), so opening the tab just shows whatever's already picked.
+      if (tool === "timeline") {
+        const existing = layers.find((l) => l.kind === "tideTimeline");
+        timelineTownSearch.value = existing ? (existing.townName || "") : "";
+        if (existing && existing.cardData) {
+          timelineSpotStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
+        } else if (existing && existing.townName) {
+          timelineSpotStatus.textContent = "Selected: " + existing.townName + (existing.stationId ? " (Station " + existing.stationId + ")" : "") + " — pick a new spot below to change it.";
+        } else {
+          timelineSpotStatus.textContent = "Search for a town, then pick the closest tide station.";
+        }
       }
     });
   });
@@ -2902,6 +2941,20 @@
     const resp = await fetch(ASTRO_PROXY_BASE + "?" + params.toString());
     const data = await resp.json();
     if (!resp.ok) throw new Error((data && data.error) || ("Tide data fetch failed: " + resp.status));
+    return data;
+  }
+
+  // astroTimelineProxy is the Timeline card's own lighter proxy (hi/lo
+  // tides + moon events over a full local midnight-to-midnight window,
+  // no continuous curve/weather/fishing score -- see the comment above
+  // fetchTideTimelineData in functions/lib/astro.js for why).
+  const ASTRO_TIMELINE_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/astroTimelineProxy";
+
+  async function fetchTideTimelineDataClient(lat, lon, stationId) {
+    const params = new URLSearchParams({ lat: String(lat), lon: String(lon), stationId: String(stationId) });
+    const resp = await fetch(ASTRO_TIMELINE_PROXY_BASE + "?" + params.toString());
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("Timeline data fetch failed: " + resp.status));
     return data;
   }
 
@@ -3288,6 +3341,405 @@
       ctx.fillText(fullPlain, px, footerY2 - 3);
     }
   }
+
+  // ================= Sun/Moon/Tide Timeline card =================
+  // Mirrors functions/lib/dynamic.js's drawTideTimelineCard exactly --
+  // see the comment above that function for the full design reasoning
+  // (draw-then-invert night background, no hour axis labels, the sun
+  // icon straddling the sunrise/sunset boundary on purpose, etc).
+  const TIMELINE_TIME_FONT_SIZE = 30;
+  const TIMELINE_AMPM_RATIO = 0.55;
+  const TIMELINE_WORD_FONT_SIZE = 16;
+  const TIMELINE_AXIS_Y = 165;
+  const TIMELINE_MOON_ICON_R = 17;
+  const TIMELINE_HIGH_LINE_LEN = 36;
+  const TIMELINE_LOW_LINE_LEN = 18;
+  const TIMELINE_SUN_ICON_R = 11;
+  const TIMELINE_MOON_WORD = { rise: "RISE", set: "SET", overhead: "OVER", underfoot: "UNDER" };
+
+  // Splits "6:20AM" into "6:20" (mainSize) + "AM" (smaller, ampmSize),
+  // sharing one baseline -- mirrors drawTimelineTimeSplitAmPm.
+  function drawTimelineTimeSplitAmPmClient(ctx, timeStr, x, y, align, mainSize, ampmSize) {
+    const m = timeStr.replace(" ", "").match(/^(.*?)(AM|PM)$/);
+    if (!m) {
+      ctx.font = "bold " + mainSize + "px Georgia, serif";
+      ctx.textAlign = align;
+      ctx.fillText(timeStr, x, y);
+      return;
+    }
+    const main = m[1], suffix = m[2];
+    ctx.font = "bold " + mainSize + "px Georgia, serif";
+    const mainWidth = ctx.measureText(main).width;
+    ctx.font = "bold " + ampmSize + "px Georgia, serif";
+    const suffixWidth = ctx.measureText(suffix).width;
+    const totalWidth = mainWidth + suffixWidth;
+    let startX;
+    if (align === "left") startX = x;
+    else if (align === "right") startX = x - totalWidth;
+    else startX = x - totalWidth / 2;
+    ctx.textAlign = "left";
+    ctx.font = "bold " + mainSize + "px Georgia, serif";
+    ctx.fillText(main, startX, y);
+    ctx.font = "bold " + ampmSize + "px Georgia, serif";
+    ctx.fillText(suffix, startX + mainWidth, y);
+  }
+
+  // Mirrors timelineClampAlign/timelineClampX/timelineClampCenterX.
+  function timelineClampAlignClient(x) {
+    if (x < 90) return "left";
+    if (x > baseCanvas.width - 90) return "right";
+    return "center";
+  }
+  function timelineClampXClient(x) {
+    if (x < 90) return Math.max(x, 4);
+    if (x > baseCanvas.width - 90) return Math.min(x, baseCanvas.width - 4);
+    return x;
+  }
+  function timelineClampCenterXClient(x, halfWidth) {
+    return Math.max(halfWidth + 4, Math.min(x, baseCanvas.width - halfWidth - 4));
+  }
+
+  // Mirrors drawTimelineSunIcon -- deliberately centered exactly on
+  // sunriseX/sunsetX, never clamped, so the invert pass bisects it.
+  function drawTimelineSunIconClient(ctx, cx, cy, r) {
+    ctx.save();
+    ctx.fillStyle = "#000";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 2;
+    const rayCount = 8;
+    const rayInner = r + 3;
+    const rayOuter = r + 8;
+    for (let i = 0; i < rayCount; i++) {
+      const angle = (i / rayCount) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(angle) * rayInner, cy + Math.sin(angle) * rayInner);
+      ctx.lineTo(cx + Math.cos(angle) * rayOuter, cy + Math.sin(angle) * rayOuter);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Mirrors TIMELINE_invertNightColumns -- inverts every pixel (RGB, not
+  // alpha) in the given x-range across the card's full height.
+  function timelineInvertNightColumnsClient(ctx, x0, w) {
+    if (w <= 0) return;
+    const imgData = ctx.getImageData(x0, 0, w, baseCanvas.height);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = 255 - d[i];
+      d[i + 1] = 255 - d[i + 1];
+      d[i + 2] = 255 - d[i + 2];
+    }
+    ctx.putImageData(imgData, x0, 0);
+  }
+
+  // Mirrors drawTideTimelineCard exactly.
+  function drawTideTimelineCardClient(ctx, card) {
+    const w = baseCanvas.width;
+    const dayStartMs = new Date(card.dayStart).getTime();
+    const dayEndMs = new Date(card.dayEnd).getTime();
+    function xForTime(iso) {
+      const frac = (new Date(iso).getTime() - dayStartMs) / (dayEndMs - dayStartMs);
+      return Math.round(frac * w);
+    }
+
+    const sunriseX = card.sunrise ? xForTime(card.sunrise.t) : null;
+    const sunsetX = card.sunset ? xForTime(card.sunset.t) : null;
+
+    ctx.textBaseline = "alphabetic";
+
+    if (card.sunrise) {
+      const align = timelineClampAlignClient(sunriseX);
+      const anchorX = timelineClampXClient(sunriseX);
+      ctx.fillStyle = "#000";
+      drawTimelineTimeSplitAmPmClient(ctx, card.sunrise.label, anchorX, 25, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+      drawTimelineSunIconClient(ctx, sunriseX, 43, TIMELINE_SUN_ICON_R);
+    }
+    if (card.sunset) {
+      const align = timelineClampAlignClient(sunsetX);
+      const anchorX = timelineClampXClient(sunsetX);
+      ctx.fillStyle = "#000";
+      drawTimelineTimeSplitAmPmClient(ctx, card.sunset.label, anchorX, 25, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+      drawTimelineSunIconClient(ctx, sunsetX, 43, TIMELINE_SUN_ICON_R);
+    }
+
+    const centerX = (sunriseX != null && sunsetX != null) ? (sunriseX + sunsetX) / 2 : w / 2;
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "center";
+    ctx.font = "bold 24px Georgia, serif";
+    ctx.fillText(card.townName || "", centerX, 22);
+    if (card.dateLabel) {
+      ctx.font = "bold 18px Georgia, serif";
+      ctx.fillText(card.dateLabel, centerX, 44);
+    }
+
+    ctx.strokeStyle = "rgba(0,0,0,0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, TIMELINE_AXIS_Y);
+    ctx.lineTo(w, TIMELINE_AXIS_Y);
+    ctx.stroke();
+
+    (card.tideExtrema || []).forEach((ex) => {
+      const x = xForTime(ex.t);
+      const align = timelineClampAlignClient(x);
+      const anchorX = timelineClampXClient(x);
+      const lineLen = ex.isHigh ? TIMELINE_HIGH_LINE_LEN : TIMELINE_LOW_LINE_LEN;
+      const lineTop = TIMELINE_AXIS_Y - lineLen;
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x, lineTop);
+      ctx.lineTo(x, TIMELINE_AXIS_Y);
+      ctx.stroke();
+
+      const timeBaseline = lineTop - 8;
+      const valueBaseline = timeBaseline - 30;
+      ctx.fillStyle = "#000";
+      ctx.textAlign = align;
+      ctx.font = "bold 20px 'Bungee', sans-serif";
+      ctx.fillText((ex.isHigh ? "H" : "L") + " " + ex.heightFt.toFixed(1) + "ft", anchorX, valueBaseline);
+      drawTimelineTimeSplitAmPmClient(ctx, ex.label, anchorX, timeBaseline, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+    });
+
+    (card.moonEvents || []).forEach((ev) => {
+      const x = xForTime(ev.t);
+      const align = timelineClampAlignClient(x);
+      const anchorX = timelineClampXClient(x);
+
+      const lineBottom = TIMELINE_AXIS_Y + 12;
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x, TIMELINE_AXIS_Y);
+      ctx.lineTo(x, lineBottom);
+      ctx.stroke();
+
+      ctx.fillStyle = "#000";
+      const timeY = lineBottom + 20;
+      drawTimelineTimeSplitAmPmClient(ctx, ev.label, anchorX, timeY, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+
+      const word = TIMELINE_MOON_WORD[ev.kind] || "";
+      ctx.font = "bold " + TIMELINE_WORD_FONT_SIZE + "px Georgia, serif";
+      const wordHalfWidth = ctx.measureText(word).width / 2;
+      const clusterX = timelineClampCenterXClient(x, wordHalfWidth);
+
+      const iconY = timeY + 9 + TIMELINE_MOON_ICON_R;
+      drawMoonIconClient(ctx, clusterX, iconY, TIMELINE_MOON_ICON_R, card.moonPhase.illumination, card.moonPhase.waxing);
+
+      ctx.textAlign = "center";
+      ctx.fillText(word, clusterX, iconY + TIMELINE_MOON_ICON_R + 16);
+    });
+
+    if (sunriseX != null && sunsetX != null) {
+      timelineInvertNightColumnsClient(ctx, 0, sunriseX);
+      timelineInvertNightColumnsClient(ctx, sunsetX, w - sunsetX);
+    }
+  }
+
+  function formatLongDateClient(date, timeZone) {
+    if (!date) return null;
+    return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone }).format(date);
+  }
+
+  const timelineTownSearch = document.getElementById("timelineTownSearch");
+  const timelineSearchResults = document.getElementById("timelineSearchResults");
+  const timelineStationMapEl = document.getElementById("timelineStationMap");
+  const timelineStationListWrap = document.getElementById("timelineStationListWrap");
+  const timelineSpotStatus = document.getElementById("timelineSpotStatus");
+  const timelineUseBtn = document.getElementById("timelineUseBtn");
+
+  let timelineTown = null; // { name, lat, lon }
+  let timelineStations = [];
+  let timelineSelectedStation = null; // { id, name, lat, lon, distance }
+  let timelineMap = null;
+  let timelineMarkers = [];
+  let timelineSearchAbort = null;
+  let timelineSearchTimer = null;
+  let timelineFetchToken = 0; // guards a slow/stale fetch from clobbering a newer load
+
+  function clearTimelineMap() {
+    if (timelineMap) { timelineMap.remove(); timelineMap = null; }
+    timelineMarkers = [];
+    timelineStationMapEl.style.display = "none";
+  }
+
+  // Reuses fetchAllTideStations/haversineMilesClient/escapeHtml -- same
+  // NOAA station list and distance math as the Fishing Spot picker, just
+  // a second, independent search+pick UI for this card's own town+station.
+  function renderTimelineStationMap() {
+    clearTimelineMap();
+    if (typeof L === "undefined" || !timelineStations.length) return;
+    try {
+      timelineStationMapEl.style.display = "block";
+      timelineMap = L.map(timelineStationMapEl, { zoomControl: true, attributionControl: true }).setView([timelineTown.lat, timelineTown.lon], 11);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(timelineMap);
+
+      const townIcon = L.divIcon({ className: "fishing-town-marker", html: '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2c-4 0-7 3-7 7 0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z" fill="#C97456" stroke="#1F3347" stroke-width="1"/><circle cx="12" cy="9" r="2.4" fill="#fff"/></svg>', iconSize: [20, 20] });
+      const stationIcon = L.divIcon({ className: "fishing-station-marker", html: "<span></span>", iconSize: [12, 12] });
+      const selectedIcon = L.divIcon({ className: "fishing-station-marker selected", html: "<span></span>", iconSize: [16, 16] });
+
+      const townMarker = L.marker([timelineTown.lat, timelineTown.lon], { icon: townIcon }).addTo(timelineMap);
+      timelineMarkers.push(townMarker);
+      timelineStations.forEach((s) => {
+        const marker = L.marker([s.lat, s.lon], { icon: timelineSelectedStation && timelineSelectedStation.id === s.id ? selectedIcon : stationIcon }).addTo(timelineMap);
+        marker._stationId = s.id;
+        marker.on("click", () => selectTimelineStation(s));
+        timelineMarkers.push(marker);
+      });
+    } catch (err) {
+      console.error("Timeline station map failed to load:", err);
+      clearTimelineMap();
+    }
+  }
+
+  function renderTimelineStationList() {
+    timelineStationListWrap.innerHTML = "";
+    timelineStations.forEach((s) => {
+      const row = document.createElement("label");
+      row.className = "fishing-station-row" + (timelineSelectedStation && timelineSelectedStation.id === s.id ? " selected" : "");
+      row.dataset.stationId = String(s.id);
+      row.innerHTML =
+        '<input type="radio" name="timelineStation">' +
+        '<span class="fishing-station-info"><span class="fishing-station-name">' + escapeHtml(s.name) + '</span>' +
+        '<span class="fishing-station-meta">Station ' + escapeHtml(String(s.id)) + " &middot; " + s.distance.toFixed(1) + " mi away</span></span>";
+      row.querySelector("input").checked = !!(timelineSelectedStation && timelineSelectedStation.id === s.id);
+      row.addEventListener("click", (e) => { e.preventDefault(); selectTimelineStation(s); });
+      timelineStationListWrap.appendChild(row);
+    });
+  }
+
+  function selectTimelineStation(s) {
+    timelineSelectedStation = s;
+    timelineStationListWrap.querySelectorAll(".fishing-station-row").forEach((r) => {
+      const match = r.dataset.stationId === String(s.id);
+      r.classList.toggle("selected", match);
+      r.querySelector("input").checked = match;
+    });
+    timelineMarkers.forEach((m) => {
+      if (m._stationId) m.setIcon(L.divIcon({ className: "fishing-station-marker" + (m._stationId === s.id ? " selected" : ""), html: "<span></span>", iconSize: m._stationId === s.id ? [16, 16] : [12, 12] }));
+    });
+    timelineUseBtn.disabled = false;
+    timelineSpotStatus.textContent = "Selected: " + s.name + " (Station " + s.id + ")";
+  }
+
+  async function loadTimelineStations(town) {
+    timelineSpotStatus.textContent = "Finding nearby tide stations…";
+    try {
+      const all = await fetchAllTideStations();
+      timelineStations = all
+        .map((s) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lng !== undefined ? s.lng : s.lon }))
+        .map((s) => Object.assign(s, { distance: haversineMilesClient(town.lat, town.lon, s.lat, s.lon) }))
+        .filter((s) => s.distance <= 100)
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 8);
+      if (!timelineStations.length) {
+        timelineSpotStatus.textContent = "No tide stations found within 100 miles of that spot.";
+        return;
+      }
+      timelineSelectedStation = null;
+      timelineUseBtn.disabled = true;
+      timelineSpotStatus.textContent = "Pick the closest tide station.";
+      renderTimelineStationMap();
+      renderTimelineStationList();
+    } catch (err) {
+      console.error("Couldn't load nearby tide stations:", err);
+      timelineSpotStatus.textContent = "Couldn't load nearby tide stations right now.";
+    }
+  }
+
+  async function runTimelineSearch(q) {
+    if (timelineSearchAbort) timelineSearchAbort.abort();
+    timelineSearchAbort = new AbortController();
+    timelineSearchResults.innerHTML = '<div class="fishing-search-result-row">Searching…</div>';
+    try {
+      const resp = await fetch(
+        "https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=us&addressdetails=1&limit=6&q=" + encodeURIComponent(q),
+        { signal: timelineSearchAbort.signal }
+      );
+      const results = await resp.json();
+      timelineSearchResults.innerHTML = "";
+      if (!results.length) {
+        timelineSearchResults.innerHTML = '<div class="fishing-search-result-row">No matches</div>';
+        return;
+      }
+      results.forEach((r) => {
+        const row = document.createElement("div");
+        row.className = "fishing-search-result-row";
+        row.textContent = r.display_name;
+        row.addEventListener("click", () => {
+          timelineSearchResults.innerHTML = "";
+          timelineTownSearch.value = r.display_name;
+          timelineTown = { name: (r.address && (r.address.city || r.address.town || r.address.village)) || r.name || r.display_name, lat: parseFloat(r.lat), lon: parseFloat(r.lon) };
+          loadTimelineStations(timelineTown);
+        });
+        timelineSearchResults.appendChild(row);
+      });
+    } catch (err) {
+      if (err.name === "AbortError") return;
+      console.error("Timeline town search failed:", err);
+      timelineSearchResults.innerHTML = '<div class="fishing-search-result-row">Search failed -- try again</div>';
+    }
+  }
+
+  timelineTownSearch.addEventListener("input", () => {
+    const q = timelineTownSearch.value.trim();
+    clearTimeout(timelineSearchTimer);
+    if (q.length < 3) { timelineSearchResults.innerHTML = ""; return; }
+    timelineSearchTimer = setTimeout(() => runTimelineSearch(q), 350);
+  });
+
+  // Picking a station just sets the layer's own lat/lon/stationId/townName
+  // directly (no separate Storage write like the Fishing Spot picker --
+  // those ARE this card's core settings, saved with everything else in
+  // -dynamic.json on publish) and kicks off the real data fetch.
+  async function loadTimelineLayer(lat, lon, stationId, townName) {
+    let layer = layers.find((l) => l.kind === "tideTimeline");
+    if (!layer) {
+      pushUndoState();
+      layers.length = 0;
+      layer = {
+        kind: "tideTimeline", id: nextLayerId++,
+        x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
+        font: "Georgia, serif", outline: false,
+        lat: null, lon: null, stationId: null, townName: "", cardData: null, previewContent: "LOADING…"
+      };
+      layers.push(layer);
+    }
+    layer.lat = lat;
+    layer.lon = lon;
+    layer.stationId = stationId;
+    layer.townName = townName;
+    layer.cardData = null;
+    renderLayers();
+
+    const token = ++timelineFetchToken;
+    try {
+      timelineSpotStatus.textContent = "Loading tide, sun & moon data for " + townName + "…";
+      const data = await fetchTideTimelineDataClient(lat, lon, stationId);
+      if (token !== timelineFetchToken) return; // superseded by a newer pick
+      layer.cardData = Object.assign({}, data, {
+        townName: townName.toUpperCase(),
+        dateLabel: formatLongDateClient(new Date(data.dayStart), data.timeZone)
+      });
+      layer.previewContent = null;
+      timelineSpotStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
+    } catch (err) {
+      if (token !== timelineFetchToken) return;
+      console.error("Couldn't load timeline data:", err);
+      layer.previewContent = "Couldn't load data right now — it'll try again on its own each day.";
+      timelineSpotStatus.textContent = "Couldn't load tide/moon data right now (" + err.message + ") — it'll try again on its own each day.";
+    }
+    renderLayers();
+  }
+
+  timelineUseBtn.addEventListener("click", () => {
+    if (!timelineTown || !timelineSelectedStation) return;
+    loadTimelineLayer(timelineTown.lat, timelineTown.lon, String(timelineSelectedStation.id), timelineTown.name);
+  });
 
   // Tide never goes through staging/commit either -- same reasoning as
   // Team/News (a fixed full-screen card, redrawn fresh every day). Unlike
@@ -4159,7 +4611,7 @@
   // handler above). If a second one of any kind ever did slip through
   // some other way, it would render fine at publish time but stay
   // frozen from then on -- it wouldn't be the one the daily job updates.
-  const DYNAMIC_KINDS = new Set(["countdown", "team", "news", "tide"]);
+  const DYNAMIC_KINDS = new Set(["countdown", "team", "news", "tide", "tideTimeline"]);
 
   // Same idea as getCompositeCanvas, but leaves out any dynamic layer --
   // this is what the daily Cloud Function redraws the current content
@@ -4284,6 +4736,8 @@
             dynamicMeta = Object.assign({ type: "team", sport: dynamicLayer.sport, league: dynamicLayer.league, teamId: dynamicLayer.teamId, teamName: dynamicLayer.teamName }, shared);
           } else if (dynamicLayer.kind === "tide") {
             dynamicMeta = Object.assign({ type: "tide", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId }, shared);
+          } else if (dynamicLayer.kind === "tideTimeline") {
+            dynamicMeta = Object.assign({ type: "tideTimeline", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId, townName: dynamicLayer.townName || "" }, shared);
           } else {
             dynamicMeta = Object.assign({ type: "news", location: dynamicLayer.location || "", feedUrl: dynamicLayer.feedUrl || "" }, shared);
           }

@@ -700,6 +700,103 @@ end-to-end with Playwright, mocking Nominatim/NOAA/tile responses.
 production, so this is a sandbox limitation, not an unproven approach --
 but the map specifically is worth a quick look after deploying.
 
+## The Sun/Moon/Tide Timeline card
+
+A second, distinct tool from Tide & Fishing above (its own toolbar
+button/`kind: "tideTimeline"`/`type: "tideTimeline"` dynamic layer, not a
+variant of it) -- built from an extensive round of visual mockup
+iteration with the customer before any production code existed, each
+round verified against a real rendered PNG rather than a verbal
+description. The whole board represents one local calendar day, midnight
+to midnight, left to right, in three bands: a sun icon + town name/date
+across the top, tide highs/lows above a time axis about two-thirds down,
+and moon rise/set/overhead/underfoot events below it. There's no hour
+axis at all -- every time on the card is its own label.
+
+**Draw-then-invert, not per-element ink color.** The single biggest
+design decision, proposed by the customer directly: draw the *entire*
+card in the simple, uniform black-ink-on-white scheme with zero day/night
+awareness, then invert the finished night-side pixel columns (before
+sunrise, after sunset) as the very last step (`TIMELINE_invertNightColumns`
+/ `timelineInvertNightColumnsClient`, `ctx.getImageData` → `255 - value`
+per RGB channel → `ctx.putImageData`, alpha untouched). An earlier
+per-element approach (pick ink color while drawing, based on whether that
+element's x falls in day or night) kept breaking: a "SUNSET 7:39PM" label
+whose own rendered width exceeded the available night-zone width had part
+of itself land on the wrong-colored background, rendering white-on-white
+and vanishing -- no per-element fix could avoid that without knowing the
+final layout in advance. Inverting whole finished columns is correct by
+construction for *any* element that happens to land there, including one
+straddling the boundary itself. That's also why the sun icon
+(`drawTimelineSunIcon` / `drawTimelineSunIconClient`) is deliberately
+centered exactly on `sunriseX`/`sunsetX` and never clamped like the text
+around it: the invert pass bisects it for free into a white-glyph-on-black
+half and a black-glyph-on-white half, satisfying the "half dark, half
+white" sun icon the customer asked for with no special-case logic.
+
+**Data layer (`fetchTideTimelineData` in `lib/astro.js`) is deliberately
+lighter than `fetchTideCardData`** -- no continuous tide curve (hi/lo
+points only), no weather, no fishing score -- but covers a full local
+midnight-to-midnight window instead of `fetchTideCardData`'s dawn-to-dusk
+one. `moonEvents` combines rise/set/overhead/underfoot into one
+time-sorted array (the same "array of events" shape `tideExtrema` already
+uses) rather than fixed named fields, since a 24h window can rarely hold
+exactly one of each -- the lunar day runs ~24h50m, not 24h, so a given
+day can just as easily hold zero or two of any one event.
+
+**Overhead/underfoot reuses `findMoonAltitudeExtrema`** (originally built
+for solunar major-period fishing-score calculation) rather than adding a
+second astronomical sampler: it now tags each transit with
+`extremaType: "overhead"` (an altitude local maximum -- the moon crossing
+the local meridian) or `"underfoot"` (a local minimum -- the antitransit
+on the opposite side of the earth). `computeSolunarPeriods`, the existing
+caller, only ever needed "this is a major-period center" and ignores the
+new field entirely, so this is non-breaking.
+
+**`localMidnight(now, timeZone)`** is a DST-safe local-midnight lookup
+with no timezone library dependency, using a simpler one-pass technique
+than this file's existing `parseNoaaLocalTimestamp`: `now` is itself a
+real anchor instant, and `now`'s own local wall-clock time (via
+`Intl.DateTimeFormat`) is exactly how far past local midnight `now`
+already is -- so subtracting that off `now` lands on local midnight
+directly, no guess-and-correct needed. (`parseNoaaLocalTimestamp` has to
+invert an arbitrary wall-clock *string* with no anchor instant to measure
+from in the first place, which is why it can't use this shortcut.)
+
+**Live preview** goes through its own proxy, `astroTimelineProxy`
+(`astroTimelineProxyHandler` in `index.js`) -- the same shape and
+validation as `astroProxy`, but calling `fetchTideTimelineData` instead.
+A distinct endpoint rather than a third `type` query param on the
+existing one, since the two cards' payloads are genuinely different
+shapes (see above), not just different content.
+
+**The picker (`design/index.html`'s Timeline tool panel) requires both a
+town name and a tide station up front** -- unlike Tide & Fishing's
+device-location-with-an-optional-override model, there's no fallback
+here at all; the customer picks both explicitly every time, since the
+town name is itself rendered on the card. The picker's mechanics (town
+search via Nominatim, nearby-station lookup via the same NOAA CO-OPS
+station-list endpoint + haversine filtering, Leaflet + OpenStreetMap map)
+are the Fishing Spot picker's own proven code, duplicated under a
+`timeline`-prefixed set of functions/element IDs rather than shared --
+consistent with this codebase's existing precedent of duplicating
+UI/rendering logic between features rather than introducing a shared
+abstraction for something this small. Picking a station sets the
+layer's own `lat`/`lon`/`stationId`/`townName` directly (no separate
+Storage write the way Fishing Spot's `-fishing.json` gets one) -- these
+are this card's own core settings, published inline with everything else
+in `-dynamic.json`.
+
+**Not live-tested against NOAA** from this development sandbox, for the
+same reason noted under the Tide & Fishing card above (NOAA isn't
+reachable from here) -- covered thoroughly with mocked tests instead
+(`test/astro.test.js`, `test/astroTimelineProxy.test.js`,
+`test/dynamic.test.js`'s `drawTideTimelineCard`/`renderDynamicDesign`
+suites, including pixel-level checks that the night-side background and
+the sun icon actually invert correctly, not just "doesn't throw"). Needs
+the same live smoke test the other cards eventually got: deploy, publish
+a Timeline layer, and check what actually shows up.
+
 ## Known tradeoffs
 
 **At most one dynamic layer per screen, enforced client-side, not server-side**:

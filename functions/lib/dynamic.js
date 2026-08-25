@@ -17,7 +17,7 @@
 
 const { createCanvas, loadImage, registerFont } = require("canvas");
 const path = require("path");
-const { fetchTideCardData } = require("./astro");
+const { fetchTideCardData, fetchTideTimelineData, formatLongDate } = require("./astro");
 const { OUTBOUND_FETCH_HEADERS } = require("./http");
 
 const CANVAS_WIDTH = 792;
@@ -1442,6 +1442,248 @@ function drawTideCard(ctx, card) {
   }
 }
 
+// ================= Sun/Moon/Tide Timeline card =================
+// Full-screen layout, built from real user feedback across many mockup
+// rounds (not redesigned from scratch here -- see the README section
+// for the full history). The whole board represents one local calendar
+// day, midnight to midnight, left to right. Three bands, top to bottom:
+//   1. Top row: a sun icon straddling the sunrise/sunset boundary
+//      itself (see TIMELINE_invertNightColumns below for why that
+//      works), its time above; town name + full date centered between
+//      them, in the daylight span specifically (not the canvas
+//      midpoint -- the two rarely coincide).
+//   2. Above the time axis (~2/3 down): each tide high/low, as
+//      "H"/"L" + feet above its time, with a drop-line down to the
+//      axis at that event's actual time position. Highs get a taller
+//      drop-line than lows -- a visual echo of a real tide curve's
+//      shape, even though this card never draws a continuous curve.
+//   3. Below the axis: each moon event (rise, set, overhead,
+//      underfoot) as a drop-line up to the axis, then time, moon-phase
+//      icon, and a small RISE/SET/OVER/UNDER word underneath.
+// The axis itself carries NO hour labels -- every time on the card is
+// its own label, deliberately.
+//
+// Night/day background: rather than picking an ink color per element
+// while drawing (which was tried first and kept breaking -- a label
+// straddling the boundary would have PART of its own width land on the
+// wrong-colored background, invisible white-on-white), everything here
+// is drawn in the simple, uniform black-ink-on-white scheme, with zero
+// day/night awareness. TIMELINE_invertNightColumns then inverts the
+// finished night-side pixel columns as the very last step -- correct
+// by construction for ANY element that happens to land there, including
+// ones straddling the boundary (like the sun icon, deliberately
+// centered exactly on it): the night-side half of a straddling icon
+// simply becomes a white glyph on the now-black background, no special
+// case needed.
+const TIMELINE_TIME_FONT_SIZE = 30; // every time on this card: sunrise, sunset, tide, moon
+const TIMELINE_AMPM_RATIO = 0.55; // the AM/PM suffix renders at this fraction of the main time's size
+const TIMELINE_WORD_FONT_SIZE = 16; // RISE / SET / OVER / UNDER
+const TIMELINE_TOP_ROW_HEIGHT = 54;
+const TIMELINE_AXIS_Y = 165; // "two thirds down" -- moved up a bit from a literal 2/3 (181) to leave more room below for the moon icon
+const TIMELINE_MOON_ICON_R = 17;
+const TIMELINE_HIGH_LINE_LEN = 36;
+const TIMELINE_LOW_LINE_LEN = 18;
+const TIMELINE_SUN_ICON_R = 11;
+
+// Splits "6:20AM" into "6:20" (mainSize) + "AM" (smaller, ampmSize),
+// sharing one baseline -- same mixed-size-one-line technique
+// drawGameLine uses for the Game Day card's date/venue/time. Handles
+// left/center/right alignment itself.
+function drawTimelineTimeSplitAmPm(ctx, timeStr, x, y, align, mainSize, ampmSize) {
+  const m = timeStr.replace(" ", "").match(/^(.*?)(AM|PM)$/);
+  const family = FONT_FAMILY.serif;
+  if (!m) {
+    ctx.font = "bold " + mainSize + "px \"" + family + "\"";
+    ctx.textAlign = align;
+    ctx.fillText(timeStr, x, y);
+    return;
+  }
+  const main = m[1], suffix = m[2];
+  ctx.font = "bold " + mainSize + "px \"" + family + "\"";
+  const mainWidth = ctx.measureText(main).width;
+  ctx.font = "bold " + ampmSize + "px \"" + family + "\"";
+  const suffixWidth = ctx.measureText(suffix).width;
+  const totalWidth = mainWidth + suffixWidth;
+  let startX;
+  if (align === "left") startX = x;
+  else if (align === "right") startX = x - totalWidth;
+  else startX = x - totalWidth / 2;
+  ctx.textAlign = "left";
+  ctx.font = "bold " + mainSize + "px \"" + family + "\"";
+  ctx.fillText(main, startX, y);
+  ctx.font = "bold " + ampmSize + "px \"" + family + "\"";
+  ctx.fillText(suffix, startX + mainWidth, y);
+}
+
+// Keeps a marker's text from running off the left/right canvas edge --
+// switches text-align near the edges instead of staying centered.
+function timelineClampAlign(x) {
+  if (x < 90) return "left";
+  if (x > CANVAS_WIDTH - 90) return "right";
+  return "center";
+}
+function timelineClampX(x) {
+  if (x < 90) return Math.max(x, 4);
+  if (x > CANVAS_WIDTH - 90) return Math.min(x, CANVAS_WIDTH - 4);
+  return x;
+}
+// For a centered cluster (the moon icon + its word, both always
+// center-anchored regardless of timelineClampAlign) -- keeps its widest
+// element (the word, wider than the icon) fully on-canvas near either
+// edge instead of just nudging in a few px.
+function timelineClampCenterX(x, halfWidth) {
+  return Math.max(halfWidth + 4, Math.min(x, CANVAS_WIDTH - halfWidth - 4));
+}
+
+// A filled circle + short rays -- deliberately centered exactly on
+// sunriseX/sunsetX (never clamped like the text around it), so
+// TIMELINE_invertNightColumns bisects it right on the boundary.
+function drawTimelineSunIcon(ctx, cx, cy, r) {
+  ctx.save();
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 2;
+  const rayCount = 8;
+  const rayInner = r + 3;
+  const rayOuter = r + 8;
+  for (let i = 0; i < rayCount; i++) {
+    const angle = (i / rayCount) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(angle) * rayInner, cy + Math.sin(angle) * rayInner);
+    ctx.lineTo(cx + Math.cos(angle) * rayOuter, cy + Math.sin(angle) * rayOuter);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Inverts every pixel (RGB, not alpha) in the given x-range across the
+// card's full height -- the "apply the night rule" step. Cheap to call
+// twice (once per side of the daylight span) since each call only
+// touches its own rectangle.
+function TIMELINE_invertNightColumns(ctx, x0, w) {
+  if (w <= 0) return;
+  const imgData = ctx.getImageData(x0, 0, w, CANVAS_HEIGHT);
+  const d = imgData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    d[i] = 255 - d[i];
+    d[i + 1] = 255 - d[i + 1];
+    d[i + 2] = 255 - d[i + 2];
+  }
+  ctx.putImageData(imgData, x0, 0);
+}
+
+const TIMELINE_MOON_WORD = { rise: "RISE", set: "SET", overhead: "OVER", underfoot: "UNDER" };
+
+function drawTideTimelineCard(ctx, card) {
+  const dayStartMs = new Date(card.dayStart).getTime();
+  const dayEndMs = new Date(card.dayEnd).getTime();
+  function xForTime(iso) {
+    const frac = (new Date(iso).getTime() - dayStartMs) / (dayEndMs - dayStartMs);
+    return Math.round(frac * CANVAS_WIDTH);
+  }
+
+  const sunriseX = card.sunrise ? xForTime(card.sunrise.t) : null;
+  const sunsetX = card.sunset ? xForTime(card.sunset.t) : null;
+
+  // ---- Top row: sun icons + times, town name + date ----
+  if (card.sunrise) {
+    const align = timelineClampAlign(sunriseX);
+    const anchorX = timelineClampX(sunriseX);
+    ctx.fillStyle = "#000";
+    drawTimelineTimeSplitAmPm(ctx, card.sunrise.label, anchorX, 25, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+    drawTimelineSunIcon(ctx, sunriseX, 43, TIMELINE_SUN_ICON_R);
+  }
+  if (card.sunset) {
+    const align = timelineClampAlign(sunsetX);
+    const anchorX = timelineClampX(sunsetX);
+    ctx.fillStyle = "#000";
+    drawTimelineTimeSplitAmPm(ctx, card.sunset.label, anchorX, 25, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+    drawTimelineSunIcon(ctx, sunsetX, 43, TIMELINE_SUN_ICON_R);
+  }
+
+  const centerX = (sunriseX != null && sunsetX != null) ? (sunriseX + sunsetX) / 2 : CANVAS_WIDTH / 2;
+  ctx.fillStyle = "#000";
+  ctx.textAlign = "center";
+  ctx.font = "bold 24px \"" + FONT_FAMILY.serif + "\"";
+  ctx.fillText(card.townName || "", centerX, 22);
+  if (card.dateLabel) {
+    ctx.font = "bold 18px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillText(card.dateLabel, centerX, 44);
+  }
+
+  ctx.strokeStyle = "rgba(0,0,0,0.4)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, TIMELINE_AXIS_Y);
+  ctx.lineTo(CANVAS_WIDTH, TIMELINE_AXIS_Y);
+  ctx.stroke();
+
+  // ---- Tide highs/lows, above the axis ----
+  (card.tideExtrema || []).forEach((ex) => {
+    const x = xForTime(ex.t);
+    const align = timelineClampAlign(x);
+    const anchorX = timelineClampX(x);
+    const lineLen = ex.isHigh ? TIMELINE_HIGH_LINE_LEN : TIMELINE_LOW_LINE_LEN;
+    const lineTop = TIMELINE_AXIS_Y - lineLen;
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, lineTop);
+    ctx.lineTo(x, TIMELINE_AXIS_Y);
+    ctx.stroke();
+
+    // The value-to-time gap is fixed independently of lineLen (30px,
+    // sized for TIME_FONT_SIZE's own ascent) -- lineLen only controls
+    // how far the whole cluster floats above the axis.
+    const timeBaseline = lineTop - 8;
+    const valueBaseline = timeBaseline - 30;
+    ctx.fillStyle = "#000";
+    ctx.textAlign = align;
+    ctx.font = "bold 20px \"" + FONT_FAMILY.block + "\"";
+    ctx.fillText((ex.isHigh ? "H" : "L") + " " + ex.heightFt.toFixed(1) + "ft", anchorX, valueBaseline);
+    drawTimelineTimeSplitAmPm(ctx, ex.label, anchorX, timeBaseline, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+  });
+
+  // ---- Moon events, below the axis ----
+  (card.moonEvents || []).forEach((ev) => {
+    const x = xForTime(ev.t);
+    const align = timelineClampAlign(x);
+    const anchorX = timelineClampX(x);
+
+    const lineBottom = TIMELINE_AXIS_Y + 12;
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, TIMELINE_AXIS_Y);
+    ctx.lineTo(x, lineBottom);
+    ctx.stroke();
+
+    ctx.fillStyle = "#000";
+    const timeY = lineBottom + 20;
+    drawTimelineTimeSplitAmPm(ctx, ev.label, anchorX, timeY, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+
+    const word = TIMELINE_MOON_WORD[ev.kind] || "";
+    ctx.font = "bold " + TIMELINE_WORD_FONT_SIZE + "px \"" + FONT_FAMILY.serif + "\"";
+    const wordHalfWidth = ctx.measureText(word).width / 2;
+    const clusterX = timelineClampCenterX(x, wordHalfWidth);
+
+    const iconY = timeY + 9 + TIMELINE_MOON_ICON_R;
+    drawMoonIcon(ctx, clusterX, iconY, TIMELINE_MOON_ICON_R, card.moonPhase.illumination, card.moonPhase.waxing);
+
+    ctx.textAlign = "center";
+    ctx.fillText(word, clusterX, iconY + TIMELINE_MOON_ICON_R + 16);
+  });
+
+  // ---- Apply the night rule, last ----
+  if (sunriseX != null && sunsetX != null) {
+    TIMELINE_invertNightColumns(ctx, 0, sunriseX);
+    TIMELINE_invertNightColumns(ctx, sunsetX, CANVAS_WIDTH - sunsetX);
+  }
+}
+
 async function compositeAndPack(basePngBuffer, drawFn, meta) {
   const baseImage = await loadImage(basePngBuffer);
   const composite = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -1567,6 +1809,17 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     return Object.assign(result, { tideData: data, content: data.moon.phaseName + " -- " + extremaSummary });
   }
 
+  if (meta.type === "tideTimeline") {
+    const data = await fetchTideTimelineData({ lat: meta.lat, lon: meta.lon, stationId: meta.stationId }, now, fetchImpl);
+    const card = Object.assign({}, data, {
+      townName: (meta.townName || "").toUpperCase(),
+      dateLabel: formatLongDate(new Date(data.dayStart), data.timeZone)
+    });
+    const result = await compositeAndPack(basePngBuffer, (ctx) => drawTideTimelineCard(ctx, card), meta);
+    const tideSummary = data.tideExtrema.map((e) => (e.isHigh ? "H" : "L") + " " + e.label).join(", ");
+    return Object.assign(result, { timelineData: data, content: card.townName + " -- " + tideSummary });
+  }
+
   throw new Error("Unknown dynamic layer type: " + meta.type);
 }
 
@@ -1615,6 +1868,7 @@ module.exports = {
   formatShortDate,
   drawMoonIcon,
   drawTideCard,
+  drawTideTimelineCard,
   renderDynamicDesign,
   ensureFontsRegistered
 };
