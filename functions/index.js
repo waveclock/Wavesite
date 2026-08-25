@@ -14,7 +14,7 @@ const { onRequest } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, espnTeamUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
-const { fetchTideCardData } = require("./lib/astro");
+const { fetchTideCardData, fetchTideTimelineData } = require("./lib/astro");
 const { isTeamsnapIcsUrl, fetchIcsSchedule } = require("./lib/teamsnap");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
@@ -318,6 +318,41 @@ async function astroProxyHandler(req, res) {
 
 exports.astroProxy = onRequest({ cors: true, region: "us-central1" }, astroProxyHandler);
 
+// Same shape and reasoning as astroProxyHandler above, for the Sun/Moon/
+// Tide Timeline card's live preview instead -- a distinct endpoint
+// rather than a third `type` query param on astroProxy, since the two
+// cards need genuinely different payloads (fetchTideTimelineData skips
+// the continuous curve, weather, and fishing score entirely, and adds
+// moonEvents/dayStart/dayEnd that fetchTideCardData doesn't have).
+async function astroTimelineProxyHandler(req, res) {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  const stationId = typeof req.query.stationId === "string" ? req.query.stationId : "";
+
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+    res.status(400).json({ error: "lat/lon must be valid coordinates" });
+    return;
+  }
+  if (!/^[0-9]{5,9}$/.test(stationId)) {
+    res.status(400).json({ error: "stationId must be a NOAA station number" });
+    return;
+  }
+
+  try {
+    const data = await fetchTideTimelineData({ lat, lon, stationId });
+    res.status(200).json(data);
+  } catch (err) {
+    logger.error("astro timeline proxy request failed for lat=" + lat + " lon=" + lon + " stationId=" + stationId + ":", err);
+    if (err.noaaDataError) {
+      res.status(422).json({ error: "This tide station doesn't have full predictions available (NOAA: " + err.message + "). Try picking a different station." });
+      return;
+    }
+    res.status(502).json({ error: "Couldn't reach NOAA/sun-moon data right now" });
+  }
+}
+
+exports.astroTimelineProxy = onRequest({ cors: true, region: "us-central1" }, astroTimelineProxyHandler);
+
 // ================= TeamSnap proxy =================
 // team-schedule.html needs to fetch a team's exported .ics feed from the
 // visitor's browser. Same problem as espnProxy/newsProxy above:
@@ -351,4 +386,4 @@ exports.teamsnapProxy = onRequest({ cors: true, region: "us-central1" }, teamsna
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, espnProxyHandler, newsProxyHandler, astroProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
