@@ -3439,6 +3439,17 @@
   // Mirrors drawTideTimelineCard exactly.
   function drawTideTimelineCardClient(ctx, card) {
     const w = baseCanvas.width;
+    // Unlike the server (compositeAndPack always fills opaque white before
+    // calling drawFn), this canvas starts fully transparent -- renderLayers
+    // clears it, and the CSS background is what makes it look white on
+    // screen. That's fine for every other card here, but this one's
+    // invert-the-night-columns step operates on real pixel data (RGB, not
+    // alpha) -- inverting a transparent pixel leaves it just as invisible
+    // as before, so the night background would never actually turn black.
+    // An explicit opaque fill first gives the invert pass real pixels to
+    // flip, matching what the server already does.
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, w, baseCanvas.height);
     const dayStartMs = new Date(card.dayStart).getTime();
     const dayEndMs = new Date(card.dayEnd).getTime();
     function xForTime(iso) {
