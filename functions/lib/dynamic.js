@@ -1561,15 +1561,18 @@ function drawTimelineSunIcon(ctx, cx, cy, r) {
   ctx.restore();
 }
 
-// Splits "H 4.7ft" into "H " (larger) + "4.7ft" (smaller, plain weight)
-// sharing one baseline -- same mixed-size-one-line technique as
+// Splits "HIGH 4.7" into "HIGH " (larger, bold) + "4.7" (smaller, plain
+// weight) sharing one baseline -- same mixed-size-one-line technique as
 // drawTimelineTimeSplitAmPm, just with the larger piece first instead of
-// last, and neither piece bold.
+// last. Spells out HIGH/LOW rather than abbreviating to H/L, and drops
+// the "ft" unit -- the card only ever shows one unit, it doesn't need
+// repeating at every marker. Serif, not the block/Bungee font used
+// elsewhere on this card -- Bungee's "L" reads oddly at this size.
 function drawTimelineHLValue(ctx, isHigh, heightFt, x, y, align) {
-  const letter = (isHigh ? "H" : "L") + " ";
-  const value = heightFt.toFixed(1) + "ft";
-  const family = FONT_FAMILY.block;
-  ctx.font = TIMELINE_HL_LETTER_SIZE + "px \"" + family + "\"";
+  const letter = (isHigh ? "HIGH" : "LOW") + " ";
+  const value = heightFt.toFixed(1);
+  const family = FONT_FAMILY.serif;
+  ctx.font = "bold " + TIMELINE_HL_LETTER_SIZE + "px \"" + family + "\"";
   const letterWidth = ctx.measureText(letter).width;
   ctx.font = TIMELINE_HL_VALUE_SIZE + "px \"" + family + "\"";
   const valueWidth = ctx.measureText(value).width;
@@ -1579,10 +1582,26 @@ function drawTimelineHLValue(ctx, isHigh, heightFt, x, y, align) {
   else if (align === "right") startX = x - totalWidth;
   else startX = x - totalWidth / 2;
   ctx.textAlign = "left";
-  ctx.font = TIMELINE_HL_LETTER_SIZE + "px \"" + family + "\"";
+  ctx.font = "bold " + TIMELINE_HL_LETTER_SIZE + "px \"" + family + "\"";
   ctx.fillText(letter, startX, y);
   ctx.font = TIMELINE_HL_VALUE_SIZE + "px \"" + family + "\"";
   ctx.fillText(value, startX + letterWidth, y);
+}
+
+// A tide extremum this close to midnight (either side) sits right where
+// the axis wraps around -- there's real risk of running into the
+// opposite-edge marker's own label, so for these, the value+time is
+// dropped entirely and only the bare "H"/"L" (still with its own
+// drop-line) is drawn. Reads ex.label ("6:16 AM"/"12:23 AM"/"10:15 PM")
+// rather than redoing a timezone lookup -- it's already the exact
+// local wall-clock string this card displays everywhere else.
+function timelineIsNearMidnightEdge(label) {
+  const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(label || "");
+  if (!m) return false;
+  let hour = parseInt(m[1], 10) % 12;
+  if (m[3].toUpperCase() === "PM") hour += 12;
+  const totalMinutes = hour * 60 + parseInt(m[2], 10);
+  return totalMinutes < 3 * 60 + 30 || totalMinutes >= 22 * 60;
 }
 
 // A reversed-fill variant of drawMoonIcon, just for this card. drawMoonIcon
@@ -1682,7 +1701,11 @@ function drawTideTimelineCard(ctx, card) {
     ctx.fillText(card.dateLabel, centerX, 44);
   }
 
-  ctx.strokeStyle = "rgba(0,0,0,0.4)";
+  // Solid opaque black, not a translucent gray -- this is what lets the
+  // night-side invert pass turn it genuinely WHITE there instead of just
+  // a different shade of gray (an rgba fill would blend with the white
+  // background first, and invert that blended color, not pure black).
+  ctx.strokeStyle = "#000";
   ctx.lineWidth = 2.5;
   ctx.beginPath();
   ctx.moveTo(0, TIMELINE_AXIS_Y);
@@ -1709,8 +1732,14 @@ function drawTideTimelineCard(ctx, card) {
     const timeBaseline = lineTop - 8;
     const valueBaseline = timeBaseline - 30;
     ctx.fillStyle = "#000";
-    drawTimelineHLValue(ctx, ex.isHigh, ex.heightFt, anchorX, valueBaseline, align);
-    drawTimelineTimeSplitAmPm(ctx, ex.label, anchorX, timeBaseline, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+    if (timelineIsNearMidnightEdge(ex.label)) {
+      ctx.textAlign = align;
+      ctx.font = "bold " + TIMELINE_HL_LETTER_SIZE + "px \"" + FONT_FAMILY.serif + "\"";
+      ctx.fillText(ex.isHigh ? "H" : "L", anchorX, timeBaseline);
+    } else {
+      drawTimelineHLValue(ctx, ex.isHigh, ex.heightFt, anchorX, valueBaseline, align);
+      drawTimelineTimeSplitAmPm(ctx, ex.label, anchorX, timeBaseline, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+    }
   });
 
   // ---- Moon events, below the axis ----
@@ -1740,7 +1769,7 @@ function drawTideTimelineCard(ctx, card) {
     drawTimelineMoonIcon(ctx, clusterX, iconY, TIMELINE_MOON_ICON_R, card.moonPhase.illumination, card.moonPhase.waxing);
 
     ctx.textAlign = "center";
-    ctx.fillText(word, clusterX, iconY + TIMELINE_MOON_ICON_R + 16);
+    ctx.fillText(word, clusterX, iconY + TIMELINE_MOON_ICON_R + 20);
   });
 
   // ---- Apply the night rule, last ----
@@ -1936,6 +1965,7 @@ module.exports = {
   drawTideCard,
   drawTideTimelineCard,
   drawTimelineMoonIcon,
+  timelineIsNearMidnightEdge,
   renderDynamicDesign,
   ensureFontsRegistered
 };
