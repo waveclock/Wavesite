@@ -72,23 +72,47 @@
   .rating-summary .stars { color: var(--aqua); font-size: 22px; letter-spacing: 2px; }
   .rating-summary .count { color: var(--ink-soft); font-size: 14px; }
 
-  .leave-review-btn {
+  .header-cta-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+
+  .leave-review-btn, .buy-cta-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    margin-top: 14px;
     padding: 12px 26px;
     border-radius: 999px;
     border: 2px solid var(--ink);
-    background: var(--aqua);
-    color: #fff;
     font-family: var(--body);
     font-weight: 700;
     font-size: 14.5px;
     text-decoration: none;
     box-shadow: 3px 3px 0 var(--ink);
   }
+  .leave-review-btn { background: var(--aqua); color: #fff; }
   .leave-review-btn:hover { box-shadow: 5px 5px 0 var(--ink); }
+  .buy-cta-btn { background: var(--navy); color: var(--foam); }
+  .buy-cta-btn:hover { box-shadow: 5px 5px 0 var(--ink); }
+
+  .back-home-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 22px;
+    border: 1.5px solid var(--driftwood);
+    border-radius: 999px;
+    background: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    text-decoration: none;
+    color: var(--ink);
+  }
+  .back-home-btn:hover { background: var(--foam); }
+  .back-home-btn:active { background: var(--sand); }
 
   .loading, .empty {
     text-align: center;
@@ -132,7 +156,10 @@
     <span class="stars" id="summaryStars"></span>
     <span class="count" id="summaryCount"></span>
   </div>
-  <a class="leave-review-btn" href="submit/">Leave a review &rarr;</a>
+  <div class="header-cta-row">
+    <a class="buy-cta-btn" href="../index.html#buy">Get one for your beach house &rarr;</a>
+    <a class="leave-review-btn" href="submit/">Leave a review &rarr;</a>
+  </div>
 </header>
 
 <div class="wrap">
@@ -141,7 +168,7 @@
 </div>
 
 <footer>
-  <p><a href="../index.html">waveclock.net</a></p>
+  <p><a href="../index.html" class="back-home-btn">&larr; Back to main page</a></p>
 </footer>
 
 <script type="module">
