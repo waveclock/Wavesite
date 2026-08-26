@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Leave a Wave Clock Review</title>
+<link rel="icon" type="image/png" href="../../favicon.png">
+<link rel="apple-touch-icon" href="../../apple-touch-icon.png">
+<meta name="description" content="Tell other beach-house owners what you think of your Wave Clock.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --aqua: #5FADA6;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+    --good: #3E7A5C;
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 40px;
+  }
+
+  .wrap { max-width: 480px; margin: 0 auto; padding: 0 20px; }
+
+  header.top {
+    text-align: center;
+    padding: 28px 20px 22px;
+    background:
+      radial-gradient(ellipse 500px 260px at 50% -20%, rgba(44,74,99,0.14), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 100%);
+  }
+  .brand-mark { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }
+  h1.brand {
+    font-family: var(--display);
+    font-size: 22px;
+    margin: 0;
+    color: var(--ink);
+    text-shadow: 2px 2px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+
+  .intro { text-align: center; padding: 4px 8px 20px; }
+  .intro h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 24px;
+    margin: 0 0 8px;
+  }
+  .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0 auto; max-width: 38ch; }
+
+  .card {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    padding: 22px 20px;
+    box-shadow: 5px 5px 0 rgba(20,48,45,0.10);
+  }
+
+  .field { margin-bottom: 18px; }
+  .field label {
+    display: block;
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 7px;
+    color: var(--ink);
+  }
+  .field input[type="text"],
+  .field textarea {
+    width: 100%;
+    font-family: var(--body);
+    font-size: 15px;
+    color: var(--ink);
+    background: var(--foam);
+    border: 2px solid var(--line);
+    border-radius: 6px;
+    padding: 10px 12px;
+    resize: vertical;
+  }
+  .field input[type="text"]:focus,
+  .field textarea:focus {
+    outline: none;
+    border-color: var(--navy);
+  }
+
+  .star-row { display: flex; gap: 6px; }
+  .star-btn {
+    background: none;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    line-height: 0;
+  }
+  .star-btn svg { width: 34px; height: 34px; }
+  .star-btn path { fill: none; stroke: var(--driftwood); stroke-width: 1.5px; }
+  .star-btn.filled path { fill: var(--aqua); stroke: var(--aqua); }
+
+  .photo-upload-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: 1.5px dashed var(--driftwood);
+    border-radius: 8px;
+    background: var(--foam);
+    color: var(--ink);
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 13.5px;
+    cursor: pointer;
+  }
+  .photo-upload-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .photo-preview {
+    display: none;
+    margin-top: 12px;
+    max-width: 100%;
+    max-height: 220px;
+    border-radius: 6px;
+    border: 2px solid var(--ink);
+  }
+  .remove-photo-btn {
+    display: none;
+    margin-top: 8px;
+    background: none;
+    border: none;
+    color: var(--coral-dark);
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 12.5px;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+  }
+
+  .submit-btn {
+    width: 100%;
+    padding: 14px 20px;
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+    background: var(--navy);
+    color: var(--foam);
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 15px;
+    box-shadow: 3px 3px 0 var(--ink);
+    cursor: pointer;
+  }
+  .submit-btn:hover { box-shadow: 5px 5px 0 var(--ink); }
+  .submit-btn:disabled { opacity: 0.55; cursor: default; box-shadow: none; }
+
+  .status-msg { text-align: center; font-size: 13.5px; margin-top: 14px; min-height: 18px; }
+  .status-msg.error { color: var(--coral-dark); }
+  .status-msg.good { color: var(--good); }
+
+  .thank-you { display: none; text-align: center; padding: 20px 10px; }
+  .thank-you h2 { font-family: var(--heading); font-size: 24px; margin: 0 0 10px; }
+  .thank-you p { color: var(--ink-soft); font-size: 15px; margin: 0; }
+
+  footer {
+    text-align: center;
+    padding: 30px 20px 10px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  footer a { color: var(--navy); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <img src="../../logo.png" alt="WaveClock.net logo" class="brand-mark">
+  <h1 class="brand">WAVE<span style="color:var(--navy);">CLOCK</span></h1>
+</header>
+
+<div class="wrap">
+  <div class="intro">
+    <h2>Leave a review</h2>
+    <p>Tell other beach-house owners what you think &mdash; a photo of it in your home is even better.</p>
+  </div>
+
+  <div class="card" id="formCard">
+    <form id="reviewForm">
+      <div class="field">
+        <label for="starsField">Your rating</label>
+        <div class="star-row" id="starRow" role="radiogroup" aria-label="Star rating">
+          <button type="button" class="star-btn" data-star="1" aria-label="1 star"><svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.9L6 21l1.6-7L2.2 9.2l7.1-.6L12 2z"/></svg></button>
+          <button type="button" class="star-btn" data-star="2" aria-label="2 stars"><svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.9L6 21l1.6-7L2.2 9.2l7.1-.6L12 2z"/></svg></button>
+          <button type="button" class="star-btn" data-star="3" aria-label="3 stars"><svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.9L6 21l1.6-7L2.2 9.2l7.1-.6L12 2z"/></svg></button>
+          <button type="button" class="star-btn" data-star="4" aria-label="4 stars"><svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.9L6 21l1.6-7L2.2 9.2l7.1-.6L12 2z"/></svg></button>
+          <button type="button" class="star-btn" data-star="5" aria-label="5 stars"><svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.9L6 21l1.6-7L2.2 9.2l7.1-.6L12 2z"/></svg></button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="nameField">Your name (or initials)</label>
+        <input type="text" id="nameField" maxlength="60" placeholder="Sarah M." required>
+      </div>
+
+      <div class="field">
+        <label for="commentField">Your review</label>
+        <textarea id="commentField" rows="4" maxlength="600" placeholder="How's it working out for you?" required></textarea>
+      </div>
+
+      <div class="field">
+        <label>Photo (optional)</label>
+        <button type="button" class="photo-upload-btn" id="photoUploadBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          Add a photo
+        </button>
+        <input type="file" id="photoInput" accept="image/*" style="display:none">
+        <img class="photo-preview" id="photoPreview" alt="Selected review photo preview">
+        <button type="button" class="remove-photo-btn" id="removePhotoBtn">Remove photo</button>
+      </div>
+
+      <button type="submit" class="submit-btn" id="submitBtn">Submit review</button>
+      <p class="status-msg" id="statusMsg"></p>
+    </form>
+  </div>
+
+  <div class="thank-you" id="thankYou">
+    <h2>Thank you! &#127881;</h2>
+    <p>Your review has been submitted and will appear on the site once it's reviewed.</p>
+  </div>
+</div>
+
+<footer>
+  <p><a href="../">See other reviews &rarr;</a></p>
+  <p><a href="../../index.html">waveclock.net</a></p>
+</footer>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getStorage, ref, uploadBytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
+    authDomain: "waveclock.firebaseapp.com",
+    projectId: "waveclock",
+    storageBucket: "waveclock.firebasestorage.app",
+    messagingSenderId: "668302334840",
+    appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const storage = getStorage(app);
+
+  const form = document.getElementById("reviewForm");
+  const starRow = document.getElementById("starRow");
+  const starButtons = Array.from(starRow.querySelectorAll(".star-btn"));
+  const nameField = document.getElementById("nameField");
+  const commentField = document.getElementById("commentField");
+  const photoUploadBtn = document.getElementById("photoUploadBtn");
+  const photoInput = document.getElementById("photoInput");
+  const photoPreview = document.getElementById("photoPreview");
+  const removePhotoBtn = document.getElementById("removePhotoBtn");
+  const submitBtn = document.getElementById("submitBtn");
+  const statusMsg = document.getElementById("statusMsg");
+  const formCard = document.getElementById("formCard");
+  const thankYou = document.getElementById("thankYou");
+
+  let selectedStars = 0;
+  let photoBlob = null;
+
+  function paintStars(value) {
+    starButtons.forEach((btn) => {
+      const n = parseInt(btn.dataset.star, 10);
+      btn.classList.toggle("filled", n <= value);
+    });
+  }
+
+  starButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedStars = parseInt(btn.dataset.star, 10);
+      paintStars(selectedStars);
+    });
+    btn.addEventListener("mouseenter", () => paintStars(parseInt(btn.dataset.star, 10)));
+  });
+  starRow.addEventListener("mouseleave", () => paintStars(selectedStars));
+
+  photoUploadBtn.addEventListener("click", () => photoInput.click());
+
+  function resizePhoto(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read photo"));
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("Could not load photo"));
+        img.onload = () => {
+          const maxW = 1200;
+          const scale = Math.min(1, maxW / img.width);
+          const w = Math.round(img.width * scale);
+          const h = Math.round(img.height * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          canvas.toBlob((blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error("Could not process photo"));
+          }, "image/jpeg", 0.85);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  photoInput.addEventListener("change", async () => {
+    const file = photoInput.files[0];
+    if (!file) return;
+    try {
+      photoBlob = await resizePhoto(file);
+      photoPreview.src = URL.createObjectURL(photoBlob);
+      photoPreview.style.display = "block";
+      removePhotoBtn.style.display = "inline-block";
+    } catch (err) {
+      statusMsg.textContent = "Couldn't use that photo — try a different one.";
+      statusMsg.className = "status-msg error";
+    }
+    photoInput.value = "";
+  });
+
+  removePhotoBtn.addEventListener("click", () => {
+    photoBlob = null;
+    photoPreview.src = "";
+    photoPreview.style.display = "none";
+    removePhotoBtn.style.display = "none";
+  });
+
+  function makeId() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return "r" + Date.now() + "-" + Math.random().toString(16).slice(2);
+  }
+
+  form.addEventListener("submit", async (evt) => {
+    evt.preventDefault();
+    statusMsg.textContent = "";
+    statusMsg.className = "status-msg";
+
+    if (selectedStars < 1) {
+      statusMsg.textContent = "Please pick a star rating.";
+      statusMsg.className = "status-msg error";
+      return;
+    }
+    const name = nameField.value.trim();
+    const comment = commentField.value.trim();
+    if (!name || !comment) {
+      statusMsg.textContent = "Please fill in your name and review.";
+      statusMsg.className = "status-msg error";
+      return;
+    }
+
+    submitBtn.disabled = true;
+    statusMsg.textContent = "Submitting…";
+
+    try {
+      const id = makeId();
+      const hasPhoto = !!photoBlob;
+
+      if (hasPhoto) {
+        await uploadBytes(ref(storage, "reviews/pending/" + id + ".jpg"), photoBlob, { contentType: "image/jpeg" });
+      }
+
+      const review = {
+        id,
+        name,
+        stars: selectedStars,
+        comment,
+        hasPhoto,
+        createdAt: new Date().toISOString()
+      };
+      const jsonBlob = new Blob([JSON.stringify(review)], { type: "application/json" });
+      await uploadBytes(ref(storage, "reviews/pending/" + id + ".json"), jsonBlob, { contentType: "application/json" });
+
+      formCard.style.display = "none";
+      thankYou.style.display = "block";
+    } catch (err) {
+      statusMsg.textContent = "Something went wrong submitting your review — please try again.";
+      statusMsg.className = "status-msg error";
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+
+</body>
+</html>
