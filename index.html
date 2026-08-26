@@ -67,7 +67,7 @@
   /* ---------- Texture: subtle grain + horizon gradient behind hero ---------- */
   .hero {
     position: relative;
-    padding: 64px 0 0;
+    padding: 36px 0 0;
     overflow: hidden;
     background:
       radial-gradient(ellipse 900px 500px at 50% -10%, rgba(44,74,99,0.12), transparent 60%),
@@ -107,9 +107,10 @@
   .brand-row {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 18px;
     flex-wrap: wrap;
-    margin-top: 20px;
+    margin-top: 0;
   }
 
   .brand-mark {
@@ -335,8 +336,8 @@
     margin-top: 12px;
     font-size: 12px;
     font-weight: 600;
-    color: var(--wax);
-    background: rgba(217,164,65,0.16);
+    color: var(--aqua);
+    background: rgba(95,173,166,0.16);
     padding: 3px 10px;
     border-radius: 999px;
   }
@@ -469,7 +470,7 @@
     font-weight: 700;
     font-size: 34px;
     margin: 18px 0 6px;
-    color: var(--wax);
+    color: var(--aqua);
   }
   .price-note { font-size: 13px; color: rgba(247,244,236,0.6); margin-bottom: 10px; }
   .free-shipping-note {
@@ -486,13 +487,13 @@
     gap: 7px;
     font-size: 13px;
     font-weight: 600;
-    color: var(--wax);
+    color: var(--aqua);
     margin-bottom: 24px;
   }
   .update-note .dot-live {
     width: 6px; height: 6px; border-radius: 50%;
-    background: var(--wax);
-    box-shadow: 0 0 0 3px rgba(217,164,65,0.25);
+    background: var(--aqua);
+    box-shadow: 0 0 0 3px rgba(95,173,166,0.25);
   }
 
   /* ---------- Contact form ---------- */
@@ -555,7 +556,7 @@
   .footer-name a { text-decoration: none; }
   .footer-name a:hover { text-decoration: underline; }
 
-  ::selection { background: var(--wax); color: var(--ink); }
+  ::selection { background: var(--aqua); color: #fff; }
 </style>
 <script type="application/ld+json">
 {
@@ -750,7 +751,7 @@
 <section id="buy">
   <div class="wrap">
     <div class="buy-panel">
-      <p class="kicker" style="color:var(--wax);">Own one</p>
+      <p class="kicker" style="color:var(--aqua);">Own one</p>
       <h2>Get your Wave Clock</h2>
       <div class="price-tag">$106</div>
       <div class="free-shipping-note">Free shipping</div>
