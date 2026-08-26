@@ -201,23 +201,15 @@
   .tool-guide-icon svg { width: 14px; height: 14px; }
 
   .device-tag {
-    display: inline-block;
-    margin-top: 10px;
-    font-family: var(--body);
-    font-weight: 700;
+    display: block;
+    margin: 14px 0 0;
     font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    background: var(--wax);
-    color: var(--ink);
-    padding: 5px 12px;
-    border-radius: 999px;
-    transform: rotate(-1deg);
+    color: var(--ink-soft);
+    text-align: center;
   }
 
   .device-tag.error {
-    background: var(--coral);
-    color: var(--foam);
+    color: var(--coral-dark);
   }
 
   .screen-nav-caption {
@@ -231,7 +223,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 8px;
     margin-top: 10px;
     font-size: 13px;
   }
@@ -240,24 +232,29 @@
     margin-right: 2px;
   }
   .screen-nav-item {
-    display: inline-block;
-    min-width: 22px;
-    text-align: center;
-    padding: 3px 8px;
-    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px;
+    height: 30px;
+    padding: 0 6px;
+    border-radius: 8px;
+    border: 1.5px solid var(--driftwood);
     text-decoration: none;
     font-weight: 700;
+    font-size: 14px;
   }
   .screen-nav-item.current {
     background: var(--navy);
+    border-color: var(--navy);
     color: var(--foam);
   }
   a.screen-nav-item {
-    background: var(--foam);
-    border: 1px solid var(--line);
-    color: var(--navy);
+    background: #fff;
+    color: var(--ink);
   }
-  a.screen-nav-item:hover { background: var(--sand); }
+  a.screen-nav-item:hover { background: var(--foam); }
+  a.screen-nav-item:active { background: var(--sand); }
 
   .rotation-toggle-row {
     display: flex;
@@ -826,7 +823,6 @@
       </ul>
     </details>
 
-    <span class="device-tag" id="deviceTag">Loading device&hellip;</span>
     <p class="screen-nav-caption" id="screenNavCaption" style="display:none;">Every Wave Clock has 3 custom screens &mdash; tap a number below to design each one.</p>
     <div class="screen-nav" id="screenNav" style="display:none;"></div>
     <label class="rotation-toggle-row" id="rotationToggleRow" style="display:none;">
@@ -1043,6 +1039,7 @@
   <button class="publish-btn" id="publishBtn">Publish to My Wave Clock</button>
   <p class="status" id="statusMsg"></p>
   <p class="publish-note">Takes about 5 minutes to show up &mdash; or open the Update Online Setting screen on your Wave Clock to push it now.</p>
+  <p class="device-tag" id="deviceTag">Loading device&hellip;</p>
 
   </div>
 
