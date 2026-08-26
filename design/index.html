@@ -739,6 +739,20 @@
   }
   footer p { margin: 0 0 6px; }
   footer a { color: var(--navy); }
+  .back-to-manage-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 22px;
+    border: 1.5px solid var(--driftwood);
+    border-radius: 999px;
+    background: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    text-decoration: none;
+  }
+  .back-to-manage-btn:hover { background: var(--foam); }
+  .back-to-manage-btn:active { background: var(--sand); }
 </style>
 </head>
 <body>
@@ -846,7 +860,7 @@
     <div class="device-frame">
       <div class="quick-toolbar" id="quickToolbar">
         <div class="quick-toolbar-row">
-          <button class="icon-tool-btn active" id="toolPenBtn" data-tool="pen" title="Pen">&#9998;</button>
+          <button class="icon-tool-btn" id="toolPenBtn" data-tool="pen" title="Pen">&#9998;</button>
           <button class="icon-tool-btn" id="toolTextBtn" data-tool="text" title="Text">T</button>
           <button class="icon-tool-btn" id="toolStickerBtn" data-tool="sticker" title="Sticker">&#11088;</button>
           <button class="icon-tool-btn" id="toolPhotoBtn" data-tool="photo" title="Photo">&#128247;</button>
@@ -903,7 +917,7 @@
     </div>
   </div>
 
-  <div class="tool-panel" id="penPanel">
+  <div class="tool-panel hidden" id="penPanel">
     <div class="size-row">
       <span>Brush size</span>
       <input type="range" id="sizeSlider" min="3" max="24" value="8">
@@ -1044,7 +1058,7 @@
   </div>
 
   <footer>
-    <p><a href="../manage/" id="backToManageLink">Back to device menu</a></p>
+    <p><a href="../manage/" id="backToManageLink" class="back-to-manage-btn">Back to device menu</a></p>
     <p>waveclock.net &middot; Designed in Ocean City, NJ</p>
   </footer>
 </div>
