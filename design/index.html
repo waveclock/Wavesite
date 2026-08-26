@@ -202,6 +202,13 @@
     color: var(--foam);
   }
 
+  .screen-nav-caption {
+    margin: 12px 0 0;
+    font-size: 13px;
+    color: var(--ink-soft);
+    text-align: center;
+  }
+
   .screen-nav {
     display: flex;
     align-items: center;
@@ -733,10 +740,13 @@
         <span class="feature-callout-icon" title="Team Schedule">
           <svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
         </span>
+        <span class="feature-callout-icon" title="Sun, Moon &amp; Tide Timeline">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4-1.4M17 7l1.4-1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </span>
       </div>
       <div class="feature-callout-text">
-        <p class="feature-callout-title"><span class="badge-pill">NEW</span>Countdown &amp; Team Schedule</p>
-        <p class="feature-callout-desc">Set it once and it keeps itself current &mdash; counting down the days, or pulling your team's next game &mdash; every single day, automatically.</p>
+        <p class="feature-callout-title"><span class="badge-pill">NEW</span>Countdown, Team Schedule &amp; Timeline</p>
+        <p class="feature-callout-desc">Set it once and it keeps itself current &mdash; counting down the days, pulling your team's next game, or showing today's sun, moon &amp; tide &mdash; every single day, automatically.</p>
       </div>
     </div>
 
@@ -799,6 +809,7 @@
     </details>
 
     <span class="device-tag" id="deviceTag">Loading device&hellip;</span>
+    <p class="screen-nav-caption" id="screenNavCaption" style="display:none;">Every Wave Clock has 3 custom screens &mdash; tap a number below to design each one.</p>
     <div class="screen-nav" id="screenNav" style="display:none;"></div>
     <label class="rotation-toggle-row" id="rotationToggleRow" style="display:none;">
       <input type="checkbox" id="rotationCheckbox">
@@ -1049,6 +1060,7 @@
   const editor = document.getElementById("editor");
   const backToManageLink = document.getElementById("backToManageLink");
   const screenNav = document.getElementById("screenNav");
+  const screenNavCaption = document.getElementById("screenNavCaption");
   const rotationToggleRow = document.getElementById("rotationToggleRow");
   const rotationCheckbox = document.getElementById("rotationCheckbox");
 
@@ -1099,6 +1111,7 @@
     deviceTag.textContent = "Designing for " + deviceId + " — Screen " + screen;
     if (backToManageLink) backToManageLink.href = "../manage/?id=" + encodeURIComponent(deviceId);
 
+    screenNavCaption.style.display = "block";
     screenNav.style.display = "flex";
     screenNav.innerHTML = "";
     const navLabel = document.createElement("span");
