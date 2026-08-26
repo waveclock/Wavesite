@@ -479,6 +479,12 @@
     font-size: 38px;
     margin: 18px 0 6px;
     color: var(--aqua);
+    transition: color 0.3s ease, font-size 0.3s ease;
+  }
+  .price-tag.price-struck {
+    color: rgba(247,244,236,0.5);
+    text-decoration: line-through;
+    font-size: 26px;
   }
   .price-note { font-size: 13px; color: rgba(247,244,236,0.6); margin-bottom: 10px; }
   .free-shipping-note {
@@ -500,7 +506,7 @@
     width: 100%;
     max-width: 300px;
     height: 92px;
-    margin: 20px auto 0;
+    margin: 6px auto 0;
     border-radius: 10px;
     overflow: hidden;
     box-shadow: 0 4px 0 rgba(0,0,0,0.25);
@@ -515,19 +521,6 @@
     justify-content: center;
     gap: 7px;
     background: rgba(255,255,255,0.06);
-  }
-
-  .price-row {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-
-  .price-was {
-    font-family: var(--heading);
-    font-size: 19px;
-    color: rgba(247,244,236,0.5);
-    text-decoration: line-through;
   }
 
   .price-now {
@@ -860,15 +853,14 @@
       <p class="kicker" style="color:var(--aqua);">Own one</p>
       <h2>Get your Wave Clock</h2>
 
+      <div class="price-tag" id="priceDisplay">$106</div>
+
       <div class="scratch-card" id="scratchCard">
         <div class="scratch-content">
-          <div class="price-row">
-            <span class="price-was">$106</span>
-            <span class="price-now">$99</span>
-          </div>
+          <span class="price-now">$99</span>
           <div class="promo-badge">
             <span>Code</span>
-            <strong id="promoCodeText">WAVE7</strong>
+            <strong id="promoCodeText">DUDE</strong>
             <button type="button" id="copyPromoBtn" class="copy-btn">Copy</button>
           </div>
         </div>
@@ -956,7 +948,7 @@
 
 <script>
   (function () {
-    var PROMO_CODE = 'WAVE7';
+    var PROMO_CODE = 'DUDE';
     var STORAGE_KEY = 'wc_promo_revealed';
 
     var card = document.getElementById('scratchCard');
@@ -965,6 +957,7 @@
     var orderBtn = document.getElementById('orderNowBtn');
     var copyBtn = document.getElementById('copyPromoBtn');
     var promoCodeText = document.getElementById('promoCodeText');
+    var priceDisplay = document.getElementById('priceDisplay');
     if (!card || !canvas || !canvas.getContext) return;
 
     var ctx = canvas.getContext('2d');
@@ -1047,6 +1040,7 @@
         canvas.style.display = 'none';
       }
       card.classList.add('revealed');
+      if (priceDisplay) priceDisplay.classList.add('price-struck');
       if (instructions) instructions.textContent = 'Promo code applied — enjoy $7 off!';
       applyPromoToButton();
       try { localStorage.setItem(STORAGE_KEY, '1'); } catch (e) {}
