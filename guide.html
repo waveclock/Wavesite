@@ -193,6 +193,25 @@
   .guide-list li:last-child { border-bottom: none; }
   .guide-list li b { color: var(--ink); }
 
+  /* ---------- Tool icon badges (mirrors .icon-tool-btn in design/index.html,
+     so the icon next to each tool's description matches the one customers
+     actually see on the toolbar) ---------- */
+  .guide-tools-list li { display: flex; align-items: flex-start; gap: 14px; }
+  .guide-tool-icon {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid var(--driftwood);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+    margin-top: 1px;
+  }
+  .guide-tool-icon svg { width: 16px; height: 16px; }
+
   /* ---------- Callout ---------- */
   .callout {
     background: var(--foam);
@@ -312,10 +331,19 @@
     <img src="screen_custom_teamschedule.jpg" alt="Wave Clock custom screen showing the Team Schedule tool set to the Eagles, with a Game Day card counting down 18 days to Eagles vs Commanders, both teams' records and logos, and the game's date, venue, and time." style="width:100%; max-width:560px; border:1px solid var(--line); border-radius:4px; margin-top:24px; display:block;">
 
     <p style="margin-top:28px;">Beyond drawing and photos, a few tools keep themselves current once you set them up &mdash; no app, no re-publishing:</p>
-    <ul class="guide-list">
-      <li><b>Countdown</b> &mdash; days until any date you pick, updating on its own every day.</li>
-      <li><b>Team Schedule</b> &mdash; your team's next game, with logos and days left, refreshed daily.</li>
-      <li><b>Sun, Moon &amp; Tide Timeline</b> &mdash; one day at a glance: sunrise and sunset, tide highs and lows, and moonrise, moonset, and phase &mdash; pick your town and nearest tide station once, and it redraws itself every day.</li>
+    <ul class="guide-list guide-tools-list">
+      <li>
+        <span class="guide-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span><b>Countdown</b> &mdash; days until any date you pick, updating on its own every day.</span>
+      </li>
+      <li>
+        <span class="guide-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+        <span><b>Team Schedule</b> &mdash; your team's next game, with logos and days left, refreshed daily.</span>
+      </li>
+      <li>
+        <span class="guide-tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4-1.4M17 7l1.4-1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+        <span><b>Sun, Moon &amp; Tide Timeline</b> &mdash; one day at a glance: sunrise and sunset, tide highs and lows, and moonrise, moonset, and phase &mdash; pick your town and nearest tide station once, and it redraws itself every day.</span>
+      </li>
     </ul>
   </div>
 </section>
