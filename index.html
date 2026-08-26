@@ -29,6 +29,7 @@
     --coral: #C97456;
     --coral-dark: #A85C42;
     --wax: #D9A441;
+    --aqua: #5FADA6;
     --navy: #2C4A63;
     --navy-dark: #1B2E3F;
     --driftwood: #A68A6D;
@@ -74,18 +75,22 @@
   }
 
   .eyebrow-tape {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     font-family: var(--body);
     font-weight: 700;
     font-size: 12px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    background: var(--wax);
-    color: var(--ink);
+    background: var(--aqua);
+    color: #fff;
     padding: 6px 14px;
     transform: rotate(-1.5deg);
     box-shadow: 2px 2px 0 rgba(20,48,45,0.15);
+    flex-shrink: 0;
   }
+  .eyebrow-tape svg { width: 14px; height: 14px; flex-shrink: 0; }
 
   .hero-grid {
     display: grid;
@@ -577,20 +582,23 @@
 
 <header class="hero">
   <div class="wrap">
-    <span class="eyebrow-tape">WaveClock for Any Beach Town</span>
     <div class="brand-row">
       <img src="logo.png" alt="WaveClock.net logo: a stick-figure surfer riding a wave" class="brand-mark">
       <h1 class="brand">WAVE<span>CLOCK</span></h1>
+      <span class="eyebrow-tape">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12c2 0 2-3 4-3s2 3 4 3 2-3 4-3 2 3 4 3 2-3 4-3 2 3 4 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        For Any Beach Town
+      </span>
     </div>
 
     <div class="hero-grid">
       <div class="hero-copy">
         <p class="tagline">A beach home display that actually knows what the ocean's doing &mdash; and when the waves are perfect for surfing.</p>
-        <p class="sub">One classic-style display, customized for your shore town &mdash; it tells you today's tide, this week's ocean and weather conditions, and the exact minute the sun sets over the bay.</p>
         <div class="cta-row">
           <a class="btn btn-primary" href="#buy">Get one for your beach house &rarr;</a>
           <a class="btn btn-ghost" href="#screens">See what it shows</a>
         </div>
+        <p class="sub">One classic-style display, customized for your shore town &mdash; it tells you today's tide, this week's ocean and weather conditions, and the exact minute the sun sets over the bay.</p>
       </div>
 
       <div class="device-stage">
