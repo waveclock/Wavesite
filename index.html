@@ -494,6 +494,100 @@
     padding: 16px 32px;
   }
 
+  /* ---------- Scratch-off promo card ---------- */
+  .scratch-card {
+    position: relative;
+    width: 100%;
+    max-width: 300px;
+    height: 92px;
+    margin: 20px auto 0;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.25);
+  }
+
+  .scratch-content {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    background: rgba(255,255,255,0.06);
+  }
+
+  .price-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .price-was {
+    font-family: var(--heading);
+    font-size: 19px;
+    color: rgba(247,244,236,0.5);
+    text-decoration: line-through;
+  }
+
+  .price-now {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 34px;
+    color: var(--aqua);
+  }
+
+  .promo-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--body);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--foam);
+    background: rgba(255,255,255,0.08);
+    border: 1px dashed rgba(247,244,236,0.4);
+    padding: 4px 10px;
+    border-radius: 999px;
+  }
+  .promo-badge strong {
+    color: var(--aqua);
+    letter-spacing: 0.08em;
+  }
+
+  .copy-btn {
+    border: none;
+    background: var(--aqua);
+    color: #fff;
+    font-family: var(--body);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    cursor: pointer;
+    text-transform: uppercase;
+  }
+  .copy-btn:hover { filter: brightness(1.08); }
+  .copy-btn:active { transform: translateY(1px); }
+
+  .scratch-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
+    touch-action: none;
+  }
+
+  .scratch-instructions {
+    font-size: 13px;
+    color: rgba(247,244,236,0.7);
+    margin: 10px 0 18px;
+  }
+
   .update-note {
     display: inline-flex;
     align-items: center;
@@ -765,10 +859,26 @@
     <div class="buy-panel">
       <p class="kicker" style="color:var(--aqua);">Own one</p>
       <h2>Get your Wave Clock</h2>
-      <div class="price-tag">$106</div>
+
+      <div class="scratch-card" id="scratchCard">
+        <div class="scratch-content">
+          <div class="price-row">
+            <span class="price-was">$106</span>
+            <span class="price-now">$99</span>
+          </div>
+          <div class="promo-badge">
+            <span>Code</span>
+            <strong id="promoCodeText">WAVE7</strong>
+            <button type="button" id="copyPromoBtn" class="copy-btn">Copy</button>
+          </div>
+        </div>
+        <canvas id="scratchCanvas" class="scratch-canvas"></canvas>
+      </div>
+      <p class="scratch-instructions" id="scratchInstructions">Scratch the sand above to reveal $7 off &darr;</p>
+
       <div class="free-shipping-note">Free shipping</div>
       <div class="cta-row" style="justify-content:center;">
-        <a class="btn btn-aqua" href="https://buy.stripe.com/fZu5kF8d824Y20heIw2cg01" target="_blank" rel="noopener">Order now &rarr;</a>
+        <a class="btn btn-aqua" id="orderNowBtn" href="https://buy.stripe.com/fZu5kF8d824Y20heIw2cg01" target="_blank" rel="noopener">Order now &rarr;</a>
       </div>
       <p style="margin-top:22px; font-size:13px;"><a href="faq.html" style="color:rgba(247,244,236,0.75); text-decoration:underline;">Shipping, returns &amp; FAQs &rarr;</a></p>
     </div>
@@ -840,6 +950,150 @@
 
     dots.forEach(function (dot, i) {
       dot.addEventListener('click', function () { show(i); });
+    });
+  })();
+</script>
+
+<script>
+  (function () {
+    var PROMO_CODE = 'WAVE7';
+    var STORAGE_KEY = 'wc_promo_revealed';
+
+    var card = document.getElementById('scratchCard');
+    var canvas = document.getElementById('scratchCanvas');
+    var instructions = document.getElementById('scratchInstructions');
+    var orderBtn = document.getElementById('orderNowBtn');
+    var copyBtn = document.getElementById('copyPromoBtn');
+    var promoCodeText = document.getElementById('promoCodeText');
+    if (!card || !canvas || !canvas.getContext) return;
+
+    var ctx = canvas.getContext('2d');
+    var revealed = false;
+    var scratching = false;
+    var moveCount = 0;
+
+    function applyPromoToButton() {
+      if (!orderBtn) return;
+      try {
+        var url = new URL(orderBtn.href);
+        url.searchParams.set('prefilled_promo_code', PROMO_CODE);
+        orderBtn.href = url.toString();
+      } catch (e) {
+        orderBtn.href += (orderBtn.href.indexOf('?') === -1 ? '?' : '&') + 'prefilled_promo_code=' + PROMO_CODE;
+      }
+    }
+
+    function sizeCanvas() {
+      var rect = card.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+      drawScratchSurface();
+    }
+
+    function drawScratchSurface() {
+      var w = canvas.width, h = canvas.height;
+      ctx.globalCompositeOperation = 'source-over';
+      var grad = ctx.createLinearGradient(0, 0, w, h);
+      grad.addColorStop(0, '#DFCEA5');
+      grad.addColorStop(1, '#C9B487');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      for (var i = 0; i < 90; i++) {
+        ctx.beginPath();
+        ctx.arc(Math.random() * w, Math.random() * h, Math.random() * 1.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = '#5A4A32';
+      ctx.font = '700 14px "Work Sans", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('SCRATCH FOR $7 OFF', w / 2, h / 2);
+    }
+
+    function scratchAt(clientX, clientY) {
+      var rect = canvas.getBoundingClientRect();
+      var x = clientX - rect.left;
+      var y = clientY - rect.top;
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.arc(x, y, 22, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function getClearedFraction() {
+      var w = canvas.width, h = canvas.height;
+      if (!w || !h) return 0;
+      var data = ctx.getImageData(0, 0, w, h).data;
+      var total = 0, cleared = 0;
+      var step = Math.max(4, Math.floor(data.length / 4 / 800) * 4);
+      for (var i = 3; i < data.length; i += step) {
+        total++;
+        if (data[i] < 40) cleared++;
+      }
+      return total ? cleared / total : 0;
+    }
+
+    function revealPromo(animate) {
+      if (revealed) return;
+      revealed = true;
+      if (animate) {
+        canvas.style.transition = 'opacity 0.5s ease';
+        canvas.style.opacity = '0';
+        setTimeout(function () { canvas.style.display = 'none'; }, 500);
+      } else {
+        canvas.style.display = 'none';
+      }
+      card.classList.add('revealed');
+      if (instructions) instructions.textContent = 'Promo code applied — enjoy $7 off!';
+      applyPromoToButton();
+      try { localStorage.setItem(STORAGE_KEY, '1'); } catch (e) {}
+    }
+
+    function pointerDown(e) {
+      scratching = true;
+      scratchAt(e.clientX, e.clientY);
+    }
+    function pointerMove(e) {
+      if (!scratching || revealed) return;
+      scratchAt(e.clientX, e.clientY);
+      moveCount++;
+      if (moveCount % 4 === 0 && getClearedFraction() > 0.45) {
+        revealPromo(true);
+      }
+    }
+    function pointerUp() {
+      scratching = false;
+    }
+
+    canvas.addEventListener('pointerdown', pointerDown);
+    canvas.addEventListener('pointermove', pointerMove);
+    window.addEventListener('pointerup', pointerUp);
+    window.addEventListener('pointercancel', pointerUp);
+
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function () {
+        var code = promoCodeText ? promoCodeText.textContent : PROMO_CODE;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(code).then(function () {
+            var original = copyBtn.textContent;
+            copyBtn.textContent = 'Copied!';
+            setTimeout(function () { copyBtn.textContent = original; }, 1500);
+          });
+        }
+      });
+    }
+
+    var alreadyRevealed = false;
+    try { alreadyRevealed = localStorage.getItem(STORAGE_KEY) === '1'; } catch (e) {}
+
+    sizeCanvas();
+    if (alreadyRevealed) revealPromo(false);
+
+    window.addEventListener('resize', function () {
+      if (!revealed) sizeCanvas();
     });
   })();
 </script>
