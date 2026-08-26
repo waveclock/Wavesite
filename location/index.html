@@ -484,6 +484,20 @@
     color: var(--ink-soft);
   }
   footer a { color: var(--navy); }
+  .back-to-manage-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 22px;
+    border: 1.5px solid var(--driftwood);
+    border-radius: 999px;
+    background: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    text-decoration: none;
+  }
+  .back-to-manage-btn:hover { background: var(--foam); }
+  .back-to-manage-btn:active { background: var(--sand); }
 </style>
 </head>
 <body>
@@ -648,7 +662,7 @@
 </div>
 
 <footer>
-  <p><a href="../manage/" id="backToManageLink">Back to device menu</a></p>
+  <p><a href="../manage/" id="backToManageLink" class="back-to-manage-btn">Back to device menu</a></p>
   <p>Wrong device? Scan the QR code on your Wave Clock again.</p>
   <p><a href="../index.html">waveclock.net</a></p>
 </footer>
