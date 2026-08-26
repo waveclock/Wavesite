@@ -949,7 +949,6 @@
 <script>
   (function () {
     var PROMO_CODE = 'DUDE';
-    var STORAGE_KEY = 'wc_promo_revealed';
 
     var card = document.getElementById('scratchCard');
     var canvas = document.getElementById('scratchCanvas');
@@ -1043,7 +1042,6 @@
       if (priceDisplay) priceDisplay.classList.add('price-struck');
       if (instructions) instructions.textContent = 'Promo code applied — enjoy $7 off!';
       applyPromoToButton();
-      try { localStorage.setItem(STORAGE_KEY, '1'); } catch (e) {}
     }
 
     function pointerDown(e) {
@@ -1080,11 +1078,7 @@
       });
     }
 
-    var alreadyRevealed = false;
-    try { alreadyRevealed = localStorage.getItem(STORAGE_KEY) === '1'; } catch (e) {}
-
     sizeCanvas();
-    if (alreadyRevealed) revealPromo(false);
 
     window.addEventListener('resize', function () {
       if (!revealed) sizeCanvas();
