@@ -122,6 +122,66 @@
     line-height: 1.35;
   }
 
+  /* ---------- Collapsible tool guide -- what each toolbar button's
+     tooltip actually does, without leaving the page ---------- */
+  .tool-guide {
+    margin: 16px auto 0;
+    max-width: 420px;
+    text-align: left;
+  }
+  .tool-guide summary {
+    cursor: pointer;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--navy);
+    padding: 6px 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tool-guide summary::-webkit-details-marker { display: none; }
+  .tool-guide summary::before {
+    content: "\25B8";
+    display: inline-block;
+    font-size: 11px;
+    transition: transform 0.15s ease;
+  }
+  .tool-guide[open] summary::before { transform: rotate(90deg); }
+  .tool-guide-list {
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+  }
+  .tool-guide-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 9px 4px;
+    border-bottom: 1px dashed var(--line);
+    font-size: 13px;
+    color: var(--ink-soft);
+    text-align: left;
+  }
+  .tool-guide-list li:last-child { border-bottom: none; }
+  .tool-guide-list li b { color: var(--ink); }
+  .tool-guide-icon {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid var(--driftwood);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 700;
+    margin-top: 1px;
+  }
+  .tool-guide-icon svg { width: 14px; height: 14px; }
+
   .device-tag {
     display: inline-block;
     margin-top: 10px;
@@ -679,6 +739,65 @@
         <p class="feature-callout-desc">Set it once and it keeps itself current &mdash; counting down the days, or pulling your team's next game &mdash; every single day, automatically.</p>
       </div>
     </div>
+
+    <details class="tool-guide">
+      <summary>What does each tool do?</summary>
+      <ul class="tool-guide-list">
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true">&#9998;</span>
+          <span><b>Pen</b> &mdash; draw freehand with your finger or mouse.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true">T</span>
+          <span><b>Text</b> &mdash; add a line of text in your choice of font.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true">&#11088;</span>
+          <span><b>Sticker</b> &mdash; stamp on an icon, or search for clip art.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true">&#128247;</span>
+          <span><b>Photo</b> &mdash; upload a picture &mdash; it's turned into line art automatically.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span><b>Countdown</b> &mdash; days until any date you pick, updating on its own every day.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+          <span><b>Team Schedule</b> &mdash; your team's next game, with logos and days left, refreshed daily.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4-1.4M17 7l1.4-1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+          <span><b>Sun, Moon &amp; Tide Timeline</b> &mdash; sunrise/sunset, tide highs and lows, and moon phase for one day at a glance &mdash; updates itself daily.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5 9-5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 13l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 17.5l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+          <span><b>Layers</b> &mdash; see everything you've placed, reorder it, or remove a piece.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><g transform="rotate(-35 12 12)"><rect x="4" y="8" width="16" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="4" y1="12.5" x2="20" y2="12.5" stroke="currentColor" stroke-width="1.6"/></g></svg></span>
+          <span><b>Erase</b> &mdash; erase part of a drawing.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true">&#8630;</span>
+          <span><b>Undo</b> &mdash; step back to your last change.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true">&#8631;</span>
+          <span><b>Redo</b> &mdash; step forward again.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true">&#128465;</span>
+          <span><b>Clear</b> &mdash; wipe the canvas and start over.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></span>
+          <span><b>Invert Colors</b> &mdash; preview your design with the colors flipped, since the actual display is black-and-white.</span>
+        </li>
+      </ul>
+    </details>
+
     <span class="device-tag" id="deviceTag">Loading device&hellip;</span>
     <div class="screen-nav" id="screenNav" style="display:none;"></div>
     <label class="rotation-toggle-row" id="rotationToggleRow" style="display:none;">
