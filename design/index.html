@@ -133,25 +133,43 @@
     cursor: pointer;
     font-family: var(--body);
     font-weight: 700;
-    font-size: 13px;
-    color: var(--navy);
-    padding: 6px 4px;
+    font-size: 13.5px;
+    color: var(--ink);
+    padding: 12px 16px;
     display: flex;
     align-items: center;
-    gap: 6px;
+    justify-content: space-between;
+    gap: 10px;
+    background: #fff;
+    border: 1.5px solid var(--driftwood);
+    border-radius: 10px;
+    user-select: none;
   }
+  .tool-guide summary:hover { background: var(--foam); }
+  .tool-guide summary:active { background: var(--sand); }
   .tool-guide summary::-webkit-details-marker { display: none; }
-  .tool-guide summary::before {
-    content: "\25B8";
+  .tool-guide summary::after {
+    content: "\25BE";
     display: inline-block;
-    font-size: 11px;
+    font-size: 14px;
+    color: var(--navy);
+    flex-shrink: 0;
     transition: transform 0.15s ease;
   }
-  .tool-guide[open] summary::before { transform: rotate(90deg); }
+  .tool-guide[open] summary {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .tool-guide[open] summary::after { transform: rotate(180deg); }
   .tool-guide-list {
     list-style: none;
-    margin: 6px 0 0;
-    padding: 0;
+    margin: 0;
+    padding: 4px 16px 6px;
+    background: #fff;
+    border: 1.5px solid var(--driftwood);
+    border-top: none;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
   }
   .tool-guide-list li {
     display: flex;
@@ -751,7 +769,7 @@
     </div>
 
     <details class="tool-guide">
-      <summary>What does each tool do?</summary>
+      <summary>Tap to see what each tool does</summary>
       <ul class="tool-guide-list">
         <li>
           <span class="tool-guide-icon" aria-hidden="true">&#9998;</span>
