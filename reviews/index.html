@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wave Clock Reviews</title>
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta name="description" content="What beach-house owners are saying about their Wave Clock.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --aqua: #5FADA6;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 40px;
+  }
+
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 20px; }
+
+  header.top {
+    text-align: center;
+    padding: 40px 20px 30px;
+    background:
+      radial-gradient(ellipse 500px 260px at 50% -20%, rgba(44,74,99,0.14), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 100%);
+  }
+  .brand-mark { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }
+  h1.brand {
+    font-family: var(--display);
+    font-size: 22px;
+    margin: 0 0 18px;
+    color: var(--ink);
+    text-shadow: 2px 2px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+  h2.page-title {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 30px;
+    margin: 0 0 10px;
+  }
+
+  .rating-summary { display: none; align-items: center; justify-content: center; gap: 10px; margin-bottom: 6px; }
+  .rating-summary .stars { color: var(--aqua); font-size: 22px; letter-spacing: 2px; }
+  .rating-summary .count { color: var(--ink-soft); font-size: 14px; }
+
+  .leave-review-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 14px;
+    padding: 12px 26px;
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+    background: var(--aqua);
+    color: #fff;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 14.5px;
+    text-decoration: none;
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+  .leave-review-btn:hover { box-shadow: 5px 5px 0 var(--ink); }
+
+  .loading, .empty {
+    text-align: center;
+    color: var(--ink-soft);
+    padding: 50px 10px;
+    font-size: 14.5px;
+  }
+  .empty a { color: var(--navy); font-weight: 600; }
+
+  .review-card {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 18px;
+    box-shadow: 5px 5px 0 rgba(20,48,45,0.10);
+  }
+  .review-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
+  .review-name { font-family: var(--heading); font-weight: 700; font-size: 16.5px; }
+  .review-date { font-size: 12px; color: var(--ink-soft); white-space: nowrap; margin-top: 3px; }
+  .review-stars { color: var(--aqua); font-size: 17px; letter-spacing: 2px; margin-bottom: 10px; }
+  .review-photo { max-width: 100%; border-radius: 6px; border: 1px solid var(--line); display: block; margin-bottom: 12px; }
+  .review-comment { font-size: 15px; color: var(--ink); margin: 0; white-space: pre-wrap; }
+
+  footer {
+    text-align: center;
+    padding: 30px 20px 10px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  footer a { color: var(--navy); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <img src="../logo.png" alt="WaveClock.net logo" class="brand-mark">
+  <h1 class="brand">WAVE<span style="color:var(--navy);">CLOCK</span></h1>
+  <h2 class="page-title">What people are saying</h2>
+  <div class="rating-summary" id="ratingSummary">
+    <span class="stars" id="summaryStars"></span>
+    <span class="count" id="summaryCount"></span>
+  </div>
+  <a class="leave-review-btn" href="submit/">Leave a review &rarr;</a>
+</header>
+
+<div class="wrap">
+  <div class="loading" id="loadingMsg">Loading reviews&hellip;</div>
+  <div id="reviewList"></div>
+</div>
+
+<footer>
+  <p><a href="../index.html">waveclock.net</a></p>
+</footer>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getStorage, ref, listAll } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
+    authDomain: "waveclock.firebaseapp.com",
+    projectId: "waveclock",
+    storageBucket: "waveclock.firebasestorage.app",
+    messagingSenderId: "668302334840",
+    appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const storage = getStorage(app);
+
+  const loadingMsg = document.getElementById("loadingMsg");
+  const reviewList = document.getElementById("reviewList");
+  const ratingSummary = document.getElementById("ratingSummary");
+  const summaryStars = document.getElementById("summaryStars");
+  const summaryCount = document.getElementById("summaryCount");
+
+  function storageUrl(path) {
+    return "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + encodeURIComponent(path) + "?alt=media";
+  }
+
+  function starGlyphs(stars) {
+    return "★".repeat(stars) + "☆".repeat(5 - stars);
+  }
+
+  function formatDate(iso) {
+    try {
+      return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function renderReview(review) {
+    const card = document.createElement("div");
+    card.className = "review-card";
+
+    const photoHtml = review.hasPhoto
+      ? `<img class="review-photo" src="${storageUrl("reviews/approved/" + review.id + ".jpg")}" alt="Photo from ${escapeHtml(review.name)}'s review">`
+      : "";
+
+    card.innerHTML = `
+      <div class="review-top">
+        <span class="review-name">${escapeHtml(review.name)}</span>
+        <span class="review-date">${formatDate(review.createdAt)}</span>
+      </div>
+      <div class="review-stars">${starGlyphs(review.stars)}</div>
+      ${photoHtml}
+      <p class="review-comment">${escapeHtml(review.comment)}</p>
+    `;
+    reviewList.appendChild(card);
+  }
+
+  async function loadApproved() {
+    let items;
+    try {
+      const listing = await listAll(ref(storage, "reviews/approved"));
+      items = listing.items.filter((item) => item.name.endsWith(".json"));
+    } catch (err) {
+      loadingMsg.textContent = "";
+      reviewList.innerHTML = '<div class="empty">No reviews yet &mdash; <a href="submit/">be the first!</a></div>';
+      return;
+    }
+
+    if (items.length === 0) {
+      loadingMsg.textContent = "";
+      reviewList.innerHTML = '<div class="empty">No reviews yet &mdash; <a href="submit/">be the first!</a></div>';
+      return;
+    }
+
+    const reviews = [];
+    for (const item of items) {
+      try {
+        const resp = await fetch(storageUrl(item.fullPath));
+        if (!resp.ok) continue;
+        reviews.push(await resp.json());
+      } catch (err) {
+        // skip unreadable entries
+      }
+    }
+    reviews.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    loadingMsg.textContent = "";
+    if (reviews.length === 0) {
+      reviewList.innerHTML = '<div class="empty">No reviews yet &mdash; <a href="submit/">be the first!</a></div>';
+      return;
+    }
+
+    const avg = reviews.reduce((sum, r) => sum + r.stars, 0) / reviews.length;
+    summaryStars.textContent = starGlyphs(Math.round(avg));
+    summaryCount.textContent = avg.toFixed(1) + " out of 5 (" + reviews.length + (reviews.length === 1 ? " review" : " reviews") + ")";
+    ratingSummary.style.display = "flex";
+
+    reviews.forEach(renderReview);
+  }
+
+  loadApproved();
+</script>
+
+</body>
+</html>
