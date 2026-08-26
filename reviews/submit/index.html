@@ -235,6 +235,11 @@
         <button type="button" class="remove-photo-btn" id="removePhotoBtn">Remove photo</button>
       </div>
 
+      <div class="field">
+        <label for="privateNoteField">Private note (optional)</label>
+        <textarea id="privateNoteField" rows="3" maxlength="600" placeholder="Only visible to us, never published — request a new screen or feature, or share feedback that's not for the public review."></textarea>
+      </div>
+
       <button type="submit" class="submit-btn" id="submitBtn">Submit review</button>
       <p class="status-msg" id="statusMsg"></p>
     </form>
@@ -272,6 +277,7 @@
   const starButtons = Array.from(starRow.querySelectorAll(".star-btn"));
   const nameField = document.getElementById("nameField");
   const commentField = document.getElementById("commentField");
+  const privateNoteField = document.getElementById("privateNoteField");
   const photoUploadBtn = document.getElementById("photoUploadBtn");
   const photoInput = document.getElementById("photoInput");
   const photoPreview = document.getElementById("photoPreview");
@@ -386,12 +392,15 @@
         await uploadBytes(ref(storage, "reviews/pending/" + id + ".jpg"), photoBlob, { contentType: "image/jpeg" });
       }
 
+      const privateNote = privateNoteField.value.trim();
+
       const review = {
         id,
         name,
         stars: selectedStars,
         comment,
         hasPhoto,
+        privateNote: privateNote || null,
         createdAt: new Date().toISOString()
       };
       const jsonBlob = new Blob([JSON.stringify(review)], { type: "application/json" });
