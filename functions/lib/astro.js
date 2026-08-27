@@ -318,7 +318,16 @@ async function fetchTideTimelineData({ lat, lon, stationId }, now, fetchImpl) {
     return { t: date.toISOString(), label: formatLocalTime(date, timeZone) };
   }
   function labeledEvent(date, kind) {
-    return { t: date.toISOString(), label: formatLocalTime(date, timeZone), kind };
+    const event = { t: date.toISOString(), label: formatLocalTime(date, timeZone), kind };
+    // Direction only makes sense at the horizon (rise/set) -- SunCalc's
+    // getMoonPosition().azimuth is already standard compass degrees
+    // (0=N, clockwise) in this version, no radian conversion needed.
+    if (kind === "rise" || kind === "set") {
+      const azimuthDeg = Math.round(SunCalc.getMoonPosition(date, lat, lon).azimuth);
+      event.azimuthDeg = azimuthDeg;
+      event.compass = degreesToCompass(azimuthDeg);
+    }
+    return event;
   }
   const inWindow = (d) => d >= dayStart && d < dayEnd;
 
