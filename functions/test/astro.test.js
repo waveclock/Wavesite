@@ -700,6 +700,27 @@ function buildHourlySeries(startHour, endHour, fields) {
     assert.strictEqual(data.fishingScore, undefined);
   });
 
+  await test("fetchTideTimelineData tags moonrise/moonset events with a compass direction, but not overhead/underfoot transits", async () => {
+    const emptyHiloMockFetch = async () => ({ json: async () => ({ predictions: [] }) });
+    // Real date used to verify the Ocean City moonrise webpage: moonrise
+    // was independently confirmed at 7:25 PM EDT, direction ~104 (ESE).
+    const now = new Date("2026-08-27T16:00:00Z"); // noon EDT, Aug 27
+    const data = await fetchTideTimelineData({ lat: LAT, lon: LON, stationId: "8534720" }, now, emptyHiloMockFetch);
+
+    const riseEvent = data.moonEvents.find((e) => e.kind === "rise");
+    assert.ok(riseEvent, "expected a moonrise event in today's window");
+    assert.strictEqual(riseEvent.label, "7:25 PM");
+    assert.ok(typeof riseEvent.azimuthDeg === "number" && riseEvent.azimuthDeg > 95 && riseEvent.azimuthDeg < 115, "moonrise azimuth should be roughly ESE (~104deg), got " + riseEvent.azimuthDeg);
+    assert.strictEqual(riseEvent.compass, "ESE");
+
+    const transitEvents = data.moonEvents.filter((e) => e.kind === "overhead" || e.kind === "underfoot");
+    assert.ok(transitEvents.length > 0, "expected at least one transit event to check");
+    transitEvents.forEach((e) => {
+      assert.strictEqual(e.azimuthDeg, undefined, "overhead/underfoot transits shouldn't get a horizon direction");
+      assert.strictEqual(e.compass, undefined);
+    });
+  });
+
   await test("fetchTideTimelineData still finds today's sunrise/sunset when called in the evening (regression: SunCalc resolves by UTC day, not local day)", async () => {
     const emptyHiloMockFetch = async () => ({ json: async () => ({ predictions: [] }) });
     // 9pm EDT on July 15 is already July 16 in UTC -- passing that instant
