@@ -221,6 +221,23 @@
     color: rgba(248,242,228,0.6);
   }
   .device-photo-slot img { width: 100%; border-radius: 6px; display: block; }
+  .device-buy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 20px;
+    padding: 13px 28px;
+    border-radius: 999px;
+    border: 2px solid var(--foam);
+    background: var(--aqua);
+    color: #fff;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 14.5px;
+    text-decoration: none;
+    box-shadow: 3px 3px 0 rgba(0,0,0,0.3);
+  }
+  .device-buy-btn:hover { box-shadow: 5px 5px 0 rgba(0,0,0,0.3); }
 
   .share-cta {
     text-align: center;
@@ -369,6 +386,9 @@
       <p>The Sun, Moon &amp; Tide Timeline screen shows tonight's exact moonrise, sunset, and moon phase right on your Wave Clock &mdash; no lookup required.</p>
       <div class="device-photo-slot" id="devicePhotoSlot">
         Wave Clock photo coming soon
+      </div>
+      <div>
+        <a class="device-buy-btn" href="../index.html#buy">Get your Wave Clock &rarr;</a>
       </div>
     </div>
   </section>
