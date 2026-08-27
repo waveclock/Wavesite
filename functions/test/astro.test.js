@@ -700,6 +700,22 @@ function buildHourlySeries(startHour, endHour, fields) {
     assert.strictEqual(data.fishingScore, undefined);
   });
 
+  await test("fetchTideTimelineData still finds today's sunrise/sunset when called in the evening (regression: SunCalc resolves by UTC day, not local day)", async () => {
+    const emptyHiloMockFetch = async () => ({ json: async () => ({ predictions: [] }) });
+    // 9pm EDT on July 15 is already July 16 in UTC -- passing that instant
+    // straight to SunCalc used to compute July 16's sunrise/sunset, which
+    // then fell outside July 15's local midnight-to-midnight window and
+    // got filtered to null, even though it was still July 15 locally.
+    const eveningNow = new Date("2026-07-16T01:00:00Z"); // 9pm EDT, July 15
+    const data = await fetchTideTimelineData({ lat: LAT, lon: LON, stationId: "8534720" }, eveningNow, emptyHiloMockFetch);
+
+    assert.strictEqual(data.dayStart, "2026-07-15T04:00:00.000Z");
+    assert.ok(data.sunrise && data.sunrise.label, "sunrise should still be found for today, not filtered out");
+    assert.ok(data.sunset && data.sunset.label, "sunset should still be found for today, not filtered out");
+    assert.ok(new Date(data.sunrise.t) >= new Date(data.dayStart) && new Date(data.sunrise.t) < new Date(data.dayEnd));
+    assert.ok(new Date(data.sunset.t) >= new Date(data.dayStart) && new Date(data.sunset.t) < new Date(data.dayEnd));
+  });
+
   console.log(passed + " passed, " + failed + " failed");
   if (failed > 0) process.exit(1);
 })();

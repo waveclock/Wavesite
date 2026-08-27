@@ -293,8 +293,16 @@ async function fetchTideTimelineData({ lat, lon, stationId }, now, fetchImpl) {
   const dayStart = localMidnight(at, timeZone);
   const dayEnd = new Date(dayStart.getTime() + 24 * 3600000);
 
-  const times = SunCalc.getTimes(at, lat, lon);
-  const moonTimes = SunCalc.getMoonTimes(at, lat, lon);
+  // SunCalc buckets a date's sun/moon events by its UTC calendar day, not
+  // the caller's local one -- passing `at` directly would compute
+  // *tomorrow's* sunrise/sunset (in UTC terms) for any local evening hour
+  // whose UTC instant has already rolled to the next UTC date (roughly
+  // 8pm-midnight local time for US beach towns), silently filtering both
+  // out of the inWindow() checks below. Anchoring to local noon of this
+  // same calendar day sidesteps that regardless of what time `at` is.
+  const localNoonAnchor = new Date(dayStart.getTime() + 12 * 3600000);
+  const times = SunCalc.getTimes(localNoonAnchor, lat, lon);
+  const moonTimes = SunCalc.getMoonTimes(localNoonAnchor, lat, lon);
   const illum = SunCalc.getMoonIllumination(at);
 
   const transits = findMoonAltitudeExtrema(
@@ -633,8 +641,13 @@ async function fetchWeatherSignals({ lat, lon, dawn, dusk, now, timeZone, fetchI
 async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
   const at = now || new Date();
   const timeZone = tzlookup(lat, lon);
-  const times = SunCalc.getTimes(at, lat, lon);
-  const moonTimes = SunCalc.getMoonTimes(at, lat, lon);
+  // See fetchTideTimelineData's comment on localNoonAnchor -- same fix,
+  // needed here too since dawn/dusk (derived from SunCalc) set the NOAA
+  // fetch window below and would otherwise silently shift to tomorrow for
+  // any local evening `at`.
+  const localNoonAnchor = new Date(localMidnight(at, timeZone).getTime() + 12 * 3600000);
+  const times = SunCalc.getTimes(localNoonAnchor, lat, lon);
+  const moonTimes = SunCalc.getMoonTimes(localNoonAnchor, lat, lon);
   const illum = SunCalc.getMoonIllumination(at);
 
   const dawn = times.dawn;
