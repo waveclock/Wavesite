@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The Ocean City Moonrise Event</title>
+<title>Ocean City Moon &amp; Tide Tonight</title>
 <link rel="icon" type="image/png" href="../favicon.png">
 <link rel="apple-touch-icon" href="../apple-touch-icon.png">
-<meta name="description" content="Why the moonrise over Ocean City, NJ this week is a can't-miss event -- a Full Sturgeon Moon paired with a 96% partial lunar eclipse.">
+<meta name="description" content="Tonight's real moonrise, sunset, and tide highlight for Ocean City, NJ -- updated every day.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --sand: #F1E6CF;
@@ -28,7 +28,6 @@
     --display: 'Bungee', system-ui, sans-serif;
     --heading: 'Fraunces', Georgia, serif;
     --body: 'Work Sans', -apple-system, sans-serif;
-    --script: 'Caveat', cursive;
   }
 
   * { box-sizing: border-box; }
@@ -49,10 +48,10 @@
   header.top {
     position: relative;
     text-align: center;
-    padding: 44px 20px 40px;
+    padding: 40px 20px 36px;
     overflow: hidden;
     background:
-      radial-gradient(ellipse 700px 400px at 50% -10%, rgba(168,73,59,0.22), transparent 60%),
+      radial-gradient(ellipse 700px 400px at 50% -10%, rgba(95,173,166,0.22), transparent 60%),
       linear-gradient(180deg, var(--navy-dark) 0%, var(--navy) 100%);
     color: var(--foam);
   }
@@ -65,7 +64,7 @@
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--foam);
-    background: var(--eclipse);
+    background: var(--aqua);
     padding: 6px 16px;
     border-radius: 999px;
     margin-bottom: 16px;
@@ -73,32 +72,35 @@
   h1.headline {
     font-family: var(--heading);
     font-weight: 700;
-    font-size: clamp(28px, 5vw, 42px);
-    margin: 0 0 14px;
+    font-size: clamp(26px, 5vw, 38px);
+    margin: 0 0 10px;
     color: var(--foam);
   }
   .sub-headline {
     font-family: var(--heading);
     font-style: italic;
-    font-size: clamp(16px, 2.4vw, 19px);
+    font-size: clamp(15px, 2.2vw, 18px);
     color: rgba(248,242,228,0.85);
     max-width: 46ch;
     margin: 0 auto;
   }
 
-  section { padding: 40px 0; }
-  .section-tight { padding: 28px 0; }
+  section { padding: 36px 0; }
+  .section-tight { padding: 24px 0; }
 
   h2.section-title {
     font-family: var(--heading);
     font-weight: 700;
-    font-size: clamp(22px, 3vw, 28px);
+    font-size: clamp(22px, 3vw, 26px);
     margin: 0 0 14px;
     text-align: center;
   }
-  p.lede { color: var(--ink-soft); font-size: 16px; text-align: center; max-width: 56ch; margin: 0 auto 8px; }
+  p.lede { color: var(--ink-soft); font-size: 15.5px; text-align: center; max-width: 56ch; margin: 0 auto 8px; }
 
-  .tonight-card {
+  .loading-state { text-align: center; color: var(--ink-soft); padding: 60px 20px; font-size: 15px; }
+  .error-state { text-align: center; color: var(--coral-dark); padding: 40px 20px; font-size: 15px; }
+
+  .highlight-card {
     background: #fff;
     border: 2px solid var(--ink);
     border-radius: 12px;
@@ -106,7 +108,7 @@
     margin-top: 28px;
     box-shadow: 6px 6px 0 var(--eclipse);
   }
-  .tonight-card .date-tag {
+  .highlight-card .date-tag {
     display: inline-block;
     font-weight: 700;
     font-size: 12.5px;
@@ -118,38 +120,24 @@
     border-radius: 999px;
     margin-bottom: 14px;
   }
-  .tonight-card h3 {
+  .highlight-card h3 {
     font-family: var(--heading);
     font-size: 22px;
     margin: 0 0 10px;
   }
-  .tonight-card p { color: var(--ink); font-size: 15px; margin: 0 0 14px; }
+  .highlight-card p { color: var(--ink); font-size: 15px; margin: 0 0 6px; }
 
-  .sweet-spot {
-    background: var(--foam);
-    border: 1.5px dashed var(--driftwood);
-    border-radius: 10px;
-    padding: 18px 20px;
-    margin: 18px 0;
-  }
-  .sweet-spot-label {
-    display: block;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--coral-dark);
-    margin-bottom: 8px;
-  }
   .time-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 14px;
-    margin-top: 10px;
+    margin-top: 18px;
+    background: var(--foam);
+    border: 1.5px dashed var(--driftwood);
+    border-radius: 10px;
+    padding: 18px 20px;
   }
-  .time-item {
-    text-align: center;
-  }
+  .time-item { text-align: center; }
   .time-item .time-label {
     font-size: 11.5px;
     color: var(--ink-soft);
@@ -160,28 +148,9 @@
   .time-item .time-value {
     font-family: var(--heading);
     font-weight: 700;
-    font-size: 22px;
+    font-size: 21px;
     color: var(--navy);
   }
-
-  .eclipse-note {
-    background: linear-gradient(135deg, rgba(168,73,59,0.10), rgba(44,74,99,0.06));
-    border-left: 4px solid var(--eclipse);
-    border-radius: 4px;
-    padding: 16px 18px;
-    margin-top: 18px;
-  }
-  .eclipse-note strong { color: var(--eclipse); }
-
-  .backup-card {
-    background: var(--foam);
-    border: 2px solid var(--line);
-    border-radius: 12px;
-    padding: 24px 26px;
-    margin-top: 20px;
-  }
-  .backup-card h3 { font-family: var(--heading); font-size: 19px; margin: 0 0 8px; }
-  .backup-card p { color: var(--ink-soft); font-size: 14.5px; margin: 0 0 10px; }
 
   .why-grid {
     display: grid;
@@ -210,13 +179,20 @@
   }
   .device-plug h3 { font-family: var(--heading); font-size: 21px; margin: 0 0 10px; color: var(--foam); }
   .device-plug p { color: rgba(248,242,228,0.8); font-size: 14.5px; max-width: 46ch; margin: 0 auto 18px; }
-  .device-photo-slot {
+  .device-card-frame {
     max-width: 480px;
     margin: 0 auto;
-    font-size: 13px;
-    color: rgba(248,242,228,0.6);
+    background: #fff;
+    border-radius: 6px;
+    padding: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.3);
   }
-  .device-photo-slot img { width: 100%; border-radius: 6px; display: block; }
+  .device-card-frame img { width: 100%; display: block; border-radius: 2px; }
+  .device-card-caption {
+    margin-top: 10px;
+    font-size: 11.5px;
+    color: rgba(248,242,228,0.55);
+  }
   .device-buy-btn {
     display: inline-flex;
     align-items: center;
@@ -235,10 +211,7 @@
   }
   .device-buy-btn:hover { box-shadow: 5px 5px 0 rgba(0,0,0,0.3); }
 
-  .share-cta {
-    text-align: center;
-    margin-top: 10px;
-  }
+  .share-cta { text-align: center; margin-top: 10px; }
   .share-btn {
     display: inline-flex;
     align-items: center;
@@ -258,36 +231,15 @@
   .share-btn:hover { box-shadow: 5px 5px 0 var(--ink); }
   .share-btn svg { width: 18px; height: 18px; }
 
-  .gallery-loading, .gallery-empty {
-    text-align: center;
-    color: var(--ink-soft);
-    padding: 30px 10px;
-    font-size: 14px;
-  }
-  .gallery-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 14px;
-    margin-top: 24px;
-  }
-  .gallery-item {
-    background: #fff;
-    border: 2px solid var(--ink);
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 3px 3px 0 rgba(20,48,45,0.10);
-  }
+  .gallery-loading, .gallery-empty { text-align: center; color: var(--ink-soft); padding: 30px 10px; font-size: 14px; }
+  .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-top: 24px; }
+  .gallery-item { background: #fff; border: 2px solid var(--ink); border-radius: 8px; overflow: hidden; box-shadow: 3px 3px 0 rgba(20,48,45,0.10); }
   .gallery-item img { width: 100%; height: auto; display: block; }
   .gallery-caption { padding: 10px 12px; }
   .gallery-caption .g-name { font-weight: 700; font-size: 13px; }
   .gallery-caption .g-text { color: var(--ink-soft); font-size: 12.5px; margin-top: 3px; }
 
-  footer {
-    text-align: center;
-    padding: 30px 20px 10px;
-    font-size: 12.5px;
-    color: var(--ink-soft);
-  }
+  footer { text-align: center; padding: 30px 20px 10px; font-size: 12.5px; color: var(--ink-soft); }
   footer a { color: var(--navy); }
   .back-home-btn {
     display: inline-flex;
@@ -310,98 +262,84 @@
 
 <header class="top">
   <img src="../logo.png" alt="WaveClock.net logo" class="brand-mark">
-  <span class="eyebrow">Tonight in Ocean City, NJ</span>
-  <h1 class="headline">The Moonrise You Don't Want to Miss</h1>
-  <p class="sub-headline">A Full Sturgeon Moon rising in perfect step with a 96% partial lunar eclipse &mdash; the kind of night that only comes around once in a great while.</p>
+  <span class="eyebrow">Ocean City, NJ</span>
+  <h1 class="headline" id="pageHeadline">Tonight's Moon &amp; Tide</h1>
+  <p class="sub-headline" id="pageSubHeadline">Loading today's real numbers&hellip;</p>
 </header>
 
 <div class="wrap">
 
-  <section>
-    <div class="tonight-card">
-      <span class="date-tag">Tonight &mdash; Thursday, August 27, 2026</span>
-      <h3>The Sturgeon Moon &amp; Eclipse Double-Feature</h3>
-      <p>The single best night this August to witness the massive "moon illusion" over the water: the Full Sturgeon Moon rises perfectly timed with a 96% partial lunar eclipse. Get down to the beach and look <b>East-Southeast (104&deg;)</b>.</p>
+  <div class="loading-state" id="loadingState">Loading tonight's moon, sun &amp; tide&hellip;</div>
+  <div class="error-state" id="errorState" style="display:none;"></div>
 
-      <div class="sweet-spot">
-        <span class="sweet-spot-label">The Sweet Spot &mdash; 7:25 PM to 7:55 PM</span>
+  <div id="content" style="display:none;">
+    <section>
+      <div class="highlight-card">
+        <span class="date-tag" id="dateTag"></span>
+        <h3 id="hlHeadline"></h3>
+        <p id="hlBody"></p>
+
         <div class="time-grid">
           <div class="time-item">
             <div class="time-label">Moonrise</div>
-            <div class="time-value">7:25 PM</div>
+            <div class="time-value" id="moonriseValue">&mdash;</div>
           </div>
           <div class="time-item">
             <div class="time-label">Sunset</div>
-            <div class="time-value">7:36 PM</div>
+            <div class="time-value" id="sunsetValue">&mdash;</div>
           </div>
           <div class="time-item">
             <div class="time-label">Direction</div>
-            <div class="time-value">104&deg; ESE</div>
+            <div class="time-value" id="directionValue">&mdash;</div>
           </div>
         </div>
-        <p style="margin: 14px 0 0; font-size: 14px;">Because the moon rises 11 minutes before the sun fully sets, it emerges into a brightly lit twilight sky &mdash; a backdrop that heavily emphasizes the silhouette of the Music Pier and boardwalk against the giant lunar disk.</p>
+      </div>
+    </section>
+
+    <section class="section-tight">
+      <h2 class="section-title">Why it looks so enormous</h2>
+      <p class="lede">The "moon illusion" is strongest right at the horizon &mdash; and Ocean City's flat, open beach-to-ocean sightline is about as good a stage for it as you'll find on the East Coast.</p>
+      <div class="why-grid">
+        <div class="why-item">
+          <h4>The horizon illusion</h4>
+          <p>A moon low on the horizon appears far larger than the same moon overhead &mdash; a trick of the brain, not the eyes. Ocean City's unobstructed water horizon makes that illusion as dramatic as it gets.</p>
+        </div>
+        <div class="why-item">
+          <h4>It's a moving target</h4>
+          <p>Moonrise shifts by about 50 minutes later each night, and its rise direction swings across the compass over the month &mdash; so where and when to look is always changing.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-tight">
+      <div class="device-plug">
+        <h3>Wave Clock tracks this every day</h3>
+        <p>This is today's real Sun, Moon &amp; Tide Timeline screen for Ocean City &mdash; generated fresh, the same way it looks on your own Wave Clock.</p>
+        <div class="device-card-frame">
+          <canvas id="cardCanvas" width="792" height="272" style="display:none;"></canvas>
+          <img id="cardImg" alt="Today's Sun, Moon &amp; Tide Timeline screen for Ocean City, NJ">
+        </div>
+        <p class="device-card-caption">Live-generated, not a photo &mdash; updates automatically every day.</p>
+        <div>
+          <a class="device-buy-btn" href="../index.html#buy">Get your Wave Clock &rarr;</a>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="section-title">Share what you saw</h2>
+      <p class="lede">Caught a great shot from the beach tonight? Share it below &mdash; approved photos get added to the gallery for everyone to see.</p>
+      <div class="share-cta">
+        <a class="share-btn" href="submit/">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          Share your photo
+        </a>
       </div>
 
-      <div class="eclipse-note">
-        <p style="margin:0;"><strong>Bonus: keep watching after dark.</strong> The partial lunar eclipse begins at 10:33 PM, reaching its maximum at 12:12 AM (early Friday) &mdash; bathing 96% of the moon in a deep copper-red shadow. No telescope or eye protection needed, just clear skies.</p>
-      </div>
-    </div>
-
-    <div class="backup-card">
-      <h3>If clouds block tonight: Friday, August 28</h3>
-      <p>Your next best option &mdash; moonrise at 7:48 PM facing 96&deg; East, about 13 minutes after sunset (7:35 PM), casting a stark golden glow right over the Atlantic.</p>
-    </div>
-  </section>
-
-  <section class="section-tight">
-    <h2 class="section-title">Why it looks so enormous</h2>
-    <p class="lede">The "moon illusion" is strongest right at the horizon &mdash; and Ocean City's flat, open beach-to-ocean sightline is about as good a stage for it as you'll find on the East Coast.</p>
-    <div class="why-grid">
-      <div class="why-item">
-        <h4>The horizon illusion</h4>
-        <p>A moon low on the horizon appears far larger than the same moon overhead &mdash; a trick of the brain, not the eyes. Ocean City's unobstructed water horizon makes that illusion as dramatic as it gets.</p>
-      </div>
-      <div class="why-item">
-        <h4>Perfect timing tonight</h4>
-        <p>Moonrise landing just before sunset means the moon climbs into a still-bright sky, framed by real detail on the horizon instead of pure darkness.</p>
-      </div>
-      <div class="why-item">
-        <h4>The boardwalk frame</h4>
-        <p>Standing back from the beach lines the Music Pier and boardwalk silhouettes right up against the rising disk &mdash; a shot you can only get from this stretch of coast.</p>
-      </div>
-      <div class="why-item">
-        <h4>A rare double-feature</h4>
-        <p>Pairing a Full Moon moonrise with a same-night eclipse this deep (96%) doesn't happen often &mdash; tonight's the night.</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="section-tight">
-    <div class="device-plug">
-      <h3>Wave Clock is already counting down to it</h3>
-      <p>The Sun, Moon &amp; Tide Timeline screen shows tonight's exact moonrise, sunset, and moon phase right on your Wave Clock &mdash; no lookup required.</p>
-      <div class="device-photo-slot" id="devicePhotoSlot">
-        <img src="wave_clock_moonrise.png" alt="Wave Clock on its wooden stand showing the Sun, Moon &amp; Tide Timeline screen for Ocean City on August 27, 2026, with tonight's moonrise at 7:25 PM and sunset at 7:36 PM">
-      </div>
-      <div>
-        <a class="device-buy-btn" href="../index.html#buy">Get your Wave Clock &rarr;</a>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <h2 class="section-title">Share what you saw</h2>
-    <p class="lede">Caught a great shot from the beach tonight? Share it below &mdash; approved photos get added to the gallery for everyone to see.</p>
-    <div class="share-cta">
-      <a class="share-btn" href="submit/">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-        Share your photo
-      </a>
-    </div>
-
-    <div class="gallery-loading" id="galleryLoading">Loading photos&hellip;</div>
-    <div class="gallery-grid" id="galleryGrid"></div>
-  </section>
+      <div class="gallery-loading" id="galleryLoading">Loading photos&hellip;</div>
+      <div class="gallery-grid" id="galleryGrid"></div>
+    </section>
+  </div>
 
 </div>
 
@@ -425,6 +363,387 @@
   const app = initializeApp(firebaseConfig);
   const storage = getStorage(app);
 
+  // ---------- Ocean City, NJ fixed coordinates + NOAA reference station ----------
+  const OC_LAT = 39.2776;
+  const OC_LON = -74.5746;
+  const OC_STATION_ID = "8534720";
+
+  // ================= Sun/Moon/Tide Timeline card drawing =================
+  // Copied verbatim from design/index.html's drawTideTimelineCardClient and
+  // its helpers -- this app deliberately duplicates canvas-drawing code
+  // between the server (functions/lib/dynamic.js) and each client usage
+  // rather than sharing a module, so this page follows that same
+  // convention. Any visual change to the Timeline card needs to be made
+  // in all three places.
+  const baseCanvas = document.getElementById("cardCanvas");
+
+  const TIMELINE_TIME_FONT_SIZE = 30;
+  const TIMELINE_AMPM_RATIO = 0.55;
+  const TIMELINE_WORD_FONT_SIZE = 22;
+  const TIMELINE_AXIS_Y = 165;
+  const TIMELINE_MOON_ICON_R = 17;
+  const TIMELINE_HIGH_LINE_LEN = 36;
+  const TIMELINE_LOW_LINE_LEN = 18;
+  const TIMELINE_SUN_ICON_R = 11;
+  const TIMELINE_HL_LETTER_SIZE = 28;
+  const TIMELINE_HL_VALUE_SIZE = 18;
+  const TIMELINE_MOON_WORD = { rise: "RISE", set: "SET", overhead: "OVER", underfoot: "UNDER" };
+
+  function drawTimelineTimeSplitAmPmClient(ctx, timeStr, x, y, align, mainSize, ampmSize) {
+    const m = timeStr.replace(" ", "").match(/^(.*?)(AM|PM)$/);
+    if (!m) {
+      ctx.font = "bold " + mainSize + "px Georgia, serif";
+      ctx.textAlign = align;
+      ctx.fillText(timeStr, x, y);
+      return;
+    }
+    const main = m[1], suffix = m[2];
+    ctx.font = "bold " + mainSize + "px Georgia, serif";
+    const mainWidth = ctx.measureText(main).width;
+    ctx.font = "bold " + ampmSize + "px Georgia, serif";
+    const suffixWidth = ctx.measureText(suffix).width;
+    const totalWidth = mainWidth + suffixWidth;
+    let startX;
+    if (align === "left") startX = x;
+    else if (align === "right") startX = x - totalWidth;
+    else startX = x - totalWidth / 2;
+    ctx.textAlign = "left";
+    ctx.font = "bold " + mainSize + "px Georgia, serif";
+    ctx.fillText(main, startX, y);
+    ctx.font = "bold " + ampmSize + "px Georgia, serif";
+    ctx.fillText(suffix, startX + mainWidth, y);
+  }
+
+  function timelineClampAlignClient(x) {
+    if (x < 90) return "left";
+    if (x > baseCanvas.width - 90) return "right";
+    return "center";
+  }
+  function timelineClampXClient(x) {
+    if (x < 90) return Math.max(x, 4);
+    if (x > baseCanvas.width - 90) return Math.min(x, baseCanvas.width - 4);
+    return x;
+  }
+  function timelineClampCenterXClient(x, halfWidth) {
+    return Math.max(halfWidth + 4, Math.min(x, baseCanvas.width - halfWidth - 4));
+  }
+
+  function drawTimelineSunIconClient(ctx, cx, cy, r) {
+    ctx.save();
+    ctx.fillStyle = "#000";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 2;
+    const rayCount = 8;
+    const rayInner = r + 3;
+    const rayOuter = r + 8;
+    for (let i = 0; i < rayCount; i++) {
+      const angle = (i / rayCount) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(angle) * rayInner, cy + Math.sin(angle) * rayInner);
+      ctx.lineTo(cx + Math.cos(angle) * rayOuter, cy + Math.sin(angle) * rayOuter);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawTimelineHLValueClient(ctx, isHigh, heightFt, x, y, align) {
+    const letter = (isHigh ? "HIGH" : "LOW") + " ";
+    const value = heightFt.toFixed(1);
+    ctx.font = "bold " + TIMELINE_HL_LETTER_SIZE + "px Georgia, serif";
+    const letterWidth = ctx.measureText(letter).width;
+    ctx.font = TIMELINE_HL_VALUE_SIZE + "px Georgia, serif";
+    const valueWidth = ctx.measureText(value).width;
+    const totalWidth = letterWidth + valueWidth;
+    let startX;
+    if (align === "left") startX = x;
+    else if (align === "right") startX = x - totalWidth;
+    else startX = x - totalWidth / 2;
+    ctx.textAlign = "left";
+    ctx.font = "bold " + TIMELINE_HL_LETTER_SIZE + "px Georgia, serif";
+    ctx.fillText(letter, startX, y);
+    ctx.font = TIMELINE_HL_VALUE_SIZE + "px Georgia, serif";
+    ctx.fillText(value, startX + letterWidth, y);
+  }
+
+  function timelineIsNearMidnightEdgeClient(label) {
+    const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(label || "");
+    if (!m) return false;
+    let hour = parseInt(m[1], 10) % 12;
+    if (m[3].toUpperCase() === "PM") hour += 12;
+    const totalMinutes = hour * 60 + parseInt(m[2], 10);
+    return totalMinutes < 3 * 60 + 30 || totalMinutes >= 22 * 60;
+  }
+
+  function drawTimelineMoonIconClient(ctx, cx, cy, r, illum, waxing) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = "#000";
+    ctx.fill();
+
+    const k = Math.max(0, Math.min(1, illum));
+    const rx = r * Math.abs(1 - 2 * k);
+    const gibbous = k > 0.5;
+    const bulgeAnticlockwise = waxing ? gibbous : !gibbous;
+    ctx.beginPath();
+    if (waxing) ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+    else ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
+    ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, bulgeAnticlockwise);
+    ctx.closePath();
+    ctx.fillStyle = "#fff";
+    ctx.fill();
+
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function timelineInvertNightColumnsClient(ctx, x0, w) {
+    if (w <= 0) return;
+    const imgData = ctx.getImageData(x0, 0, w, baseCanvas.height);
+    const d = imgData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = 255 - d[i];
+      d[i + 1] = 255 - d[i + 1];
+      d[i + 2] = 255 - d[i + 2];
+    }
+    ctx.putImageData(imgData, x0, 0);
+  }
+
+  function drawTideTimelineCardClient(ctx, card) {
+    const w = baseCanvas.width;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, w, baseCanvas.height);
+    const dayStartMs = new Date(card.dayStart).getTime();
+    const dayEndMs = new Date(card.dayEnd).getTime();
+    function xForTime(iso) {
+      const frac = (new Date(iso).getTime() - dayStartMs) / (dayEndMs - dayStartMs);
+      return Math.round(frac * w);
+    }
+
+    const sunriseX = card.sunrise ? xForTime(card.sunrise.t) : null;
+    const sunsetX = card.sunset ? xForTime(card.sunset.t) : null;
+
+    ctx.textBaseline = "alphabetic";
+
+    if (card.sunrise) {
+      const align = timelineClampAlignClient(sunriseX);
+      const anchorX = timelineClampXClient(sunriseX);
+      ctx.fillStyle = "#000";
+      drawTimelineTimeSplitAmPmClient(ctx, card.sunrise.label, anchorX, 25, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+      drawTimelineSunIconClient(ctx, sunriseX, 43, TIMELINE_SUN_ICON_R);
+    }
+    if (card.sunset) {
+      const align = timelineClampAlignClient(sunsetX);
+      const anchorX = timelineClampXClient(sunsetX);
+      ctx.fillStyle = "#000";
+      drawTimelineTimeSplitAmPmClient(ctx, card.sunset.label, anchorX, 25, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+      drawTimelineSunIconClient(ctx, sunsetX, 43, TIMELINE_SUN_ICON_R);
+    }
+
+    const centerX = (sunriseX != null && sunsetX != null) ? (sunriseX + sunsetX) / 2 : w / 2;
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "center";
+    ctx.font = "bold 24px Georgia, serif";
+    ctx.fillText(card.townName || "", centerX, 22);
+    if (card.dateLabel) {
+      ctx.font = "bold 18px Georgia, serif";
+      ctx.fillText(card.dateLabel, centerX, 44);
+    }
+
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(0, TIMELINE_AXIS_Y);
+    ctx.lineTo(w, TIMELINE_AXIS_Y);
+    ctx.stroke();
+
+    (card.tideExtrema || []).forEach((ex) => {
+      const x = xForTime(ex.t);
+      const align = timelineClampAlignClient(x);
+      const anchorX = timelineClampXClient(x);
+      const lineLen = ex.isHigh ? TIMELINE_HIGH_LINE_LEN : TIMELINE_LOW_LINE_LEN;
+      const lineTop = TIMELINE_AXIS_Y - lineLen;
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x, lineTop);
+      ctx.lineTo(x, TIMELINE_AXIS_Y);
+      ctx.stroke();
+
+      const timeBaseline = lineTop - 8;
+      const valueBaseline = timeBaseline - 30;
+      ctx.fillStyle = "#000";
+      if (timelineIsNearMidnightEdgeClient(ex.label)) {
+        ctx.textAlign = align;
+        ctx.font = "bold " + TIMELINE_HL_LETTER_SIZE + "px Georgia, serif";
+        ctx.fillText(ex.isHigh ? "H" : "L", anchorX, timeBaseline);
+      } else {
+        drawTimelineHLValueClient(ctx, ex.isHigh, ex.heightFt, anchorX, valueBaseline, align);
+        drawTimelineTimeSplitAmPmClient(ctx, ex.label, anchorX, timeBaseline, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+      }
+    });
+
+    (card.moonEvents || []).forEach((ev) => {
+      const x = xForTime(ev.t);
+      const align = timelineClampAlignClient(x);
+      const anchorX = timelineClampXClient(x);
+
+      const lineBottom = TIMELINE_AXIS_Y + 12;
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x, TIMELINE_AXIS_Y);
+      ctx.lineTo(x, lineBottom);
+      ctx.stroke();
+
+      ctx.fillStyle = "#000";
+      const timeY = lineBottom + 20;
+      drawTimelineTimeSplitAmPmClient(ctx, ev.label, anchorX, timeY, align, TIMELINE_TIME_FONT_SIZE, Math.round(TIMELINE_TIME_FONT_SIZE * TIMELINE_AMPM_RATIO));
+
+      const word = TIMELINE_MOON_WORD[ev.kind] || "";
+      ctx.font = "bold " + TIMELINE_WORD_FONT_SIZE + "px Georgia, serif";
+      const wordHalfWidth = ctx.measureText(word).width / 2;
+      const clusterX = timelineClampCenterXClient(x, wordHalfWidth);
+
+      const iconY = timeY + 9 + TIMELINE_MOON_ICON_R;
+      drawTimelineMoonIconClient(ctx, clusterX, iconY, TIMELINE_MOON_ICON_R, card.moonPhase.illumination, card.moonPhase.waxing);
+
+      ctx.textAlign = "center";
+      ctx.fillText(word, clusterX, iconY + TIMELINE_MOON_ICON_R + 20);
+    });
+
+    if (sunriseX != null && sunsetX != null) {
+      timelineInvertNightColumnsClient(ctx, 0, sunriseX);
+      timelineInvertNightColumnsClient(ctx, sunsetX, w - sunsetX);
+    }
+  }
+
+  function formatLongDateClient(date, timeZone) {
+    if (!date) return null;
+    return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone }).format(date);
+  }
+
+  // ================= Fetch today's real data =================
+  const ASTRO_TIMELINE_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/astroTimelineProxy";
+
+  async function fetchTideTimelineDataClient(lat, lon, stationId) {
+    const params = new URLSearchParams({ lat: String(lat), lon: String(lon), stationId: String(stationId) });
+    const resp = await fetch(ASTRO_TIMELINE_PROXY_BASE + "?" + params.toString());
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("Timeline data fetch failed: " + resp.status));
+    return data;
+  }
+
+  // ================= Rule-based "always find a highlight" picker =================
+  // Checked in priority order -- first match wins. Every branch is always
+  // reachable by SOME day's data, and the fallback guarantees there's
+  // always something worth saying even on an unremarkable night.
+  function pickHighlight(data) {
+    const moonRise = (data.moonEvents || []).find((e) => e.kind === "rise");
+    const sunsetMs = data.sunset ? new Date(data.sunset.t).getTime() : null;
+    const illum = data.moonPhase ? data.moonPhase.illumination : null;
+    const phaseName = data.moonPhase ? data.moonPhase.phaseName : "";
+    const isNearFull = illum !== null && illum >= 0.97;
+    const isNearNew = illum !== null && illum <= 0.03;
+
+    const extrema = data.tideExtrema || [];
+    const highs = extrema.filter((e) => e.isHigh).map((e) => e.heightFt);
+    const lows = extrema.filter((e) => !e.isHigh).map((e) => e.heightFt);
+    const tideRange = (highs.length && lows.length) ? Math.max(...highs) - Math.min(...lows) : null;
+
+    const gapMin = (moonRise && sunsetMs != null) ? (new Date(moonRise.t).getTime() - sunsetMs) / 60000 : null;
+    const direction = moonRise && moonRise.compass ? moonRise.compass : "";
+
+    if (gapMin !== null && Math.abs(gapMin) <= 40) {
+      const before = gapMin < 0;
+      return {
+        badge: isNearFull ? "Full Moon Rising at Sunset" : "Moonrise Near Sunset Tonight",
+        headline: isNearFull ? "The Full Moon Rises Right at Sunset Tonight" : "Watch the Moon Rise Almost Exactly at Sunset",
+        body: "Tonight the moon rises at " + (moonRise ? moonRise.label : "—") + ", just " + Math.round(Math.abs(gapMin)) + " minutes " + (before ? "before" : "after") + " sunset (" + data.sunset.label + "). Get down to the beach and look " + direction + " — this near-alignment is the effect that makes Ocean City moonrises special."
+      };
+    }
+
+    if (isNearFull) {
+      return {
+        badge: "Full Moon Tonight",
+        headline: "Tonight's a Full Moon Over Ocean City",
+        body: "Moonrise is at " + (moonRise ? moonRise.label : "—") + (direction ? " (" + direction + ")" : "") + ", with sunset at " + (data.sunset ? data.sunset.label : "—") + ". A great night for a beach walk under a full sky."
+      };
+    }
+
+    if (tideRange !== null && tideRange >= 4.0) {
+      return {
+        badge: "Big Tide Swing Today",
+        headline: "A " + tideRange.toFixed(1) + "-ft Tide Swing Today",
+        body: "Today's tide ranges from " + Math.min(...lows).toFixed(1) + " ft to " + Math.max(...highs).toFixed(1) + " ft — a bigger swing than usual." + (moonRise ? " Moonrise tonight is at " + moonRise.label + "." : "")
+      };
+    }
+
+    if (isNearNew) {
+      return {
+        badge: "New Moon Tonight",
+        headline: "Darkest Skies of the Month",
+        body: "Tonight's a New Moon — the darkest night of the month, and the best time for stargazing over the water. Sunset is at " + (data.sunset ? data.sunset.label : "—") + "."
+      };
+    }
+
+    return {
+      badge: "Tonight on the Water",
+      headline: "Moonrise Tonight: " + (moonRise ? moonRise.label : "—"),
+      body: "Sunset is at " + (data.sunset ? data.sunset.label : "—") + ", and the moon (" + phaseName + ", " + Math.round((illum || 0) * 100) + "% lit) rises at " + (moonRise ? moonRise.label : "—") + (direction ? ", " + direction : "") + ". Wave Clock keeps track of it every day."
+    };
+  }
+
+  // ================= Wire it all up =================
+  const loadingState = document.getElementById("loadingState");
+  const errorState = document.getElementById("errorState");
+  const content = document.getElementById("content");
+
+  async function loadToday() {
+    let data;
+    try {
+      data = await fetchTideTimelineDataClient(OC_LAT, OC_LON, OC_STATION_ID);
+    } catch (err) {
+      loadingState.style.display = "none";
+      errorState.style.display = "block";
+      errorState.textContent = "Couldn't load today's data right now — try refreshing in a bit.";
+      return;
+    }
+
+    const townName = "OCEAN CITY";
+    const dateLabel = formatLongDateClient(new Date(data.dayStart), data.timeZone);
+    const card = Object.assign({}, data, { townName, dateLabel });
+
+    const ctx = baseCanvas.getContext("2d");
+    drawTideTimelineCardClient(ctx, card);
+    document.getElementById("cardImg").src = baseCanvas.toDataURL("image/png");
+
+    const highlight = pickHighlight(data);
+    document.getElementById("pageHeadline").textContent = highlight.headline;
+    document.getElementById("pageSubHeadline").textContent = highlight.body;
+    document.getElementById("dateTag").textContent = dateLabel || "Tonight";
+    document.getElementById("hlHeadline").textContent = highlight.headline;
+    document.getElementById("hlBody").textContent = highlight.body;
+
+    const moonRise = (data.moonEvents || []).find((e) => e.kind === "rise");
+    document.getElementById("moonriseValue").textContent = moonRise ? moonRise.label : "—";
+    document.getElementById("sunsetValue").textContent = data.sunset ? data.sunset.label : "—";
+    document.getElementById("directionValue").textContent = (moonRise && moonRise.compass) ? moonRise.compass + " (" + moonRise.azimuthDeg + "°)" : "—";
+
+    loadingState.style.display = "none";
+    content.style.display = "block";
+  }
+
+  loadToday();
+
+  // ================= Photo gallery (same storage as the live moonrise page) =================
   const galleryLoading = document.getElementById("galleryLoading");
   const galleryGrid = document.getElementById("galleryGrid");
 
@@ -441,12 +760,11 @@
   function renderPhoto(entry) {
     const item = document.createElement("div");
     item.className = "gallery-item";
-    const nameHtml = entry.name ? `<div class="g-name">${escapeHtml(entry.name)}</div>` : "";
-    const captionHtml = entry.caption ? `<div class="g-text">${escapeHtml(entry.caption)}</div>` : "";
-    item.innerHTML = `
-      <img src="${storageUrl("moonrise/approved/" + entry.id + ".jpg")}" alt="${entry.caption ? escapeHtml(entry.caption) : "Moonrise photo from " + escapeHtml(entry.name || "a visitor")}">
-      <div class="gallery-caption">${nameHtml}${captionHtml}</div>
-    `;
+    const nameHtml = entry.name ? "<div class=\"g-name\">" + escapeHtml(entry.name) + "</div>" : "";
+    const captionHtml = entry.caption ? "<div class=\"g-text\">" + escapeHtml(entry.caption) + "</div>" : "";
+    item.innerHTML =
+      "<img src=\"" + storageUrl("moonrise/approved/" + entry.id + ".jpg") + "\" alt=\"" + (entry.caption ? escapeHtml(entry.caption) : "Moonrise photo from " + escapeHtml(entry.name || "a visitor")) + "\">" +
+      "<div class=\"gallery-caption\">" + nameHtml + captionHtml + "</div>";
     galleryGrid.appendChild(item);
   }
 
@@ -457,12 +775,13 @@
       items = listing.items.filter((item) => item.name.endsWith(".json"));
     } catch (err) {
       galleryLoading.textContent = "";
+      galleryGrid.innerHTML = "<div class=\"gallery-empty\">No photos yet &mdash; <a href=\"submit/\">be the first!</a></div>";
       return;
     }
 
     if (items.length === 0) {
       galleryLoading.textContent = "";
-      galleryGrid.innerHTML = '<div class="gallery-empty">No photos yet &mdash; be the first to share one!</div>';
+      galleryGrid.innerHTML = "<div class=\"gallery-empty\">No photos yet &mdash; <a href=\"submit/\">be the first!</a></div>";
       return;
     }
 
@@ -480,7 +799,7 @@
 
     galleryLoading.textContent = "";
     if (entries.length === 0) {
-      galleryGrid.innerHTML = '<div class="gallery-empty">No photos yet &mdash; be the first to share one!</div>';
+      galleryGrid.innerHTML = "<div class=\"gallery-empty\">No photos yet &mdash; <a href=\"submit/\">be the first!</a></div>";
       return;
     }
     entries.forEach(renderPhoto);
