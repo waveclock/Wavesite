@@ -1003,15 +1003,27 @@ function drawMoonIcon(ctx, cx, cy, r, illum, waxing) {
   const k = Math.max(0, Math.min(1, illum));
   const rx = r * Math.abs(1 - 2 * k);
   const gibbous = k > 0.5;
-  const bulgeAnticlockwise = waxing ? gibbous : !gibbous;
   ctx.save();
+  ctx.save();
+  // The waning case is drawn by mirroring the waxing construction
+  // horizontally, rather than trying to flip the arc-direction booleans by
+  // hand -- an earlier version did that (bulgeAnticlockwise = !gibbous)
+  // and it silently produced a shape frozen at exactly half-lit for every
+  // illum > 0.5 (never reaching full), since arc-direction sign flips
+  // don't mirror the same way this ellipse construction needs. Reusing
+  // the proven-correct waxing path under a horizontal flip sidesteps that
+  // whole class of bug.
+  if (!waxing) {
+    ctx.translate(2 * cx, 0);
+    ctx.scale(-1, 1);
+  }
   ctx.beginPath();
   ctx.fillStyle = "#000";
-  if (waxing) ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
-  else ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
-  ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, bulgeAnticlockwise);
+  ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+  ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, gibbous);
   ctx.closePath();
   ctx.fill();
+  ctx.restore();
   ctx.strokeStyle = "#000";
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -1629,14 +1641,22 @@ function drawTimelineMoonIcon(ctx, cx, cy, r, illum, waxing) {
   const k = Math.max(0, Math.min(1, illum));
   const rx = r * Math.abs(1 - 2 * k);
   const gibbous = k > 0.5;
-  const bulgeAnticlockwise = waxing ? gibbous : !gibbous;
+  // See drawMoonIcon's comment: the waning case mirrors the (proven-
+  // correct) waxing construction horizontally rather than flipping the
+  // ellipse's arc-direction boolean by hand -- that approach silently
+  // froze the icon at exactly half-lit for every illum > 0.5 when waning.
+  ctx.save();
+  if (!waxing) {
+    ctx.translate(2 * cx, 0);
+    ctx.scale(-1, 1);
+  }
   ctx.beginPath();
-  if (waxing) ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
-  else ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
-  ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, bulgeAnticlockwise);
+  ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+  ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, gibbous);
   ctx.closePath();
   ctx.fillStyle = "#fff";
   ctx.fill();
+  ctx.restore();
 
   ctx.strokeStyle = "#000";
   ctx.lineWidth = 1;

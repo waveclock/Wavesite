@@ -1113,6 +1113,28 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.ok(steps[steps.length - 1] > 0.95, "full moon should be almost entirely lit");
   });
 
+  await test("waning progresses monotonically from new to full, same as waxing (regression: a near-full waning moon used to freeze at exactly half-lit instead of reaching full)", () => {
+    function litFraction(illum, waxing) {
+      const c = whiteCanvas(60, 60);
+      drawMoonIcon(c.getContext("2d"), 30, 30, 25, illum, waxing);
+      const data = c.getContext("2d").getImageData(0, 0, 60, 60).data;
+      let lit = 0, total = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const dx = (i / 4) % 60 - 30, dy = Math.floor(i / 4 / 60) - 30;
+        if (dx * dx + dy * dy > 24 * 24) continue;
+        total++;
+        if (data[i] > 128) lit++;
+      }
+      return lit / total;
+    }
+    const steps = [0, 0.25, 0.5, 0.78, 0.97, 1].map((illum) => litFraction(illum, false));
+    for (let i = 1; i < steps.length; i++) {
+      assert.ok(steps[i] > steps[i - 1] - 0.01, "expected lit fraction to grow: " + steps.join(", "));
+    }
+    assert.ok(steps[0] < 0.05, "new moon should be almost entirely dark");
+    assert.ok(steps[steps.length - 1] > 0.95, "a near-full/full waning moon should be almost entirely lit, not stuck at half");
+  });
+
   console.log("drawTideCard (Tide & Fishing card, Phase 1: tide + moon only)");
   const SAMPLE_TIDE_CARD = {
     dawn: { t: "2026-07-15T09:12:00.000Z", label: "5:12 AM" },
@@ -1445,6 +1467,9 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   });
   await test("a near-new moon (illum close to 0) is almost entirely left blank -- again the opposite of drawMoonIcon's near-new case", () => {
     assert.ok(inkedFraction(0.03, true) < 0.1, "expected a near-new moon to be almost entirely unfilled here");
+  });
+  await test("a near-full WANING moon is also almost entirely inked black, same as waxing (regression: a real Ocean City full moon just past peak rendered half-black/half-white instead of solid black here)", () => {
+    assert.ok(inkedFraction(0.97, false) > 0.9, "expected a near-full waning moon to be almost entirely black ink here, not stuck at half");
   });
   await test("a near-full moon drawn by drawTimelineMoonIcon lands in the night zone and comes out mostly white, while the same card's day-zone moon markers stay mostly black -- end-to-end proof this card shows a full moon as white at night, black by day", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
