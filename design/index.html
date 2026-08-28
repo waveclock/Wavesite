@@ -3125,15 +3125,24 @@
     const k = Math.max(0, Math.min(1, illum));
     const rx = r * Math.abs(1 - 2 * k);
     const gibbous = k > 0.5;
-    const bulgeAnticlockwise = waxing ? gibbous : !gibbous;
     ctx.save();
+    ctx.save();
+    // Mirrors the waxing construction horizontally for waning, rather than
+    // flipping the ellipse's arc-direction boolean by hand -- see
+    // drawMoonIcon's comment in functions/lib/dynamic.js for why (that
+    // approach silently froze the icon at exactly half-lit for illum > 0.5
+    // when waning).
+    if (!waxing) {
+      ctx.translate(2 * cx, 0);
+      ctx.scale(-1, 1);
+    }
     ctx.beginPath();
     ctx.fillStyle = "#000";
-    if (waxing) ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
-    else ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
-    ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, bulgeAnticlockwise);
+    ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+    ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, gibbous);
     ctx.closePath();
     ctx.fill();
+    ctx.restore();
     ctx.strokeStyle = "#000";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -3644,14 +3653,21 @@
     const k = Math.max(0, Math.min(1, illum));
     const rx = r * Math.abs(1 - 2 * k);
     const gibbous = k > 0.5;
-    const bulgeAnticlockwise = waxing ? gibbous : !gibbous;
+    // See drawMoonIconClient's comment: mirror the waxing construction
+    // horizontally for waning instead of flipping the arc-direction
+    // boolean by hand.
+    ctx.save();
+    if (!waxing) {
+      ctx.translate(2 * cx, 0);
+      ctx.scale(-1, 1);
+    }
     ctx.beginPath();
-    if (waxing) ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
-    else ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
-    ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, bulgeAnticlockwise);
+    ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+    ctx.ellipse(cx, cy, rx, r, 0, Math.PI / 2, -Math.PI / 2, gibbous);
     ctx.closePath();
     ctx.fillStyle = "#fff";
     ctx.fill();
+    ctx.restore();
 
     ctx.strokeStyle = "#000";
     ctx.lineWidth = 1;
