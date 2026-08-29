@@ -882,6 +882,36 @@ construction, success, every failure shape) and
 Imagen art)` suite covers the success/fallback wiring end to end, all
 without a real Vertex AI call.
 
+**The design tool's live preview shows the real Imagen art too, via
+`imagenProxy`** (`imagenProxyHandler` in `index.js`) -- same CORS
+reasoning as every other proxy in this file (a script-initiated `fetch()`
+straight to Vertex AI needs CORS headers it doesn't send), but a
+deliberately different security shape from the rest: `espnProxy`/
+`newsProxy`/`astroProxy` are thin passthroughs of a free public API, so
+an open relay is a mild abuse-surface concern at worst. Imagen bills per
+generated image, so `imagenProxy` never accepts a free-text prompt from
+the browser at all -- only a `pose` query param checked with
+`Object.prototype.hasOwnProperty.call` against `IMAGEN_SCENE_HINTS`
+(the same fixed, small set of poses `moodForBeachData` ever picks from;
+the `hasOwnProperty` check specifically to reject `pose=constructor` and
+similar prototype-chain lookups that a naive `IMAGEN_SCENE_HINTS[pose]`
+truthy check would wrongly accept). The prompt itself is still always
+built server-side from `imagen.js`'s fixed `STYLE_PREFIX` + one matching
+hint, exactly like the daily job -- the browser can only choose which of
+six known scenes to render, never what to render.
+
+`design/index.html`'s Beach Buddy tool calls this once per session (not
+on every redraw) via `fetchBeachBuddyArtClient`, dithers the result once
+(reusing `ditheredLogoCanvasOpaque`, the same helper team logos already
+use) and caches it on the layer object -- reopening the tool tab or
+editing something else on the canvas does NOT trigger another
+generation, since unlike Tide & Fishing's free NOAA/Open-Meteo calls,
+every one of these has a real cost. If the proxy call fails for any
+reason (Imagen not set up yet, a safety filter, a network error), the
+preview falls back to the procedural stick-figure card, same contract as
+the daily job's own server-side fallback -- see `beachBuddyMoodStatus`
+in `design/index.html` for the status text shown either way.
+
 **Not live-tested against a real Vertex AI project** from this
 development sandbox -- there are no GCP credentials for the `waveclock`
 project available here, so this needs the same kind of live smoke test
