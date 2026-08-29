@@ -239,6 +239,26 @@ function buildHourlySeries(startHour, endHour, fields) {
     assert.ok(["Poor", "Fair", "Good", "Excellent"].includes(data.fishingScore));
   });
 
+  await test("fetchTideCardData still finds a real evening moonrise SunCalc.getMoonTimes' UTC-midnight-anchored search window would otherwise miss", async () => {
+    // Regression: for Ocean City, NJ (EDT/UTC-4), SunCalc.getMoonTimes'
+    // own 24h search window is anchored to UTC midnight, not local --
+    // a real moonrise falling in the last few hours before local
+    // midnight lands just past that UTC boundary and gets reported as
+    // rise: null for this calendar day, even though the moon undeniably
+    // rises that evening (confirmed by direct altitude sampling). Aug
+    // 29, 2026 is one such date.
+    const mockFetch = mockAllApisFetch({
+      noaa: {
+        h: [{ t: "2026-08-29 08:00", v: "2.00" }],
+        hilo: [{ t: "2026-08-29 03:14", v: "0.60", type: "L" }, { t: "2026-08-29 09:22", v: "4.40", type: "H" }]
+      }
+    });
+    const now = new Date("2026-08-29T16:00:00Z");
+    const data = await fetchTideCardData({ lat: 39.2776, lon: -74.5746, stationId: "8534720" }, now, mockFetch);
+    assert.ok(data.moon.rise, "expected a real moonrise this evening, not null");
+    assert.strictEqual(data.moon.rise.label, "8:11 PM");
+  });
+
   await test("an Open-Meteo outage doesn't fail the whole card -- NOAA tide data (the one thing this card can't function without) still comes back, just with weather: null", async () => {
     const noaaOnlyFetch = async (url) => {
       const u = new URL(url);

@@ -201,6 +201,63 @@ const MINOR_HALF_WIDTH_MIN = 25; // minor period = ~50min total, centered on moo
 const SOLUNAR_SAMPLE_STEP_MIN = 2;
 const SOLUNAR_MARGIN_MS = 3 * 3600000; // how far outside [dawn, dusk] a period's CENTER may still fall and be considered relevant
 
+// SunCalc.getMoonTimes always truncates its own search window to UTC
+// midnight (`t.setUTCHours(0,0,0,0)` in its source) regardless of what
+// time-of-day is passed in -- so for any US timezone, its 24h search
+// window is offset several hours from the LOCAL calendar day we actually
+// want. A real Ocean City moonrise at 8:14 PM EDT (00:14 UTC the next
+// day) falls just past that UTC boundary, so getMoonTimes(anchor) for
+// that local day returns rise: null (the rise "belongs" to the next
+// UTC day's search instead) -- even though the moon undeniably rises
+// that evening. Confirmed by direct altitude sampling: every day in a
+// real multi-day span had exactly one rise and one set, contradicting
+// getMoonTimes' null. This is the same class of bug findMoonAltitudeExtrema
+// below already sidesteps for transits (see its own comment) --
+// horizon-crossing sampling has no day-boundary ambiguity because it
+// operates on the caller's own absolute [from, to) window, not
+// SunCalc's internal one.
+// A raw altitude=0 crossing is NOT what "moonrise" conventionally means --
+// SunCalc's own (unexported) getMoonTimes internals define it via a
+// "moonHeight" that adds a parallax term (the moon is close enough that its
+// horizontal parallax matters, unlike the sun) plus a small refraction
+// constant: altitude + 0.2725*asin(earthRadius/distance) [in degrees] +
+// 0.09deg. Confirmed by cross-checking: using raw altitude<0 here landed
+// real Ocean City moonrises ~2 minutes late against both getMoonTimes and
+// independently-sourced real moonrise times for the same date/location.
+// Reimplemented locally (rather than switching back to getMoonTimes
+// itself) because getMoonTimes' *search window* is the actual bug this
+// function exists to fix -- see the comment below.
+const MOON_EARTH_RADIUS_KM = 6378.14;
+function moonHeightDeg(lat, lon, date) {
+  const p = SunCalc.getMoonPosition(date, lat, lon);
+  return p.altitude + 0.2725 * (Math.asin(MOON_EARTH_RADIUS_KM / p.distance) * 180 / Math.PI) + 0.09;
+}
+
+function findMoonRiseSet(lat, lon, from, to, stepMinutes) {
+  const events = [];
+  let prevH = moonHeightDeg(lat, lon, from);
+  let prevT = from;
+  for (let ms = from.getTime() + stepMinutes * 60000; ms <= to.getTime(); ms += stepMinutes * 60000) {
+    const t = new Date(ms);
+    const h = moonHeightDeg(lat, lon, t);
+    if ((prevH < 0) !== (h < 0)) {
+      // Bisect within the bracket for a precise crossing time (20 halvings
+      // shrinks a several-minute step down to a fraction of a second --
+      // far more precise than a "h:mm AM/PM" label needs).
+      let lo = prevT.getTime(), hi = t.getTime(), loNeg = prevH < 0;
+      for (let i = 0; i < 20; i++) {
+        const mid = (lo + hi) / 2;
+        const midNeg = moonHeightDeg(lat, lon, new Date(mid)) < 0;
+        if (midNeg === loNeg) lo = mid; else hi = mid;
+      }
+      events.push({ kind: h > prevH ? "rise" : "set", t: new Date((lo + hi) / 2) });
+    }
+    prevH = h;
+    prevT = t;
+  }
+  return events;
+}
+
 // extremaType distinguishes which kind of transit this is -- "overhead"
 // (altitude local max, the moon crossing the local meridian) vs
 // "underfoot" (altitude local min, the antitransit on the opposite side
@@ -302,10 +359,15 @@ async function fetchTideTimelineData({ lat, lon, stationId }, now, fetchImpl) {
   // same calendar day sidesteps that regardless of what time `at` is.
   const localNoonAnchor = new Date(dayStart.getTime() + 12 * 3600000);
   const times = SunCalc.getTimes(localNoonAnchor, lat, lon);
-  const moonTimes = SunCalc.getMoonTimes(localNoonAnchor, lat, lon);
   const illum = SunCalc.getMoonIllumination(at);
 
   const transits = findMoonAltitudeExtrema(
+    lat, lon,
+    new Date(dayStart.getTime() - TIMELINE_SAMPLE_MARGIN_MS),
+    new Date(dayEnd.getTime() + TIMELINE_SAMPLE_MARGIN_MS),
+    SOLUNAR_SAMPLE_STEP_MIN
+  );
+  const riseSetEvents = findMoonRiseSet(
     lat, lon,
     new Date(dayStart.getTime() - TIMELINE_SAMPLE_MARGIN_MS),
     new Date(dayEnd.getTime() + TIMELINE_SAMPLE_MARGIN_MS),
@@ -332,8 +394,7 @@ async function fetchTideTimelineData({ lat, lon, stationId }, now, fetchImpl) {
   const inWindow = (d) => d >= dayStart && d < dayEnd;
 
   const moonEvents = [];
-  if (moonTimes.rise && inWindow(moonTimes.rise)) moonEvents.push(labeledEvent(moonTimes.rise, "rise"));
-  if (moonTimes.set && inWindow(moonTimes.set)) moonEvents.push(labeledEvent(moonTimes.set, "set"));
+  riseSetEvents.forEach((ev) => { if (inWindow(ev.t)) moonEvents.push(labeledEvent(ev.t, ev.kind)); });
   transits.forEach((tr) => { if (inWindow(tr.t)) moonEvents.push(labeledEvent(tr.t, tr.extremaType)); });
   moonEvents.sort((a, b) => new Date(a.t) - new Date(b.t));
 
@@ -654,13 +715,29 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
   // needed here too since dawn/dusk (derived from SunCalc) set the NOAA
   // fetch window below and would otherwise silently shift to tomorrow for
   // any local evening `at`.
-  const localNoonAnchor = new Date(localMidnight(at, timeZone).getTime() + 12 * 3600000);
+  const dayStart = localMidnight(at, timeZone);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 3600000);
+  const localNoonAnchor = new Date(dayStart.getTime() + 12 * 3600000);
   const times = SunCalc.getTimes(localNoonAnchor, lat, lon);
-  const moonTimes = SunCalc.getMoonTimes(localNoonAnchor, lat, lon);
   const illum = SunCalc.getMoonIllumination(at);
 
   const dawn = times.dawn;
   const dusk = times.dusk;
+
+  // See findMoonRiseSet's comment above: SunCalc.getMoonTimes' own search
+  // window is UTC-midnight-anchored, not local-midnight, so it silently
+  // drops real evening moonrise/moonset events for US timezones. Sampling
+  // directly over this card's own local calendar day (with margin, same
+  // as fetchTideTimelineData) sidesteps that.
+  const riseSetEvents = findMoonRiseSet(
+    lat, lon,
+    new Date(dayStart.getTime() - TIMELINE_SAMPLE_MARGIN_MS),
+    new Date(dayEnd.getTime() + TIMELINE_SAMPLE_MARGIN_MS),
+    SOLUNAR_SAMPLE_STEP_MIN
+  );
+  const inCalendarDay = (d) => d >= dayStart && d < dayEnd;
+  const moonRise = riseSetEvents.find((ev) => ev.kind === "rise" && inCalendarDay(ev.t)) || null;
+  const moonSet = riseSetEvents.find((ev) => ev.kind === "set" && inCalendarDay(ev.t)) || null;
 
   // hilo (the day's high/low points) is the one thing this card can't
   // function without -- if NOAA has no predictions data for this station
@@ -707,7 +784,7 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
   }
 
   const tideCurve = curve.map((p) => ({ t: p.t.toISOString(), heightFt: p.heightFt }));
-  const solunarPeriods = computeSolunarPeriods(lat, lon, dawn, dusk, moonTimes.rise || null, moonTimes.set || null);
+  const solunarPeriods = computeSolunarPeriods(lat, lon, dawn, dusk, moonRise ? moonRise.t : null, moonSet ? moonSet.t : null);
 
   // Weather is supplementary (the alert strip, footer row, and part of
   // the fishing score) -- NOAA's tide curve above is the one thing this
@@ -733,8 +810,8 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
       illumination: illum.fraction,
       waxing: illum.waxing,
       phaseName: moonPhaseName(illum.phase),
-      rise: labeled(moonTimes.rise || null),
-      set: labeled(moonTimes.set || null)
+      rise: labeled(moonRise ? moonRise.t : null),
+      set: labeled(moonSet ? moonSet.t : null)
     },
     tideCurve,
     tideExtrema: extrema
