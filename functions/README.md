@@ -3,16 +3,18 @@
 Runs once a day (09:00 UTC) and redraws the current content for every
 device with an active "dynamic layer" published from `/design/` -- a
 **Countdown** (a target date), a **Team Schedule** (next game for a
-picked sports team), **News** (headlines for a location or RSS feed), or
+picked sports team), **News** (headlines for a location or RSS feed),
 **Tide & Fishing** (tide curve + moon phase/rise/set for the device's
-saved location) -- overwriting `designs/{deviceId}.bin` and `.png` in
-place. The device itself needs no changes -- it already reads those two
-files unconditionally.
+saved location), or **Beach Buddy** (a single recurring illustrated
+character whose pose/headline is driven by that same tide/weather data
+-- see its own section below) -- overwriting `designs/{deviceId}.bin`
+and `.png` in place. The device itself needs no changes -- it already
+reads those two files unconditionally.
 
 ## How it fits together
 
 `design/index.html` publishes up to four files per device when a
-Countdown, Team, or News layer is on the canvas:
+Countdown, Team, News, or Beach Buddy layer is on the canvas:
 
 - `designs/{id}.bin` / `.png` -- today's design, exactly as before (so the
   board updates immediately on publish, same as always).
@@ -24,12 +26,15 @@ Countdown, Team, or News layer is on the canvas:
   - `{ type: "countdown", targetDate, label, x, y, size, fontKey, outline, inverted }`
   - `{ type: "team", sport, league, teamId, teamName, x, y, size, fontKey, outline, inverted }`
   - `{ type: "news", location, feedUrl, x, y, size, fontKey, outline, inverted }`
+  - `{ type: "beachBuddy", lat, lon, stationId, inverted }` -- same
+    lat/lon/stationId shape as `"tide"`, no other settings; see "Beach
+    Buddy" below.
 
-If there's no Countdown, Team, or News layer, `design` deletes the
-`-base.png` / `-dynamic.json` files instead (best-effort) so this job has
-nothing to find for that device. At most one dynamic layer is treated as
-active per device for now -- if a customer somehow adds more than one,
-only the first one found governs auto-updates.
+If there's no Countdown, Team, News, or Beach Buddy layer, `design`
+deletes the `-base.png` / `-dynamic.json` files instead (best-effort) so
+this job has nothing to find for that device. At most one dynamic layer
+is treated as active per device for now -- if a customer somehow adds
+more than one, only the first one found governs auto-updates.
 
 Each run:
 1. Lists everything under `designs/` and picks out `*-dynamic.json`.
@@ -796,6 +801,143 @@ suites, including pixel-level checks that the night-side background and
 the sun icon actually invert correctly, not just "doesn't throw"). Needs
 the same live smoke test the other cards eventually got: deploy, publish
 a Timeline layer, and check what actually shows up.
+
+## Beach Buddy
+
+A single recurring illustrated character ("Buddy"), one new pose/
+headline a day, driven entirely by the device's own real conditions --
+no separate settings to publish at all beyond the same `lat`/`lon`/
+`stationId` the Tide & Fishing card already uses (`{ type: "beachBuddy",
+lat, lon, stationId, inverted }`). Unlike every other card here, it has
+no black title banner and no border on purpose: one big headline, an
+optional short subline, and the character -- meant to read as a
+friendly daily greeting, not a data card.
+
+**Mood selection (`moodForBeachData` in `lib/dynamic.js`) reuses
+`fetchTideCardData` exactly as the "tide" type does** -- no second data
+source, no extra NOAA/Open-Meteo calls. A fixed priority order picks
+today's headline + pose from whatever that same payload already
+contains: active rain beats rain later today beats a wind ramp/high
+current wind beats a big daytime swell beats nighttime beats the day's
+next tide extremum beats a calm-day default (with the water temperature
+if Open-Meteo has one). Every branch degrades gracefully the same way
+the Tide & Fishing card's own weather row does -- a missing/null
+`data.weather` (a down Open-Meteo call) or empty `tideExtrema` just
+falls through to a later branch instead of throwing, and only a genuine
+NOAA failure (the one thing this card, like Tide & Fishing, can't
+function without) fails the whole render.
+
+**The character is illustrated by Imagen (via Firebase AI Logic /
+Vertex AI), with a procedural vector-line stick figure as the
+fallback** (`lib/imagen.js` + `drawBeachBuddyArtCard`/
+`drawBeachBuddyCard` in `lib/dynamic.js`). Two things make this
+different from a naive "call an image model and draw whatever comes
+back":
+
+1. **The headline text is never part of the generated image.** Every
+   current image model, Imagen included, can't reliably render small
+   precise lettering -- asking it to also draw "HIGH TIDE 3:00 PM" would
+   produce garbled text on an e-ink display where legibility is the
+   whole point. `imagen.js`'s `STYLE_PREFIX` explicitly asks for no
+   text/lettering at all; `drawBeachBuddyHeadline` draws the real,
+   legible headline itself, in code, on top, exactly the way every other
+   card here draws its own text.
+2. **One fixed style prefix on every single call** (`STYLE_PREFIX` in
+   `lib/imagen.js`) is what keeps "Buddy" reading as the same recurring
+   character day to day rather than a new random illustration each time
+   -- flat two-color linework (no gradients/shading a 1-bit threshold
+   would turn to noise), the same character description, every time.
+   `IMAGEN_SCENE_HINTS` supplies just the one line that actually changes
+   -- what Buddy is doing -- keyed by the same pose names the procedural
+   fallback's `STICK_POSES` uses, so a mood computed from real data
+   drives the same scene idea whichever renderer ends up drawing it.
+
+**Imagen only supports a fixed set of aspect ratios** ("1:1", "3:4",
+"4:3", "9:16", "16:9") -- none close to this display's own ~2.9:1 strip.
+Rather than stretch or crop a generated image into an unnatural shape,
+`IMAGE_ASPECT_RATIO` asks for a normal "1:1" portrait illustration and
+`drawBeachBuddyArtCard` places it as a modest centered panel below the
+headline, with clean white margin either side -- closer to how a real
+Life-is-Good-style design actually composes a small character
+illustration with text than an edge-to-edge background fill would be.
+The returned image is dithered into the panel with the same Atkinson
+algorithm already used for team logos (`ditheredArtCanvas`, mirroring
+`ditheredLogoCanvas`) -- a flat, mostly-2-color illustration dithers into
+clean crisp linework, unlike a plain luminance threshold which would
+lose Imagen's own anti-aliased edges.
+
+**A failed/blocked/unreachable Imagen call never fails the whole
+card.** `renderDynamicDesign`'s `"beachBuddy"` branch tries Imagen first
+and falls back to the procedural stick-figure card
+(`drawBeachBuddyCard`) on ANY failure -- a safety-filtered result, an
+API error, a bad/undecodable image -- logging the reason and continuing,
+the same "nice-to-have, not load-bearing" contract `fetchDitheredLogo`
+already uses for a missing team logo. The result object's `usedArt`
+field records which one actually rendered, for anyone reading the
+Cloud Function logs. `beachBuddyArtImpl`, the last parameter of
+`renderDynamicDesign`, swaps out the real Imagen call for tests --
+`test/imagen.test.js` covers `lib/imagen.js` in isolation (prompt
+construction, success, every failure shape) and
+`test/dynamic.test.js`'s `renderDynamicDesign (type: beachBuddy, with
+Imagen art)` suite covers the success/fallback wiring end to end, all
+without a real Vertex AI call.
+
+**Not live-tested against a real Vertex AI project** from this
+development sandbox -- there are no GCP credentials for the `waveclock`
+project available here, so this needs the same kind of live smoke test
+NOAA/ESPN/RSS eventually got: deploy, publish a Beach Buddy layer, and
+check what actually shows up (including how the mood's headline reads
+against a REAL Imagen illustration, and how the character's likeness
+holds up across a few different days/moods).
+
+**One-time setup, beyond the Blaze-plan requirement below** (a human
+with project access, done from the Google Cloud Console -- none of this
+can be done from code). Google renamed "Vertex AI" to "Gemini Enterprise
+Agent Platform" partway through this feature's life -- the Console's
+product name and exact menu wording may have moved again by the time
+you read this, so these steps describe what to look for, not just what
+to click:
+
+1. **Enable the API** on the `waveclock` project: Console -> APIs &
+   Services -> Library -> search "Vertex AI API" (or "Gemini Enterprise
+   Agent Platform API" if that's what the Library shows now -- same
+   underlying API, `aiplatform.googleapis.com`) -> Enable. Imagen usage
+   is billed per generated image (check
+   [current Imagen pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing)
+   before enabling for real, since unlike the rest of this Cloud
+   Function's near-zero cost, this is the one part of the daily job with
+   a real per-call cost -- one generation per device per day it's
+   published).
+2. **Grant the Cloud Functions service account the role that includes
+   `aiplatform.user`**: Console -> IAM & Admin -> IAM -> find the same
+   service account this Cloud Function already runs as (its default
+   compute/App Engine service account -- looks like
+   `<PROJECT_NUMBER>-compute@developer.gserviceaccount.com` -- unless a
+   custom one was set up for the deploy steps below; this is a
+   DIFFERENT identity from the `github-deploy` service account those
+   steps create, which only needs deploy permissions, not this role) ->
+   Edit -> Add Role -> search "Agent Platform User" (confirmed live,
+   2026 -- this is the current display name for `roles/aiplatform.user`,
+   what used to show as "Vertex AI User"; the role picker also lists
+   several "Vertex AI ... Service Agent" roles that look similar but are
+   for Google-managed service agents, not this one -- "Agent Platform
+   User"'s own description reads "Grants access to use all resource in
+   Agent Platform"). If the Console has renamed it again by the time
+   you're reading this, search the role ID `roles/aiplatform.user`
+   directly instead -- far less likely to have moved than the display
+   name has twice already.
+3. That's it -- no API key to store as a secret. `lib/imagen.js`
+   authenticates with `@google/genai`'s `enterprise: true` mode (the
+   SDK's current recommended flag -- functionally identical to the
+   older `vertexai: true`, see that file's own comment), which on a Node
+   runtime uses Application Default Credentials: the same service-
+   account identity already used for Cloud Storage everywhere else in
+   this file.
+
+If this isn't enabled yet (or the role hasn't been granted), Beach
+Buddy still works -- every render just falls back to the procedural
+stick-figure card until that one-time setup is done, per the
+graceful-degradation contract above.
 
 ## Known tradeoffs
 

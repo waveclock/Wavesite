@@ -7,9 +7,10 @@
   },
   "main": "index.js",
   "scripts": {
-    "test": "node test/dynamic.test.js && node test/orchestration.test.js && node test/espnProxy.test.js && node test/newsProxy.test.js && node test/astro.test.js && node test/astroProxy.test.js && node test/astroTimelineProxy.test.js && node test/teamsnap.test.js && node test/teamsnapProxy.test.js"
+    "test": "node test/dynamic.test.js && node test/imagen.test.js && node test/orchestration.test.js && node test/espnProxy.test.js && node test/newsProxy.test.js && node test/astro.test.js && node test/astroProxy.test.js && node test/astroTimelineProxy.test.js && node test/teamsnap.test.js && node test/teamsnapProxy.test.js"
   },
   "dependencies": {
+    "@google/genai": "^2.19.0",
     "canvas": "^2.11.2",
     "firebase-admin": "^12.1.0",
     "firebase-functions": "^5.0.0",
