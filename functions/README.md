@@ -892,27 +892,44 @@ holds up across a few different days/moods).
 
 **One-time setup, beyond the Blaze-plan requirement below** (a human
 with project access, done from the Google Cloud Console -- none of this
-can be done from code):
+can be done from code). Google renamed "Vertex AI" to "Gemini Enterprise
+Agent Platform" partway through this feature's life -- the Console's
+product name and exact menu wording may have moved again by the time
+you read this, so these steps describe what to look for, not just what
+to click:
 
-1. **Enable the Vertex AI API** on the `waveclock` project: Console ->
-   APIs & Services -> Library -> search "Vertex AI API" -> Enable.
-   Imagen usage is billed per generated image (check
-   [Vertex AI's current Imagen pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing)
+1. **Enable the API** on the `waveclock` project: Console -> APIs &
+   Services -> Library -> search "Vertex AI API" (or "Gemini Enterprise
+   Agent Platform API" if that's what the Library shows now -- same
+   underlying API, `aiplatform.googleapis.com`) -> Enable. Imagen usage
+   is billed per generated image (check
+   [current Imagen pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing)
    before enabling for real, since unlike the rest of this Cloud
    Function's near-zero cost, this is the one part of the daily job with
    a real per-call cost -- one generation per device per day it's
    published).
-2. **Grant the Cloud Functions service account the "Vertex AI User"
-   role**: Console -> IAM & Admin -> IAM -> find the same service
-   account this Cloud Function already runs as (its default compute/App
-   Engine service account, unless a custom one was set up for the
-   deploy steps below) -> Edit -> Add Role -> "Vertex AI User".
-3. That's it -- no API key to store as a secret. In `vertexai: true`
-   mode on a Node runtime, `@google/genai` authenticates via Application
-   Default Credentials, the same service-account identity already used
-   for Cloud Storage everywhere else in this file.
+2. **Grant the Cloud Functions service account the role that includes
+   `aiplatform.user`**: Console -> IAM & Admin -> IAM -> find the same
+   service account this Cloud Function already runs as (its default
+   compute/App Engine service account -- looks like
+   `<PROJECT_NUMBER>-compute@developer.gserviceaccount.com` -- unless a
+   custom one was set up for the deploy steps below; this is a
+   DIFFERENT identity from the `github-deploy` service account those
+   steps create, which only needs deploy permissions, not this role) ->
+   Edit -> Add Role -> search "Vertex AI User" or "Gemini Enterprise
+   Agent Platform User" (whichever the Console currently shows) --
+   if neither name matches what's on screen, search the role ID
+   `roles/aiplatform.user` directly, which is far less likely to have
+   changed than its display name.
+3. That's it -- no API key to store as a secret. `lib/imagen.js`
+   authenticates with `@google/genai`'s `enterprise: true` mode (the
+   SDK's current recommended flag -- functionally identical to the
+   older `vertexai: true`, see that file's own comment), which on a Node
+   runtime uses Application Default Credentials: the same service-
+   account identity already used for Cloud Storage everywhere else in
+   this file.
 
-If Vertex AI isn't enabled yet (or the role hasn't been granted), Beach
+If this isn't enabled yet (or the role hasn't been granted), Beach
 Buddy still works -- every render just falls back to the procedural
 stick-figure card until that one-time setup is done, per the
 graceful-degradation contract above.

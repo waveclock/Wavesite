@@ -70,14 +70,22 @@ function buildPrompt(mood) {
 // be a plain object literal instead of a mocked class.
 function defaultGenerateImpl(project, location) {
   const { GoogleGenAI } = require("@google/genai");
-  // No apiKey: in `vertexai: true` mode on a Node runtime, the SDK uses
-  // Application Default Credentials -- the Cloud Function's own service
-  // account, already used for everything else here (Storage, Firestore-
-  // free as this project is). That service account needs the "Vertex AI
-  // User" IAM role and the Vertex AI API enabled on this project for
-  // this to work -- see functions/README.md's "Beach Buddy" setup
-  // section; neither of those can be done from code.
-  const ai = new GoogleGenAI({ vertexai: true, project, location });
+  // `enterprise: true`, not the older `vertexai: true` -- same
+  // underlying REST API (Google renamed "Vertex AI" to "Gemini
+  // Enterprise Agent Platform" partway through this SDK's life; both
+  // flags route to the exact same endpoint and accept the same
+  // project/location, but @google/genai's own type defs now say
+  // `enterprise` is "recommended instead"). No apiKey: in this mode on a
+  // Node runtime, the SDK uses Application Default Credentials -- the
+  // Cloud Function's own service account, already used for everything
+  // else here (Storage, Firestore-free as this project is). That service
+  // account needs the IAM role granting `aiplatform.user` (shown in the
+  // Console as "Vertex AI User" or "Gemini Enterprise Agent Platform
+  // User" depending on when Google's UI was last updated -- search by
+  // role ID if the display name doesn't match) and the API enabled on
+  // this project for this to work -- see functions/README.md's "Beach
+  // Buddy" setup section; neither of those can be done from code.
+  const ai = new GoogleGenAI({ enterprise: true, project, location });
   return (prompt) => ai.models.generateImages({
     model: IMAGEN_MODEL,
     prompt,
