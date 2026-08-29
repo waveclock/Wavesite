@@ -873,6 +873,9 @@
           <button class="icon-tool-btn" id="toolTimelineBtn" data-tool="timeline" title="Sun, Moon &amp; Tide Timeline">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4-1.4M17 7l1.4-1.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
           </button>
+          <button class="icon-tool-btn" id="toolBeachBuddyBtn" data-tool="beachBuddy" title="Beach Buddy">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 10h.01M16 10h.01M8 15c1.2 1.3 2.6 2 4 2s2.8-.7 4-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
           <!-- Tide & Fishing: hidden until the feature's ready -- data-tool
                stays intact so the tool-tab wiring is untouched and this
                only needs its style attribute removed to bring it back. -->
@@ -1043,6 +1046,10 @@
       </label>
     </div>
     <p class="clipart-status" id="newsStatus">Type a location (or paste a specific RSS feed URL) to get today's headlines once you publish.</p>
+  </div>
+
+  <div class="tool-panel hidden" id="beachBuddyPanel">
+    <p class="clipart-status" id="beachBuddyStatus">A friendly recurring character whose mood matches today's real tide &amp; weather &mdash; nothing to set up, it uses your device's saved location. Tap Clear (the trash icon) to take it off your screen.</p>
   </div>
 
   <div class="tool-panel hidden" id="layersPanel">
@@ -1883,6 +1890,19 @@
       } else {
         drawText(ctx, obj.previewContent || "LOADING…", obj);
       }
+    } else if (obj.kind === "beachBuddy") {
+      // obj.mood is resolved asynchronously by loadBeachBuddyLayer below,
+      // same idea as Tide's obj.cardData. This is always the PROCEDURAL
+      // stick-figure preview, never the real Imagen art -- that's drawn
+      // server-side only (see "Beach Buddy" in functions/README.md for
+      // why there's no live-preview proxy for it), so what publishes and
+      // what previews here can look different once the daily job first
+      // runs; the mood/headline itself is always the real thing.
+      if (obj.mood) {
+        drawBeachBuddyCardClient(ctx, obj.mood);
+      } else {
+        drawText(ctx, obj.previewContent || "LOADING…", obj);
+      }
     } else if (obj.kind === "photo") {
       const { w, h } = getPhotoDisplayDims(obj);
       ctx.imageSmoothingEnabled = false; // keeps sketch lines/dither dots crisp black-white instead of blurring into gray
@@ -1908,6 +1928,7 @@
     if (obj.kind === "tide") return "Tide & Fishing" + (obj.cardData ? "" : " (loading…)");
     if (obj.kind === "tideTimeline") return "Sun/Moon/Tide Timeline" + (obj.townName ? ": " + obj.townName : "") + (obj.cardData ? "" : " (loading…)");
     if (obj.kind === "news") return "News: " + (obj.feedUrl || obj.location || "(add a location)");
+    if (obj.kind === "beachBuddy") return "Beach Buddy" + (obj.mood ? ": " + obj.mood.headline : " (loading…)");
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
     if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Normal") + ")";
     if (obj.kind === "stroke") return "Drawing";
@@ -2086,7 +2107,7 @@
   // for their loading-state placeholder text. Used below to skip
   // drag/pinch-resize and treat a tap anywhere on the canvas as hitting
   // whichever one is topmost.
-  const FULL_CARD_KINDS = new Set(["team", "news", "tide"]);
+  const FULL_CARD_KINDS = new Set(["team", "news", "tide", "beachBuddy"]);
 
   function hitTestLayers(px, py) {
     for (let i = layers.length - 1; i >= 0; i--) {
@@ -2102,7 +2123,7 @@
     return -1;
   }
 
-  const TOOL_TAB_FOR_KIND = { text: "text", icon: "sticker", photo: "photo", countdown: "countdown", team: "team", tide: "tide", news: "news" };
+  const TOOL_TAB_FOR_KIND = { text: "text", icon: "sticker", photo: "photo", countdown: "countdown", team: "team", tide: "tide", news: "news", beachBuddy: "beachBuddy" };
 
   // Pulls a committed layer back into the staging flow (drag/pinch-resize/
   // slider all just work), switching to that layer's own tool tab so its
@@ -2129,12 +2150,18 @@
         tideStatus.textContent = obj.cardData
           ? "This is the real card — it updates itself once a day after you publish."
           : "Couldn't load tide data right now — it'll try again on its own each day.";
-      } else {
+      } else if (obj.kind === "news") {
         newsLocationInput.value = obj.location || "";
         newsFeedUrlInput.value = obj.feedUrl || "";
         newsStatus.textContent = (obj.headlines && obj.headlines.length)
           ? "This is the real card — it updates itself once a day after you publish."
           : "Type a location (or paste a specific RSS feed URL) to see today's headlines.";
+      } else {
+        // "beachBuddy" -- nothing to pre-fill, same reasoning as the
+        // tool-tab handler above.
+        beachBuddyStatus.textContent = obj.mood
+          ? "Today's mood: " + obj.mood.headline + ". This preview shows the procedural version — the real Imagen illustration is drawn once a day after you publish (see functions/README.md's \"Beach Buddy\" section)."
+          : "Couldn't load tide/weather data right now — it'll try again on its own each day.";
       }
       return true;
     }
@@ -2727,6 +2754,7 @@
     tide: document.getElementById("tidePanel"),
     timeline: document.getElementById("timelinePanel"),
     news: document.getElementById("newsPanel"),
+    beachBuddy: document.getElementById("beachBuddyPanel"),
     layers: document.getElementById("layersPanel")
   };
 
@@ -2813,6 +2841,12 @@
         } else {
           timelineSpotStatus.textContent = "Search for a town, then pick the closest tide station.";
         }
+      }
+      // Beach Buddy has no fields at all -- like Tide & Fishing, it just
+      // uses the device's own saved location, so opening the tab is the
+      // only trigger there is (see loadBeachBuddyLayer below).
+      if (tool === "beachBuddy") {
+        loadBeachBuddyLayer();
       }
     });
   });
@@ -3086,6 +3120,345 @@
 
   newsLocationInput.addEventListener("input", handleNewsInputChange);
   newsFeedUrlInput.addEventListener("input", handleNewsInputChange);
+
+  // ================= Beach Buddy tool =================
+  // A single recurring character whose pose/headline is driven by the
+  // device's real tide/weather data -- reuses fetchTideCardDataClient
+  // and resolveTideLocation exactly as the Tide & Fishing tool does, no
+  // separate data source or picker. This section is a mirror of
+  // "Beach Buddy" in functions/lib/dynamic.js -- moodForBeachData and
+  // the stick-figure/prop drawing primitives are kept in sync by hand,
+  // same convention as drawGameDayCard/drawGameDayCardClient elsewhere
+  // in this file.
+  //
+  // IMPORTANT: this preview is ALWAYS the procedural stick-figure card,
+  // never the real Imagen illustration -- that's generated server-side
+  // only, once a day, by the Cloud Function (see functions/README.md's
+  // "Beach Buddy" section for why there's no live-preview proxy for it,
+  // the way Team/News/Tide each have one). The mood/headline itself
+  // (today's real tide & weather, computed below) is accurate; only the
+  // artwork upgrades from this stick figure to the real illustration
+  // once the daily job first runs after publish.
+  const beachBuddyStatus = document.getElementById("beachBuddyStatus");
+
+  const BUDDY_INK = "#000";
+
+  function stickLimb(ctx, origin, angle1, len1, angle2, len2, u) {
+    const a1 = (angle1 * Math.PI) / 180;
+    const p1 = { x: origin.x + Math.sin(a1) * len1 * u, y: origin.y + Math.cos(a1) * len1 * u };
+    const a2 = ((angle1 + angle2) * Math.PI) / 180;
+    const p2 = { x: p1.x + Math.sin(a2) * len2 * u, y: p1.y + Math.cos(a2) * len2 * u };
+    ctx.beginPath();
+    ctx.moveTo(origin.x, origin.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.stroke();
+    return p2;
+  }
+
+  const STICK_HEAD_R = 0.42;
+  const STICK_TORSO = 1.5;
+  const STICK_UPPER = 0.75;
+  const STICK_LOWER = 0.7;
+  const STICK_THIGH = 0.85;
+  const STICK_SHIN = 0.85;
+
+  const STICK_POSES = {
+    standing: { armL: [-12, 0], armR: [12, 0], legL: [-10, 0], legR: [10, 0] },
+    pointing: { armL: [-12, 0], armR: [80, 0], legL: [-10, 0], legR: [10, 0] },
+    lounging: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] },
+    umbrella: { armL: [-14, 0], armR: [145, 0], legL: [-14, 0], legR: [14, 0] },
+    windy: { armL: [-42, 24], armR: [102, -14], legL: [-34, 0], legR: [12, 0], rotate: -16 },
+    surfing: { armL: [-100, 18], armR: [100, -18], legL: [-46, 0], legR: [46, 0], rotate: -8 }
+  };
+
+  function drawStickFigure(ctx, hipX, hipY, u, poseName) {
+    const pose = STICK_POSES[poseName] || STICK_POSES.standing;
+    ctx.strokeStyle = BUDDY_INK;
+    ctx.fillStyle = BUDDY_INK;
+    ctx.lineWidth = Math.max(2, u * 0.16);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    const rotateRad = ((pose.rotate || 0) * Math.PI) / 180;
+    ctx.save();
+    ctx.translate(hipX, hipY);
+    if (rotateRad) ctx.rotate(rotateRad);
+
+    const lean = (pose.lean || 0) * u;
+    const shoulder = { x: lean, y: -STICK_TORSO * u };
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(shoulder.x, shoulder.y);
+    ctx.stroke();
+
+    const headR = STICK_HEAD_R * u;
+    const headCenter = { x: shoulder.x + lean * 0.3, y: shoulder.y - headR * 1.15 };
+    ctx.beginPath();
+    ctx.arc(headCenter.x, headCenter.y, headR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const eyeR = Math.max(1, headR * 0.13);
+    const eyeDX = headR * 0.36, eyeDY = -headR * 0.04;
+    ctx.beginPath();
+    ctx.arc(headCenter.x - eyeDX, headCenter.y + eyeDY, eyeR, 0, Math.PI * 2);
+    ctx.arc(headCenter.x + eyeDX, headCenter.y + eyeDY, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.lineWidth = Math.max(1.5, u * 0.07);
+    ctx.arc(headCenter.x, headCenter.y + headR * 0.12, headR * 0.42, 0.12 * Math.PI, 0.88 * Math.PI);
+    ctx.stroke();
+    ctx.lineWidth = Math.max(2, u * 0.16);
+
+    stickLimb(ctx, shoulder, pose.armL[0], STICK_UPPER, pose.armL[1], STICK_LOWER, u);
+    stickLimb(ctx, shoulder, pose.armR[0], STICK_UPPER, pose.armR[1], STICK_LOWER, u);
+    stickLimb(ctx, { x: 0, y: 0 }, pose.legL[0], STICK_THIGH, pose.legL[1], STICK_SHIN, u);
+    stickLimb(ctx, { x: 0, y: 0 }, pose.legR[0], STICK_THIGH, pose.legR[1], STICK_SHIN, u);
+
+    ctx.restore();
+  }
+
+  function drawBuddyProp(ctx, kind, x, y, s) {
+    ctx.strokeStyle = BUDDY_INK;
+    ctx.fillStyle = BUDDY_INK;
+    ctx.lineWidth = Math.max(2, s * 0.08);
+    ctx.lineCap = "round";
+    if (kind === "sun") {
+      ctx.beginPath();
+      ctx.arc(x, y, s * 0.35, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(a) * s * 0.5, y + Math.sin(a) * s * 0.5);
+        ctx.lineTo(x + Math.cos(a) * s * 0.72, y + Math.sin(a) * s * 0.72);
+        ctx.stroke();
+      }
+    } else if (kind === "cloud") {
+      ctx.beginPath();
+      ctx.arc(x - s * 0.3, y, s * 0.28, Math.PI * 0.5, Math.PI * 1.5);
+      ctx.arc(x, y - s * 0.15, s * 0.32, Math.PI, Math.PI * 1.9);
+      ctx.arc(x + s * 0.32, y, s * 0.26, Math.PI * 1.4, Math.PI * 0.5);
+      ctx.lineTo(x - s * 0.3, y + s * 0.28);
+      ctx.closePath();
+      ctx.stroke();
+    } else if (kind === "moon") {
+      ctx.beginPath();
+      ctx.arc(x, y, s * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(x + s * 0.18, y, s * 0.36, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (kind === "star") {
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 2 + (i * 4 * Math.PI) / 5;
+        const px = x + Math.cos(a) * s * 0.5, py = y + Math.sin(a) * s * 0.5;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    } else if (kind === "wave") {
+      ctx.beginPath();
+      ctx.moveTo(x - s, y);
+      for (let i = -s; i < s; i += s / 4) {
+        ctx.quadraticCurveTo(x + i + s / 8, y - s * 0.18, x + i + s / 4, y);
+      }
+      ctx.stroke();
+    } else if (kind === "umbrella") {
+      ctx.beginPath();
+      ctx.arc(x, y, s * 0.42, Math.PI, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.42, y);
+      ctx.lineTo(x + s * 0.42, y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y - s * 0.05);
+      ctx.lineTo(x, y + s * 0.5);
+      ctx.stroke();
+    } else if (kind === "windLines") {
+      for (let i = 0; i < 3; i++) {
+        const yy = y + i * s * 0.28 - s * 0.28;
+        ctx.beginPath();
+        ctx.moveTo(x - s * 0.5, yy);
+        ctx.lineTo(x + s * 0.5 - i * s * 0.1, yy);
+        ctx.stroke();
+      }
+    } else if (kind === "surfboard") {
+      ctx.beginPath();
+      ctx.ellipse(x, y, s * 0.75, s * 0.16, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.65, y);
+      ctx.lineTo(x + s * 0.65, y);
+      ctx.stroke();
+    }
+  }
+
+  const BUDDY_PROP_OFFSET = {
+    umbrella: { dx: 1.15, dy: -2.95 },
+    wave: { dx: 0, dy: 1.9 },
+    moon: { dx: 1.7, dy: -2.1 },
+    star: { dx: -1.7, dy: -2.3 },
+    windLines: { dx: -1.7, dy: -0.7 },
+    surfboard: { dx: 0, dy: 1.75 }
+  };
+
+  // Mirrors moodForBeachData in functions/lib/dynamic.js exactly.
+  function moodForBeachDataClient(data, now) {
+    const at = now || new Date();
+    const nowMs = at.getTime();
+    const weather = data.weather || {};
+    const rainWindows = weather.rainWindows || [];
+    const activeRain = rainWindows.find((w) => nowMs >= new Date(w.start).getTime() && nowMs <= new Date(w.end).getTime());
+    const upcomingRain = !activeRain && rainWindows.find((w) => new Date(w.start).getTime() > nowMs);
+
+    if (activeRain || upcomingRain) {
+      const w = activeRain || upcomingRain;
+      return {
+        pose: "umbrella",
+        headline: activeRain ? "RAINY DAY" : "RAIN LATER",
+        sub: w.label.replace("RAIN LIKELY ", ""),
+        props: ["umbrella"]
+      };
+    }
+
+    const windRamp = weather.windRamp;
+    const windMph = weather.wind ? weather.wind.mph : null;
+    if (windRamp || (windMph != null && windMph >= 20)) {
+      return {
+        pose: "windy",
+        headline: "WINDY",
+        sub: windRamp ? windRamp.gustMph + " MPH GUSTS" : windMph + " MPH",
+        props: ["windLines"]
+      };
+    }
+
+    const daytime = !!(data.sunrise && data.sunset && nowMs >= new Date(data.sunrise.t).getTime() && nowMs <= new Date(data.sunset.t).getTime());
+    const swellFt = weather.swell ? weather.swell.heightFt : null;
+    if (daytime && swellFt != null && swellFt >= 3) {
+      return { pose: "surfing", headline: "SURF'S UP", sub: swellFt + " FT SWELL", props: ["surfboard"] };
+    }
+
+    if (!daytime) {
+      return {
+        pose: "lounging",
+        headline: (data.moon.phaseName || "CLEAR NIGHT").toUpperCase(),
+        sub: null,
+        props: ["moon", "star"]
+      };
+    }
+
+    const extrema = data.tideExtrema || [];
+    const upcoming = extrema.find((e) => new Date(e.t).getTime() > nowMs) || extrema[extrema.length - 1];
+    if (upcoming) {
+      return {
+        pose: upcoming.isHigh ? "pointing" : "lounging",
+        headline: (upcoming.isHigh ? "HIGH TIDE " : "LOW TIDE ") + upcoming.label,
+        sub: null,
+        props: ["wave"]
+      };
+    }
+
+    return {
+      pose: "lounging",
+      headline: "PERFECT DAY",
+      sub: weather.waterTempF != null ? "WATER " + weather.waterTempF + "°F" : null,
+      props: []
+    };
+  }
+
+  // Mirrors drawBeachBuddyCard in lib/dynamic.js exactly (see the
+  // comment above drawGameDayCardClient for why textBaseline is reset
+  // here) -- no black banner, one big headline, an optional subline,
+  // the character.
+  function drawBeachBuddyCardClient(ctx, mood) {
+    const w = baseCanvas.width, h = baseCanvas.height;
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = BUDDY_INK;
+    ctx.textAlign = "center";
+    const headlineSize = fitBannerFontSize(ctx, mood.headline, w - 48, "'Bungee', sans-serif", 52, 30);
+    ctx.font = headlineSize + "px 'Bungee', sans-serif";
+    ctx.fillText(mood.headline, w / 2, 54);
+
+    if (mood.sub) {
+      ctx.font = "bold 20px Georgia, serif";
+      ctx.fillText(mood.sub, w / 2, 82);
+    }
+
+    const hipX = w / 2, hipY = 195, u = 40;
+    drawStickFigure(ctx, hipX, hipY, u, mood.pose);
+
+    (mood.props || []).forEach((kind) => {
+      const off = BUDDY_PROP_OFFSET[kind] || { dx: 1.5, dy: -1 };
+      drawBuddyProp(ctx, kind, hipX + off.dx * u, hipY + off.dy * u, u * 1.7);
+    });
+  }
+
+  const beachBuddyStatusText = {
+    loading: "Loading tide & weather data for your location…",
+    noLocation: "This device doesn't have a saved location yet — set one first (see Location in Manage), then come back here.",
+    error: "Couldn't load tide/weather data right now — it'll try again on its own each day."
+  };
+
+  // Beach Buddy never goes through staging/commit either -- same
+  // reasoning as Tide & Fishing (a fixed full-screen card, redrawn fresh
+  // every day). No picker at all -- it just uses the device's own saved
+  // location -- so opening the tab is the only trigger there is, and it
+  // only actually fetches once per layer (reopening the tab just
+  // re-shows status, same as Tide does).
+  let beachBuddyFetchToken = 0;
+  async function loadBeachBuddyLayer() {
+    let layer = layers.find((l) => l.kind === "beachBuddy");
+    if (layer && layer.mood) {
+      beachBuddyStatus.textContent = "Today's mood: " + layer.mood.headline + ". This preview shows the procedural version — the real Imagen illustration is drawn once a day after you publish.";
+      return;
+    }
+    if (!layer) {
+      pushUndoState();
+      layers.length = 0;
+      layer = {
+        kind: "beachBuddy", id: nextLayerId++,
+        x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
+        font: "Georgia, serif", outline: false,
+        lat: null, lon: null, stationId: null, mood: null, previewContent: "LOADING…"
+      };
+      layers.push(layer);
+    }
+    if (!deviceId) return;
+
+    renderLayers();
+    const token = ++beachBuddyFetchToken;
+    beachBuddyStatus.textContent = beachBuddyStatusText.loading;
+    try {
+      const location = await resolveTideLocation();
+      if (token !== beachBuddyFetchToken) return;
+      if (!location || typeof location.lat !== "number" || typeof location.lon !== "number" || !location.stationId) {
+        layer.previewContent = "Set your location first, then come back here.";
+        beachBuddyStatus.textContent = beachBuddyStatusText.noLocation;
+        renderLayers();
+        return;
+      }
+      layer.lat = location.lat;
+      layer.lon = location.lon;
+      layer.stationId = location.stationId;
+
+      const data = await fetchTideCardDataClient(location.lat, location.lon, location.stationId);
+      if (token !== beachBuddyFetchToken) return; // superseded by a newer load
+      layer.mood = moodForBeachDataClient(data, new Date());
+      layer.previewContent = null;
+      beachBuddyStatus.textContent = "Today's mood: " + layer.mood.headline + ". This preview shows the procedural version — the real Imagen illustration is drawn once a day after you publish.";
+    } catch (err) {
+      if (token !== beachBuddyFetchToken) return;
+      console.error("Couldn't load Beach Buddy data:", err);
+      layer.previewContent = "Couldn't load tide/weather data right now — it'll try again on its own each day.";
+      beachBuddyStatus.textContent = beachBuddyStatusText.error + " (" + err.message + ")";
+    }
+    renderLayers();
+  }
 
   // ================= Tide & Fishing tool (Phase 1: tide + moon only) =================
   // astroProxy does the FULL computation server-side (twilight bounds,
@@ -4883,7 +5256,7 @@
   // handler above). If a second one of any kind ever did slip through
   // some other way, it would render fine at publish time but stay
   // frozen from then on -- it wouldn't be the one the daily job updates.
-  const DYNAMIC_KINDS = new Set(["countdown", "team", "news", "tide", "tideTimeline"]);
+  const DYNAMIC_KINDS = new Set(["countdown", "team", "news", "tide", "tideTimeline", "beachBuddy"]);
 
   // Same idea as getCompositeCanvas, but leaves out any dynamic layer --
   // this is what the daily Cloud Function redraws the current content
@@ -5010,6 +5383,8 @@
             dynamicMeta = Object.assign({ type: "tide", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId }, shared);
           } else if (dynamicLayer.kind === "tideTimeline") {
             dynamicMeta = Object.assign({ type: "tideTimeline", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId, townName: dynamicLayer.townName || "" }, shared);
+          } else if (dynamicLayer.kind === "beachBuddy") {
+            dynamicMeta = Object.assign({ type: "beachBuddy", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId }, shared);
           } else {
             dynamicMeta = Object.assign({ type: "news", location: dynamicLayer.location || "", feedUrl: dynamicLayer.feedUrl || "" }, shared);
           }

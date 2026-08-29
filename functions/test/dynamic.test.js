@@ -44,7 +44,15 @@ const {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   LOGO_SIZE,
-  OUTBOUND_FETCH_HEADERS
+  OUTBOUND_FETCH_HEADERS,
+  drawStickFigure,
+  drawProp,
+  moodForBeachData,
+  drawBeachBuddyCard,
+  drawBeachBuddyArtCard,
+  ditheredArtCanvas,
+  BUDDY_ART_SIZE,
+  STICK_POSES
 } = require("../lib/dynamic");
 const BANNER_HEIGHT = 48; // matches the constant in lib/dynamic.js (not exported)
 const LOGO_MARGIN = 28; // matches the constant in lib/dynamic.js (not exported)
@@ -1553,6 +1561,273 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const meta = { type: "tideTimeline", lat: 39.2776, lon: -74.5746, stationId: "8534720", townName: "Ocean City, NJ" };
     const fetchImpl = async () => { throw new Error("network down"); };
     await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
+  });
+
+  console.log("Beach Buddy");
+  await test("drawStickFigure accepts every named pose without throwing", () => {
+    const canvas = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = canvas.getContext("2d");
+    Object.keys(STICK_POSES).forEach((poseName) => {
+      assert.doesNotThrow(() => drawStickFigure(ctx, 396, 195, 40, poseName), poseName + " threw while drawing");
+    });
+  });
+  await test("drawProp accepts every prop kind moodForBeachData can pick without throwing", () => {
+    const canvas = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = canvas.getContext("2d");
+    ["sun", "cloud", "moon", "star", "wave", "umbrella", "windLines", "surfboard"].forEach((kind) => {
+      assert.doesNotThrow(() => drawProp(ctx, kind, 396, 120, 60), kind + " threw while drawing");
+    });
+  });
+
+  // A minimal fetchTideCardData-shaped payload -- individual tests
+  // override just the fields their branch cares about, same convention
+  // as fitting a mock to the real shape rather than a hand-picked subset.
+  function beachData(overrides) {
+    return Object.assign({
+      timeZone: "America/New_York",
+      dawn: { t: "2026-07-15T09:30:00.000Z", label: "5:30 AM" },
+      sunrise: { t: "2026-07-15T10:00:00.000Z", label: "6:00 AM" },
+      sunset: { t: "2026-07-16T00:30:00.000Z", label: "8:30 PM" },
+      dusk: { t: "2026-07-16T01:00:00.000Z", label: "9:00 PM" },
+      moon: { illumination: 0.5, waxing: true, phaseName: "First Quarter", rise: null, set: null },
+      tideCurve: [],
+      tideExtrema: [],
+      solunarPeriods: [],
+      weather: null,
+      fishingScore: "Fair"
+    }, overrides);
+  }
+  const NOON = new Date("2026-07-15T16:00:00.000Z"); // noon Eastern, well inside the mock sunrise/sunset above
+  const MIDNIGHT = new Date("2026-07-15T05:00:00.000Z"); // 1 AM Eastern, outside it
+
+  await test("active rain wins over everything else -- umbrella pose, RAINY DAY headline", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [{ start: "2026-07-15T15:00:00.000Z", end: "2026-07-15T18:00:00.000Z", label: "RAIN LIKELY 11:00 AM-2:00 PM" }], windRamp: null, swell: null, waterTempF: null }
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.strictEqual(mood.pose, "umbrella");
+    assert.strictEqual(mood.headline, "RAINY DAY");
+    assert.strictEqual(mood.sub, "11:00 AM-2:00 PM");
+  });
+  await test("rain later today (not active yet) reads RAIN LATER instead of RAINY DAY", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [{ start: "2026-07-15T20:00:00.000Z", end: "2026-07-15T22:00:00.000Z", label: "RAIN LIKELY 4:00 PM-6:00 PM" }], windRamp: null, swell: null, waterTempF: null }
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.strictEqual(mood.pose, "umbrella");
+    assert.strictEqual(mood.headline, "RAIN LATER");
+  });
+  await test("a wind ramp beats a calm-looking current reading -- windy pose, gust speed in the sub", () => {
+    const data = beachData({
+      weather: { wind: { mph: 8, dir: "NW" }, pressure: { trend: "steady" }, rainWindows: [], windRamp: { gustMph: 28, after: "2026-07-15T20:00:00.000Z", label: "WIND TO 28 MPH AFTER 4:00 PM" }, swell: null, waterTempF: null }
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.strictEqual(mood.pose, "windy");
+    assert.strictEqual(mood.headline, "WINDY");
+    assert.strictEqual(mood.sub, "28 MPH GUSTS");
+  });
+  await test("high current wind with no ramp also reads windy", () => {
+    const data = beachData({
+      weather: { wind: { mph: 24, dir: "NW" }, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null }
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.strictEqual(mood.pose, "windy");
+    assert.strictEqual(mood.sub, "24 MPH");
+  });
+  await test("big daytime swell (and nothing worse) reads SURF'S UP", () => {
+    const data = beachData({
+      weather: { wind: { mph: 5, dir: "S" }, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: { heightFt: 4.5, periodS: 9 }, waterTempF: 70 }
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.strictEqual(mood.pose, "surfing");
+    assert.strictEqual(mood.headline, "SURF'S UP");
+    assert.strictEqual(mood.sub, "4.5 FT SWELL");
+  });
+  await test("the same big swell at night doesn't trigger surfing -- night takes priority", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: { heightFt: 4.5, periodS: 9 }, waterTempF: null }
+    });
+    const mood = moodForBeachData(data, MIDNIGHT);
+    assert.strictEqual(mood.pose, "lounging");
+    assert.strictEqual(mood.headline, "FIRST QUARTER");
+    assert.deepStrictEqual(mood.props, ["moon", "star"]);
+  });
+  await test("night with no moon phase name falls back to CLEAR NIGHT rather than showing nothing", () => {
+    const data = beachData({ moon: { illumination: 0, waxing: true, phaseName: "", rise: null, set: null } });
+    const mood = moodForBeachData(data, MIDNIGHT);
+    assert.strictEqual(mood.headline, "CLEAR NIGHT");
+  });
+  await test("an upcoming high tide (no rain/wind/surf/night) points at it by name and time", () => {
+    const data = beachData({
+      tideExtrema: [
+        { t: "2026-07-15T13:00:00.000Z", label: "9:00 AM", heightFt: 0.5, isHigh: false },
+        { t: "2026-07-15T19:00:00.000Z", label: "3:00 PM", heightFt: 4.2, isHigh: true }
+      ]
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.strictEqual(mood.pose, "pointing");
+    assert.strictEqual(mood.headline, "HIGH TIDE 3:00 PM");
+    assert.deepStrictEqual(mood.props, ["wave"]);
+  });
+  await test("an upcoming low tide gets the relaxed lounging pose instead", () => {
+    const data = beachData({
+      tideExtrema: [{ t: "2026-07-15T19:00:00.000Z", label: "3:00 PM", heightFt: 0.2, isHigh: false }]
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.strictEqual(mood.pose, "lounging");
+    assert.strictEqual(mood.headline, "LOW TIDE 3:00 PM");
+  });
+  await test("with no tide extrema left today and no other signal, falls back to a calm PERFECT DAY (with water temp if known)", () => {
+    const data = beachData({ weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: 74 } });
+    const mood = moodForBeachData(data, NOON);
+    assert.strictEqual(mood.pose, "lounging");
+    assert.strictEqual(mood.headline, "PERFECT DAY");
+    assert.strictEqual(mood.sub, "WATER 74°F");
+  });
+  await test("the calm-day fallback tolerates weather being entirely null (a down Open-Meteo call)", () => {
+    const mood = moodForBeachData(beachData({}), NOON);
+    assert.strictEqual(mood.headline, "PERFECT DAY");
+    assert.strictEqual(mood.sub, null);
+  });
+  await test("drawBeachBuddyCard renders every branch's mood without throwing, at full resolution, with real ink and no black banner", () => {
+    const moods = [
+      { pose: "umbrella", headline: "RAINY DAY", sub: "11:00 AM-2:00 PM", props: ["umbrella"] },
+      { pose: "windy", headline: "WINDY", sub: "28 MPH GUSTS", props: ["windLines"] },
+      { pose: "surfing", headline: "SURF'S UP", sub: "4.5 FT SWELL", props: ["surfboard"] },
+      { pose: "lounging", headline: "FIRST QUARTER", sub: null, props: ["moon", "star"] },
+      { pose: "pointing", headline: "HIGH TIDE 3:00 PM", sub: null, props: ["wave"] },
+      { pose: "lounging", headline: "LOW TIDE 3:00 PM", sub: null, props: ["wave"] },
+      { pose: "lounging", headline: "PERFECT DAY", sub: "WATER 74°F", props: [] }
+    ];
+    moods.forEach((mood) => {
+      const canvas = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+      const ctx = canvas.getContext("2d");
+      assert.doesNotThrow(() => drawBeachBuddyCard(ctx, mood), mood.headline + " threw while drawing");
+      const data = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
+      let hasInk = false;
+      for (let i = 0; i < data.length; i += 4) { if (data[i] < 250) { hasInk = true; break; } }
+      assert.ok(hasInk, mood.headline + " drew nothing visible");
+      // No black title banner on this card, unlike Team/News/Tide/etc. --
+      // the whole point is a clean, uncluttered look, so the top-left
+      // corner pixel (always part of a banner's solid black fill on
+      // every other card) must stay white here.
+      assert.strictEqual(data[0], 255, mood.headline + ": expected no black banner fill at the top of the card");
+    });
+  });
+
+  console.log("renderDynamicDesign (type: beachBuddy)");
+  await test("renders today's mood from real (mocked) suncalc + NOAA data, no black banner", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = { type: "beachBuddy", lat: 39.2776, lon: -74.5746, stationId: "8534720" };
+    const fetchImpl = fakeNoaaFetch({
+      hilo: [{ t: "2026-07-15 07:14", v: "0.60", type: "L" }, { t: "2026-07-15 19:22", v: "4.40", type: "H" }]
+    });
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.ok(result);
+    assert.ok(result.mood);
+    assert.strictEqual(result.binBuffer.length, 26928);
+    assert.ok(result.binBuffer.some((b) => b !== 0), "expected some black pixels from the drawn card");
+    const decoded = await loadImage(result.pngBuffer);
+    assert.strictEqual(decoded.width, CANVAS_WIDTH);
+    assert.strictEqual(decoded.height, CANVAS_HEIGHT);
+  });
+  await test("a real NOAA-fetch failure throws instead of returning null (must not be cleaned up -- perpetual, like tide/team/news)", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = { type: "beachBuddy", lat: 39.2776, lon: -74.5746, stationId: "8534720" };
+    const fetchImpl = async () => { throw new Error("network down"); };
+    await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
+  });
+
+  console.log("Beach Buddy art (Imagen)");
+  function fakeArtImage() {
+    // A tiny real image, not just arbitrary bytes -- ditheredArtCanvas
+    // needs to actually load it via node-canvas's loadImage/drawImage.
+    const c = createCanvas(64, 64);
+    const cctx = c.getContext("2d");
+    cctx.fillStyle = "#fff";
+    cctx.fillRect(0, 0, 64, 64);
+    cctx.fillStyle = "#000";
+    cctx.beginPath();
+    cctx.arc(32, 32, 20, 0, Math.PI * 2);
+    cctx.fill();
+    return c;
+  }
+  await test("ditheredArtCanvas contain-fits a non-square source into a square, solid black/white (no gray survives thresholding)", () => {
+    const art = fakeArtImage();
+    const out = ditheredArtCanvas(art, BUDDY_ART_SIZE);
+    assert.strictEqual(out.width, BUDDY_ART_SIZE);
+    assert.strictEqual(out.height, BUDDY_ART_SIZE);
+    const data = out.getContext("2d").getImageData(0, 0, BUDDY_ART_SIZE, BUDDY_ART_SIZE).data;
+    for (let i = 0; i < data.length; i += 4) {
+      assert.ok(data[i] === 0 || data[i] === 255, "expected every pixel to be pure black or pure white after dithering, got " + data[i]);
+      assert.strictEqual(data[i + 3], 255, "expected fully opaque output");
+    }
+  });
+  await test("drawBeachBuddyArtCard draws the headline, sub, AND the art panel without one erasing the other -- regression test for a real bug (the art panel's opaque white background used to paint over the sub text drawn just above it)", () => {
+    const canvas = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = canvas.getContext("2d");
+    const mood = { headline: "SURF'S UP", sub: "4.5 FT SWELL" };
+    assert.doesNotThrow(() => drawBeachBuddyArtCard(ctx, mood, fakeArtImage()));
+    const data = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
+    const hasInkInRow = (y) => {
+      const row = ctx.getImageData(0, y, CANVAS_WIDTH, 1).data;
+      for (let i = 0; i < row.length; i += 4) { if (row[i] < 250) return true; }
+      return false;
+    };
+    assert.ok(hasInkInRow(20), "expected headline ink near the top");
+    assert.ok(hasInkInRow(78), "expected sub-line ink just below the headline -- this is exactly the row the art panel used to paint over");
+    assert.ok(hasInkInRow(150), "expected art panel ink further down the card");
+    assert.strictEqual(data[0], 255, "expected no black banner fill at the top of the card");
+  });
+
+  console.log("renderDynamicDesign (type: beachBuddy, with Imagen art)");
+  await test("uses the generated art (usedArt: true) when beachBuddyArtImpl succeeds", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = { type: "beachBuddy", lat: 39.2776, lon: -74.5746, stationId: "8534720" };
+    const fetchImpl = fakeNoaaFetch({
+      hilo: [{ t: "2026-07-15 07:14", v: "0.60", type: "L" }, { t: "2026-07-15 19:22", v: "4.40", type: "H" }]
+    });
+    let calledWithMood = null;
+    const beachBuddyArtImpl = async (mood) => {
+      calledWithMood = mood;
+      return fakeArtImage().toBuffer("image/png");
+    };
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl, beachBuddyArtImpl);
+    assert.ok(result);
+    assert.strictEqual(result.usedArt, true);
+    assert.ok(calledWithMood && calledWithMood.headline, "expected the real computed mood to be passed to the art generator");
+    assert.strictEqual(result.binBuffer.length, 26928);
+    const decoded = await loadImage(result.pngBuffer);
+    assert.strictEqual(decoded.width, CANVAS_WIDTH);
+    assert.strictEqual(decoded.height, CANVAS_HEIGHT);
+  });
+  await test("falls back to the procedural card (usedArt: false) when beachBuddyArtImpl fails -- does NOT throw or fail the whole render", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = { type: "beachBuddy", lat: 39.2776, lon: -74.5746, stationId: "8534720" };
+    const fetchImpl = fakeNoaaFetch({
+      hilo: [{ t: "2026-07-15 07:14", v: "0.60", type: "L" }, { t: "2026-07-15 19:22", v: "4.40", type: "H" }]
+    });
+    const beachBuddyArtImpl = async () => { throw new Error("Imagen unreachable"); };
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl, beachBuddyArtImpl);
+    assert.ok(result, "an Imagen failure must never fail the whole render -- it's a nice-to-have, not load-bearing, same as a failed logo fetch");
+    assert.strictEqual(result.usedArt, false);
+    assert.ok(result.binBuffer.some((b) => b !== 0), "expected the procedural fallback to still draw real content");
+  });
+  await test("falls back the same way when the returned bytes aren't a decodable image", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = { type: "beachBuddy", lat: 39.2776, lon: -74.5746, stationId: "8534720" };
+    const fetchImpl = fakeNoaaFetch({
+      hilo: [{ t: "2026-07-15 07:14", v: "0.60", type: "L" }, { t: "2026-07-15 19:22", v: "4.40", type: "H" }]
+    });
+    const beachBuddyArtImpl = async () => Buffer.from("not actually a png", "utf8");
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl, beachBuddyArtImpl);
+    assert.ok(result);
+    assert.strictEqual(result.usedArt, false);
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");

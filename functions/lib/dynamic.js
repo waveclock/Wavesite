@@ -1,9 +1,14 @@
-// Pure rendering/packing logic for the daily "dynamic layer" regeneration
-// job -- kept dependency-free (besides `canvas`) and separate from
-// index.js so it can be unit-tested without a live Firebase project (see
-// test/). Covers both dynamic-layer types published from design:
-// "countdown" (a target date) and "team" (a sports team's next game,
-// rendered as a full "Game Day" card with logos when a game is found).
+// Rendering/packing logic for the daily "dynamic layer" regeneration
+// job -- kept separate from index.js so it can be unit-tested without a
+// live Firebase project (see test/), with every real network call
+// (ESPN, NOAA/Open-Meteo, Imagen) injectable so tests never need real
+// credentials. Covers every dynamic-layer type published from design:
+// "countdown" (a target date), "team" (a sports team's next game,
+// rendered as a full "Game Day" card with logos when a game is found),
+// "news", "tide", "tideTimeline", and "beachBuddy" (see the "Beach
+// Buddy" section below -- a single recurring character whose pose is
+// driven by real tide/weather data, illustrated by Imagen with a
+// procedural vector-line fallback).
 //
 // IMPORTANT: daysUntil(), formatCountdownText(), formatTeamText(),
 // findNextGame(), the dithering functions, and drawGameDayCard() are
@@ -19,6 +24,7 @@ const { createCanvas, loadImage, registerFont } = require("canvas");
 const path = require("path");
 const { fetchTideCardData, fetchTideTimelineData, formatLongDate } = require("./astro");
 const { OUTBOUND_FETCH_HEADERS } = require("./http");
+const { generateBeachBuddyArt } = require("./imagen");
 
 const CANVAS_WIDTH = 792;
 const CANVAS_HEIGHT = 272;
@@ -1799,6 +1805,379 @@ function drawTideTimelineCard(ctx, card) {
   }
 }
 
+// ================= Beach Buddy =================
+// A single friendly stick-figure character whose POSE and headline are
+// driven by the device's own real conditions (tide, wind, rain, swell,
+// moon) -- reusing fetchTideCardData exactly as the "tide" type does, no
+// separate data source. No black title banner and no clutter on
+// purpose: this card is meant to read at a glance, like a Life is Good
+// illustration -- one big headline, an optional short subline, and the
+// character. Drawn fresh once a day (same daily job as every other
+// dynamic layer), not live/animated -- an e-ink panel can't do frame
+// animation, so "alive" here means an expressive POSE, not motion.
+
+const INK = "#000";
+
+// One stick-figure limb segment pair (e.g. upper arm + forearm, or thigh
+// + shin) from `origin`. Each angle is DEGREES CLOCKWISE FROM STRAIGHT
+// DOWN (0 = hangs straight down, 90 = points right, 180 = points straight
+// up, -90 = points left) -- angle2 is relative to angle1 (0 keeps the limb
+// straight; nonzero bends it at the elbow/knee). Returns the limb's end
+// point, unused here but kept for symmetry with the rest of the rig.
+function stickLimb(ctx, origin, angle1, len1, angle2, len2, u) {
+  const a1 = (angle1 * Math.PI) / 180;
+  const p1 = { x: origin.x + Math.sin(a1) * len1 * u, y: origin.y + Math.cos(a1) * len1 * u };
+  const a2 = ((angle1 + angle2) * Math.PI) / 180;
+  const p2 = { x: p1.x + Math.sin(a2) * len2 * u, y: p1.y + Math.cos(a2) * len2 * u };
+  ctx.beginPath();
+  ctx.moveTo(origin.x, origin.y);
+  ctx.lineTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.stroke();
+  return p2;
+}
+
+const STICK_HEAD_R = 0.42;
+const STICK_TORSO = 1.5;
+const STICK_UPPER = 0.75;
+const STICK_LOWER = 0.7;
+const STICK_THIGH = 0.85;
+const STICK_SHIN = 0.85;
+
+// Named arm/leg angle pairs -- [angle1, angle2] each, see stickLimb.
+// `lean` (units of u) shifts the shoulder/head sideways from the hip;
+// `rotate` (degrees) spins the WHOLE figure around the hip (see
+// drawStickFigure) -- used for "windy" (leaning into it) and "surfing"
+// (crouched). Only the poses moodForBeachData actually picks are defined
+// here, kept intentionally small.
+const STICK_POSES = {
+  standing: { armL: [-12, 0], armR: [12, 0], legL: [-10, 0], legR: [10, 0] },
+  pointing: { armL: [-12, 0], armR: [80, 0], legL: [-10, 0], legR: [10, 0] },
+  // Relaxed/casual -- arms crossed, one foot kicked out. A true reclined
+  // "leaned back in a beach chair" pose isn't reachable with this rig
+  // (rotate spins the legs along with the torso, which doesn't look like
+  // sitting), so this leans on posture instead: arms crossed reads as
+  // relaxed/confident even standing upright, and covers low tide, a
+  // calm default day, AND stargazing at night (see moodForBeachData).
+  lounging: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] },
+  // Upper arm swings out and up (145 degrees -- well past horizontal)
+  // BEFORE going vertical, so the hand ends up clear of the head instead
+  // of the arm passing straight through it. The umbrella prop is placed
+  // at a fixed offset above this exact arm, see BUDDY_PROP_OFFSET.
+  umbrella: { armL: [-14, 0], armR: [145, 0], legL: [-14, 0], legR: [14, 0] },
+  windy: { armL: [-42, 24], armR: [102, -14], legL: [-34, 0], legR: [12, 0], rotate: -16 },
+  surfing: { armL: [-100, 18], armR: [100, -18], legL: [-46, 0], legR: [46, 0], rotate: -8 }
+};
+
+// Draws one stick figure WITH a small face (two dot eyes, a smile arc) --
+// unlike a generic faceless stick figure, personality is the whole point
+// here, so the face is always on, not optional. `hipX,hipY` is the
+// figure's HIP point, not its feet -- torso/head go up from there, legs
+// go down.
+function drawStickFigure(ctx, hipX, hipY, u, poseName) {
+  const pose = STICK_POSES[poseName] || STICK_POSES.standing;
+  ctx.strokeStyle = INK;
+  ctx.fillStyle = INK;
+  ctx.lineWidth = Math.max(2, u * 0.16);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  const rotateRad = ((pose.rotate || 0) * Math.PI) / 180;
+  ctx.save();
+  ctx.translate(hipX, hipY);
+  if (rotateRad) ctx.rotate(rotateRad);
+
+  const lean = (pose.lean || 0) * u;
+  const shoulder = { x: lean, y: -STICK_TORSO * u };
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(shoulder.x, shoulder.y);
+  ctx.stroke();
+
+  const headR = STICK_HEAD_R * u;
+  const headCenter = { x: shoulder.x + lean * 0.3, y: shoulder.y - headR * 1.15 };
+  ctx.beginPath();
+  ctx.arc(headCenter.x, headCenter.y, headR, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Two dot eyes + a smiling mouth arc -- deliberately tiny and simple
+  // (this head is only ~30-35px across at the sizes this card uses), but
+  // this is the single biggest thing that makes the figure read as a
+  // friendly character rather than a bare diagram.
+  const eyeR = Math.max(1, headR * 0.13);
+  const eyeDX = headR * 0.36, eyeDY = -headR * 0.04;
+  ctx.beginPath();
+  ctx.arc(headCenter.x - eyeDX, headCenter.y + eyeDY, eyeR, 0, Math.PI * 2);
+  ctx.arc(headCenter.x + eyeDX, headCenter.y + eyeDY, eyeR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.lineWidth = Math.max(1.5, u * 0.07);
+  ctx.arc(headCenter.x, headCenter.y + headR * 0.12, headR * 0.42, 0.12 * Math.PI, 0.88 * Math.PI);
+  ctx.stroke();
+  ctx.lineWidth = Math.max(2, u * 0.16);
+
+  stickLimb(ctx, shoulder, pose.armL[0], STICK_UPPER, pose.armL[1], STICK_LOWER, u);
+  stickLimb(ctx, shoulder, pose.armR[0], STICK_UPPER, pose.armR[1], STICK_LOWER, u);
+  stickLimb(ctx, { x: 0, y: 0 }, pose.legL[0], STICK_THIGH, pose.legL[1], STICK_SHIN, u);
+  stickLimb(ctx, { x: 0, y: 0 }, pose.legR[0], STICK_THIGH, pose.legR[1], STICK_SHIN, u);
+
+  ctx.restore();
+}
+
+// Small decorative icons in the same simple line-art style as the design
+// tool's own sticker library (circles/arcs/lines, solid black ink, no
+// fine gradients that would vanish under a 1-bit threshold).
+function drawProp(ctx, kind, x, y, s) {
+  ctx.strokeStyle = INK;
+  ctx.fillStyle = INK;
+  ctx.lineWidth = Math.max(2, s * 0.08);
+  ctx.lineCap = "round";
+  if (kind === "sun") {
+    ctx.beginPath();
+    ctx.arc(x, y, s * 0.35, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(x + Math.cos(a) * s * 0.5, y + Math.sin(a) * s * 0.5);
+      ctx.lineTo(x + Math.cos(a) * s * 0.72, y + Math.sin(a) * s * 0.72);
+      ctx.stroke();
+    }
+  } else if (kind === "cloud") {
+    ctx.beginPath();
+    ctx.arc(x - s * 0.3, y, s * 0.28, Math.PI * 0.5, Math.PI * 1.5);
+    ctx.arc(x, y - s * 0.15, s * 0.32, Math.PI, Math.PI * 1.9);
+    ctx.arc(x + s * 0.32, y, s * 0.26, Math.PI * 1.4, Math.PI * 0.5);
+    ctx.lineTo(x - s * 0.3, y + s * 0.28);
+    ctx.closePath();
+    ctx.stroke();
+  } else if (kind === "moon") {
+    ctx.beginPath();
+    ctx.arc(x, y, s * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(x + s * 0.18, y, s * 0.36, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (kind === "star") {
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + (i * 4 * Math.PI) / 5;
+      const px = x + Math.cos(a) * s * 0.5, py = y + Math.sin(a) * s * 0.5;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  } else if (kind === "wave") {
+    ctx.beginPath();
+    ctx.moveTo(x - s, y);
+    for (let i = -s; i < s; i += s / 4) {
+      ctx.quadraticCurveTo(x + i + s / 8, y - s * 0.18, x + i + s / 4, y);
+    }
+    ctx.stroke();
+  } else if (kind === "umbrella") {
+    ctx.beginPath();
+    ctx.arc(x, y, s * 0.42, Math.PI, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.42, y);
+    ctx.lineTo(x + s * 0.42, y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, y - s * 0.05);
+    ctx.lineTo(x, y + s * 0.5);
+    ctx.stroke();
+  } else if (kind === "windLines") {
+    for (let i = 0; i < 3; i++) {
+      const yy = y + i * s * 0.28 - s * 0.28;
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.5, yy);
+      ctx.lineTo(x + s * 0.5 - i * s * 0.1, yy);
+      ctx.stroke();
+    }
+  } else if (kind === "surfboard") {
+    // Horizontal, lying flat under the figure's feet -- a vertical board
+    // reads as a shield/wall beside the figure instead.
+    ctx.beginPath();
+    ctx.ellipse(x, y, s * 0.75, s * 0.16, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.65, y);
+    ctx.lineTo(x + s * 0.65, y);
+    ctx.stroke();
+  }
+}
+
+// Fixed (dx, dy) offsets from the figure's hip, in units of u -- simpler
+// and more reliable than computing a rotated pose's actual hand/foot
+// position, and each is tuned to sit naturally against the one pose it's
+// paired with in moodForBeachData (e.g. "umbrella" the prop only ever
+// appears with the "umbrella" pose's raised hand).
+const BUDDY_PROP_OFFSET = {
+  umbrella: { dx: 1.15, dy: -2.95 },
+  wave: { dx: 0, dy: 1.9 },
+  moon: { dx: 1.7, dy: -2.1 },
+  star: { dx: -1.7, dy: -2.3 },
+  windLines: { dx: -1.7, dy: -0.7 },
+  surfboard: { dx: 0, dy: 1.75 }
+};
+
+// Picks today's headline + pose from the SAME payload fetchTideCardData
+// already returns for the "tide" type -- no separate data source. Rules
+// are checked in priority order (rain beats wind beats surf beats night
+// beats tide timing beats the calm-day default), and every branch
+// degrades gracefully when a field is missing (a down Open-Meteo call
+// leaves data.weather null, same contract as the Tide & Fishing card).
+function moodForBeachData(data, now) {
+  const at = now || new Date();
+  const nowMs = at.getTime();
+  const weather = data.weather || {};
+  const rainWindows = weather.rainWindows || [];
+  const activeRain = rainWindows.find((w) => nowMs >= new Date(w.start).getTime() && nowMs <= new Date(w.end).getTime());
+  const upcomingRain = !activeRain && rainWindows.find((w) => new Date(w.start).getTime() > nowMs);
+
+  if (activeRain || upcomingRain) {
+    const w = activeRain || upcomingRain;
+    return {
+      pose: "umbrella",
+      headline: activeRain ? "RAINY DAY" : "RAIN LATER",
+      sub: w.label.replace("RAIN LIKELY ", ""),
+      props: ["umbrella"]
+    };
+  }
+
+  const windRamp = weather.windRamp;
+  const windMph = weather.wind ? weather.wind.mph : null;
+  if (windRamp || (windMph != null && windMph >= 20)) {
+    return {
+      pose: "windy",
+      headline: "WINDY",
+      sub: windRamp ? windRamp.gustMph + " MPH GUSTS" : windMph + " MPH",
+      props: ["windLines"]
+    };
+  }
+
+  const daytime = !!(data.sunrise && data.sunset && nowMs >= new Date(data.sunrise.t).getTime() && nowMs <= new Date(data.sunset.t).getTime());
+  const swellFt = weather.swell ? weather.swell.heightFt : null;
+  if (daytime && swellFt != null && swellFt >= 3) {
+    return { pose: "surfing", headline: "SURF'S UP", sub: swellFt + " FT SWELL", props: ["surfboard"] };
+  }
+
+  if (!daytime) {
+    return {
+      pose: "lounging",
+      headline: (data.moon.phaseName || "CLEAR NIGHT").toUpperCase(),
+      sub: null,
+      props: ["moon", "star"]
+    };
+  }
+
+  const extrema = data.tideExtrema || [];
+  const upcoming = extrema.find((e) => new Date(e.t).getTime() > nowMs) || extrema[extrema.length - 1];
+  if (upcoming) {
+    return {
+      pose: upcoming.isHigh ? "pointing" : "lounging",
+      headline: (upcoming.isHigh ? "HIGH TIDE " : "LOW TIDE ") + upcoming.label,
+      sub: null,
+      props: ["wave"]
+    };
+  }
+
+  return {
+    pose: "lounging",
+    headline: "PERFECT DAY",
+    sub: weather.waterTempF != null ? "WATER " + weather.waterTempF + "°F" : null,
+    props: []
+  };
+}
+
+const BUDDY_HIP_X = CANVAS_WIDTH / 2;
+const BUDDY_HIP_Y = 195;
+const BUDDY_FIGURE_U = 40;
+
+// Shared by both card variants below (AI art and the procedural
+// fallback) -- no black title banner and no border, unlike every other
+// card here: this one is meant to read as a friendly greeting, not a
+// data card, so it's just one big headline and an optional short
+// subline before the character itself.
+function drawBeachBuddyHeadline(ctx, mood) {
+  ctx.fillStyle = INK;
+  ctx.textAlign = "center";
+  const headlineSize = fitBannerFontSize(ctx, mood.headline, CANVAS_WIDTH - 48, FONT_FAMILY.block, 52, 30);
+  ctx.font = headlineSize + "px \"" + FONT_FAMILY.block + "\"";
+  ctx.fillText(mood.headline, CANVAS_WIDTH / 2, 54);
+
+  if (mood.sub) {
+    ctx.font = "bold 20px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillText(mood.sub, CANVAS_WIDTH / 2, 82);
+  }
+}
+
+// The procedural vector-line fallback -- used whenever Imagen art isn't
+// available (generation failed, or wasn't attempted, e.g. in tests).
+function drawBeachBuddyCard(ctx, mood) {
+  drawBeachBuddyHeadline(ctx, mood);
+
+  drawStickFigure(ctx, BUDDY_HIP_X, BUDDY_HIP_Y, BUDDY_FIGURE_U, mood.pose);
+
+  (mood.props || []).forEach((kind) => {
+    const off = BUDDY_PROP_OFFSET[kind] || { dx: 1.5, dy: -1 };
+    drawProp(ctx, kind, BUDDY_HIP_X + off.dx * BUDDY_FIGURE_U, BUDDY_HIP_Y + off.dy * BUDDY_FIGURE_U, BUDDY_FIGURE_U * 1.7);
+  });
+}
+
+const BUDDY_ART_SIZE = 170;
+// Below the sub line (baseline 82, descender to ~90), not just the
+// headline -- an earlier version started this at 60 and the art panel's
+// own opaque white background silently painted over the sub text drawn
+// moments before at that same height. Caught by pixel-scanning the
+// rendered card, not by reading the code -- see the regression test.
+const BUDDY_ART_TOP = 96;
+
+// Pads sourceImage onto a white `size x size` square (contain-fit,
+// preserving aspect ratio -- never cropped or stretched) and dithers it
+// with the same Atkinson algorithm already used for team logos
+// (ditheredLogoCanvas above): a flat, mostly-2-color illustration (see
+// imagen.js's STYLE_PREFIX) dithers into clean, crisp linework, unlike a
+// plain luminance threshold which would lose soft anti-aliased edges
+// Imagen's own renderer leaves behind.
+function ditheredArtCanvas(sourceImage, size) {
+  const padded = createCanvas(size, size);
+  const pctx = padded.getContext("2d");
+  pctx.fillStyle = "#fff";
+  pctx.fillRect(0, 0, size, size);
+  const scale = Math.min(size / sourceImage.width, size / sourceImage.height);
+  const w = sourceImage.width * scale, h = sourceImage.height * scale;
+  pctx.drawImage(sourceImage, (size - w) / 2, (size - h) / 2, w, h);
+
+  const imgData = pctx.getImageData(0, 0, size, size).data;
+  const gray = toGrayscale(imgData, size, size);
+  const bits = ditherAtkinson(gray, size, size);
+
+  const out = createCanvas(size, size);
+  const octx = out.getContext("2d");
+  const id = octx.createImageData(size, size);
+  for (let i = 0; i < size * size; i++) {
+    const on = !!bits[i];
+    const v = on ? 0 : 255;
+    id.data[i * 4] = v; id.data[i * 4 + 1] = v; id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255;
+  }
+  octx.putImageData(id, 0, 0);
+  return out;
+}
+
+// `artImage` is a loaded (node-canvas Image) Imagen illustration --
+// drawn as a modest centered panel below the headline, with clean white
+// margin either side (see IMAGE_ASPECT_RATIO's comment in imagen.js for
+// why this isn't stretched edge-to-edge).
+function drawBeachBuddyArtCard(ctx, mood, artImage) {
+  drawBeachBuddyHeadline(ctx, mood);
+  const dithered = ditheredArtCanvas(artImage, BUDDY_ART_SIZE);
+  ctx.drawImage(dithered, (CANVAS_WIDTH - BUDDY_ART_SIZE) / 2, BUDDY_ART_TOP);
+}
+
+
 async function compositeAndPack(basePngBuffer, drawFn, meta) {
   const baseImage = await loadImage(basePngBuffer);
   const composite = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -1828,8 +2207,15 @@ async function compositeAndPack(basePngBuffer, drawFn, meta) {
 // alone and try again on the next scheduled run," NOT as "clean up" --
 // unlike a concluded countdown, a team's schedule is perpetual/renews
 // every season, so a transient fetch failure is never a reason to give up
-// on a device.
-async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
+// on a device. "beachBuddy" follows the same rule for its own tide/
+// weather data (via fetchTideCardData) -- a failure there still throws --
+// but NOT for the Imagen art itself, which degrades to the procedural
+// stick-figure card instead, same principle as a failed logo fetch.
+//
+// `beachBuddyArtImpl`, when given, replaces the real Imagen call (see
+// generateBeachBuddyArt in lib/imagen.js) -- injected by tests so they
+// never need real Vertex AI credentials, same convention as `fetchImpl`.
+async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBuddyArtImpl) {
   ensureFontsRegistered();
 
   if (meta.type === "countdown") {
@@ -1935,6 +2321,39 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl) {
     return Object.assign(result, { timelineData: data, content: card.townName + " -- " + tideSummary });
   }
 
+  if (meta.type === "beachBuddy") {
+    const data = await fetchTideCardData({ lat: meta.lat, lon: meta.lon, stationId: meta.stationId }, now, fetchImpl);
+    const mood = moodForBeachData(data, now);
+
+    let artImage = null;
+    try {
+      const generate = beachBuddyArtImpl || ((m) => generateBeachBuddyArt(m, {
+        project: process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT,
+        location: "us-central1"
+      }));
+      artImage = await loadImage(await generate(mood));
+    } catch (err) {
+      // Imagen is a nice-to-have layered on top of the real tide/weather-
+      // driven mood, not load-bearing -- a bad/blocked/unreachable
+      // generation should never take the whole card down, just fall back
+      // to the procedural stick-figure version of the exact same mood
+      // (drawBeachBuddyCard), same principle as fetchDitheredLogo
+      // degrading to "no logo" rather than failing the Game Day card.
+      console.error("Beach Buddy art generation failed, falling back to the procedural card:", err);
+    }
+
+    const drawFn = artImage
+      ? (ctx) => drawBeachBuddyArtCard(ctx, mood, artImage)
+      : (ctx) => drawBeachBuddyCard(ctx, mood);
+    const result = await compositeAndPack(basePngBuffer, drawFn, meta);
+    return Object.assign(result, {
+      beachData: data,
+      mood: mood.headline,
+      usedArt: !!artImage,
+      content: mood.headline + (mood.sub ? " -- " + mood.sub : "")
+    });
+  }
+
   throw new Error("Unknown dynamic layer type: " + meta.type);
 }
 
@@ -1987,5 +2406,13 @@ module.exports = {
   drawTimelineMoonIcon,
   timelineIsNearMidnightEdge,
   renderDynamicDesign,
-  ensureFontsRegistered
+  ensureFontsRegistered,
+  STICK_POSES,
+  drawStickFigure,
+  drawProp,
+  moodForBeachData,
+  drawBeachBuddyCard,
+  drawBeachBuddyArtCard,
+  ditheredArtCanvas,
+  BUDDY_ART_SIZE
 };
