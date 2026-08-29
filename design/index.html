@@ -1896,14 +1896,16 @@
         drawText(ctx, obj.previewContent || "LOADING…", obj);
       }
     } else if (obj.kind === "beachBuddy") {
-      // obj.mood is resolved asynchronously by loadBeachBuddyLayer below,
-      // same idea as Tide's obj.cardData. This is always the PROCEDURAL
-      // stick-figure preview, never the real Imagen art -- that's drawn
-      // server-side only (see "Beach Buddy" in functions/README.md for
-      // why there's no live-preview proxy for it), so what publishes and
-      // what previews here can look different once the daily job first
-      // runs; the mood/headline itself is always the real thing.
-      if (obj.mood) {
+      // obj.mood and obj.artCanvas are resolved asynchronously by
+      // loadBeachBuddyLayer below, same idea as Tide's obj.cardData.
+      // obj.artCanvas is the REAL Imagen illustration (fetched through
+      // imagenProxy, already dithered) once it's loaded; falls back to
+      // the procedural stick-figure card if art generation failed or
+      // hasn't finished yet, same fallback contract the daily job's own
+      // render has.
+      if (obj.mood && obj.artCanvas) {
+        drawBeachBuddyArtCardClient(ctx, obj.mood, obj.artCanvas);
+      } else if (obj.mood) {
         drawBeachBuddyCardClient(ctx, obj.mood);
       } else {
         drawText(ctx, obj.previewContent || "LOADING…", obj);
@@ -2165,7 +2167,7 @@
         // "beachBuddy" -- nothing to pre-fill, same reasoning as the
         // tool-tab handler above.
         beachBuddyStatus.textContent = obj.mood
-          ? "Today's mood: " + obj.mood.headline + ". This preview shows the procedural version — the real Imagen illustration is drawn once a day after you publish (see functions/README.md's \"Beach Buddy\" section)."
+          ? beachBuddyMoodStatus(obj)
           : "Couldn't load tide/weather data right now — it'll try again on its own each day.";
       }
       return true;
@@ -3136,14 +3138,16 @@
   // same convention as drawGameDayCard/drawGameDayCardClient elsewhere
   // in this file.
   //
-  // IMPORTANT: this preview is ALWAYS the procedural stick-figure card,
-  // never the real Imagen illustration -- that's generated server-side
-  // only, once a day, by the Cloud Function (see functions/README.md's
-  // "Beach Buddy" section for why there's no live-preview proxy for it,
-  // the way Team/News/Tide each have one). The mood/headline itself
-  // (today's real tide & weather, computed below) is accurate; only the
-  // artwork upgrades from this stick figure to the real illustration
-  // once the daily job first runs after publish.
+  // The mood/headline (today's real tide & weather, computed below) is
+  // always accurate. The artwork itself is the REAL Imagen illustration,
+  // fetched live through imagenProxy (see fetchBeachBuddyArtClient
+  // below) -- same live-preview idea as Team's Game Day card and News's
+  // headlines, just fetched once per session rather than on every
+  // redraw, since each Imagen generation has a real cost (see
+  // functions/README.md's "Beach Buddy" section). Falls back to the
+  // procedural stick-figure card if that call fails for any reason
+  // (Imagen not set up yet, a safety filter, a network error) -- same
+  // fallback contract the daily job's own server-side render has.
   const beachBuddyStatus = document.getElementById("beachBuddyStatus");
 
   const BUDDY_INK = "#000";
@@ -3376,12 +3380,12 @@
     };
   }
 
-  // Mirrors drawBeachBuddyCard in lib/dynamic.js exactly (see the
+  // Mirrors drawBeachBuddyHeadline in lib/dynamic.js exactly (see the
   // comment above drawGameDayCardClient for why textBaseline is reset
-  // here) -- no black banner, one big headline, an optional subline,
-  // the character.
-  function drawBeachBuddyCardClient(ctx, mood) {
-    const w = baseCanvas.width, h = baseCanvas.height;
+  // here) -- no black banner, one big headline, an optional subline.
+  // Shared by both card variants below, same as the server.
+  function drawBeachBuddyHeadlineClient(ctx, mood) {
+    const w = baseCanvas.width;
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = BUDDY_INK;
     ctx.textAlign = "center";
@@ -3393,7 +3397,15 @@
       ctx.font = "bold 20px Georgia, serif";
       ctx.fillText(mood.sub, w / 2, 82);
     }
+  }
 
+  // The procedural vector-line fallback -- used whenever the real
+  // Imagen art isn't loaded yet (or failed). Mirrors drawBeachBuddyCard
+  // in lib/dynamic.js exactly.
+  function drawBeachBuddyCardClient(ctx, mood) {
+    drawBeachBuddyHeadlineClient(ctx, mood);
+
+    const w = baseCanvas.width;
     const hipX = w / 2, hipY = 195, u = 40;
     drawStickFigure(ctx, hipX, hipY, u, mood.pose);
 
@@ -3403,23 +3415,80 @@
     });
   }
 
+  // The REAL Imagen illustration, fetched live through imagenProxy (see
+  // fetchBeachBuddyArtClient/loadBeachBuddyLayer below) -- mirrors
+  // drawBeachBuddyArtCard in lib/dynamic.js's BUDDY_ART_SIZE/
+  // BUDDY_ART_TOP layout. `artCanvas` is already dithered (once, when
+  // fetched -- see fetchBeachBuddyArtClient) rather than re-dithered on
+  // every redraw, same reasoning Team's myLogo/oppLogo canvases already
+  // use for drawGameDayCardClient.
+  const BUDDY_ART_SIZE = 170;
+  const BUDDY_ART_TOP = 96;
+  function drawBeachBuddyArtCardClient(ctx, mood, artCanvas) {
+    drawBeachBuddyHeadlineClient(ctx, mood);
+    const w = baseCanvas.width;
+    ctx.drawImage(artCanvas, (w - BUDDY_ART_SIZE) / 2, BUDDY_ART_TOP);
+  }
+
   const beachBuddyStatusText = {
     loading: "Loading tide & weather data for your location…",
+    loadingArt: "Generating today's illustration…",
     noLocation: "This device doesn't have a saved location yet — set one first (see Location in Manage), then come back here.",
     error: "Couldn't load tide/weather data right now — it'll try again on its own each day."
   };
+
+  function beachBuddyMoodStatus(layer) {
+    const base = "Today's mood: " + layer.mood.headline + ". ";
+    return base + (layer.artCanvas
+      ? "This is the real Imagen illustration."
+      : "Couldn't load the real Imagen art right now (showing the stick-figure fallback) — it may need the one-time Vertex AI setup in functions/README.md's \"Beach Buddy\" section, or generation failed for another reason.");
+  }
+
+  const IMAGEN_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/imagenProxy";
+
+  // Fetches the REAL Imagen illustration for `pose` through imagenProxy
+  // (same CORS reasoning as fetchDitheredLogoClient above -- a
+  // script-initiated fetch() straight to Vertex AI would need CORS
+  // headers it doesn't send) and dithers it once, same treatment a team
+  // logo already gets. Returns null on ANY failure (network error, bad
+  // status, decode error, Imagen not set up yet on this project) rather
+  // than breaking the whole card -- the caller falls back to the
+  // procedural stick-figure version, same degrade-gracefully contract
+  // fetchDitheredLogoClient already uses for "no logo".
+  async function fetchBeachBuddyArtClient(pose) {
+    let objectUrl = null;
+    try {
+      const resp = await fetch(IMAGEN_PROXY_BASE + "?pose=" + encodeURIComponent(pose));
+      if (!resp.ok) return null;
+      const blob = await resp.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const img = await new Promise((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = () => reject(new Error("Beach Buddy art failed to decode"));
+        im.src = objectUrl;
+      });
+      return ditheredLogoCanvasOpaque(img, BUDDY_ART_SIZE);
+    } catch (err) {
+      return null;
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+  }
 
   // Beach Buddy never goes through staging/commit either -- same
   // reasoning as Tide & Fishing (a fixed full-screen card, redrawn fresh
   // every day). No picker at all -- it just uses the device's own saved
   // location -- so opening the tab is the only trigger there is, and it
   // only actually fetches once per layer (reopening the tab just
-  // re-shows status, same as Tide does).
+  // re-shows status, same as Tide does) -- deliberately not re-fetched
+  // on every reopen, since unlike Tide's free NOAA/Open-Meteo calls,
+  // each Imagen generation here has a real cost.
   let beachBuddyFetchToken = 0;
   async function loadBeachBuddyLayer() {
     let layer = layers.find((l) => l.kind === "beachBuddy");
     if (layer && layer.mood) {
-      beachBuddyStatus.textContent = "Today's mood: " + layer.mood.headline + ". This preview shows the procedural version — the real Imagen illustration is drawn once a day after you publish.";
+      beachBuddyStatus.textContent = beachBuddyMoodStatus(layer);
       return;
     }
     if (!layer) {
@@ -3429,7 +3498,7 @@
         kind: "beachBuddy", id: nextLayerId++,
         x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
         font: "Georgia, serif", outline: false,
-        lat: null, lon: null, stationId: null, mood: null, previewContent: "LOADING…"
+        lat: null, lon: null, stationId: null, mood: null, artCanvas: null, previewContent: "LOADING…"
       };
       layers.push(layer);
     }
@@ -3455,7 +3524,12 @@
       if (token !== beachBuddyFetchToken) return; // superseded by a newer load
       layer.mood = moodForBeachDataClient(data, new Date());
       layer.previewContent = null;
-      beachBuddyStatus.textContent = "Today's mood: " + layer.mood.headline + ". This preview shows the procedural version — the real Imagen illustration is drawn once a day after you publish.";
+      beachBuddyStatus.textContent = "Today's mood: " + layer.mood.headline + ". " + beachBuddyStatusText.loadingArt;
+      renderLayers();
+
+      layer.artCanvas = await fetchBeachBuddyArtClient(layer.mood.pose);
+      if (token !== beachBuddyFetchToken) return; // superseded by a newer load
+      beachBuddyStatus.textContent = beachBuddyMoodStatus(layer);
     } catch (err) {
       if (token !== beachBuddyFetchToken) return;
       console.error("Couldn't load Beach Buddy data:", err);

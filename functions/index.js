@@ -16,6 +16,7 @@ const admin = require("firebase-admin");
 const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, espnTeamUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
 const { fetchTideCardData, fetchTideTimelineData } = require("./lib/astro");
 const { isTeamsnapIcsUrl, fetchIcsSchedule } = require("./lib/teamsnap");
+const { generateBeachBuddyArt, IMAGEN_SCENE_HINTS } = require("./lib/imagen");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -353,6 +354,53 @@ async function astroTimelineProxyHandler(req, res) {
 
 exports.astroTimelineProxy = onRequest({ cors: true, region: "us-central1" }, astroTimelineProxyHandler);
 
+// ================= Imagen proxy (Beach Buddy) =================
+// design's Beach Buddy tool needs to show the REAL Imagen illustration
+// while previewing, not just the procedural fallback -- same CORS
+// reasoning as every other proxy here (a script-initiated fetch() from
+// the browser straight to Vertex AI's API would need CORS headers it
+// doesn't send; server-to-server was never subject to that).
+//
+// Unlike every other proxy in this file, this one is NOT a thin
+// passthrough of a free public API -- Imagen bills per generated image,
+// so the request shape here is deliberately closed rather than open:
+// the browser can only pick one of a small fixed set of KNOWN poses
+// (IMAGEN_SCENE_HINTS, the same list moodForBeachData ever picks from),
+// never send its own free-text prompt. That's what keeps this from
+// being usable as "generate whatever image you want, billed to
+// waveclock's project" by anyone who finds the URL -- the prompt is
+// always built server-side from imagen.js's fixed STYLE_PREFIX + one of
+// its fixed scene hints, exactly like the daily job itself does.
+//
+// The daily regeneration job above does NOT go through this -- it
+// already calls generateBeachBuddyArt directly from lib/dynamic.js.
+//
+// `generateArtImpl`, when given, replaces the real Imagen call -- same
+// convention as every injectable dependency elsewhere in this file,
+// used only by tests so they never need real Vertex AI credentials.
+async function imagenProxyHandler(req, res, generateArtImpl) {
+  const pose = req.query.pose;
+  if (typeof pose !== "string" || !Object.prototype.hasOwnProperty.call(IMAGEN_SCENE_HINTS, pose)) {
+    res.status(400).json({ error: "pose must be one of: " + Object.keys(IMAGEN_SCENE_HINTS).join(", ") });
+    return;
+  }
+
+  try {
+    const generate = generateArtImpl || ((mood) => generateBeachBuddyArt(mood, {
+      project: process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT,
+      location: "us-central1"
+    }));
+    const buf = await generate({ pose });
+    res.set("Content-Type", "image/png");
+    res.status(200).send(buf);
+  } catch (err) {
+    logger.error("Imagen proxy request failed for pose=" + pose + ":", err);
+    res.status(502).json({ error: "Couldn't generate Beach Buddy art right now" });
+  }
+}
+
+exports.imagenProxy = onRequest({ cors: true, region: "us-central1" }, imagenProxyHandler);
+
 // ================= TeamSnap proxy =================
 // team-schedule.html needs to fetch a team's exported .ics feed from the
 // visitor's browser. Same problem as espnProxy/newsProxy above:
@@ -386,4 +434,4 @@ exports.teamsnapProxy = onRequest({ cors: true, region: "us-central1" }, teamsna
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, imagenProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
