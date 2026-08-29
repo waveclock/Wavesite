@@ -50,8 +50,7 @@ const {
   moodForBeachData,
   drawBeachBuddyCard,
   drawBeachBuddyArtCard,
-  ditheredArtCanvas,
-  BUDDY_ART_SIZE,
+  ditheredArtCoverCanvas,
   STICK_POSES
 } = require("../lib/dynamic");
 const BANNER_HEIGHT = 48; // matches the constant in lib/dynamic.js (not exported)
@@ -1742,7 +1741,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
 
   console.log("Beach Buddy art (Imagen)");
   function fakeArtImage() {
-    // A tiny real image, not just arbitrary bytes -- ditheredArtCanvas
+    // A tiny real image, not just arbitrary bytes -- ditheredArtCoverCanvas
     // needs to actually load it via node-canvas's loadImage/drawImage.
     const c = createCanvas(64, 64);
     const cctx = c.getContext("2d");
@@ -1754,32 +1753,33 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     cctx.fill();
     return c;
   }
-  await test("ditheredArtCanvas contain-fits a non-square source into a square, solid black/white (no gray survives thresholding)", () => {
+  await test("ditheredArtCoverCanvas cover-fits a non-square source to fill a non-square target edge to edge, solid black/white (no gray survives thresholding)", () => {
     const art = fakeArtImage();
-    const out = ditheredArtCanvas(art, BUDDY_ART_SIZE);
-    assert.strictEqual(out.width, BUDDY_ART_SIZE);
-    assert.strictEqual(out.height, BUDDY_ART_SIZE);
-    const data = out.getContext("2d").getImageData(0, 0, BUDDY_ART_SIZE, BUDDY_ART_SIZE).data;
+    const width = CANVAS_WIDTH, height = CANVAS_HEIGHT - BANNER_HEIGHT;
+    const out = ditheredArtCoverCanvas(art, width, height);
+    assert.strictEqual(out.width, width);
+    assert.strictEqual(out.height, height);
+    const data = out.getContext("2d").getImageData(0, 0, width, height).data;
     for (let i = 0; i < data.length; i += 4) {
       assert.ok(data[i] === 0 || data[i] === 255, "expected every pixel to be pure black or pure white after dithering, got " + data[i]);
       assert.strictEqual(data[i + 3], 255, "expected fully opaque output");
     }
   });
-  await test("drawBeachBuddyArtCard draws the headline, sub, AND the art panel without one erasing the other -- regression test for a real bug (the art panel's opaque white background used to paint over the sub text drawn just above it)", () => {
+  await test("drawBeachBuddyArtCard draws a black title banner AND fills the entire remaining card with art, edge to edge -- regression test for the 'way too small' full-bleed layout", () => {
     const canvas = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = canvas.getContext("2d");
     const mood = { headline: "SURF'S UP", sub: "4.5 FT SWELL" };
     assert.doesNotThrow(() => drawBeachBuddyArtCard(ctx, mood, fakeArtImage()));
-    const data = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
     const hasInkInRow = (y) => {
       const row = ctx.getImageData(0, y, CANVAS_WIDTH, 1).data;
       for (let i = 0; i < row.length; i += 4) { if (row[i] < 250) return true; }
       return false;
     };
-    assert.ok(hasInkInRow(20), "expected headline ink near the top");
-    assert.ok(hasInkInRow(78), "expected sub-line ink just below the headline -- this is exactly the row the art panel used to paint over");
-    assert.ok(hasInkInRow(150), "expected art panel ink further down the card");
-    assert.strictEqual(data[0], 255, "expected no black banner fill at the top of the card");
+    const bannerRow = ctx.getImageData(0, 4, CANVAS_WIDTH, 1).data;
+    assert.strictEqual(bannerRow[0], 0, "expected a solid black banner fill near the top of the card");
+    assert.ok(hasInkInRow(20), "expected white headline text to read as ink against the black banner");
+    assert.ok(hasInkInRow(BANNER_HEIGHT + 4), "expected art ink starting immediately below the banner, with no white gap");
+    assert.ok(hasInkInRow(CANVAS_HEIGHT - 4), "expected art to reach all the way to the bottom edge of the card");
   });
 
   console.log("renderDynamicDesign (type: beachBuddy, with Imagen art)");

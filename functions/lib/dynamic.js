@@ -2096,11 +2096,12 @@ const BUDDY_HIP_X = CANVAS_WIDTH / 2;
 const BUDDY_HIP_Y = 195;
 const BUDDY_FIGURE_U = 40;
 
-// Shared by both card variants below (AI art and the procedural
-// fallback) -- no black title banner and no border, unlike every other
-// card here: this one is meant to read as a friendly greeting, not a
-// data card, so it's just one big headline and an optional short
-// subline before the character itself.
+// Used by the procedural fallback only (drawBeachBuddyCard) -- no black
+// title banner and no border, meant to read as a friendly greeting, not
+// a data card, so it's just one big headline and an optional short
+// subline before the character itself. The AI art card
+// (drawBeachBuddyArtCard) does NOT use this -- it needs a real banner,
+// see its own comment for why.
 function drawBeachBuddyHeadline(ctx, mood) {
   ctx.fillStyle = INK;
   ctx.textAlign = "center";
@@ -2127,38 +2128,37 @@ function drawBeachBuddyCard(ctx, mood) {
   });
 }
 
-const BUDDY_ART_SIZE = 170;
-// Below the sub line (baseline 82, descender to ~90), not just the
-// headline -- an earlier version started this at 60 and the art panel's
-// own opaque white background silently painted over the sub text drawn
-// moments before at that same height. Caught by pixel-scanning the
-// rendered card, not by reading the code -- see the regression test.
-const BUDDY_ART_TOP = 96;
-
-// Pads sourceImage onto a white `size x size` square (contain-fit,
-// preserving aspect ratio -- never cropped or stretched) and dithers it
-// with the same Atkinson algorithm already used for team logos
-// (ditheredLogoCanvas above): a flat, mostly-2-color illustration (see
-// imagen.js's STYLE_PREFIX) dithers into clean, crisp linework, unlike a
-// plain luminance threshold which would lose soft anti-aliased edges
-// Imagen's own renderer leaves behind.
-function ditheredArtCanvas(sourceImage, size) {
-  const padded = createCanvas(size, size);
+// Fills a `width x height` canvas EDGE TO EDGE with sourceImage -- a
+// cover-fit crop (scales by the LARGER of the two ratios, so the image
+// always fully covers the target with no white margin, cropping
+// whichever dimension overflows), unlike a logo's contain-fit (which
+// pads with white specifically to avoid ever cropping the logo). A
+// live test of the first (contain-fit, small centered panel) version of
+// this card came back reading as a stamp-sized afterthought, not a real
+// screen -- this fills the whole card the way the reference "WANTED
+// poster" joke image did. Dithered with the same Atkinson algorithm
+// already used for team logos (ditheredLogoCanvas above): a flat,
+// mostly-2-color illustration (see imagen.js's STYLE_PREFIX) dithers
+// into clean, crisp linework, unlike a plain luminance threshold which
+// would lose soft anti-aliased edges the model's own renderer leaves
+// behind.
+function ditheredArtCoverCanvas(sourceImage, width, height) {
+  const padded = createCanvas(width, height);
   const pctx = padded.getContext("2d");
   pctx.fillStyle = "#fff";
-  pctx.fillRect(0, 0, size, size);
-  const scale = Math.min(size / sourceImage.width, size / sourceImage.height);
+  pctx.fillRect(0, 0, width, height);
+  const scale = Math.max(width / sourceImage.width, height / sourceImage.height);
   const w = sourceImage.width * scale, h = sourceImage.height * scale;
-  pctx.drawImage(sourceImage, (size - w) / 2, (size - h) / 2, w, h);
+  pctx.drawImage(sourceImage, (width - w) / 2, (height - h) / 2, w, h);
 
-  const imgData = pctx.getImageData(0, 0, size, size).data;
-  const gray = toGrayscale(imgData, size, size);
-  const bits = ditherAtkinson(gray, size, size);
+  const imgData = pctx.getImageData(0, 0, width, height).data;
+  const gray = toGrayscale(imgData, width, height);
+  const bits = ditherAtkinson(gray, width, height);
 
-  const out = createCanvas(size, size);
+  const out = createCanvas(width, height);
   const octx = out.getContext("2d");
-  const id = octx.createImageData(size, size);
-  for (let i = 0; i < size * size; i++) {
+  const id = octx.createImageData(width, height);
+  for (let i = 0; i < width * height; i++) {
     const on = !!bits[i];
     const v = on ? 0 : 255;
     id.data[i * 4] = v; id.data[i * 4 + 1] = v; id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255;
@@ -2167,14 +2167,26 @@ function ditheredArtCanvas(sourceImage, size) {
   return out;
 }
 
-// `artImage` is a loaded (node-canvas Image) Imagen illustration --
-// drawn as a modest centered panel below the headline, with clean white
-// margin either side (see IMAGE_ASPECT_RATIO's comment in imagen.js for
-// why this isn't stretched edge-to-edge).
+// `artImage` is a loaded (node-canvas Image) Imagen illustration,
+// filling the ENTIRE card below the banner, edge to edge -- a solid
+// black title banner (same convention every other full-screen card here
+// uses: Game Day, News) is what keeps the headline legible regardless
+// of how busy the art underneath it is; the earlier no-banner design
+// only worked for the procedural card's guaranteed-plain-white
+// background, not for real illustrated art.
 function drawBeachBuddyArtCard(ctx, mood, artImage) {
-  drawBeachBuddyHeadline(ctx, mood);
-  const dithered = ditheredArtCanvas(artImage, BUDDY_ART_SIZE);
-  ctx.drawImage(dithered, (CANVAS_WIDTH - BUDDY_ART_SIZE) / 2, BUDDY_ART_TOP);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  const headlineText = mood.sub ? mood.headline + "  ·  " + mood.sub : mood.headline;
+  const headlineSize = fitBannerFontSize(ctx, headlineText, CANVAS_WIDTH - 40, FONT_FAMILY.block, 24, 14);
+  ctx.font = headlineSize + "px \"" + FONT_FAMILY.block + "\"";
+  ctx.fillText(headlineText, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(headlineSize * 0.35));
+
+  const artHeight = CANVAS_HEIGHT - BANNER_HEIGHT;
+  const dithered = ditheredArtCoverCanvas(artImage, CANVAS_WIDTH, artHeight);
+  ctx.drawImage(dithered, 0, BANNER_HEIGHT);
 }
 
 
@@ -2413,6 +2425,5 @@ module.exports = {
   moodForBeachData,
   drawBeachBuddyCard,
   drawBeachBuddyArtCard,
-  ditheredArtCanvas,
-  BUDDY_ART_SIZE
+  ditheredArtCoverCanvas
 };
