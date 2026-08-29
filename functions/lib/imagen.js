@@ -79,12 +79,11 @@ function defaultGenerateImpl(project, location) {
   // Node runtime, the SDK uses Application Default Credentials -- the
   // Cloud Function's own service account, already used for everything
   // else here (Storage, Firestore-free as this project is). That service
-  // account needs the IAM role granting `aiplatform.user` (shown in the
-  // Console as "Vertex AI User" or "Gemini Enterprise Agent Platform
-  // User" depending on when Google's UI was last updated -- search by
-  // role ID if the display name doesn't match) and the API enabled on
-  // this project for this to work -- see functions/README.md's "Beach
-  // Buddy" setup section; neither of those can be done from code.
+  // account needs the IAM role granting `aiplatform.user` -- shown in
+  // the Console as "Agent Platform User" (confirmed live, 2026; used to
+  // be "Vertex AI User") -- and the API enabled on this project for
+  // this to work -- see functions/README.md's "Beach Buddy" setup
+  // section; neither of those can be done from code.
   const ai = new GoogleGenAI({ enterprise: true, project, location });
   return (prompt) => ai.models.generateImages({
     model: IMAGEN_MODEL,

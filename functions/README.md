@@ -916,11 +916,16 @@ to click:
    custom one was set up for the deploy steps below; this is a
    DIFFERENT identity from the `github-deploy` service account those
    steps create, which only needs deploy permissions, not this role) ->
-   Edit -> Add Role -> search "Vertex AI User" or "Gemini Enterprise
-   Agent Platform User" (whichever the Console currently shows) --
-   if neither name matches what's on screen, search the role ID
-   `roles/aiplatform.user` directly, which is far less likely to have
-   changed than its display name.
+   Edit -> Add Role -> search "Agent Platform User" (confirmed live,
+   2026 -- this is the current display name for `roles/aiplatform.user`,
+   what used to show as "Vertex AI User"; the role picker also lists
+   several "Vertex AI ... Service Agent" roles that look similar but are
+   for Google-managed service agents, not this one -- "Agent Platform
+   User"'s own description reads "Grants access to use all resource in
+   Agent Platform"). If the Console has renamed it again by the time
+   you're reading this, search the role ID `roles/aiplatform.user`
+   directly instead -- far less likely to have moved than the display
+   name has twice already.
 3. That's it -- no API key to store as a secret. `lib/imagen.js`
    authenticates with `@google/genai`'s `enterprise: true` mode (the
    SDK's current recommended flag -- functionally identical to the
