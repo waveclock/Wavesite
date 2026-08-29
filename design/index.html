@@ -1601,6 +1601,41 @@
     return out;
   }
 
+  // Fills a width x height canvas EDGE TO EDGE with sourceImage --
+  // cover-fit (scales by the LARGER ratio, cropping whatever overflows,
+  // never padding with white), mirroring ditheredArtCoverCanvas in
+  // lib/dynamic.js exactly. Unlike ditheredLogoCanvasOpaque above (a
+  // contain-fit square, right for a logo that must never be cropped),
+  // Beach Buddy's full-bleed art card needs the opposite tradeoff -- see
+  // drawBeachBuddyArtCardClient's own comment for why.
+  function ditheredArtCoverCanvasClient(sourceImage, width, height) {
+    const padded = document.createElement("canvas");
+    padded.width = width;
+    padded.height = height;
+    const pctx = padded.getContext("2d");
+    pctx.fillStyle = "#fff";
+    pctx.fillRect(0, 0, width, height);
+    const scale = Math.max(width / sourceImage.width, height / sourceImage.height);
+    const w = sourceImage.width * scale, h = sourceImage.height * scale;
+    pctx.drawImage(sourceImage, (width - w) / 2, (height - h) / 2, w, h);
+
+    const imgData = pctx.getImageData(0, 0, width, height).data;
+    const gray = toGrayscale(imgData, width, height);
+    const bits = ditherAtkinson(gray, width, height);
+
+    const out = document.createElement("canvas");
+    out.width = width;
+    out.height = height;
+    const octx = out.getContext("2d");
+    const id = octx.createImageData(width, height);
+    for (let i = 0; i < width * height; i++) {
+      const v = bits[i] ? 0 : 255;
+      id.data[i * 4] = v; id.data[i * 4 + 1] = v; id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255;
+    }
+    octx.putImageData(id, 0, 0);
+    return out;
+  }
+
   // Fetches a team logo through espnProxy's "logo" kind (needed for
   // CORS-clean pixel access -- see the comment above ESPN_PROXY_BASE) and
   // dithers it. A fetch()-then-blob-URL image never taints the canvas
@@ -3417,17 +3452,25 @@
 
   // The REAL Imagen illustration, fetched live through imagenProxy (see
   // fetchBeachBuddyArtClient/loadBeachBuddyLayer below) -- mirrors
-  // drawBeachBuddyArtCard in lib/dynamic.js's BUDDY_ART_SIZE/
-  // BUDDY_ART_TOP layout. `artCanvas` is already dithered (once, when
-  // fetched -- see fetchBeachBuddyArtClient) rather than re-dithered on
-  // every redraw, same reasoning Team's myLogo/oppLogo canvases already
-  // use for drawGameDayCardClient.
-  const BUDDY_ART_SIZE = 170;
-  const BUDDY_ART_TOP = 96;
+  // drawBeachBuddyArtCard in lib/dynamic.js's full-bleed banner layout
+  // exactly, NOT drawBeachBuddyHeadlineClient's banner-less one (see that
+  // function's own comment for why the art card needs a real banner).
+  // `artCanvas` is already dithered (once, when fetched -- see
+  // fetchBeachBuddyArtClient) rather than re-dithered on every redraw,
+  // same reasoning Team's myLogo/oppLogo canvases already use for
+  // drawGameDayCardClient.
   function drawBeachBuddyArtCardClient(ctx, mood, artCanvas) {
-    drawBeachBuddyHeadlineClient(ctx, mood);
-    const w = baseCanvas.width;
-    ctx.drawImage(artCanvas, (w - BUDDY_ART_SIZE) / 2, BUDDY_ART_TOP);
+    const w = baseCanvas.width, h = baseCanvas.height;
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    const headlineText = mood.sub ? mood.headline + "  ·  " + mood.sub : mood.headline;
+    const headlineSize = fitBannerFontSize(ctx, headlineText, w - 40, "'Bungee', sans-serif", 24, 14);
+    ctx.font = headlineSize + "px 'Bungee', sans-serif";
+    ctx.fillText(headlineText, w / 2, BANNER_HEIGHT / 2 + Math.round(headlineSize * 0.35));
+    ctx.drawImage(artCanvas, 0, BANNER_HEIGHT);
   }
 
   const beachBuddyStatusText = {
@@ -3468,7 +3511,7 @@
         im.onerror = () => reject(new Error("Beach Buddy art failed to decode"));
         im.src = objectUrl;
       });
-      return ditheredLogoCanvasOpaque(img, BUDDY_ART_SIZE);
+      return ditheredArtCoverCanvasClient(img, baseCanvas.width, baseCanvas.height - BANNER_HEIGHT);
     } catch (err) {
       return null;
     } finally {

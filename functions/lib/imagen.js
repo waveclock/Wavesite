@@ -31,16 +31,17 @@ const IMAGEN_MODEL = "gemini-2.5-flash-image";
 const RESPONSE_MODALITIES = ["IMAGE"];
 
 // This model supports a real fixed set of aspect ratios ("1:1", "2:3",
-// "3:2", "3:4", "4:3", "9:16", "16:9", "21:9") via `imageConfig`, same
-// idea as the standalone Imagen API this replaced -- still none of them
-// close to this display's own 792x272 (~2.9:1) strip. Rather than
-// stretch/crop a generated image to an unnatural ratio, this asks for a
-// normal-looking "1:1" portrait illustration and lets
-// drawBeachBuddyArtCard (in dynamic.js) place it as a modest centered
-// panel below the headline, with clean white margin on either side --
-// closer to how Life is Good's own designs actually compose a small
-// character illustration with text, not an edge-to-edge background fill.
-const IMAGE_ASPECT_RATIO = "1:1";
+// "3:2", "3:4", "4:3", "9:16", "16:9", "21:9") via `imageConfig`, none
+// exactly matching the art area's own 792x224 (~3.5:1) -- the card below
+// the banner (see BANNER_HEIGHT in dynamic.js). "21:9" (~2.33:1) is the
+// closest available and the widest one offered, so it's the pick: a
+// wide scene needs the LEAST cropping from ditheredArtCoverCanvas's
+// cover-fit (which crops whatever overflows, never stretches) to fill
+// the full-bleed art panel edge to edge. A live test of the earlier
+// "1:1" version, composed and placed as a small centered panel, came
+// back reading as a stamp-sized afterthought, not a real screen -- see
+// drawBeachBuddyArtCard's own comment for the layout half of that fix.
+const IMAGE_ASPECT_RATIO = "21:9";
 
 // One fixed style prefix, unchanged across every single call -- the ONE
 // thing that keeps "Buddy" reading as the same recurring character day
@@ -56,16 +57,27 @@ const IMAGE_ASPECT_RATIO = "1:1";
 // afterward, in code, on top -- see its own comment for why that split
 // is load-bearing, not optional.
 //
-// Rewritten after a live test came back tiny and shaded/scribbly
+// Rewritten AGAIN after a live test came back correctly posed and flat
+// (the shading/scale fix below worked) but still only a small figure
+// adrift in a wide "21:9" frame with empty white space on both sides --
+// the composition wording still described a square close-up portrait,
+// not the wide scene this aspect ratio actually asks for. This version
+// asks for a full horizontal SCENE (Buddy plus simple beach setting)
+// that reaches BOTH edges of the wide frame, rather than one centered
+// figure surrounded by white -- ditheredArtCoverCanvas (dynamic.js)
+// crops a wide source to fill the full-bleed art panel edge to edge, so
+// empty margin here becomes empty margin on the actual screen.
+//
+// (Earlier still: a first live test came back tiny and shaded/scribbly
 // instead of big and flat -- without explicit composition/texture
 // constraints, the model is free to draw a small figure with fine
 // shading detail, which is exactly what dithers into speckled noise at
-// this display's resolution. This version repeats the composition
-// ("fills most of the frame") and texture ("no shading/cross-hatching/
-// gradients") constraints in more than one way, since a single mention
-// of each was evidently not load-bearing enough to survive generation.
+// this display's resolution. This version keeps repeating the texture
+// ("no shading/cross-hatching/gradients") constraint in more than one
+// way, since a single mention was evidently not load-bearing enough to
+// survive generation.)
 const STYLE_PREFIX =
-  "A close-up, full-body portrait of a single recurring cartoon character named Buddy, filling most of the frame -- large and centered, not small or far away. Buddy is a friendly, rounded human figure with a big warm smile. Style: a simple flat black-and-white line-art icon, like a clean vector clipart sticker, a woodblock print, or a rubber-stamp illustration -- thick, bold, smooth, confident outlines, the way a children's book character or a simple logo mascot is drawn. STRICT rules, no exceptions: solid black ink outlines and solid black fills only, on a plain solid white background. No gray. No shading. No cross-hatching. No stippling. No fine sketchy texture. No gradients. No color. No photographic detail. No background scenery or clutter. No text, no lettering, no words or numbers anywhere in the image. ";
+  "A wide horizontal beach scene starring a single recurring cartoon character named Buddy, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Buddy is a friendly, rounded human figure with a big warm smile, placed with simple beach elements (sand, waves, sun, or props relevant to the action) filling the rest of the wide frame around them. Style: a simple flat black-and-white line-art icon, like a clean vector clipart sticker, a woodblock print, or a rubber-stamp illustration -- thick, bold, smooth, confident outlines, the way a children's book character or a simple logo mascot is drawn. STRICT rules, no exceptions: solid black ink outlines and solid black fills only, on a plain solid white background. No gray. No shading. No cross-hatching. No stippling. No fine sketchy texture. No gradients. No color. No photographic detail. No text, no lettering, no words or numbers anywhere in the image. ";
 
 // Short present-tense action fragments describing what Buddy is doing,
 // keyed by the same pose names STICK_POSES uses for the procedural
