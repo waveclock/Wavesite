@@ -1,12 +1,14 @@
 "use strict";
 
-// Unit tests for lib/imagen.js -- the Imagen (Vertex AI) art generation
-// for the "Beach Buddy" dynamic layer. `generateImpl` is always injected
+// Unit tests for lib/imagen.js -- the Gemini image-generation call for
+// the "Beach Buddy" dynamic layer. `generateImpl` is always injected
 // here, so none of this ever makes a real Vertex AI call or needs real
 // GCP credentials -- same convention as fetchImpl throughout
-// dynamic.js/astro.js. NOT live-tested against a real Vertex AI project
-// from this sandbox (no credentials available here) -- needs the same
-// kind of live smoke test NOAA/ESPN/RSS eventually got, after deploy.
+// dynamic.js/astro.js. The response shape mocked below (`.data`,
+// `.candidates[0].finishReason`) mirrors @google/genai's
+// GenerateContentResponse -- confirmed against a real deployed call
+// (see imagen.js's own header comment for why this isn't the standalone
+// Imagen API this originally called).
 
 const assert = require("assert");
 const {
@@ -49,28 +51,28 @@ async function test(name, fn) {
   await test("IMAGEN_MODEL and IMAGE_ASPECT_RATIO are non-empty strings (sanity check against a typo breaking every call)", () => {
     assert.strictEqual(typeof IMAGEN_MODEL, "string");
     assert.ok(IMAGEN_MODEL.length > 0);
-    assert.ok(["1:1", "3:4", "4:3", "9:16", "16:9"].includes(IMAGE_ASPECT_RATIO), "IMAGE_ASPECT_RATIO must be one Imagen actually supports");
+    assert.ok(["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "21:9"].includes(IMAGE_ASPECT_RATIO), "IMAGE_ASPECT_RATIO must be one the model actually supports");
   });
 
   await test("generateBeachBuddyArt returns the decoded image bytes from a successful call", async () => {
     const fakeBytes = Buffer.from("not a real png, just bytes for the test", "utf8");
     const generateImpl = async (prompt) => {
       assert.ok(prompt.startsWith(STYLE_PREFIX));
-      return { generatedImages: [{ image: { imageBytes: fakeBytes.toString("base64"), mimeType: "image/png" } }] };
+      return { data: fakeBytes.toString("base64"), candidates: [{ finishReason: "STOP" }] };
     };
     const result = await generateBeachBuddyArt({ pose: "surfing" }, { generateImpl });
     assert.ok(Buffer.isBuffer(result));
     assert.ok(result.equals(fakeBytes));
   });
-  await test("throws when the response has no generatedImages at all", async () => {
-    const generateImpl = async () => ({ generatedImages: [] });
+  await test("throws when the response has no inline image data at all", async () => {
+    const generateImpl = async () => ({ data: undefined, candidates: [{ finishReason: "STOP" }] });
     await assert.rejects(() => generateBeachBuddyArt({ pose: "standing" }, { generateImpl }));
   });
-  await test("throws when the image was safety-filtered, including the filter reason in the message", async () => {
-    const generateImpl = async () => ({ generatedImages: [{ raiFilteredReason: "blocked by safety filters" }] });
+  await test("throws when the image was safety-filtered, including the finish reason in the message", async () => {
+    const generateImpl = async () => ({ data: undefined, candidates: [{ finishReason: "SAFETY" }] });
     await assert.rejects(
       () => generateBeachBuddyArt({ pose: "standing" }, { generateImpl }),
-      /blocked by safety filters/
+      /SAFETY/
     );
   });
   await test("throws when the underlying call itself throws (network/auth failure) -- propagates rather than swallowing it", async () => {

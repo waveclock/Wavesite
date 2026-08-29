@@ -912,13 +912,27 @@ preview falls back to the procedural stick-figure card, same contract as
 the daily job's own server-side fallback -- see `beachBuddyMoodStatus`
 in `design/index.html` for the status text shown either way.
 
-**Not live-tested against a real Vertex AI project** from this
-development sandbox -- there are no GCP credentials for the `waveclock`
-project available here, so this needs the same kind of live smoke test
-NOAA/ESPN/RSS eventually got: deploy, publish a Beach Buddy layer, and
-check what actually shows up (including how the mood's headline reads
-against a REAL Imagen illustration, and how the character's likeness
-holds up across a few different days/moods).
+**Not live-tested against a real Vertex AI project from this
+development sandbox** (no GCP credentials for the `waveclock` project
+are available here) -- but it HAS been live-tested by the project owner
+against the real deployed `imagenProxy`, which caught a real bug this
+sandbox never could have: the first version of this file called the
+standalone Imagen model (`imagen-4.0-generate-001` via
+`ai.models.generateImages(...)`), confirmed via a real Cloud Function
+log to 404 with *"Publisher model ... was not found or your project
+does not have access to it"* -- Model Garden search for "Imagen 4" on
+the real project turned up no standalone Imagen model card at all.
+Image generation now lives on Gemini's own multimodal model instead,
+reached through the ordinary `generateContent` call (with
+`responseModalities: ["IMAGE"]` and an `imageConfig`), not a separate
+Imagen-specific method -- `lib/imagen.js` now calls
+`gemini-2.5-flash-image` ("Nano Banana" in Model Garden) this way. This
+fix itself is NOT yet confirmed working end-to-end (the 404 is fixed,
+but a full publish-and-see-the-real-art smoke test hadn't happened as
+of this writing) -- still needs that final check: publish a Beach Buddy
+layer, and look at the actual illustration that comes back (does the
+character stay recognizable/on-style, does the mood match, does the
+headline stay legible over it).
 
 **One-time setup, beyond the Blaze-plan requirement below** (a human
 with project access, done from the Google Cloud Console -- none of this
@@ -956,7 +970,20 @@ to click:
    you're reading this, search the role ID `roles/aiplatform.user`
    directly instead -- far less likely to have moved than the display
    name has twice already.
-3. That's it -- no API key to store as a secret. `lib/imagen.js`
+3. **If a live call still 404s** with "Publisher model ... was not
+   found or your project does not have access to it" even with steps 1
+   and 2 done: Console -> search "Model Garden" (may be filed under
+   "Gemini Enterprise Agent Platform" now) -> search the model name
+   `lib/imagen.js` currently calls (`IMAGEN_MODEL`, e.g.
+   "gemini-2.5-flash-image") -> open its model card -> look for an
+   Enable/Get-started/access-terms action there. This is a real,
+   live-confirmed failure mode (see the "Not live-tested" note above) --
+   API-enabled + IAM-granted was NOT enough by itself the first time;
+   the actual cause that once turned out to be an outright wrong/
+   discontinued model name, not a missing access grant, but Model
+   Garden access gating is a real, documented thing for generative
+   models too, so check both.
+4. That's it -- no API key to store as a secret. `lib/imagen.js`
    authenticates with `@google/genai`'s `enterprise: true` mode (the
    SDK's current recommended flag -- functionally identical to the
    older `vertexai: true`, see that file's own comment), which on a Node
@@ -964,10 +991,15 @@ to click:
    account identity already used for Cloud Storage everywhere else in
    this file.
 
-If this isn't enabled yet (or the role hasn't been granted), Beach
-Buddy still works -- every render just falls back to the procedural
-stick-figure card until that one-time setup is done, per the
-graceful-degradation contract above.
+If this isn't enabled yet (or the role hasn't been granted, or the
+model name has moved again), Beach Buddy still works -- every render
+just falls back to the procedural stick-figure card until that one-time
+setup is done, per the graceful-degradation contract above. Check the
+`imagenProxy` Cloud Function's own logs (Console -> Cloud Functions ->
+`imagenProxy` -> Logs/Observability tab) for the real underlying error
+if it's not working -- the browser never sees more than a generic
+"couldn't generate" message, by design (see imagenProxyHandler's own
+comment in index.js).
 
 ## Known tradeoffs
 
