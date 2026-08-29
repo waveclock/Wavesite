@@ -55,8 +55,17 @@ const IMAGE_ASPECT_RATIO = "1:1";
 // drawBeachBuddyArtCard draws the real, legible headline itself
 // afterward, in code, on top -- see its own comment for why that split
 // is load-bearing, not optional.
+//
+// Rewritten after a live test came back tiny and shaded/scribbly
+// instead of big and flat -- without explicit composition/texture
+// constraints, the model is free to draw a small figure with fine
+// shading detail, which is exactly what dithers into speckled noise at
+// this display's resolution. This version repeats the composition
+// ("fills most of the frame") and texture ("no shading/cross-hatching/
+// gradients") constraints in more than one way, since a single mention
+// of each was evidently not load-bearing enough to survive generation.
 const STYLE_PREFIX =
-  "A single warm, cheerful, minimalist line-art illustration of a recurring beach-themed cartoon character named Buddy -- a simple, friendly, rounded human figure with a big warm smile, drawn in bold confident black ink linework on a plain solid white background. Flat two-color only: pure black and white, no gray, no gradients, no shading, no color, no background scenery clutter, no text, no lettering, no words or numbers anywhere in the image. Clean, uncluttered, joyful, in the spirit of simple hand-drawn beach-lifestyle character art. ";
+  "A close-up, full-body portrait of a single recurring cartoon character named Buddy, filling most of the frame -- large and centered, not small or far away. Buddy is a friendly, rounded human figure with a big warm smile. Style: a simple flat black-and-white line-art icon, like a clean vector clipart sticker, a woodblock print, or a rubber-stamp illustration -- thick, bold, smooth, confident outlines, the way a children's book character or a simple logo mascot is drawn. STRICT rules, no exceptions: solid black ink outlines and solid black fills only, on a plain solid white background. No gray. No shading. No cross-hatching. No stippling. No fine sketchy texture. No gradients. No color. No photographic detail. No background scenery or clutter. No text, no lettering, no words or numbers anywhere in the image. ";
 
 // Short present-tense action fragments describing what Buddy is doing,
 // keyed by the same pose names STICK_POSES uses for the procedural
