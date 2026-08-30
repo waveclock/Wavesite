@@ -139,8 +139,19 @@ const IMAGE_ASPECT_RATIO = "21:9";
 // since renaming those would touch persisted dynamic.json data on real
 // devices for no benefit; "Beach Buddy" is the tool's name, not the
 // character's.
+//
+// Rewritten a seventh time at the user's request: Jake kept coming
+// back with no shorts (the earlier "no clothing at all on the body
+// itself" rule was blanket-banning them right along with the shirt/
+// vest/filled-torso look it was actually meant to prevent), and
+// separately, real renders kept adding palm trees to the background
+// unprompted. This version carves out a specific exception for simple
+// swim/board shorts -- still just a thin-line outline around the hips/
+// upper legs, not a filled shape, so it doesn't reopen the "filled
+// torso" problem the clothing ban was originally added to fix -- and
+// adds an explicit "no palm trees" to the STRICT rules.
 const STYLE_PREFIX =
-  "A wide horizontal beach-scene illustration starring a single recurring stick-figure cartoon character named Jake, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Jake is a classic minimalist STICK FIGURE, drawn exactly like a quick hand-drawn doodle, in EVERY pose including seated or reclining ones: a simple circle for a head, one single thin line from the neck straight down to the hips for the torso, and each arm and leg is its own single thin line from one joint to the next (small dots at the joints/hands/feet are fine) -- there is no wider shape connecting these lines, no filled torso, no shirt, vest, or any clothing at all on the body itself (only the hat and sunglasses on the head). NOT a rounded, chubby, or bear-like mascot body, NOT a filled-in human silhouette, NOT a body shape sitting in a chair -- even when reclining, Jake is still just thin stick-figure lines bent at the joints. Jake wears a floppy bucket hat and round sunglasses on that circle head -- this exact outfit every time, it's what makes Jake recognizable as the same character scene to scene. Style: bold black ink line art, like a woodblock print or comic-strip panel, with thick, confident outlines throughout the whole scene -- clean and bold, not busy or fine. Cross-hatching and fine detail linework are used SPARINGLY and ONLY inside a wave's crest, as a handful of curling lines suggesting motion -- never densely covering an entire surface, and never on the sand, umbrella, chair, or any other prop, which stay simple bold outlines with flat solid black fills. STRICT rules, no exceptions: every mark is a real solid black line or solid black fill on a plain solid white background -- NO gray, NO gradients, and NO halftone dot/stipple shading used to fake a gray value. No color. No photographic detail. No text, no lettering, no words or numbers anywhere in the image. ";
+  "A wide horizontal beach-scene illustration starring a single recurring stick-figure cartoon character named Jake, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Jake is a classic minimalist STICK FIGURE, drawn exactly like a quick hand-drawn doodle, in EVERY pose including seated or reclining ones: a simple circle for a head, one single thin line from the neck straight down to the hips for the torso, and each arm and leg is its own single thin line from one joint to the next (small dots at the joints/hands/feet are fine) -- there is no wider shape connecting these lines, no filled torso, no shirt, no vest. Jake DOES wear a simple pair of swim/board shorts -- just a thin-line outline around the hips and upper legs, still not a filled shape, the same thin-line treatment as the rest of his body -- but no other clothing beyond that and the hat/sunglasses on his head. NOT a rounded, chubby, or bear-like mascot body, NOT a filled-in human silhouette, NOT a body shape sitting in a chair -- even when reclining, Jake is still just thin stick-figure lines bent at the joints. Jake wears a floppy bucket hat and round sunglasses on that circle head -- this exact outfit every time, it's what makes Jake recognizable as the same character scene to scene. Style: bold black ink line art, like a woodblock print or comic-strip panel, with thick, confident outlines throughout the whole scene -- clean and bold, not busy or fine. Cross-hatching and fine detail linework are used SPARINGLY and ONLY inside a wave's crest, as a handful of curling lines suggesting motion -- never densely covering an entire surface, and never on the sand, umbrella, chair, or any other prop, which stay simple bold outlines with flat solid black fills. STRICT rules, no exceptions: every mark is a real solid black line or solid black fill on a plain solid white background -- NO gray, NO gradients, and NO halftone dot/stipple shading used to fake a gray value. No color. No photographic detail. No palm trees. No text, no lettering, no words or numbers anywhere in the image. ";
 
 // Short present-tense action fragments describing what Jake is doing,
 // keyed by the same pose names STICK_POSES uses for the procedural
@@ -212,7 +223,11 @@ function buildPrompt(mood) {
 // rather than needing to hunt down and delete stale cached files by
 // hand. NOT bumped for a typo fix or comment-only change -- only for a
 // wording change that would visibly change the art.
-const PROMPT_VERSION = 1;
+//
+// Bumped to 2: STYLE_PREFIX now adds shorts and forbids palm trees --
+// a visible change shared across every pose, so every cache entry
+// under v1 is stale relative to what this prompt generates now.
+const PROMPT_VERSION = 2;
 
 // The cache key identifying which of a small, fixed set of shared
 // illustrations (see getOrGenerateBeachBuddyArt in index.js) a given

@@ -7,6 +7,8 @@
 const assert = require("assert");
 const { createCanvas } = require("canvas");
 const { processDevice, deviceIdFromDynamicPath, getOrGenerateBeachBuddyArt } = require("../index.js")._internal;
+const { PROMPT_VERSION } = require("../lib/imagen");
+const CACHE_PREFIX = "beachBuddyArt/v" + PROMPT_VERSION + "/";
 
 function whitePngBuffer() {
   const c = createCanvas(792, 272);
@@ -248,11 +250,11 @@ async function test(name, fn) {
     const result = await getOrGenerateBeachBuddyArt({ pose: "lounging", props: ["sun"] }, { bucket, generateImpl });
     assert.ok(result.equals(fakeBytes));
     assert.strictEqual(generateCalls, 1);
-    assert.ok(bucket._store.has("beachBuddyArt/v1/lounging-sunny.png"), "expected the fresh image saved under a versioned, pose+sunny cache path");
+    assert.ok(bucket._store.has(CACHE_PREFIX + "lounging-sunny.png"), "expected the fresh image saved under a versioned, pose+sunny cache path");
   });
   await test("a cache hit returns the already-cached bytes WITHOUT calling generateImpl again", async () => {
     const cachedBytes = Buffer.from("already cached", "utf8");
-    const bucket = makeFakeBucket({ "beachBuddyArt/v1/surfing.png": cachedBytes });
+    const bucket = makeFakeBucket({ [CACHE_PREFIX + "surfing.png"]: cachedBytes });
     const generateImpl = async () => { throw new Error("must not be called on a cache hit"); };
     const result = await getOrGenerateBeachBuddyArt({ pose: "surfing" }, { bucket, generateImpl });
     assert.ok(result.equals(cachedBytes));
@@ -264,8 +266,8 @@ async function test(name, fn) {
     await getOrGenerateBeachBuddyArt({ pose: "pointing", props: [] }, { bucket, generateImpl });
     await getOrGenerateBeachBuddyArt({ pose: "pointing", props: ["sun"] }, { bucket, generateImpl });
     assert.strictEqual(generateCalls, 2, "expected two separate cache misses/generations, one per variant");
-    assert.ok(bucket._store.has("beachBuddyArt/v1/pointing.png"));
-    assert.ok(bucket._store.has("beachBuddyArt/v1/pointing-sunny.png"));
+    assert.ok(bucket._store.has(CACHE_PREFIX + "pointing.png"));
+    assert.ok(bucket._store.has(CACHE_PREFIX + "pointing-sunny.png"));
   });
   await test("a genuine generation failure (not a 404 cache miss) propagates rather than being swallowed", async () => {
     const bucket = makeFakeBucket({});
