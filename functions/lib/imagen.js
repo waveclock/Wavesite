@@ -76,8 +76,23 @@ const IMAGE_ASPECT_RATIO = "21:9";
 // ("no shading/cross-hatching/gradients") constraint in more than one
 // way, since a single mention was evidently not load-bearing enough to
 // survive generation.)
+//
+// Rewritten a third time against a real reference image the user liked
+// (a surfing Buddy in a bucket hat and sunglasses, bold outline on the
+// figure but fine detailed curved linework inside the wave itself) --
+// the earlier "no cross-hatching/no fine sketchy texture" wording banned
+// exactly that wave texture along with the shading it was actually meant
+// to prevent. The distinction that matters isn't "simple lines only" --
+// it's real black linework (any thickness) vs. GRAY (halftone dots,
+// smudged gradients, actual shading trying to fake a gray value), since
+// only the latter dithers into noise. This version explicitly invites
+// fine contrasting linework for texture (waves, hair, fabric) while
+// still banning gray/gradients/halftone. Also gives Buddy one fixed
+// signature outfit (bucket hat + round sunglasses) so the character
+// reads as recognizably the same Buddy across different scenes and
+// poses, which the model has no other memory of between calls.
 const STYLE_PREFIX =
-  "A wide horizontal beach scene starring a single recurring cartoon character named Buddy, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Buddy is a friendly, rounded human figure with a big warm smile, placed with simple beach elements (sand, waves, sun, or props relevant to the action) filling the rest of the wide frame around them. Style: a simple flat black-and-white line-art icon, like a clean vector clipart sticker, a woodblock print, or a rubber-stamp illustration -- thick, bold, smooth, confident outlines, the way a children's book character or a simple logo mascot is drawn. STRICT rules, no exceptions: solid black ink outlines and solid black fills only, on a plain solid white background. No gray. No shading. No cross-hatching. No stippling. No fine sketchy texture. No gradients. No color. No photographic detail. No text, no lettering, no words or numbers anywhere in the image. ";
+  "A wide horizontal beach-scene illustration starring a single recurring cartoon character named Buddy, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Buddy is a friendly, rounded human figure wearing a floppy bucket hat and round sunglasses -- this exact outfit every time, it's what makes Buddy recognizable as the same character scene to scene. Style: bold black ink line art, like a woodblock print or comic-strip panel. Buddy's own outline is thick, bold, and confident, while the surrounding scene -- waves, water, sand, clothing folds -- is rendered with a mix of bold and fine contrasting linework, the way a woodcut print uses clusters of thin curved lines to suggest texture and motion (think detailed wave lines, not a flat solid shape). STRICT rules, no exceptions: every mark is a real solid black line or solid black fill on a plain solid white background -- fine linework and texture are welcome, but NO gray, NO gradients, and NO halftone dot/stipple shading used to fake a gray value. No color. No photographic detail. No text, no lettering, no words or numbers anywhere in the image. ";
 
 // Short present-tense action fragments describing what Buddy is doing,
 // keyed by the same pose names STICK_POSES uses for the procedural
@@ -87,8 +102,17 @@ const STYLE_PREFIX =
 const IMAGEN_SCENE_HINTS = {
   umbrella: "Buddy is holding a big beach umbrella overhead for shelter, smiling contentedly in the rain",
   windy: "Buddy is leaning forward into a strong wind, bracing against it with a determined grin",
-  surfing: "Buddy is crouched on a surfboard riding a cresting wave, arms out for balance, thrilled",
-  lounging: "Buddy is relaxing in a beach lounge chair, arms behind head, completely at ease",
+  // Rewritten against the reference image (see STYLE_PREFIX's comment):
+  // explicitly calls out the cresting wave's own fine curved texture
+  // lines, since that's the detail the earlier wording accidentally
+  // banned.
+  surfing: "Buddy is crouched on a surfboard riding a cresting wave, the wave rendered with fine curved texture lines for motion and detail, arms out for balance, thrilled",
+  // Rewritten to match a second reference scene the user liked: a calm
+  // beach-chair-and-umbrella setup with a small child playing nearby --
+  // this pose already covers low tide, a calm default day, AND
+  // stargazing at night (see moodForBeachData), so it stays general
+  // enough to read fine as a relaxed daytime OR evening beach scene.
+  lounging: "Buddy is relaxing in a low beach lounge chair, shaded by a large beach umbrella, completely at ease, with a small child nearby happily playing and building in the sand",
   pointing: "Buddy is standing at the shoreline pointing excitedly out at the ocean",
   standing: "Buddy is standing happily on the beach, waving"
 };
