@@ -127,26 +127,37 @@ const IMAGE_ASPECT_RATIO = "21:9";
 // for joints, no wider shape connecting them) and explicitly says this
 // holds in EVERY pose, seated or reclining included, plus explicitly
 // forbids drawing any clothing on the body itself (shirt, vest, or
-// otherwise) beyond the hat and sunglasses already on Buddy's head.
+// otherwise) beyond the hat and sunglasses already on Jake's head.
+//
+// Renamed from "Buddy" to "Jake" at the user's request (Jake being a
+// stick figure is still the load-bearing part -- see the STICK FIGURE
+// wording above -- "Jake" is just his name now, same as "Buddy" was).
+// This only renames the CHARACTER as it's sent to Gemini in the prompt
+// text below -- the feature/product name "Beach Buddy" (the toolbar
+// button, panel, layer kind "beachBuddy", function names throughout
+// dynamic.js/index.html/design/index.html) is intentionally left alone,
+// since renaming those would touch persisted dynamic.json data on real
+// devices for no benefit; "Beach Buddy" is the tool's name, not the
+// character's.
 const STYLE_PREFIX =
-  "A wide horizontal beach-scene illustration starring a single recurring stick-figure cartoon character named Buddy, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Buddy is a classic minimalist STICK FIGURE, drawn exactly like a quick hand-drawn doodle, in EVERY pose including seated or reclining ones: a simple circle for a head, one single thin line from the neck straight down to the hips for the torso, and each arm and leg is its own single thin line from one joint to the next (small dots at the joints/hands/feet are fine) -- there is no wider shape connecting these lines, no filled torso, no shirt, vest, or any clothing at all on the body itself (only the hat and sunglasses on the head). NOT a rounded, chubby, or bear-like mascot body, NOT a filled-in human silhouette, NOT a body shape sitting in a chair -- even when reclining, Buddy is still just thin stick-figure lines bent at the joints. Buddy wears a floppy bucket hat and round sunglasses on that circle head -- this exact outfit every time, it's what makes Buddy recognizable as the same character scene to scene. Style: bold black ink line art, like a woodblock print or comic-strip panel, with thick, confident outlines throughout the whole scene -- clean and bold, not busy or fine. Cross-hatching and fine detail linework are used SPARINGLY and ONLY inside a wave's crest, as a handful of curling lines suggesting motion -- never densely covering an entire surface, and never on the sand, umbrella, chair, or any other prop, which stay simple bold outlines with flat solid black fills. STRICT rules, no exceptions: every mark is a real solid black line or solid black fill on a plain solid white background -- NO gray, NO gradients, and NO halftone dot/stipple shading used to fake a gray value. No color. No photographic detail. No text, no lettering, no words or numbers anywhere in the image. ";
+  "A wide horizontal beach-scene illustration starring a single recurring stick-figure cartoon character named Jake, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Jake is a classic minimalist STICK FIGURE, drawn exactly like a quick hand-drawn doodle, in EVERY pose including seated or reclining ones: a simple circle for a head, one single thin line from the neck straight down to the hips for the torso, and each arm and leg is its own single thin line from one joint to the next (small dots at the joints/hands/feet are fine) -- there is no wider shape connecting these lines, no filled torso, no shirt, vest, or any clothing at all on the body itself (only the hat and sunglasses on the head). NOT a rounded, chubby, or bear-like mascot body, NOT a filled-in human silhouette, NOT a body shape sitting in a chair -- even when reclining, Jake is still just thin stick-figure lines bent at the joints. Jake wears a floppy bucket hat and round sunglasses on that circle head -- this exact outfit every time, it's what makes Jake recognizable as the same character scene to scene. Style: bold black ink line art, like a woodblock print or comic-strip panel, with thick, confident outlines throughout the whole scene -- clean and bold, not busy or fine. Cross-hatching and fine detail linework are used SPARINGLY and ONLY inside a wave's crest, as a handful of curling lines suggesting motion -- never densely covering an entire surface, and never on the sand, umbrella, chair, or any other prop, which stay simple bold outlines with flat solid black fills. STRICT rules, no exceptions: every mark is a real solid black line or solid black fill on a plain solid white background -- NO gray, NO gradients, and NO halftone dot/stipple shading used to fake a gray value. No color. No photographic detail. No text, no lettering, no words or numbers anywhere in the image. ";
 
-// Short present-tense action fragments describing what Buddy is doing,
+// Short present-tense action fragments describing what Jake is doing,
 // keyed by the same pose names STICK_POSES uses for the procedural
 // fallback (see moodForBeachData in dynamic.js) -- so a mood picked by
 // real weather/tide data drives the SAME scene idea whichever renderer
 // ends up drawing it.
 const IMAGEN_SCENE_HINTS = {
-  umbrella: "Buddy is holding a big beach umbrella overhead for shelter, smiling contentedly in the rain",
-  windy: "Buddy is leaning forward into a strong wind, bracing against it with a determined grin",
+  umbrella: "Jake is holding a big beach umbrella overhead for shelter, smiling contentedly in the rain",
+  windy: "Jake is leaning forward into a strong wind, bracing against it with a determined grin",
   // Rewritten against the reference image (see STYLE_PREFIX's comment):
   // explicitly calls out the cresting wave's own fine curved texture
   // lines, since that's the detail the earlier wording accidentally
   // banned.
-  surfing: "Buddy is crouched on a surfboard riding a cresting wave, the wave rendered with fine curved texture lines for motion and detail, arms out for balance, thrilled",
+  surfing: "Jake is crouched on a surfboard riding a cresting wave, the wave rendered with fine curved texture lines for motion and detail, arms out for balance, thrilled",
   // Rewritten again after a live call for this exact pose came back
   // safety-filtered (finishReason: IMAGE_SAFETY) -- the earlier wording
-  // asked for "a small child... playing" in the same scene as Buddy,
+  // asked for "a small child... playing" in the same scene as Jake,
   // which directly conflicts with defaultGenerateImpl's own
   // `personGeneration: "ALLOW_ADULT"` (deliberately excludes minors);
   // asking for a child while telling the model not to generate one is
@@ -159,9 +170,9 @@ const IMAGEN_SCENE_HINTS = {
   // tide, a calm default day, AND stargazing at night (see
   // moodForBeachData), so it stays general enough to read fine as a
   // relaxed daytime OR evening beach scene.
-  lounging: "Buddy is relaxing in a low beach lounge chair, shaded by a large beach umbrella, completely at ease, with a freshly-built sandcastle and a toy pail and shovel sitting in the sand nearby",
-  pointing: "Buddy is standing at the shoreline pointing excitedly out at the ocean",
-  standing: "Buddy is standing happily on the beach, waving"
+  lounging: "Jake is relaxing in a low beach lounge chair, shaded by a large beach umbrella, completely at ease, with a freshly-built sandcastle and a toy pail and shovel sitting in the sand nearby",
+  pointing: "Jake is standing at the shoreline pointing excitedly out at the ocean",
+  standing: "Jake is standing happily on the beach, waving"
 };
 
 function buildPrompt(mood) {
