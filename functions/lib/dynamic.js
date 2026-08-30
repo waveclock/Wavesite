@@ -1857,8 +1857,10 @@ const STICK_POSES = {
   // "leaned back in a beach chair" pose isn't reachable with this rig
   // (rotate spins the legs along with the torso, which doesn't look like
   // sitting), so this leans on posture instead: arms crossed reads as
-  // relaxed/confident even standing upright, and covers low tide, a
-  // calm default day, AND stargazing at night (see moodForBeachData).
+  // relaxed/confident even standing upright -- covers low tide and a
+  // calm default day (see moodForBeachData). Nighttime stargazing gets
+  // its own "stargazing" pose below, not this one -- see its comment
+  // for why sharing this pose used to be a real bug.
   lounging: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] },
   // Upper arm swings out and up (145 degrees -- well past horizontal)
   // BEFORE going vertical, so the hand ends up clear of the head instead
@@ -1867,6 +1869,17 @@ const STICK_POSES = {
   umbrella: { armL: [-14, 0], armR: [145, 0], legL: [-14, 0], legR: [14, 0] },
   windy: { armL: [-42, 24], armR: [102, -14], legL: [-34, 0], legR: [12, 0], rotate: -16 },
   surfing: { armL: [-100, 18], armR: [100, -18], legL: [-46, 0], legR: [46, 0], rotate: -8 },
+  // Same relaxed arms-crossed geometry as "lounging" -- the physical
+  // POSE looks fine either day or night -- but kept as its own named
+  // pose so it gets its own Imagen cache entry/scene hint (see
+  // IMAGEN_SCENE_HINTS.stargazing in lib/imagen.js). A live report
+  // caught the bug this fixes: "lounging" was shared by low tide, a
+  // calm day, AND nighttime, so the cached Imagen ILLUSTRATION was
+  // always the same bright daytime beach-chair-under-an-umbrella scene
+  // regardless of which of those three actually applied -- including
+  // at night, alongside a moon-phase headline that made no visual
+  // sense next to it.
+  stargazing: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] },
   // Upright and calm (unlike surfing's crouched rotate) -- one arm
   // reaches down at an angle as if planting a paddle in the water, the
   // other relaxed at the side. Legs stay close together, standing
@@ -2084,8 +2097,26 @@ function moodForBeachData(data, now) {
   // over Jake holding an umbrella).
   const sunny = weather.businessHoursCloudCoverPct != null && weather.businessHoursCloudCoverPct <= 20;
 
+  // Once business hours (10am-4:30pm local) have actually ELAPSED for
+  // today, none of the business-hours-forecast branches below (rain,
+  // wind, swell, paddleboard, tide) should fire anymore -- a live
+  // report caught this: with Beach Buddy now refreshing hourly (see
+  // regenerateBeachBuddyDesigns in index.js), an evening/nighttime
+  // render was still showing "LOW TIDE 4:25 PM" and a bright sun,
+  // because that 4:25pm tide genuinely was inside business hours --
+  // it's just also long over by the time anyone's looking at it in the
+  // dark. Before the hourly job existed, always forward-looking into
+  // business hours (regardless of literal `now`) was the whole point --
+  // a once-daily render needed to represent the day ahead no matter
+  // when it happened to run. Now that every render is at most an hour
+  // stale, that workaround isn't needed anymore for the FORWARD-looking
+  // half (a pre-business-hours run still correctly looks ahead, since
+  // `nowMs <= bhEndMs` stays true), only for the "and don't keep
+  // reporting it after it's over" half added here.
+  const businessHoursOver = bhEndMs != null && nowMs > bhEndMs;
+
   const rainWindows = weather.rainWindows || [];
-  const businessRain = rainWindows.find((w) => overlapsBusinessHours(new Date(w.start).getTime(), new Date(w.end).getTime()));
+  const businessRain = !businessHoursOver && rainWindows.find((w) => overlapsBusinessHours(new Date(w.start).getTime(), new Date(w.end).getTime()));
   if (businessRain) {
     const activeNow = nowMs >= new Date(businessRain.start).getTime() && nowMs <= new Date(businessRain.end).getTime();
     return {
@@ -2098,10 +2129,14 @@ function moodForBeachData(data, now) {
 
   // A real business-hours forecast peak (not "right now") beats
   // needing an explicit ramp pattern -- a day that's just uniformly
-  // windy all afternoon is still windy, ramp or no ramp.
-  const windRamp = weather.windRamp;
+  // windy all afternoon is still windy, ramp or no ramp. windRamp's own
+  // search window already self-limits to [now, dusk] (see
+  // computeWindRamp in astro.js), so it naturally stops firing once
+  // dusk has passed regardless of businessHoursOver -- the explicit
+  // gate here is really for the OTHER half (a stale peak reading).
+  const windRamp = !businessHoursOver && weather.windRamp;
   const bhWindMph = weather.businessHoursWind ? weather.businessHoursWind.mph : null;
-  if (windRamp || (bhWindMph != null && bhWindMph >= 20)) {
+  if (windRamp || (!businessHoursOver && bhWindMph != null && bhWindMph >= 20)) {
     return {
       pose: "windy",
       headline: "WINDY",
@@ -2111,7 +2146,7 @@ function moodForBeachData(data, now) {
   }
 
   const bhSwellFt = weather.businessHoursSwell ? weather.businessHoursSwell.heightFt : null;
-  if (bhSwellFt != null && bhSwellFt >= 3) {
+  if (!businessHoursOver && bhSwellFt != null && bhSwellFt >= 3) {
     return { pose: "surfing", headline: "SURF'S UP", sub: bhSwellFt + " FT SWELL", props: ["surfboard"] };
   }
 
@@ -2120,7 +2155,7 @@ function moodForBeachData(data, now) {
   // weather. Checked after surfing (>=3ft) so the two branches stay
   // mutually exclusive on wave height, though the actual priority order
   // between them doesn't matter since they never both fire.
-  if (bhSwellFt != null && bhSwellFt <= 2 && bhWindMph != null && bhWindMph < 12) {
+  if (!businessHoursOver && bhSwellFt != null && bhSwellFt <= 2 && bhWindMph != null && bhWindMph < 12) {
     const props = ["paddleboard"];
     if (sunny) props.push("sun");
     return { pose: "paddleboard", headline: "PADDLE DAY", sub: bhWindMph + " MPH WIND", props };
@@ -2132,9 +2167,11 @@ function moodForBeachData(data, now) {
   // extrema is chronological, so the LAST one remaining after filtering
   // to the window is the LATER of however many qualify -- not the
   // earliest/soonest, which is what a plain "next upcoming" pick would
-  // give.
+  // give. Also gated on !businessHoursOver -- once evening/night hits,
+  // even a real business-hours tide is old news by then, not a
+  // headline (see businessHoursOver's own comment).
   const extrema = data.tideExtrema || [];
-  const businessTides = bhStartMs != null && bhEndMs != null
+  const businessTides = !businessHoursOver && bhStartMs != null && bhEndMs != null
     ? extrema.filter((e) => { const t = new Date(e.t).getTime(); return t >= bhStartMs && t <= bhEndMs; })
     : [];
   const headlineTide = businessTides.length ? businessTides[businessTides.length - 1] : null;
@@ -2150,14 +2187,32 @@ function moodForBeachData(data, now) {
   }
 
   // Nothing notable is forecast for business hours -- if this render is
-  // actually happening at night, show tonight's moon instead of a bland
+  // actually happening at night, show tonight's sky instead of a bland
   // default; otherwise it really is just a calm, unremarkable day.
   const daytime = !!(data.sunrise && data.sunset && nowMs >= new Date(data.sunrise.t).getTime() && nowMs <= new Date(data.sunset.t).getTime());
   if (!daytime) {
+    // A note about whichever of moonrise/moonset/sunrise is still ahead
+    // tonight, soonest first -- real, specific info rather than a bare
+    // moon-phase headline and nothing else. On a genuinely clear night
+    // (same businessHoursCloudCoverPct signal "sunny" uses for the
+    // daytime branches -- "clear skies" isn't just a daytime concept),
+    // that note is replaced with an explicit stargazing callout instead
+    // -- NEVER a "sun" prop here regardless of `sunny`, unlike the
+    // daytime branches: a sun icon showing at night makes no sense even
+    // if it's meant to represent a clear sky, so clear-at-night is
+    // conveyed through text only, with the moon/star props already
+    // doing the visual work.
+    const upcomingEvents = [
+      data.moon.rise && { label: "MOONRISE " + data.moon.rise.label, t: data.moon.rise.t },
+      data.moon.set && { label: "MOONSET " + data.moon.set.label, t: data.moon.set.t },
+      data.sunrise && { label: "SUNRISE " + data.sunrise.label, t: data.sunrise.t }
+    ].filter(Boolean).filter((e) => new Date(e.t).getTime() > nowMs).sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
+    const nextEvent = upcomingEvents.length ? upcomingEvents[0] : null;
+
     return {
-      pose: "lounging",
+      pose: "stargazing",
       headline: (data.moon.phaseName || "CLEAR NIGHT").toUpperCase(),
-      sub: null,
+      sub: sunny ? "CLEAR SKIES, GREAT FOR STARGAZING" : (nextEvent ? nextEvent.label : null),
       props: ["moon", "star"]
     };
   }

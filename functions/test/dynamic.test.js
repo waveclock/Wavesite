@@ -1663,12 +1663,12 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(mood.pose, "surfing");
     assert.strictEqual(mood.headline, "SURF'S UP");
   });
-  await test("with nothing forecast for business hours, and generated at night, falls back to tonight's moon phase", () => {
+  await test("with nothing forecast for business hours, and generated at night, falls back to tonight's moon phase -- its own 'stargazing' pose, not 'lounging'", () => {
     const data = beachData({
       weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursWind: null, businessHoursSwell: null }
     });
     const mood = moodForBeachData(data, MIDNIGHT);
-    assert.strictEqual(mood.pose, "lounging");
+    assert.strictEqual(mood.pose, "stargazing", "nighttime must NOT share 'lounging''s cached daytime beach-chair-under-an-umbrella art");
     assert.strictEqual(mood.headline, "FIRST QUARTER");
     assert.deepStrictEqual(mood.props, ["moon", "star"]);
   });
@@ -1676,6 +1676,62 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const data = beachData({ moon: { illumination: 0, waxing: true, phaseName: "", rise: null, set: null } });
     const mood = moodForBeachData(data, MIDNIGHT);
     assert.strictEqual(mood.headline, "CLEAR NIGHT");
+  });
+  await test("a clear night (low business-hours cloud cover) gets a stargazing callout instead of a celestial-event time, and NEVER a sun prop", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursCloudCoverPct: 5 }
+    });
+    const mood = moodForBeachData(data, MIDNIGHT);
+    assert.strictEqual(mood.sub, "CLEAR SKIES, GREAT FOR STARGAZING");
+    assert.deepStrictEqual(mood.props, ["moon", "star"], "a sun prop at night makes no sense even for a 'clear sky' night");
+  });
+  await test("a non-clear night notes the soonest upcoming moonrise/moonset/sunrise instead", () => {
+    const data = beachData({
+      moon: { illumination: 0.5, waxing: true, phaseName: "First Quarter", rise: { t: "2026-07-15T06:00:00.000Z", label: "2:00 AM" }, set: null }
+    });
+    const mood = moodForBeachData(data, MIDNIGHT);
+    assert.strictEqual(mood.sub, "MOONRISE 2:00 AM");
+  });
+  await test("among moonrise/moonset/sunrise, the SOONEST upcoming one wins, not a fixed preference order", () => {
+    const data = beachData({
+      // sunrise (default fixture) is 6:00 AM local -- moonset here is earlier, at 1:30 AM.
+      moon: { illumination: 0.9, waxing: false, phaseName: "Full Moon", rise: null, set: { t: "2026-07-15T05:30:00.000Z", label: "1:30 AM" } }
+    });
+    const mood = moodForBeachData(data, MIDNIGHT);
+    assert.strictEqual(mood.sub, "MOONSET 1:30 AM");
+  });
+  await test("an already-passed moonrise/moonset isn't reported as still upcoming", () => {
+    const data = beachData({
+      moon: { illumination: 0.5, waxing: true, phaseName: "First Quarter", rise: { t: "2026-07-15T04:00:00.000Z", label: "12:00 AM" }, set: null }
+    });
+    // MIDNIGHT is 05:00Z (1 AM ET) -- the moonrise above is 04:00Z (midnight
+    // ET), already an hour in the past -- only sunrise (10:00Z, still ahead)
+    // should be reported.
+    const mood = moodForBeachData(data, MIDNIGHT);
+    assert.strictEqual(mood.sub, "SUNRISE 6:00 AM");
+  });
+  await test("a stale business-hours tide is no longer headline-worthy once business hours are over for the day -- falls back to the nighttime branch instead", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursCloudCoverPct: 5 },
+      tideExtrema: [{ t: "2026-07-15T19:00:00.000Z", label: "3:00 PM", heightFt: 0.2, isHigh: false }]
+    });
+    // A live report caught this exact bug: hours after business hours
+    // ended (but still technically before sunset per this fixture),
+    // this tide -- inside business hours, so it WOULD have been the
+    // headline during the actual workday -- was still showing,
+    // alongside an inappropriate bright sun, well after the tide
+    // itself had already happened.
+    const eveningNow = new Date("2026-07-15T22:00:00.000Z"); // 6 PM Eastern -- after business hours (4:30 PM), still before sunset (8:30 PM) per this fixture
+    const mood = moodForBeachData(data, eveningNow);
+    assert.ok(!mood.headline.includes("TIDE"), "a tide from earlier today shouldn't still be the headline once business hours are over -- got: " + mood.headline);
+  });
+  await test("a stale rain/wind/swell/paddleboard signal is also dropped once business hours are over, not just tide", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [{ start: "2026-07-15T15:00:00.000Z", end: "2026-07-15T18:00:00.000Z", label: "RAIN LIKELY 11:00 AM-2:00 PM" }], windRamp: null, swell: null, waterTempF: null }
+    });
+    const lateNight = new Date("2026-07-16T02:00:00.000Z"); // 10 PM Eastern -- well after business hours
+    const mood = moodForBeachData(data, lateNight);
+    assert.notStrictEqual(mood.pose, "umbrella", "this morning's rain shouldn't still be the headline at 10 PM");
   });
   await test("with two tides inside business hours, reports the LATER one, not the soonest-upcoming -- even when 'now' is well before both", () => {
     const data = beachData({
