@@ -1884,7 +1884,24 @@ const STICK_POSES = {
   // reaches down at an angle as if planting a paddle in the water, the
   // other relaxed at the side. Legs stay close together, standing
   // squarely on the board rather than braced wide like surfing's.
-  paddleboard: { armL: [-15, 0], armR: [50, 24], legL: [-8, 0], legR: [10, 0] }
+  paddleboard: { armL: [-15, 0], armR: [50, 24], legL: [-8, 0], legR: [10, 0] },
+  // One arm extended down and out at an angle, as if holding a fishing
+  // rod out over the water.
+  fishing: { armL: [-15, 0], armR: [35, 10], legL: [-10, 0], legR: [10, 0] },
+  // A rough approximation of a pedaling stride -- both arms forward as
+  // if gripping handlebars, legs spread front/back -- this rig has no
+  // way to draw an actual bicycle frame under the figure, so the "bike"
+  // prop (see drawProp) carries that half of the scene.
+  biking: { armL: [20, -20], armR: [20, 20], legL: [-25, 15], legR: [25, -15] },
+  // Arm raised toward the head/mouth, as if holding a cup.
+  coffee: { armL: [-15, 0], armR: [130, -60], legL: [-10, 0], legR: [10, 0] },
+  // Same relaxed arms-crossed geometry as "lounging"/"stargazing" --
+  // watching the horizon looks fine with this same posture -- kept as
+  // their own named poses (see moodForBeachData) purely so sunrise and
+  // sunset each get their own Imagen cache entry/scene hint, the same
+  // reasoning stargazing's own comment explains.
+  sunrise: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] },
+  sunset: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] }
 };
 
 // Draws one stick figure WITH a small face (two dot eyes, a smile arc) --
@@ -2035,6 +2052,92 @@ function drawProp(ctx, kind, x, y, s) {
     ctx.moveTo(x - s * 0.85, y);
     ctx.lineTo(x + s * 0.85, y);
     ctx.stroke();
+  } else if (kind === "kite") {
+    // A simple diamond, strung from two crossed struts, with a short
+    // tail -- positioned up and to the side of the windy pose's already-
+    // raised arm (see BUDDY_PROP_OFFSET), with a string line drawn back
+    // down to roughly where that hand is.
+    ctx.beginPath();
+    ctx.moveTo(x, y - s * 0.45);
+    ctx.lineTo(x + s * 0.32, y);
+    ctx.lineTo(x, y + s * 0.45);
+    ctx.lineTo(x - s * 0.32, y);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.32, y);
+    ctx.lineTo(x + s * 0.32, y);
+    ctx.moveTo(x, y - s * 0.45);
+    ctx.lineTo(x, y + s * 0.45);
+    ctx.stroke();
+    // Tail: a few short zigzag flicks trailing below the bottom point.
+    ctx.beginPath();
+    ctx.moveTo(x, y + s * 0.45);
+    for (let i = 1; i <= 3; i++) {
+      ctx.lineTo(x + (i % 2 ? s * 0.12 : -s * 0.12), y + s * 0.45 + i * s * 0.18);
+    }
+    ctx.stroke();
+    // String, back down toward the flying hand.
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.15, y + s * 0.45);
+    ctx.lineTo(x - s * 0.9, y + s * 1.4);
+    ctx.stroke();
+  } else if (kind === "fishingRod") {
+    // A single diagonal rod from roughly hand height down toward the
+    // water, with a straight line (the cast) continuing on past the tip.
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.3, y - s * 0.3);
+    ctx.lineTo(x + s * 0.55, y + s * 0.35);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x + s * 0.55, y + s * 0.35);
+    ctx.lineTo(x + s * 0.15, y + s * 1.3);
+    ctx.stroke();
+  } else if (kind === "bike") {
+    // Two wheel circles joined by a simple frame -- this rig has no way
+    // to draw the figure actually sitting astride it, so this is drawn
+    // beside/under the figure's feet, the same "prop supplies what the
+    // limb rig can't" idea surfboard/paddleboard already use.
+    const wheelR = s * 0.3;
+    ctx.beginPath();
+    ctx.arc(x - s * 0.5, y, wheelR, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x + s * 0.5, y, wheelR, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.5, y);
+    ctx.lineTo(x, y - s * 0.5);
+    ctx.lineTo(x + s * 0.5, y);
+    ctx.lineTo(x, y - s * 0.5);
+    ctx.moveTo(x - s * 0.15, y - s * 0.65);
+    ctx.lineTo(x, y - s * 0.5);
+    ctx.stroke();
+  } else if (kind === "coffeeCup") {
+    // A simple mug with a handle and two short steam wisps -- drawn near
+    // the raised hand of the "coffee" pose.
+    ctx.beginPath();
+    ctx.rect(x - s * 0.28, y - s * 0.05, s * 0.56, s * 0.4);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x + s * 0.28, y + s * 0.15, s * 0.16, -Math.PI * 0.5, Math.PI * 0.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.1, y - s * 0.1);
+    ctx.quadraticCurveTo(x - s * 0.18, y - s * 0.3, x - s * 0.05, y - s * 0.45);
+    ctx.moveTo(x + s * 0.1, y - s * 0.1);
+    ctx.quadraticCurveTo(x + s * 0.02, y - s * 0.3, x + s * 0.15, y - s * 0.45);
+    ctx.stroke();
+  } else if (kind === "donut") {
+    // A ring (outer circle + white inner circle, same "punch a hole"
+    // technique the moon prop already uses).
+    ctx.beginPath();
+    ctx.arc(x, y, s * 0.32, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(x, y, s * 0.12, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -2051,16 +2154,27 @@ const BUDDY_PROP_OFFSET = {
   windLines: { dx: -1.7, dy: -0.7 },
   surfboard: { dx: 0, dy: 1.75 },
   paddleboard: { dx: 0, dy: 1.75 },
-  sun: { dx: -1.9, dy: -2.6 }
+  sun: { dx: -1.9, dy: -2.6 },
+  // Up and to the side of the windy pose's own raised arm (armR swings
+  // up past horizontal, same idea umbrella's offset already uses).
+  kite: { dx: 1.3, dy: -3.4 },
+  // Out past the fishing pose's own downward-angled arm.
+  fishingRod: { dx: 1.3, dy: -0.6 },
+  bike: { dx: 0, dy: 1.6 },
+  // Near the coffee pose's own raised hand.
+  coffeeCup: { dx: 1.1, dy: -1.7 },
+  donut: { dx: -1.4, dy: -0.3 }
 };
 
 // Picks today's headline + pose from the SAME payload fetchTideCardData
 // already returns for the "tide" type -- no separate data source. Rules
-// are checked in priority order (rain beats wind beats surf beats tide
-// timing beats the calm-day default, with tonight's moon as a last-
-// resort fallback), and every branch degrades gracefully when a field
-// is missing (a down Open-Meteo call leaves data.weather null, same
-// contract as the Tide & Fishing card).
+// are checked in priority order: rain, wind (kite flying), surf, calm-
+// water paddleboarding, a business-hours tide, catching sunrise/sunset
+// itself, tonight's sky (nighttime fallback), a good fishing window,
+// and finally a rotating set of calm-day activities as the last
+// resort. Every branch degrades gracefully when a field is missing (a
+// down Open-Meteo call leaves data.weather null, same contract as the
+// Tide & Fishing card).
 //
 // Rewritten to judge rain/wind/swell/tide against a fixed BUSINESS
 // HOURS window (10:00am-4:30pm local, see businessHoursStart/End in
@@ -2141,7 +2255,7 @@ function moodForBeachData(data, now) {
       pose: "windy",
       headline: "WINDY",
       sub: windRamp ? windRamp.gustMph + " MPH GUSTS" : bhWindMph + " MPH",
-      props: ["windLines"]
+      props: ["kite"]
     };
   }
 
@@ -2186,6 +2300,21 @@ function moodForBeachData(data, now) {
     };
   }
 
+  // Catching the moment itself -- checked against literal `now`, not
+  // the business-hours window (sunrise/sunset are their own, separate
+  // real signal, nothing to do with business hours). A generous
+  // 40-minute window on each side reliably catches at least one of
+  // Beach Buddy's own hourly refreshes (see regenerateBeachBuddyDesigns
+  // in index.js) even though those land on the hour, not at the exact
+  // sunrise/sunset instant.
+  const SUNRISE_SUNSET_WINDOW_MS = 40 * 60000;
+  if (data.sunrise && Math.abs(nowMs - new Date(data.sunrise.t).getTime()) <= SUNRISE_SUNSET_WINDOW_MS) {
+    return { pose: "sunrise", headline: "SUNRISE " + data.sunrise.label, sub: null, props: ["sun"] };
+  }
+  if (data.sunset && Math.abs(nowMs - new Date(data.sunset.t).getTime()) <= SUNRISE_SUNSET_WINDOW_MS) {
+    return { pose: "sunset", headline: "SUNSET " + data.sunset.label, sub: null, props: ["sun"] };
+  }
+
   // Nothing notable is forecast for business hours -- if this render is
   // actually happening at night, show tonight's sky instead of a bland
   // default; otherwise it really is just a calm, unremarkable day.
@@ -2217,11 +2346,43 @@ function moodForBeachData(data, now) {
     };
   }
 
+  // Nothing time-sensitive applies either. A good fishing window
+  // (data.fishingScore, the same "Poor"/"Fair"/"Good"/"Excellent" signal
+  // the Tide & Fishing card already computes and shows -- itself
+  // already weather/tide/moon-adjusted, see fishingScore in astro.js)
+  // gets its own callout ahead of the generic fallback below.
+  if (data.fishingScore === "Good" || data.fishingScore === "Excellent") {
+    return {
+      pose: "fishing",
+      headline: (data.fishingScore === "Excellent" ? "EXCELLENT" : "GOOD") + " FISHING",
+      sub: null,
+      props: ["fishingRod"]
+    };
+  }
+
+  // A truly calm, unremarkable day -- rather than ALWAYS showing the
+  // identical lounging scene, rotate through a small set of equally
+  // plausible calm-day activities so a run of calm days doesn't look
+  // identical day after day (see also cacheKeyForMood in lib/imagen.js
+  // -- since the rotation key is the same for every device/town on a
+  // given day, everyone landing on this branch that day still reuses
+  // the SAME cached illustration, no extra Imagen calls). The key is a
+  // plain UTC day number, not `data.timeZone`'s local calendar day --
+  // an occasional rotation flip a few hours off true local midnight is
+  // a fine tradeoff for not needing timezone math just to pick a mood
+  // flavor.
+  const CALM_DAY_VARIANTS = [
+    { pose: "lounging", headline: "PERFECT DAY", props: [] },
+    { pose: "biking", headline: "BIKE RIDE", props: ["bike"] },
+    { pose: "coffee", headline: "COFFEE & DONUTS", props: ["coffeeCup", "donut"] }
+  ];
+  const dayNumber = Math.floor(nowMs / 86400000);
+  const variant = CALM_DAY_VARIANTS[dayNumber % CALM_DAY_VARIANTS.length];
   return {
-    pose: "lounging",
-    headline: "PERFECT DAY",
+    pose: variant.pose,
+    headline: variant.headline,
     sub: weather.waterTempF != null ? "WATER " + weather.waterTempF + "°F" : null,
-    props: sunny ? ["sun"] : []
+    props: sunny ? variant.props.concat(["sun"]) : variant.props
   };
 }
 

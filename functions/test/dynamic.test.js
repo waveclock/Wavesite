@@ -1573,7 +1573,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   await test("drawProp accepts every prop kind moodForBeachData can pick without throwing", () => {
     const canvas = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = canvas.getContext("2d");
-    ["sun", "cloud", "moon", "star", "wave", "umbrella", "windLines", "surfboard", "paddleboard"].forEach((kind) => {
+    ["sun", "cloud", "moon", "star", "wave", "umbrella", "windLines", "surfboard", "paddleboard", "kite", "fishingRod", "bike", "coffeeCup", "donut"].forEach((kind) => {
       assert.doesNotThrow(() => drawProp(ctx, kind, 396, 120, 60), kind + " threw while drawing");
     });
   });
@@ -1622,7 +1622,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(mood.pose, "umbrella");
     assert.strictEqual(mood.headline, "RAIN LATER");
   });
-  await test("a wind ramp beats a calm-looking current reading -- windy pose, gust speed in the sub", () => {
+  await test("a wind ramp beats a calm-looking current reading -- windy pose, gust speed in the sub, kite prop", () => {
     const data = beachData({
       weather: { wind: { mph: 8, dir: "NW" }, pressure: { trend: "steady" }, rainWindows: [], windRamp: { gustMph: 28, after: "2026-07-15T20:00:00.000Z", label: "WIND TO 28 MPH AFTER 4:00 PM" }, swell: null, waterTempF: null }
     });
@@ -1630,6 +1630,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(mood.pose, "windy");
     assert.strictEqual(mood.headline, "WINDY");
     assert.strictEqual(mood.sub, "28 MPH GUSTS");
+    assert.deepStrictEqual(mood.props, ["kite"], "windy should fly a kite, not just show wind lines");
   });
   await test("a high business-hours wind forecast with no ramp also reads windy", () => {
     const data = beachData({
@@ -1805,6 +1806,78 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const mood = moodForBeachData(data, NOON);
     assert.deepStrictEqual(mood.props, ["paddleboard"]);
   });
+  await test("catching sunrise itself (within 40 minutes) beats the calm-day fallback", () => {
+    const data = beachData({}); // default sunrise fixture: 2026-07-15T10:00:00.000Z, "6:00 AM"
+    const withinWindow = new Date("2026-07-15T10:20:00.000Z"); // 20 min after sunrise
+    const mood = moodForBeachData(data, withinWindow);
+    assert.strictEqual(mood.pose, "sunrise");
+    assert.strictEqual(mood.headline, "SUNRISE 6:00 AM");
+    assert.deepStrictEqual(mood.props, ["sun"]);
+  });
+  await test("outside the sunrise window, sunrise doesn't fire", () => {
+    const data = beachData({});
+    const wellAfter = new Date("2026-07-15T12:00:00.000Z"); // 2 hours after sunrise
+    const mood = moodForBeachData(data, wellAfter);
+    assert.notStrictEqual(mood.pose, "sunrise");
+  });
+  await test("catching sunset itself (within 40 minutes) beats the calm-day fallback", () => {
+    const data = beachData({}); // default sunset fixture: 2026-07-16T00:30:00.000Z, "8:30 PM"
+    const withinWindow = new Date("2026-07-16T00:10:00.000Z"); // 20 min before sunset
+    const mood = moodForBeachData(data, withinWindow);
+    assert.strictEqual(mood.pose, "sunset");
+    assert.strictEqual(mood.headline, "SUNSET 8:30 PM");
+    assert.deepStrictEqual(mood.props, ["sun"]);
+  });
+  await test("a good or excellent fishing score gets its own callout ahead of the generic calm-day rotation", () => {
+    const good = moodForBeachData(beachData({ fishingScore: "Good" }), NOON);
+    assert.strictEqual(good.pose, "fishing");
+    assert.strictEqual(good.headline, "GOOD FISHING");
+    assert.deepStrictEqual(good.props, ["fishingRod"]);
+    const excellent = moodForBeachData(beachData({ fishingScore: "Excellent" }), NOON);
+    assert.strictEqual(excellent.headline, "EXCELLENT FISHING");
+  });
+  await test("a merely Fair or Poor fishing score does NOT trigger the fishing callout", () => {
+    assert.notStrictEqual(moodForBeachData(beachData({ fishingScore: "Fair" }), NOON).pose, "fishing");
+    assert.notStrictEqual(moodForBeachData(beachData({ fishingScore: "Poor" }), NOON).pose, "fishing");
+  });
+  // sunrise/sunset pushed years out of range so "daytime" (and "not near
+  // sunrise/sunset") holds no matter which of the three test instants
+  // below lands on -- the fixture's normal single-day sunrise/sunset
+  // values would otherwise go stale the moment `now` is shifted by a
+  // day or more, same trap the businessHours* fields would fall into
+  // too (harmless here since weather stays null in these fixtures).
+  function wideOpenDaytimeData(overrides) {
+    return beachData(Object.assign({
+      sunrise: { t: "2020-01-01T00:00:00.000Z", label: "12:00 AM" },
+      sunset: { t: "2030-01-01T00:00:00.000Z", label: "12:00 AM" }
+    }, overrides));
+  }
+  await test("the calm-day fallback rotates through lounging/biking/coffee by calendar day, not always the same scene", () => {
+    const data = wideOpenDaytimeData({});
+    // Three consecutive days -- 86400000ms apart -- should cycle through
+    // all three CALM_DAY_VARIANTS in order (NOON's own day lands on
+    // index 0/lounging, confirmed by the existing PERFECT DAY tests).
+    const day0 = moodForBeachData(data, NOON);
+    const day1 = moodForBeachData(data, new Date(NOON.getTime() + 86400000));
+    const day2 = moodForBeachData(data, new Date(NOON.getTime() + 2 * 86400000));
+    assert.strictEqual(day0.pose, "lounging");
+    assert.strictEqual(day0.headline, "PERFECT DAY");
+    assert.strictEqual(day1.pose, "biking");
+    assert.strictEqual(day1.headline, "BIKE RIDE");
+    assert.deepStrictEqual(day1.props, ["bike"]);
+    assert.strictEqual(day2.pose, "coffee");
+    assert.strictEqual(day2.headline, "COFFEE & DONUTS");
+    assert.deepStrictEqual(day2.props, ["coffeeCup", "donut"]);
+    // And a fourth day should land back on lounging again (period-3 cycle).
+    const day3 = moodForBeachData(data, new Date(NOON.getTime() + 3 * 86400000));
+    assert.strictEqual(day3.pose, "lounging");
+  });
+  await test("a sunny non-lounging calm-day variant still gets a sun added on top of its own props", () => {
+    const data = wideOpenDaytimeData({ weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursCloudCoverPct: 5 } });
+    const biking = moodForBeachData(data, new Date(NOON.getTime() + 86400000));
+    assert.strictEqual(biking.pose, "biking");
+    assert.deepStrictEqual(biking.props, ["bike", "sun"]);
+  });
   await test("with no tide extrema left today and no other signal, falls back to a calm PERFECT DAY (with water temp if known)", () => {
     const data = beachData({ weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: 74 } });
     const mood = moodForBeachData(data, NOON);
@@ -1827,12 +1900,18 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   await test("drawBeachBuddyCard renders every branch's mood without throwing, at full resolution, with real ink and no black banner", () => {
     const moods = [
       { pose: "umbrella", headline: "RAINY DAY", sub: "11:00 AM-2:00 PM", props: ["umbrella"] },
-      { pose: "windy", headline: "WINDY", sub: "28 MPH GUSTS", props: ["windLines"] },
+      { pose: "windy", headline: "WINDY", sub: "28 MPH GUSTS", props: ["kite"] },
       { pose: "surfing", headline: "SURF'S UP", sub: "4.5 FT SWELL", props: ["surfboard"] },
-      { pose: "lounging", headline: "FIRST QUARTER", sub: null, props: ["moon", "star"] },
+      { pose: "paddleboard", headline: "PADDLE DAY", sub: "8 MPH WIND", props: ["paddleboard", "sun"] },
+      { pose: "stargazing", headline: "FIRST QUARTER", sub: "MOONRISE 9:15 PM", props: ["moon", "star"] },
       { pose: "pointing", headline: "HIGH TIDE 3:00 PM", sub: null, props: ["wave"] },
       { pose: "lounging", headline: "LOW TIDE 3:00 PM", sub: null, props: ["wave"] },
-      { pose: "lounging", headline: "PERFECT DAY", sub: "WATER 74°F", props: [] }
+      { pose: "sunrise", headline: "SUNRISE 6:12 AM", sub: null, props: ["sun"] },
+      { pose: "sunset", headline: "SUNSET 8:04 PM", sub: null, props: ["sun"] },
+      { pose: "fishing", headline: "GOOD FISHING", sub: null, props: ["fishingRod"] },
+      { pose: "lounging", headline: "PERFECT DAY", sub: "WATER 74°F", props: [] },
+      { pose: "biking", headline: "BIKE RIDE", sub: "WATER 74°F", props: ["bike"] },
+      { pose: "coffee", headline: "COFFEE & DONUTS", sub: "WATER 74°F", props: ["coffeeCup", "donut"] }
     ];
     moods.forEach((mood) => {
       const canvas = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);

@@ -160,7 +160,12 @@ const STYLE_PREFIX =
 // ends up drawing it.
 const IMAGEN_SCENE_HINTS = {
   umbrella: "Jake is holding a big beach umbrella overhead for shelter, smiling contentedly in the rain",
-  windy: "Jake is leaning forward into a strong wind, bracing against it with a determined grin",
+  // Rewritten at the user's request -- "leaning into the wind, bracing"
+  // read as more of a grimace than a fun windy-day activity. Flying a
+  // kite is the more iconic, appealing windy-beach-day scene, and it's
+  // still obviously windy (a taut string, a kite tilted against the
+  // gusts) without needing Jake to look like he's struggling.
+  windy: "Jake is flying a kite on a breezy day, looking up at it with delight, the kite's string taut and the kite tilted against the wind",
   // Rewritten against the reference image (see STYLE_PREFIX's comment):
   // explicitly calls out the cresting wave's own fine curved texture
   // lines, since that's the detail the earlier wording accidentally
@@ -177,10 +182,10 @@ const IMAGEN_SCENE_HINTS = {
   // playing here" feeling (from a second reference scene the user
   // liked: beach chair, umbrella, a kid in the sand) without depicting
   // a person to do it -- a built sandcastle with a toy pail and shovel
-  // reads as evidence of play on its own. This pose already covers low
-  // tide, a calm default day, AND stargazing at night (see
-  // moodForBeachData), so it stays general enough to read fine as a
-  // relaxed daytime OR evening beach scene.
+  // reads as evidence of play on its own. This pose covers low tide AND
+  // is one of a rotating set of calm-default-day variants (see
+  // moodForBeachData's CALM_DAY_VARIANTS) -- nighttime gets its own
+  // "stargazing" pose below, not this one.
   lounging: "Jake is relaxing in a low beach lounge chair, shaded by a large beach umbrella, completely at ease, with a freshly-built sandcastle and a toy pail and shovel sitting in the sand nearby",
   pointing: "Jake is standing at the shoreline pointing excitedly out at the ocean",
   standing: "Jake is standing happily on the beach, waving",
@@ -196,7 +201,18 @@ const IMAGEN_SCENE_HINTS = {
   // plain WHITE background, no gray) -- "night" is conveyed the same
   // way the procedural fallback conveys it, through the moon and stars
   // themselves, not a black sky.
-  stargazing: "Jake is lying back in a low beach lounge chair, hands behind his head, gazing up at a big bright moon and a sky full of stars, peaceful and content"
+  stargazing: "Jake is lying back in a low beach lounge chair, hands behind his head, gazing up at a big bright moon and a sky full of stars, peaceful and content",
+  // Added at the user's request, alongside biking/fishing/coffee below
+  // and the windy-pose kite rewrite above.
+  sunrise: "Jake is sitting on the beach watching the sunrise over the ocean, peaceful and reflective, the sun just rising above the horizon",
+  sunset: "Jake is standing at the end of a bayside dock watching the sunset over the water, peaceful and content, the sun low near the horizon",
+  fishing: "Jake is fishing from the end of a wooden jetty, casting a line out into the water below, relaxed and focused",
+  // The procedural fallback's own rig can't draw an actual bicycle
+  // frame under Jake (see the "biking" comment in STICK_POSES,
+  // dynamic.js) -- Imagen has no such limit, so this can ask for the
+  // real thing directly.
+  biking: "Jake is riding a beach cruiser bicycle along the boardwalk, one hand up waving, having a great time",
+  coffee: "Jake is sitting at a small beachside cafe table, sipping a cup of coffee and eating a donut, completely content"
 };
 
 // `mood.props` including "sun" (see moodForBeachData's businessHoursCloudCoverPct
@@ -227,7 +243,14 @@ function buildPrompt(mood) {
 // Bumped to 2: STYLE_PREFIX now adds shorts and forbids palm trees --
 // a visible change shared across every pose, so every cache entry
 // under v1 is stale relative to what this prompt generates now.
-const PROMPT_VERSION = 2;
+//
+// Bumped to 3: the "windy" hint was rewritten from Jake leaning into
+// the wind to Jake flying a kite -- an EXISTING cache key whose
+// meaning visibly changed. The new sunrise/sunset/fishing/biking/
+// coffee hints don't need a bump on their own (brand new keys, nothing
+// cached under them yet), but shipping them in the same change as the
+// windy rewrite means the version bump has to happen anyway.
+const PROMPT_VERSION = 3;
 
 // The cache key identifying which of a small, fixed set of shared
 // illustrations (see getOrGenerateBeachBuddyArt in index.js) a given

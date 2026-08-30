@@ -3215,7 +3215,12 @@
     windy: { armL: [-42, 24], armR: [102, -14], legL: [-34, 0], legR: [12, 0], rotate: -16 },
     surfing: { armL: [-100, 18], armR: [100, -18], legL: [-46, 0], legR: [46, 0], rotate: -8 },
     paddleboard: { armL: [-15, 0], armR: [50, 24], legL: [-8, 0], legR: [10, 0] },
-    stargazing: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] }
+    stargazing: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] },
+    fishing: { armL: [-15, 0], armR: [35, 10], legL: [-10, 0], legR: [10, 0] },
+    biking: { armL: [20, -20], armR: [20, 20], legL: [-25, 15], legR: [25, -15] },
+    coffee: { armL: [-15, 0], armR: [130, -60], legL: [-10, 0], legR: [10, 0] },
+    sunrise: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] },
+    sunset: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] }
   };
 
   function drawStickFigure(ctx, hipX, hipY, u, poseName) {
@@ -3349,6 +3354,76 @@
       ctx.moveTo(x - s * 0.85, y);
       ctx.lineTo(x + s * 0.85, y);
       ctx.stroke();
+    } else if (kind === "kite") {
+      ctx.beginPath();
+      ctx.moveTo(x, y - s * 0.45);
+      ctx.lineTo(x + s * 0.32, y);
+      ctx.lineTo(x, y + s * 0.45);
+      ctx.lineTo(x - s * 0.32, y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.32, y);
+      ctx.lineTo(x + s * 0.32, y);
+      ctx.moveTo(x, y - s * 0.45);
+      ctx.lineTo(x, y + s * 0.45);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y + s * 0.45);
+      for (let i = 1; i <= 3; i++) {
+        ctx.lineTo(x + (i % 2 ? s * 0.12 : -s * 0.12), y + s * 0.45 + i * s * 0.18);
+      }
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.15, y + s * 0.45);
+      ctx.lineTo(x - s * 0.9, y + s * 1.4);
+      ctx.stroke();
+    } else if (kind === "fishingRod") {
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.3, y - s * 0.3);
+      ctx.lineTo(x + s * 0.55, y + s * 0.35);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + s * 0.55, y + s * 0.35);
+      ctx.lineTo(x + s * 0.15, y + s * 1.3);
+      ctx.stroke();
+    } else if (kind === "bike") {
+      const wheelR = s * 0.3;
+      ctx.beginPath();
+      ctx.arc(x - s * 0.5, y, wheelR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x + s * 0.5, y, wheelR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.5, y);
+      ctx.lineTo(x, y - s * 0.5);
+      ctx.lineTo(x + s * 0.5, y);
+      ctx.lineTo(x, y - s * 0.5);
+      ctx.moveTo(x - s * 0.15, y - s * 0.65);
+      ctx.lineTo(x, y - s * 0.5);
+      ctx.stroke();
+    } else if (kind === "coffeeCup") {
+      ctx.beginPath();
+      ctx.rect(x - s * 0.28, y - s * 0.05, s * 0.56, s * 0.4);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x + s * 0.28, y + s * 0.15, s * 0.16, -Math.PI * 0.5, Math.PI * 0.5);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.1, y - s * 0.1);
+      ctx.quadraticCurveTo(x - s * 0.18, y - s * 0.3, x - s * 0.05, y - s * 0.45);
+      ctx.moveTo(x + s * 0.1, y - s * 0.1);
+      ctx.quadraticCurveTo(x + s * 0.02, y - s * 0.3, x + s * 0.15, y - s * 0.45);
+      ctx.stroke();
+    } else if (kind === "donut") {
+      ctx.beginPath();
+      ctx.arc(x, y, s * 0.32, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(x, y, s * 0.12, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
@@ -3360,7 +3435,12 @@
     windLines: { dx: -1.7, dy: -0.7 },
     surfboard: { dx: 0, dy: 1.75 },
     paddleboard: { dx: 0, dy: 1.75 },
-    sun: { dx: -1.9, dy: -2.6 }
+    sun: { dx: -1.9, dy: -2.6 },
+    kite: { dx: 1.3, dy: -3.4 },
+    fishingRod: { dx: 1.3, dy: -0.6 },
+    bike: { dx: 0, dy: 1.6 },
+    coffeeCup: { dx: 1.1, dy: -1.7 },
+    donut: { dx: -1.4, dy: -0.3 }
   };
 
   // Mirrors moodForBeachData in functions/lib/dynamic.js exactly --
@@ -3402,7 +3482,7 @@
         pose: "windy",
         headline: "WINDY",
         sub: windRamp ? windRamp.gustMph + " MPH GUSTS" : bhWindMph + " MPH",
-        props: ["windLines"]
+        props: ["kite"]
       };
     }
 
@@ -3433,6 +3513,14 @@
       };
     }
 
+    const SUNRISE_SUNSET_WINDOW_MS = 40 * 60000;
+    if (data.sunrise && Math.abs(nowMs - new Date(data.sunrise.t).getTime()) <= SUNRISE_SUNSET_WINDOW_MS) {
+      return { pose: "sunrise", headline: "SUNRISE " + data.sunrise.label, sub: null, props: ["sun"] };
+    }
+    if (data.sunset && Math.abs(nowMs - new Date(data.sunset.t).getTime()) <= SUNRISE_SUNSET_WINDOW_MS) {
+      return { pose: "sunset", headline: "SUNSET " + data.sunset.label, sub: null, props: ["sun"] };
+    }
+
     const daytime = !!(data.sunrise && data.sunset && nowMs >= new Date(data.sunrise.t).getTime() && nowMs <= new Date(data.sunset.t).getTime());
     if (!daytime) {
       const upcomingEvents = [
@@ -3450,11 +3538,27 @@
       };
     }
 
+    if (data.fishingScore === "Good" || data.fishingScore === "Excellent") {
+      return {
+        pose: "fishing",
+        headline: (data.fishingScore === "Excellent" ? "EXCELLENT" : "GOOD") + " FISHING",
+        sub: null,
+        props: ["fishingRod"]
+      };
+    }
+
+    const CALM_DAY_VARIANTS = [
+      { pose: "lounging", headline: "PERFECT DAY", props: [] },
+      { pose: "biking", headline: "BIKE RIDE", props: ["bike"] },
+      { pose: "coffee", headline: "COFFEE & DONUTS", props: ["coffeeCup", "donut"] }
+    ];
+    const dayNumber = Math.floor(nowMs / 86400000);
+    const variant = CALM_DAY_VARIANTS[dayNumber % CALM_DAY_VARIANTS.length];
     return {
-      pose: "lounging",
-      headline: "PERFECT DAY",
+      pose: variant.pose,
+      headline: variant.headline,
       sub: weather.waterTempF != null ? "WATER " + weather.waterTempF + "°F" : null,
-      props: sunny ? ["sun"] : []
+      props: sunny ? variant.props.concat(["sun"]) : variant.props
     };
   }
 
