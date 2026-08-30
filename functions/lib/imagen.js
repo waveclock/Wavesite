@@ -195,6 +195,32 @@ function buildPrompt(mood) {
   return STYLE_PREFIX + hint + "." + sunnyClause;
 }
 
+// Bumped whenever STYLE_PREFIX/IMAGEN_SCENE_HINTS change materially
+// enough that a cached image (see getOrGenerateBeachBuddyArt in
+// index.js) no longer matches what this prompt would actually
+// generate today -- folded into the cache's Storage path so a version
+// bump naturally starts generating fresh images under a new path,
+// rather than needing to hunt down and delete stale cached files by
+// hand. NOT bumped for a typo fix or comment-only change -- only for a
+// wording change that would visibly change the art.
+const PROMPT_VERSION = 1;
+
+// The cache key identifying which of a small, fixed set of shared
+// illustrations (see getOrGenerateBeachBuddyArt in index.js) a given
+// mood maps to -- deliberately just (pose, sunny), NOT anything
+// device/town-specific like lat/lon or the headline text itself, since
+// the whole point of caching is that every device/town/day landing on
+// the same pose+sunny combination reuses the exact same illustration,
+// with only the headline drawn fresh on top. Normalizes an
+// unrecognized pose to "standing" the same way buildPrompt's own hint
+// lookup does, so the cache key always matches whichever hint text
+// actually gets sent for a given mood -- never a mismatched pose name.
+function cacheKeyForMood(mood) {
+  const pose = mood && mood.pose && Object.prototype.hasOwnProperty.call(IMAGEN_SCENE_HINTS, mood.pose) ? mood.pose : "standing";
+  const sunny = !!(mood && mood.props && mood.props.includes("sun"));
+  return pose + (sunny ? "-sunny" : "");
+}
+
 // `generateImpl`, when given, replaces the real Vertex AI call --
 // injected by tests so they never need real GCP credentials, same
 // convention as `fetchImpl` throughout dynamic.js/astro.js. Takes just
@@ -270,6 +296,8 @@ module.exports = {
   RESPONSE_MODALITIES,
   STYLE_PREFIX,
   IMAGEN_SCENE_HINTS,
+  PROMPT_VERSION,
   buildPrompt,
+  cacheKeyForMood,
   generateBeachBuddyArt
 };

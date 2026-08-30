@@ -68,7 +68,7 @@ async function test(name, fn) {
     assert.strictEqual(res.statusCode, 400);
   });
 
-  await test("a valid pose calls the art generator with exactly that pose and returns the image bytes as image/png", async () => {
+  await test("a valid pose calls the cache-or-generate function with that pose and no sun prop (sunny not requested)", async () => {
     const req = fakeReq({ pose: "surfing" });
     const res = fakeRes();
     const fakeBytes = Buffer.from("pretend png bytes", "utf8");
@@ -77,10 +77,31 @@ async function test(name, fn) {
       calledWithMood = mood;
       return fakeBytes;
     });
-    assert.deepStrictEqual(calledWithMood, { pose: "surfing" });
+    assert.deepStrictEqual(calledWithMood, { pose: "surfing", props: [] });
     assert.strictEqual(res.statusCode, 200);
     assert.strictEqual(res.headers["Content-Type"], "image/png");
     assert.ok(Buffer.isBuffer(res.body) && res.body.equals(fakeBytes));
+  });
+  await test("sunny=1 adds a sun prop to the mood passed to the cache-or-generate function", async () => {
+    const req = fakeReq({ pose: "lounging", sunny: "1" });
+    const res = fakeRes();
+    let calledWithMood = null;
+    await imagenProxyHandler(req, res, async (mood) => {
+      calledWithMood = mood;
+      return Buffer.from("x");
+    });
+    assert.deepStrictEqual(calledWithMood, { pose: "lounging", props: ["sun"] });
+    assert.strictEqual(res.statusCode, 200);
+  });
+  await test("an unrecognized sunny value is treated as false, not a truthy string", async () => {
+    const req = fakeReq({ pose: "lounging", sunny: "yes" });
+    const res = fakeRes();
+    let calledWithMood = null;
+    await imagenProxyHandler(req, res, async (mood) => {
+      calledWithMood = mood;
+      return Buffer.from("x");
+    });
+    assert.deepStrictEqual(calledWithMood, { pose: "lounging", props: [] });
   });
 
   await test("every pose moodForBeachData can actually pick is accepted", async () => {
