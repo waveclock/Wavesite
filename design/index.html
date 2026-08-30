@@ -3519,19 +3519,21 @@
 
   const IMAGEN_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/imagenProxy";
 
-  // Fetches the REAL Imagen illustration for `pose` through imagenProxy
-  // (same CORS reasoning as fetchDitheredLogoClient above -- a
-  // script-initiated fetch() straight to Vertex AI would need CORS
-  // headers it doesn't send) and dithers it once, same treatment a team
-  // logo already gets. Returns null on ANY failure (network error, bad
-  // status, decode error, Imagen not set up yet on this project) rather
-  // than breaking the whole card -- the caller falls back to the
-  // procedural stick-figure version, same degrade-gracefully contract
-  // fetchDitheredLogoClient already uses for "no logo".
-  async function fetchBeachBuddyArtClient(pose) {
+  // Fetches the REAL Imagen illustration for `pose` (+ `sunny`, so the
+  // right cached variant comes back -- see cacheKeyForMood in
+  // lib/imagen.js) through imagenProxy (same CORS reasoning as
+  // fetchDitheredLogoClient above -- a script-initiated fetch() straight
+  // to Vertex AI would need CORS headers it doesn't send) and dithers it
+  // once, same treatment a team logo already gets. Returns null on ANY
+  // failure (network error, bad status, decode error, Imagen not set up
+  // yet on this project) rather than breaking the whole card -- the
+  // caller falls back to the procedural stick-figure version, same
+  // degrade-gracefully contract fetchDitheredLogoClient already uses for
+  // "no logo".
+  async function fetchBeachBuddyArtClient(pose, sunny) {
     let objectUrl = null;
     try {
-      const resp = await fetch(IMAGEN_PROXY_BASE + "?pose=" + encodeURIComponent(pose));
+      const resp = await fetch(IMAGEN_PROXY_BASE + "?pose=" + encodeURIComponent(pose) + (sunny ? "&sunny=1" : ""));
       if (!resp.ok) return null;
       const blob = await resp.blob();
       objectUrl = URL.createObjectURL(blob);
@@ -3600,7 +3602,7 @@
       beachBuddyStatus.textContent = "Today's mood: " + layer.mood.headline + ". " + beachBuddyStatusText.loadingArt;
       renderLayers();
 
-      layer.artCanvas = await fetchBeachBuddyArtClient(layer.mood.pose);
+      layer.artCanvas = await fetchBeachBuddyArtClient(layer.mood.pose, layer.mood.props && layer.mood.props.includes("sun"));
       if (token !== beachBuddyFetchToken) return; // superseded by a newer load
       beachBuddyStatus.textContent = beachBuddyMoodStatus(layer);
     } catch (err) {

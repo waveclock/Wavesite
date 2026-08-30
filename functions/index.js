@@ -1,8 +1,13 @@
-// Daily job: for every device with an active "dynamic layer" (a Countdown
-// or a Team schedule, published from /design/), redraw today's content
-// onto its saved base design and overwrite designs/{id}.bin + .png -- the
-// same two files the device already reads unconditionally, so no firmware
-// change is needed for this to show up.
+// Daily job: for every device with an active "dynamic layer" (a Countdown,
+// Team schedule, News, Tide, or Tide Timeline layer, published from
+// /design/), redraw today's content onto its saved base design and
+// overwrite designs/{id}.bin + .png -- the same two files the device
+// already reads unconditionally, so no firmware change is needed for
+// this to show up. "beachBuddy" is the one exception: it refreshes on
+// its own separate HOURLY schedule instead (regenerateBeachBuddyDesigns,
+// further down) so its headline stays current through the day, while
+// reusing one shared, cached illustration per pose+sunny scenario
+// across every device -- see getOrGenerateBeachBuddyArt's own comment.
 //
 // Also exports espnProxy, an HTTP function design's Team tool calls
 // from the browser to get a live schedule preview before publishing --
@@ -16,7 +21,7 @@ const admin = require("firebase-admin");
 const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, espnTeamUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
 const { fetchTideCardData, fetchTideTimelineData } = require("./lib/astro");
 const { isTeamsnapIcsUrl, fetchIcsSchedule } = require("./lib/teamsnap");
-const { generateBeachBuddyArt, IMAGEN_SCENE_HINTS } = require("./lib/imagen");
+const { generateBeachBuddyArt, IMAGEN_SCENE_HINTS, PROMPT_VERSION, cacheKeyForMood } = require("./lib/imagen");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -42,12 +47,24 @@ async function deleteIfExists(file) {
 // fetchImpl is only ever passed by tests (to stub ESPN calls) -- real
 // scheduled runs omit it, so renderDynamicDesign falls back to the
 // platform's real global fetch.
-async function processDevice(bucket, deviceId, now, fetchImpl) {
+//
+// `options.typeFilter(meta.type)`, when given and false, skips this
+// device entirely (before even downloading its base.png) -- used to
+// split Beach Buddy off onto its own hourly schedule (see
+// regenerateBeachBuddyDesigns below) while this same function keeps
+// handling every other type. `options.beachBuddyArtImpl` is threaded
+// straight through to renderDynamicDesign's own `beachBuddyArtImpl`
+// param -- see getOrGenerateBeachBuddyArt below for what the real
+// (non-test) caller passes.
+async function processDevice(bucket, deviceId, now, fetchImpl, options) {
+  const { typeFilter, beachBuddyArtImpl } = options || {};
   const dynamicFile = bucket.file(DESIGNS_PREFIX + deviceId + DYNAMIC_SUFFIX);
   const baseFile = bucket.file(DESIGNS_PREFIX + deviceId + "-base.png");
 
   const [metaBuffer] = await dynamicFile.download();
   const meta = JSON.parse(metaBuffer.toString("utf8"));
+
+  if (typeFilter && !typeFilter(meta.type)) return "skipped";
 
   const [baseBuffer] = await baseFile.download();
   // Throws on a genuine failure (e.g. ESPN unreachable for a "team" layer)
@@ -55,7 +72,7 @@ async function processDevice(bucket, deviceId, now, fetchImpl) {
   // this device untouched and retries on the next scheduled run. Only a
   // concluded countdown returns null here; a team's schedule never does
   // (see renderDynamicDesign's contract in lib/dynamic.js).
-  const result = await renderDynamicDesign(baseBuffer, meta, now, fetchImpl);
+  const result = await renderDynamicDesign(baseBuffer, meta, now, fetchImpl, beachBuddyArtImpl);
 
   if (!result) {
     logger.info("Countdown passed for " + deviceId + ", cleaning up and leaving the board as-is.");
@@ -74,6 +91,13 @@ async function processDevice(bucket, deviceId, now, fetchImpl) {
   return "updated";
 }
 
+// "beachBuddy" is explicitly excluded here -- it refreshes on its own
+// hourly schedule instead (see regenerateBeachBuddyDesigns below),
+// since its headline needs to stay current through the day in a way a
+// once-daily run can't give it, while its ART doesn't need to change
+// that often at all (see getOrGenerateBeachBuddyArt's own comment).
+const NOT_BEACH_BUDDY = (type) => type !== "beachBuddy";
+
 exports.regenerateCountdownDesigns = onSchedule(
   { schedule: "0 9 * * *", timeZone: "Etc/UTC", retryCount: 1 },
   async () => {
@@ -86,12 +110,13 @@ exports.regenerateCountdownDesigns = onSchedule(
     logger.info("Found " + deviceIds.length + " device(s) with an active dynamic layer.");
 
     const now = new Date();
-    let updated = 0, expired = 0, failed = 0;
+    let updated = 0, expired = 0, skipped = 0, failed = 0;
     for (const deviceId of deviceIds) {
       try {
-        const outcome = await processDevice(bucket, deviceId, now);
+        const outcome = await processDevice(bucket, deviceId, now, undefined, { typeFilter: NOT_BEACH_BUDDY });
         if (outcome === "updated") updated++;
         else if (outcome === "expired") expired++;
+        else if (outcome === "skipped") skipped++;
       } catch (err) {
         failed++;
         // One device's bad/missing base.png (or a transient ESPN outage
@@ -101,7 +126,76 @@ exports.regenerateCountdownDesigns = onSchedule(
         logger.error("Failed to regenerate dynamic layer for " + deviceId + ":", err);
       }
     }
-    logger.info("Done. updated=" + updated + " expired=" + expired + " failed=" + failed);
+    logger.info("Done. updated=" + updated + " expired=" + expired + " skipped(beachBuddy)=" + skipped + " failed=" + failed);
+  }
+);
+
+// Looks up (or, the very first time a given pose+sunny scenario is ever
+// needed, generates and saves) ONE shared illustration -- NOT one per
+// device, one per day, or one per town. Every device/town/day that
+// lands on the same mood (see cacheKeyForMood in lib/imagen.js) reuses
+// the exact same cached PNG; only the headline text drawn on top of it
+// (by drawBeachBuddyArtCard in dynamic.js) is ever specific to a given
+// device's real tide/weather data. This is what lets
+// regenerateBeachBuddyDesigns below refresh every device's headline
+// hourly without calling Imagen on every single one of those runs --
+// Imagen gets called, at most, once per pose+sunny combination, ever
+// (until PROMPT_VERSION bumps and starts a fresh set of paths).
+//
+// Stored at "beachBuddyArt/v<PROMPT_VERSION>/<cacheKey>.png", separate
+// from any device's own designs/ files -- this is shared, not
+// per-device. A cache miss is detected the same way deleteIfExists
+// above detects an already-gone file: `download()` on a File that
+// doesn't exist rejects with `err.code === 404` (the real
+// @google-cloud/storage behavior; the fake bucket used in
+// orchestration.test.js mirrors it) -- any OTHER error propagates
+// rather than being treated as "not cached yet."
+async function getOrGenerateBeachBuddyArt(mood, { bucket, project, location, generateImpl } = {}) {
+  const path = "beachBuddyArt/v" + PROMPT_VERSION + "/" + cacheKeyForMood(mood) + ".png";
+  const file = bucket.file(path);
+  try {
+    const [cached] = await file.download();
+    return cached;
+  } catch (err) {
+    if (!err || err.code !== 404) throw err;
+  }
+  const fresh = await generateBeachBuddyArt(mood, { project, location, generateImpl });
+  await file.save(fresh, { contentType: "image/png" });
+  logger.info("Cached a new Beach Buddy illustration at " + path);
+  return fresh;
+}
+
+exports.regenerateBeachBuddyDesigns = onSchedule(
+  { schedule: "0 * * * *", timeZone: "Etc/UTC", retryCount: 1 },
+  async () => {
+    const bucket = admin.storage().bucket();
+    const [files] = await bucket.getFiles({ prefix: DESIGNS_PREFIX });
+    const deviceIds = files
+      .map((f) => deviceIdFromDynamicPath(f.name))
+      .filter(Boolean);
+
+    const now = new Date();
+    const beachBuddyArtImpl = (mood) => getOrGenerateBeachBuddyArt(mood, {
+      bucket,
+      project: process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT,
+      location: "us-central1"
+    });
+
+    let updated = 0, skipped = 0, failed = 0;
+    for (const deviceId of deviceIds) {
+      try {
+        const outcome = await processDevice(bucket, deviceId, now, undefined, {
+          typeFilter: (type) => type === "beachBuddy",
+          beachBuddyArtImpl
+        });
+        if (outcome === "updated") updated++;
+        else if (outcome === "skipped") skipped++;
+      } catch (err) {
+        failed++;
+        logger.error("Failed to refresh Beach Buddy layer for " + deviceId + ":", err);
+      }
+    }
+    logger.info("Beach Buddy hourly refresh done. updated=" + updated + " skipped(not beachBuddy)=" + skipped + " failed=" + failed);
   }
 );
 
@@ -372,29 +466,43 @@ exports.astroTimelineProxy = onRequest({ cors: true, region: "us-central1" }, as
 // always built server-side from imagen.js's fixed STYLE_PREFIX + one of
 // its fixed scene hints, exactly like the daily job itself does.
 //
-// The daily regeneration job above does NOT go through this -- it
-// already calls generateBeachBuddyArt directly from lib/dynamic.js.
+// Goes through the SAME shared cache regenerateBeachBuddyDesigns' hourly
+// job uses (getOrGenerateBeachBuddyArt) rather than calling Imagen
+// fresh on every preview -- once a pose+sunny scenario has been cached
+// (by either this proxy or the hourly job, whichever needs it first),
+// re-previewing it here never bills another Imagen call again. `sunny`
+// is a plain "1"/"true" query flag (design's live preview passes it
+// when the mood it just computed included the "sun" prop) -- see
+// cacheKeyForMood in lib/imagen.js for why (pose, sunny) together
+// identify one cached illustration.
 //
-// `generateArtImpl`, when given, replaces the real Imagen call -- same
-// convention as every injectable dependency elsewhere in this file,
-// used only by tests so they never need real Vertex AI credentials.
-async function imagenProxyHandler(req, res, generateArtImpl) {
+// The daily regeneration job (regenerateCountdownDesigns) never touches
+// Beach Buddy devices at all -- see NOT_BEACH_BUDDY above.
+//
+// `getArtImpl`, when given, replaces the real cache-or-generate call --
+// same convention as every injectable dependency elsewhere in this
+// file, used only by tests so they never need real Storage/Vertex AI
+// credentials.
+async function imagenProxyHandler(req, res, getArtImpl) {
   const pose = req.query.pose;
   if (typeof pose !== "string" || !Object.prototype.hasOwnProperty.call(IMAGEN_SCENE_HINTS, pose)) {
     res.status(400).json({ error: "pose must be one of: " + Object.keys(IMAGEN_SCENE_HINTS).join(", ") });
     return;
   }
+  const sunny = req.query.sunny === "1" || req.query.sunny === "true";
+  const mood = { pose, props: sunny ? ["sun"] : [] };
 
   try {
-    const generate = generateArtImpl || ((mood) => generateBeachBuddyArt(mood, {
+    const getArt = getArtImpl || ((m) => getOrGenerateBeachBuddyArt(m, {
+      bucket: admin.storage().bucket(),
       project: process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT,
       location: "us-central1"
     }));
-    const buf = await generate({ pose });
+    const buf = await getArt(mood);
     res.set("Content-Type", "image/png");
     res.status(200).send(buf);
   } catch (err) {
-    logger.error("Imagen proxy request failed for pose=" + pose + ":", err);
+    logger.error("Imagen proxy request failed for pose=" + pose + " sunny=" + sunny + ":", err);
     res.status(502).json({ error: "Couldn't generate Beach Buddy art right now" });
   }
 }
@@ -434,4 +542,4 @@ exports.teamsnapProxy = onRequest({ cors: true, region: "us-central1" }, teamsna
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, imagenProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, imagenProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
