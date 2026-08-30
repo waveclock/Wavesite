@@ -178,17 +178,6 @@
     max-width: 62ch;
   }
 
-  .callout {
-    background: #fff;
-    border: 2px solid var(--ink);
-    border-radius: 4px;
-    padding: 20px 24px;
-    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
-    max-width: 62ch;
-    margin-top: 24px;
-  }
-  .callout b { color: var(--navy); }
-
   /* ---------- Footer ---------- */
   footer {
     padding: 40px 0 50px;
@@ -224,11 +213,20 @@
     <p class="kicker">Custom Screen &middot; Beach Buddy</p>
     <h1>Meet Buddy</h1>
     <p class="lede">A friendly recurring character who lives on your Custom screen -- and whose mood matches today's real tide and weather, right where you live.</p>
-    <p>No app, nothing to publish, nothing to keep up with. Turn Buddy on once from Custom Screen &rarr; Beach Buddy in the design tool, and he takes it from there: same friendly stick-figure guy every day, drawn fresh by AI, doing whatever today's actual conditions call for.</p>
     <div class="cta-row">
-      <a class="btn btn-coral" href="design/index.html">Try it in the design tool &rarr;</a>
+      <a class="btn btn-coral" href="index.html#buy">Get one now &rarr;</a>
       <a class="btn btn-ghost" href="guide.html">Back to the User Guide</a>
     </div>
+  </div>
+</section>
+
+<section id="examples">
+  <div class="wrap">
+    <p class="kicker">Today's examples</p>
+    <h2>Same Buddy, different day</h2>
+    <p class="lede">A few of Buddy's real illustrations, generated live by AI -- exactly what a real Wave Clock would show for each of these moods today.</p>
+    <div class="examples-grid" id="examplesGrid"></div>
+    <p class="examples-note">Loading straight from the same illustration engine every Wave Clock uses -- a scene that hasn't been drawn yet today may take a few seconds the first time.</p>
   </div>
 </section>
 
@@ -276,30 +274,16 @@
         <span><b>Otherwise, just a perfect calm day?</b> Buddy mixes it up -- lounging under his umbrella, riding his beach cruiser along the boardwalk, or grabbing coffee and donuts -- so it's not the same scene every calm day.</span>
       </li>
     </ul>
-
-    <div class="callout">
-      Clear skies get their own little touch too: on a mostly-cloudless day (or a genuinely clear night), Buddy's scene gets a big sun overhead -- or, after dark, a callout that it's a great night for stargazing.
-    </div>
-  </div>
-</section>
-
-<section id="examples">
-  <div class="wrap">
-    <p class="kicker">A few examples</p>
-    <h2>Same Buddy, different day</h2>
-    <p class="lede">A handful of the moods Buddy can land on, depending on what's actually happening outside.</p>
-    <div class="examples-grid" id="examplesGrid"></div>
-    <p class="examples-note">Simplified previews of the idea -- the real Custom screen uses full illustrated artwork, drawn fresh by AI, so the real thing looks even better than this.</p>
   </div>
 </section>
 
 <section class="section-foam" id="get-started">
   <div class="wrap">
-    <p class="kicker">Try it</p>
+    <p class="kicker">Get started</p>
     <h2>Turn Buddy on</h2>
-    <p class="lede">In the design tool, turn on Custom Screen and pick the Beach Buddy tool -- there's nothing to fill in. Buddy already knows your town from your Wave Clock's own saved location, and updates himself every hour on his own.</p>
+    <p class="lede">Once you've got a Wave Clock, turn on Custom Screen and pick the Beach Buddy tool -- there's nothing to fill in. Buddy already knows your town from your Wave Clock's own saved location, and updates himself every hour on his own.</p>
     <div class="cta-row">
-      <a class="btn btn-coral" href="design/index.html">Open the design tool &rarr;</a>
+      <a class="btn btn-coral" href="index.html#buy">Get one now &rarr;</a>
     </div>
   </div>
 </section>
@@ -315,175 +299,161 @@
 </footer>
 
 <script type="module">
-  // A small, self-contained, DETERMINISTIC copy of the procedural stick-
-  // figure rig (mirrors STICK_POSES/drawStickFigure/drawProp in
-  // functions/lib/dynamic.js and design/index.html) -- deliberately NOT
-  // calling imagenProxy here: this page gets real public traffic, and an
-  // uncached scenario bills a real Imagen call the first time anyone
-  // requests it. A marketing page has no business being the one that
-  // accidentally triggers that on a stranger's page load, so these
-  // examples are drawn locally instead, with no network call at all.
-  const INK = "#1F3347";
-  const STICK_HEAD_R = 0.42, STICK_TORSO = 1.5, STICK_UPPER = 0.75, STICK_LOWER = 0.7, STICK_THIGH = 0.85, STICK_SHIN = 0.85;
+  // Real examples, not a mockup: fetched from the exact same imagenProxy
+  // the design tool's own live preview uses, through the same shared
+  // per-scenario cache every real device draws from (see
+  // getOrGenerateBeachBuddyArt in functions/index.js) -- so a card here
+  // is pixel-for-pixel what a real Wave Clock shows for that mood today.
+  // Composited with the same banner + full-bleed cover-fit Atkinson
+  // dither as the real card (mirrors drawBeachBuddyArtCard in
+  // functions/lib/dynamic.js and design/beach-buddy-admin.html's own
+  // copy of the same code).
+  //
+  // Fetched ONE AT A TIME, not all at once: this page gets real public
+  // traffic, and a scenario nobody has needed yet today is a genuine
+  // cache miss -- the first request for it (this page's, if it's first)
+  // triggers a real Imagen generation, which takes a few real seconds.
+  // Firing all ten at once would mean up to ten simultaneous cold
+  // generations hitting the function at once on a slow day; going one
+  // at a time keeps that gentle and keeps each card's own loading state
+  // legible instead of the whole grid stalling together.
+  const IMAGEN_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/imagenProxy";
+  const CANVAS_WIDTH = 792, CANVAS_HEIGHT = 272, BANNER_HEIGHT = 48;
 
-  const STICK_POSES = {
-    surfing: { armL: [-100, 18], armR: [100, -18], legL: [-46, 0], legR: [46, 0], rotate: -8 },
-    paddleboard: { armL: [-15, 0], armR: [50, 24], legL: [-8, 0], legR: [10, 0] },
-    stargazing: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] },
-    windy: { armL: [-42, 24], armR: [102, -14], legL: [-34, 0], legR: [12, 0], rotate: -16 }
-  };
-
-  function stickLimb(ctx, from, ang1, len1, ang2, len2, u) {
-    const a1 = (ang1 * Math.PI) / 180;
-    const mid = { x: from.x + Math.sin(a1) * len1 * u, y: from.y - Math.cos(a1) * len1 * u };
-    ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(mid.x, mid.y);
-    ctx.stroke();
-    const a2 = ((ang1 + ang2) * Math.PI) / 180;
-    const end = { x: mid.x + Math.sin(a2) * len2 * u, y: mid.y - Math.cos(a2) * len2 * u };
-    ctx.beginPath();
-    ctx.moveTo(mid.x, mid.y);
-    ctx.lineTo(end.x, end.y);
-    ctx.stroke();
+  function toGrayscale(imgData, w, h) {
+    const gray = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const r = imgData[i * 4], g = imgData[i * 4 + 1], b = imgData[i * 4 + 2];
+      gray[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+    return gray;
   }
-
-  function drawStickFigure(ctx, hipX, hipY, u, poseName) {
-    const pose = STICK_POSES[poseName];
-    ctx.strokeStyle = INK;
-    ctx.fillStyle = INK;
-    ctx.lineWidth = Math.max(2, u * 0.16);
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    const rotateRad = ((pose.rotate || 0) * Math.PI) / 180;
-    ctx.save();
-    ctx.translate(hipX, hipY);
-    if (rotateRad) ctx.rotate(rotateRad);
-    const lean = (pose.lean || 0) * u;
-    const shoulder = { x: lean, y: -STICK_TORSO * u };
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(shoulder.x, shoulder.y);
-    ctx.stroke();
-    const headR = STICK_HEAD_R * u;
-    const headCenter = { x: shoulder.x + lean * 0.3, y: shoulder.y - headR * 1.15 };
-    ctx.beginPath();
-    ctx.arc(headCenter.x, headCenter.y, headR, 0, Math.PI * 2);
-    ctx.stroke();
-    const eyeR = Math.max(1, headR * 0.13);
-    const eyeDX = headR * 0.36, eyeDY = -headR * 0.04;
-    ctx.beginPath();
-    ctx.arc(headCenter.x - eyeDX, headCenter.y + eyeDY, eyeR, 0, Math.PI * 2);
-    ctx.arc(headCenter.x + eyeDX, headCenter.y + eyeDY, eyeR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.lineWidth = Math.max(1.5, u * 0.07);
-    ctx.arc(headCenter.x, headCenter.y + headR * 0.12, headR * 0.42, 0.12 * Math.PI, 0.88 * Math.PI);
-    ctx.stroke();
-    ctx.lineWidth = Math.max(2, u * 0.16);
-    stickLimb(ctx, shoulder, pose.armL[0], STICK_UPPER, pose.armL[1], STICK_LOWER, u);
-    stickLimb(ctx, shoulder, pose.armR[0], STICK_UPPER, pose.armR[1], STICK_LOWER, u);
-    stickLimb(ctx, { x: 0, y: 0 }, pose.legL[0], STICK_THIGH, pose.legL[1], STICK_SHIN, u);
-    stickLimb(ctx, { x: 0, y: 0 }, pose.legR[0], STICK_THIGH, pose.legR[1], STICK_SHIN, u);
-    ctx.restore();
-  }
-
-  function drawProp(ctx, kind, x, y, s) {
-    ctx.strokeStyle = INK;
-    ctx.fillStyle = INK;
-    ctx.lineWidth = Math.max(2, s * 0.08);
-    ctx.lineCap = "round";
-    if (kind === "wave") {
-      ctx.beginPath();
-      ctx.moveTo(x - s, y);
-      for (let i = -s; i < s; i += s / 4) ctx.quadraticCurveTo(x + i + s / 8, y - s * 0.18, x + i + s / 4, y);
-      ctx.stroke();
-    } else if (kind === "surfboard") {
-      ctx.beginPath();
-      ctx.ellipse(x, y, s * 0.75, s * 0.16, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x - s * 0.65, y);
-      ctx.lineTo(x + s * 0.65, y);
-      ctx.stroke();
-    } else if (kind === "paddleboard") {
-      ctx.beginPath();
-      ctx.ellipse(x, y, s * 0.95, s * 0.13, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x - s * 0.85, y);
-      ctx.lineTo(x + s * 0.85, y);
-      ctx.stroke();
-    } else if (kind === "moon") {
-      ctx.beginPath();
-      ctx.arc(x, y, s * 0.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#fff";
-      ctx.beginPath();
-      ctx.arc(x + s * 0.18, y, s * 0.36, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (kind === "star") {
-      ctx.beginPath();
-      for (let i = 0; i < 5; i++) {
-        const a = -Math.PI / 2 + (i * 4 * Math.PI) / 5;
-        const px = x + Math.cos(a) * s * 0.5, py = y + Math.sin(a) * s * 0.5;
-        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  function ditherAtkinson(gray, w, h) {
+    const bits = new Uint8Array(w * h);
+    const g = Float32Array.from(gray);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        const old = g[i];
+        const on = old < 180;
+        bits[i] = on ? 1 : 0;
+        const newVal = on ? 0 : 255;
+        const err = (old - newVal) / 8;
+        const add = (dx, dy, amt) => {
+          const xx = x + dx, yy = y + dy;
+          if (xx >= 0 && xx < w && yy >= 0 && yy < h) g[yy * w + xx] += amt;
+        };
+        add(1, 0, err); add(2, 0, err);
+        add(-1, 1, err); add(0, 1, err); add(1, 1, err);
+        add(0, 2, err);
       }
-      ctx.closePath();
-      ctx.stroke();
-    } else if (kind === "kite") {
-      ctx.beginPath();
-      ctx.moveTo(x, y - s * 0.45);
-      ctx.lineTo(x + s * 0.32, y);
-      ctx.lineTo(x, y + s * 0.45);
-      ctx.lineTo(x - s * 0.32, y);
-      ctx.closePath();
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x - s * 0.32, y);
-      ctx.lineTo(x + s * 0.32, y);
-      ctx.moveTo(x, y - s * 0.45);
-      ctx.lineTo(x, y + s * 0.45);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x - s * 0.15, y + s * 0.45);
-      ctx.lineTo(x - s * 0.9, y + s * 1.4);
-      ctx.stroke();
+    }
+    return bits;
+  }
+  function ditheredArtCoverCanvas(sourceImage, width, height) {
+    const padded = document.createElement("canvas");
+    padded.width = width; padded.height = height;
+    const pctx = padded.getContext("2d");
+    pctx.fillStyle = "#fff";
+    pctx.fillRect(0, 0, width, height);
+    const scale = Math.max(width / sourceImage.width, height / sourceImage.height);
+    const w = sourceImage.width * scale, h = sourceImage.height * scale;
+    pctx.drawImage(sourceImage, (width - w) / 2, (height - h) / 2, w, h);
+    const imgData = pctx.getImageData(0, 0, width, height).data;
+    const gray = toGrayscale(imgData, width, height);
+    const bits = ditherAtkinson(gray, width, height);
+    const out = document.createElement("canvas");
+    out.width = width; out.height = height;
+    const octx = out.getContext("2d");
+    const id = octx.createImageData(width, height);
+    for (let i = 0; i < width * height; i++) {
+      const v = bits[i] ? 0 : 255;
+      id.data[i * 4] = v; id.data[i * 4 + 1] = v; id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255;
+    }
+    octx.putImageData(id, 0, 0);
+    return out;
+  }
+  function fitBannerFontSize(ctx, text, maxWidth, family, maxSize, minSize) {
+    for (let size = maxSize; size > minSize; size--) {
+      ctx.font = size + "px " + family;
+      if (ctx.measureText(text).width <= maxWidth) return size;
+    }
+    ctx.font = minSize + "px " + family;
+    return minSize;
+  }
+  function drawCard(canvas, headlineText, artImage) {
+    canvas.width = CANVAS_WIDTH; canvas.height = CANVAS_HEIGHT;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    const size = fitBannerFontSize(ctx, headlineText, CANVAS_WIDTH - 40, "'Bungee', sans-serif", 24, 14);
+    ctx.font = size + "px 'Bungee', sans-serif";
+    ctx.fillText(headlineText, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(size * 0.35));
+    const dithered = ditheredArtCoverCanvas(artImage, CANVAS_WIDTH, CANVAS_HEIGHT - BANNER_HEIGHT);
+    ctx.drawImage(dithered, 0, BANNER_HEIGHT);
+  }
+
+  async function fetchArt(pose, sunny) {
+    const resp = await fetch(IMAGEN_PROXY_BASE + "?pose=" + encodeURIComponent(pose) + (sunny ? "&sunny=1" : ""));
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const blob = await resp.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      return await new Promise((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = () => reject(new Error("image failed to decode"));
+        im.src = objectUrl;
+      });
+    } finally {
+      URL.revokeObjectURL(objectUrl);
     }
   }
 
   const EXAMPLES = [
-    { pose: "surfing", headline: "SURF'S UP", sub: "4.5 FT SWELL", props: [{ kind: "surfboard", dx: 0, dy: 1.75 }] },
-    { pose: "paddleboard", headline: "PADDLE DAY", sub: "8 MPH WIND", props: [{ kind: "paddleboard", dx: 0, dy: 1.75 }, { kind: "wave", dx: 0, dy: 1.9 }] },
-    { pose: "windy", headline: "WINDY", sub: "22 MPH GUSTS", props: [{ kind: "kite", dx: 1.3, dy: -3.4 }] },
-    { pose: "stargazing", headline: "FIRST QUARTER", sub: "MOONRISE 9:15 PM", props: [{ kind: "moon", dx: 1.7, dy: -2.1 }, { kind: "star", dx: -1.7, dy: -2.3 }] }
+    { pose: "umbrella", headline: "RAINY DAY", sub: "11:00 AM-2:00 PM" },
+    { pose: "windy", headline: "WINDY", sub: "22 MPH GUSTS" },
+    { pose: "surfing", headline: "SURF'S UP", sub: "4.5 FT SWELL" },
+    { pose: "paddleboard", headline: "PADDLE DAY", sub: "8 MPH WIND", sunny: true },
+    { pose: "pointing", headline: "HIGH TIDE 3:00 PM", sub: null, sunny: true },
+    { pose: "sunset", headline: "SUNSET 8:04 PM", sub: null },
+    { pose: "stargazing", headline: "FIRST QUARTER", sub: "MOONRISE 9:15 PM" },
+    { pose: "fishing", headline: "GOOD FISHING", sub: null },
+    { pose: "biking", headline: "BIKE RIDE", sub: "WATER 74°F", sunny: true },
+    { pose: "coffee", headline: "COFFEE & DONUTS", sub: "WATER 74°F" }
   ];
 
   const grid = document.getElementById("examplesGrid");
-  EXAMPLES.forEach((ex) => {
+  const cardEls = EXAMPLES.map((ex) => {
+    const headlineText = ex.sub ? ex.headline + "  ·  " + ex.sub : ex.headline;
     const card = document.createElement("div");
     card.className = "example-card";
     const canvas = document.createElement("canvas");
-    const W = 396, H = 260;
-    canvas.width = W; canvas.height = H;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = INK;
-    ctx.textAlign = "center";
-    ctx.font = "bold 24px 'Bungee', sans-serif";
-    ctx.fillText(ex.headline, W / 2, 40);
-    ctx.font = "bold 14px 'Work Sans', sans-serif";
-    ctx.fillText(ex.sub, W / 2, 62);
-    const hipX = W / 2, hipY = 158, u = 34;
-    drawStickFigure(ctx, hipX, hipY, u, ex.pose);
-    ex.props.forEach((p) => drawProp(ctx, p.kind, hipX + p.dx * u, hipY + p.dy * u, u * 1.7));
+    canvas.width = CANVAS_WIDTH; canvas.height = CANVAS_HEIGHT;
     card.appendChild(canvas);
-    const label = document.createElement("p");
-    label.innerHTML = "<b>" + ex.headline + "</b>" + (ex.sub ? "  &middot;  " + ex.sub : "");
-    card.appendChild(label);
+    const status = document.createElement("p");
+    status.textContent = "Loading…";
+    card.appendChild(status);
     grid.appendChild(card);
+    return { ex, headlineText, canvas, status };
   });
+
+  (async () => {
+    for (const { ex, headlineText, canvas, status } of cardEls) {
+      try {
+        const img = await fetchArt(ex.pose, ex.sunny);
+        drawCard(canvas, headlineText, img);
+        status.innerHTML = "<b>" + ex.headline + "</b>" + (ex.sub ? "  &middot;  " + ex.sub : "");
+      } catch (err) {
+        status.textContent = "Couldn't load this one right now.";
+      }
+    }
+  })();
 </script>
 </body>
 </html>
