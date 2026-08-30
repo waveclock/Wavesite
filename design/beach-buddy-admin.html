@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beach Buddy Admin</title>
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!--
+  Internal admin reference for Beach Buddy (see functions/lib/dynamic.js's
+  moodForBeachData and functions/lib/imagen.js's IMAGEN_SCENE_HINTS) --
+  NOT linked from the design tool or anywhere customer-facing. Nothing on
+  this site requires a login, so "admin" here just means "not linked,"
+  the same posture the hidden Beach Buddy toolbar button used before its
+  own live smoke test (see functions/README.md's Beach Buddy section).
+
+  Two things this page is for:
+  1. A plain-English reference table of EVERY mood branch, in the exact
+     priority order moodForBeachData checks them, so it's easy to answer
+     "why did the board show X" without reading the source.
+  2. An on-demand preview of the actual cached Imagen illustration for
+     each (pose, sunny) scenario, through the SAME imagenProxy the design
+     tool's live preview and the hourly regeneration job both use (see
+     getOrGenerateBeachBuddyArt in index.js) -- so a preview here is
+     exactly what a real device would show for that scenario, at whatever
+     PROMPT_VERSION is currently live.
+
+  Deliberately does NOT auto-fetch every preview on page load: most
+  scenarios will already be cached from real usage by the time anyone
+  opens this, but a handful (especially the rarer sunny variants and any
+  poses added recently) may not be -- an uncached scenario bills one real
+  Imagen call the first time ANYONE requests it (this page included), so
+  loading previews stays a deliberate per-row click, same "don't
+  accidentally re-bill" carefulness fetchBeachBuddyArtClient already uses
+  in design/index.html.
+-->
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+    --good: #3E7A4C;
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 60px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 28px 20px 0; }
+  header { margin-bottom: 6px; }
+  h1 {
+    font-family: var(--display);
+    font-size: clamp(22px, 5vw, 30px);
+    color: var(--ink);
+    text-shadow: 2px 2px 0 var(--navy);
+    margin: 0 0 6px;
+  }
+  .sub {
+    font-family: var(--heading);
+    color: var(--ink-soft);
+    font-size: 15px;
+    margin: 0 0 18px;
+    max-width: 640px;
+  }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 22px;
+  }
+  button {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 13px;
+    border: 1.5px solid var(--ink);
+    background: var(--foam);
+    color: var(--ink);
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  button:hover { background: #fff; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.primary { background: var(--navy); color: #fff; border-color: var(--navy-dark); }
+  button.primary:hover { background: var(--navy-dark); }
+  .cost-note {
+    font-size: 12px;
+    color: var(--ink-soft);
+    max-width: 320px;
+  }
+  .card {
+    background: var(--foam);
+    border: 1.5px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    display: grid;
+    grid-template-columns: 44px 1fr 240px;
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 720px) {
+    .card { grid-template-columns: 1fr; }
+  }
+  .priority {
+    font-family: var(--display);
+    font-size: 20px;
+    color: var(--driftwood);
+    text-align: center;
+    line-height: 1.1;
+  }
+  .card h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 18px;
+    margin: 0 0 2px;
+  }
+  .pose-id {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    background: rgba(31,51,71,0.08);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--ink-soft);
+  }
+  .example-headline {
+    display: inline-block;
+    background: var(--ink);
+    color: #fff;
+    font-family: var(--display);
+    font-size: 13px;
+    padding: 4px 10px;
+    border-radius: 5px;
+    margin: 8px 0;
+  }
+  .condition {
+    font-size: 13.5px;
+    color: var(--ink);
+    margin: 6px 0;
+  }
+  .condition b { color: var(--navy); }
+  .sunny-note {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    font-style: italic;
+    margin-top: 6px;
+  }
+  .prompt-toggle {
+    font-size: 12px;
+    color: var(--coral);
+    cursor: pointer;
+    text-decoration: underline;
+    margin-top: 6px;
+    display: inline-block;
+  }
+  .prompt-text {
+    display: none;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    background: rgba(31,51,71,0.05);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-top: 6px;
+    white-space: pre-wrap;
+  }
+  .prompt-text.shown { display: block; }
+  .preview-col { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+  .preview-frame {
+    width: 100%;
+    aspect-ratio: 792 / 272;
+    background: #fff;
+    border: 1.5px solid var(--ink);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .preview-frame canvas { width: 100%; height: 100%; image-rendering: pixelated; }
+  .preview-status {
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    text-align: center;
+    min-height: 14px;
+  }
+  .preview-buttons { display: flex; gap: 6px; }
+  .preview-buttons button { flex: 1; padding: 6px 8px; font-size: 12px; }
+  footer {
+    max-width: 900px;
+    margin: 30px auto 0;
+    padding: 0 20px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Beach Buddy &mdash; Scenario Catalog</h1>
+    <p class="sub">Every mood branch <code>moodForBeachData</code> can pick, in the exact order it checks them (first match wins), and the real cached illustration for each one.</p>
+  </header>
+
+  <div class="toolbar">
+    <button class="primary" id="loadAllBtn">Load all previews</button>
+    <button id="collapseAllBtn">Hide all prompts</button>
+    <span class="cost-note">"Load all" fetches through the same shared cache production uses -- only a scenario that has NEVER been shown on a real device before bills a real Imagen call; everything else is a free cache hit.</span>
+  </div>
+
+  <div id="cards"></div>
+</div>
+
+<footer>
+  Reads through <code>imagenProxy</code> (the same one <code>design/index.html</code>'s live preview and the hourly <code>regenerateBeachBuddyDesigns</code> job use) &mdash; nothing on this page ever calls Imagen directly. Conditions and prompt text below are transcribed from <code>functions/lib/dynamic.js</code>'s <code>moodForBeachData</code> and <code>functions/lib/imagen.js</code>'s <code>IMAGEN_SCENE_HINTS</code>; if this page and the code ever disagree, the code is right &mdash; this is a reference, not the source of truth.
+</footer>
+
+<script type="module">
+  const IMAGEN_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/imagenProxy";
+
+  // Mirrors the real card dimensions/banner (CANVAS_WIDTH/HEIGHT,
+  // BANNER_HEIGHT in functions/lib/dynamic.js) so a preview here matches
+  // exactly what a real device would show for the same scenario.
+  const CANVAS_WIDTH = 792, CANVAS_HEIGHT = 272, BANNER_HEIGHT = 48;
+
+  // --- Atkinson dithering + cover-fit compositing, copied from
+  // design/index.html's own client copy (itself mirroring lib/dynamic.js)
+  // -- see that file's own comments for why this exists in three places
+  // (server, design tool, this admin page) instead of one shared module:
+  // no build step, single-file-per-page is this whole site's convention.
+  function toGrayscale(imgData, w, h) {
+    const gray = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const r = imgData[i * 4], g = imgData[i * 4 + 1], b = imgData[i * 4 + 2];
+      gray[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+    return gray;
+  }
+  function ditherAtkinson(gray, w, h) {
+    const bits = new Uint8Array(w * h);
+    const g = Float32Array.from(gray);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        const old = g[i];
+        const on = old < 180; // ink threshold, matches packTo1Bit's own
+        bits[i] = on ? 1 : 0;
+        const newVal = on ? 0 : 255;
+        const err = (old - newVal) / 8;
+        const add = (dx, dy, amt) => {
+          const xx = x + dx, yy = y + dy;
+          if (xx >= 0 && xx < w && yy >= 0 && yy < h) g[yy * w + xx] += amt;
+        };
+        add(1, 0, err); add(2, 0, err);
+        add(-1, 1, err); add(0, 1, err); add(1, 1, err);
+        add(0, 2, err);
+      }
+    }
+    return bits;
+  }
+  function ditheredArtCoverCanvas(sourceImage, width, height) {
+    const padded = document.createElement("canvas");
+    padded.width = width; padded.height = height;
+    const pctx = padded.getContext("2d");
+    pctx.fillStyle = "#fff";
+    pctx.fillRect(0, 0, width, height);
+    const scale = Math.max(width / sourceImage.width, height / sourceImage.height);
+    const w = sourceImage.width * scale, h = sourceImage.height * scale;
+    pctx.drawImage(sourceImage, (width - w) / 2, (height - h) / 2, w, h);
+    const imgData = pctx.getImageData(0, 0, width, height).data;
+    const gray = toGrayscale(imgData, width, height);
+    const bits = ditherAtkinson(gray, width, height);
+    const out = document.createElement("canvas");
+    out.width = width; out.height = height;
+    const octx = out.getContext("2d");
+    const id = octx.createImageData(width, height);
+    for (let i = 0; i < width * height; i++) {
+      const v = bits[i] ? 0 : 255;
+      id.data[i * 4] = v; id.data[i * 4 + 1] = v; id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255;
+    }
+    octx.putImageData(id, 0, 0);
+    return out;
+  }
+  function fitBannerFontSize(ctx, text, maxWidth, family, maxSize, minSize) {
+    for (let size = maxSize; size > minSize; size--) {
+      ctx.font = size + "px " + family;
+      if (ctx.measureText(text).width <= maxWidth) return size;
+    }
+    ctx.font = minSize + "px " + family;
+    return minSize;
+  }
+  function drawCard(canvas, headlineText, artImage) {
+    canvas.width = CANVAS_WIDTH; canvas.height = CANVAS_HEIGHT;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    const size = fitBannerFontSize(ctx, headlineText, CANVAS_WIDTH - 40, "'Bungee', sans-serif", 24, 14);
+    ctx.font = size + "px 'Bungee', sans-serif";
+    ctx.fillText(headlineText, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(size * 0.35));
+    if (artImage) {
+      const artHeight = CANVAS_HEIGHT - BANNER_HEIGHT;
+      const dithered = ditheredArtCoverCanvas(artImage, CANVAS_WIDTH, artHeight);
+      ctx.drawImage(dithered, 0, BANNER_HEIGHT);
+    }
+  }
+
+  // The full catalog, in moodForBeachData's real priority order. Each
+  // entry's `pose`/`sunny` is exactly what's sent to imagenProxy (and so
+  // exactly which cache entry -- see cacheKeyForMood in lib/imagen.js --
+  // gets read or, on a first-ever request, generated and saved).
+  const CATALOG = [
+    {
+      pose: "umbrella", label: "Rain", headline: "RAINY DAY", sub: "11:00 AM-2:00 PM",
+      condition: "A forecast rain window (Open-Meteo, ≥50% probability) overlaps business hours (10am-4:30pm local) <b>and business hours haven't already ended</b> for the day. Headline reads RAINY DAY if the rain is happening right now, RAIN LATER if it's still ahead.",
+      sunny: false
+    },
+    {
+      pose: "windy", label: "Windy (kite)", headline: "WINDY", sub: "28 MPH GUSTS",
+      condition: "A forecast wind pickup later in business hours (peak ≥15mph AND at least +8mph over the current reading) <b>OR</b> a business-hours peak wind ≥20mph &mdash; and business hours haven't ended.",
+      sunny: false
+    },
+    {
+      pose: "surfing", label: "Surfing", headline: "SURF'S UP", sub: "4.5 FT SWELL",
+      condition: "Business-hours peak swell ≥<b>3ft</b>, business hours not yet over.",
+      sunny: false
+    },
+    {
+      pose: "paddleboard", label: "Paddleboard", headline: "PADDLE DAY", sub: "8 MPH WIND",
+      condition: "Business-hours peak swell ≤<b>2ft</b> <b>AND</b> business-hours peak wind &lt;<b>12mph</b> (both required), business hours not yet over.",
+      sunny: true
+    },
+    {
+      pose: "pointing", label: "High tide", headline: "HIGH TIDE 3:00 PM", sub: null,
+      condition: "A high tide falls inside business hours. If two tides both qualify, the <b>LATER</b> one wins, not the soonest. Business hours not yet over.",
+      sunny: true
+    },
+    {
+      pose: "lounging", label: "Low tide", headline: "LOW TIDE 3:00 PM", sub: null,
+      condition: "Same as high tide, but the qualifying tide is a low.",
+      sunny: true
+    },
+    {
+      pose: "sunrise", label: "Sunrise", headline: "SUNRISE 6:12 AM", sub: null,
+      condition: "The current time is within <b>40 minutes</b> of today's actual sunrise (checked against the real instant, independent of business hours).",
+      sunny: false
+    },
+    {
+      pose: "sunset", label: "Sunset (bayside dock)", headline: "SUNSET 8:04 PM", sub: null,
+      condition: "The current time is within <b>40 minutes</b> of today's actual sunset.",
+      sunny: false
+    },
+    {
+      pose: "stargazing", label: "Nighttime", headline: "FIRST QUARTER", sub: "MOONRISE 9:15 PM",
+      condition: "It's currently nighttime (before sunrise or after sunset) and nothing above fired. Headline is tonight's moon phase (or CLEAR NIGHT if unknown). Sub-line is the soonest upcoming moonrise/moonset/sunrise &mdash; or, on a genuinely clear night, “CLEAR SKIES, GREAT FOR STARGAZING” instead. Never a sun icon here, even on a clear night.",
+      sunny: false
+    },
+    {
+      pose: "fishing", label: "Good fishing", headline: "GOOD FISHING", sub: null,
+      condition: "Daytime, nothing above fired, and today's fishing score (the same Poor/Fair/Good/Excellent signal the Tide &amp; Fishing card shows) is <b>Good</b> or <b>Excellent</b>.",
+      sunny: false
+    },
+    {
+      pose: "lounging", label: "Calm day (variant 1 of 3)", headline: "PERFECT DAY", sub: "WATER 74°F",
+      condition: "Daytime, nothing above fired. The generic calm-day fallback rotates through 3 variants by calendar day (UTC day number mod 3) so it's not the identical scene every calm day &mdash; this is day-number-mod-3 = 0.",
+      sunny: true
+    },
+    {
+      pose: "biking", label: "Calm day (variant 2 of 3)", headline: "BIKE RIDE", sub: "WATER 74°F",
+      condition: "Same calm-day fallback, day-number-mod-3 = 1.",
+      sunny: true
+    },
+    {
+      pose: "coffee", label: "Calm day (variant 3 of 3)", headline: "COFFEE & DONUTS", sub: "WATER 74°F",
+      condition: "Same calm-day fallback, day-number-mod-3 = 2.",
+      sunny: true
+    }
+  ];
+
+  const SCENE_HINTS = {
+    umbrella: "Jake is holding a big beach umbrella overhead for shelter, smiling contentedly in the rain",
+    windy: "Jake is flying a kite on a breezy day, looking up at it with delight, the kite's string taut and the kite tilted against the wind",
+    surfing: "Jake is crouched on a surfboard riding a cresting wave, the wave rendered with fine curved texture lines for motion and detail, arms out for balance, thrilled",
+    paddleboard: "Jake is standing upright on a long paddleboard on calm water, one arm reaching down with a paddle, gliding along peacefully",
+    lounging: "Jake is relaxing in a low beach lounge chair, shaded by a large beach umbrella, completely at ease, with a freshly-built sandcastle and a toy pail and shovel sitting in the sand nearby",
+    pointing: "Jake is standing at the shoreline pointing excitedly out at the ocean",
+    stargazing: "Jake is lying back in a low beach lounge chair, hands behind his head, gazing up at a big bright moon and a sky full of stars, peaceful and content",
+    sunrise: "Jake is sitting on the beach watching the sunrise over the ocean, peaceful and reflective, the sun just rising above the horizon",
+    sunset: "Jake is standing at the end of a bayside dock watching the sunset over the water, peaceful and content, the sun low near the horizon",
+    fishing: "Jake is fishing from the end of a wooden jetty, casting a line out into the water below, relaxed and focused",
+    biking: "Jake is riding a beach cruiser bicycle along the boardwalk, one hand up waving, having a great time",
+    coffee: "Jake is sitting at a small beachside cafe table, sipping a cup of coffee and eating a donut, completely content"
+  };
+
+  async function fetchArt(pose, sunny) {
+    const resp = await fetch(IMAGEN_PROXY_BASE + "?pose=" + encodeURIComponent(pose) + (sunny ? "&sunny=1" : ""));
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const blob = await resp.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      return await new Promise((resolve, reject) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = () => reject(new Error("image failed to decode"));
+        im.src = objectUrl;
+      });
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  function buildCard(entry, index) {
+    const card = document.createElement("div");
+    card.className = "card";
+
+    const priority = document.createElement("div");
+    priority.className = "priority";
+    priority.textContent = "#" + (index + 1);
+    card.appendChild(priority);
+
+    const mid = document.createElement("div");
+    const headlineText = entry.sub ? entry.headline + "  ·  " + entry.sub : entry.headline;
+    mid.innerHTML =
+      '<h2>' + entry.label + ' <span class="pose-id">pose: ' + entry.pose + '</span></h2>' +
+      '<span class="example-headline">' + headlineText + '</span>' +
+      '<p class="condition">' + entry.condition + '</p>' +
+      (entry.sunny ? '<p class="sunny-note">+ a big sun gets added when business-hours cloud cover ≤20% (see the "sunny" preview button).</p>' : '') +
+      '<span class="prompt-toggle">show Imagen prompt hint</span>' +
+      '<div class="prompt-text">' + (SCENE_HINTS[entry.pose] || "") + '</div>';
+    card.appendChild(mid);
+    mid.querySelector(".prompt-toggle").addEventListener("click", (e) => {
+      const box = mid.querySelector(".prompt-text");
+      box.classList.toggle("shown");
+      e.target.textContent = box.classList.contains("shown") ? "hide Imagen prompt hint" : "show Imagen prompt hint";
+    });
+
+    const previewCol = document.createElement("div");
+    previewCol.className = "preview-col";
+    const frame = document.createElement("div");
+    frame.className = "preview-frame";
+    const canvas = document.createElement("canvas");
+    frame.appendChild(canvas);
+    const status = document.createElement("div");
+    status.className = "preview-status";
+    status.textContent = "not loaded";
+    const buttons = document.createElement("div");
+    buttons.className = "preview-buttons";
+    const loadBtn = document.createElement("button");
+    loadBtn.textContent = "Load preview";
+    buttons.appendChild(loadBtn);
+    let sunnyBtn = null;
+    if (entry.sunny) {
+      sunnyBtn = document.createElement("button");
+      sunnyBtn.textContent = "Load sunny";
+      buttons.appendChild(sunnyBtn);
+    }
+    previewCol.appendChild(frame);
+    previewCol.appendChild(status);
+    previewCol.appendChild(buttons);
+    card.appendChild(previewCol);
+
+    async function load(sunny, btn) {
+      const label = btn.textContent;
+      btn.disabled = true;
+      status.textContent = "loading…";
+      try {
+        const img = await fetchArt(entry.pose, sunny);
+        drawCard(canvas, headlineText, img);
+        status.textContent = sunny ? "sunny variant" : "loaded";
+      } catch (err) {
+        status.textContent = "failed: " + err.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    }
+    loadBtn.addEventListener("click", () => load(false, loadBtn));
+    if (sunnyBtn) sunnyBtn.addEventListener("click", () => load(true, sunnyBtn));
+
+    card._load = () => load(false, loadBtn);
+    return card;
+  }
+
+  const cardsEl = document.getElementById("cards");
+  const cardEls = CATALOG.map((entry, i) => {
+    const el = buildCard(entry, i);
+    cardsEl.appendChild(el);
+    return el;
+  });
+
+  document.getElementById("loadAllBtn").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = "Loading…";
+    for (const el of cardEls) {
+      await el._load();
+    }
+    e.target.disabled = false;
+    e.target.textContent = "Load all previews";
+  });
+
+  document.getElementById("collapseAllBtn").addEventListener("click", () => {
+    document.querySelectorAll(".prompt-text.shown").forEach((box) => box.classList.remove("shown"));
+    document.querySelectorAll(".prompt-toggle").forEach((t) => { t.textContent = "show Imagen prompt hint"; });
+  });
+</script>
+</body>
+</html>
