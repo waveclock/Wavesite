@@ -3351,59 +3351,68 @@
     surfboard: { dx: 0, dy: 1.75 }
   };
 
-  // Mirrors moodForBeachData in functions/lib/dynamic.js exactly.
+  // Mirrors moodForBeachData in functions/lib/dynamic.js exactly --
+  // including the business-hours (10am-4:30pm local) forecast window it
+  // judges rain/wind/swell/tide against instead of the literal instant
+  // `now` happens to be, with tonight's moon as a last-resort fallback.
+  // See that function's own comment for the full reasoning.
   function moodForBeachDataClient(data, now) {
     const at = now || new Date();
     const nowMs = at.getTime();
     const weather = data.weather || {};
-    const rainWindows = weather.rainWindows || [];
-    const activeRain = rainWindows.find((w) => nowMs >= new Date(w.start).getTime() && nowMs <= new Date(w.end).getTime());
-    const upcomingRain = !activeRain && rainWindows.find((w) => new Date(w.start).getTime() > nowMs);
+    const bhStartMs = data.businessHoursStart ? new Date(data.businessHoursStart.t).getTime() : null;
+    const bhEndMs = data.businessHoursEnd ? new Date(data.businessHoursEnd.t).getTime() : null;
+    const overlapsBusinessHours = (startMs, endMs) => bhStartMs != null && bhEndMs != null && startMs <= bhEndMs && endMs >= bhStartMs;
 
-    if (activeRain || upcomingRain) {
-      const w = activeRain || upcomingRain;
+    const rainWindows = weather.rainWindows || [];
+    const businessRain = rainWindows.find((w) => overlapsBusinessHours(new Date(w.start).getTime(), new Date(w.end).getTime()));
+    if (businessRain) {
+      const activeNow = nowMs >= new Date(businessRain.start).getTime() && nowMs <= new Date(businessRain.end).getTime();
       return {
         pose: "umbrella",
-        headline: activeRain ? "RAINY DAY" : "RAIN LATER",
-        sub: w.label.replace("RAIN LIKELY ", ""),
+        headline: activeNow ? "RAINY DAY" : "RAIN LATER",
+        sub: businessRain.label.replace("RAIN LIKELY ", ""),
         props: ["umbrella"]
       };
     }
 
     const windRamp = weather.windRamp;
-    const windMph = weather.wind ? weather.wind.mph : null;
-    if (windRamp || (windMph != null && windMph >= 20)) {
+    const bhWindMph = weather.businessHoursWind ? weather.businessHoursWind.mph : null;
+    if (windRamp || (bhWindMph != null && bhWindMph >= 20)) {
       return {
         pose: "windy",
         headline: "WINDY",
-        sub: windRamp ? windRamp.gustMph + " MPH GUSTS" : windMph + " MPH",
+        sub: windRamp ? windRamp.gustMph + " MPH GUSTS" : bhWindMph + " MPH",
         props: ["windLines"]
       };
     }
 
-    const daytime = !!(data.sunrise && data.sunset && nowMs >= new Date(data.sunrise.t).getTime() && nowMs <= new Date(data.sunset.t).getTime());
-    const swellFt = weather.swell ? weather.swell.heightFt : null;
-    if (daytime && swellFt != null && swellFt >= 3) {
-      return { pose: "surfing", headline: "SURF'S UP", sub: swellFt + " FT SWELL", props: ["surfboard"] };
+    const bhSwellFt = weather.businessHoursSwell ? weather.businessHoursSwell.heightFt : null;
+    if (bhSwellFt != null && bhSwellFt >= 3) {
+      return { pose: "surfing", headline: "SURF'S UP", sub: bhSwellFt + " FT SWELL", props: ["surfboard"] };
     }
 
+    const extrema = data.tideExtrema || [];
+    const businessTides = bhStartMs != null && bhEndMs != null
+      ? extrema.filter((e) => { const t = new Date(e.t).getTime(); return t >= bhStartMs && t <= bhEndMs; })
+      : [];
+    const headlineTide = businessTides.length ? businessTides[businessTides.length - 1] : null;
+    if (headlineTide) {
+      return {
+        pose: headlineTide.isHigh ? "pointing" : "lounging",
+        headline: (headlineTide.isHigh ? "HIGH TIDE " : "LOW TIDE ") + headlineTide.label,
+        sub: null,
+        props: ["wave"]
+      };
+    }
+
+    const daytime = !!(data.sunrise && data.sunset && nowMs >= new Date(data.sunrise.t).getTime() && nowMs <= new Date(data.sunset.t).getTime());
     if (!daytime) {
       return {
         pose: "lounging",
         headline: (data.moon.phaseName || "CLEAR NIGHT").toUpperCase(),
         sub: null,
         props: ["moon", "star"]
-      };
-    }
-
-    const extrema = data.tideExtrema || [];
-    const upcoming = extrema.find((e) => new Date(e.t).getTime() > nowMs) || extrema[extrema.length - 1];
-    if (upcoming) {
-      return {
-        pose: upcoming.isHigh ? "pointing" : "lounging",
-        headline: (upcoming.isHigh ? "HIGH TIDE " : "LOW TIDE ") + upcoming.label,
-        sub: null,
-        props: ["wave"]
       };
     }
 

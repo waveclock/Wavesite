@@ -2025,62 +2025,101 @@ const BUDDY_PROP_OFFSET = {
 
 // Picks today's headline + pose from the SAME payload fetchTideCardData
 // already returns for the "tide" type -- no separate data source. Rules
-// are checked in priority order (rain beats wind beats surf beats night
-// beats tide timing beats the calm-day default), and every branch
-// degrades gracefully when a field is missing (a down Open-Meteo call
-// leaves data.weather null, same contract as the Tide & Fishing card).
+// are checked in priority order (rain beats wind beats surf beats tide
+// timing beats the calm-day default, with tonight's moon as a last-
+// resort fallback), and every branch degrades gracefully when a field
+// is missing (a down Open-Meteo call leaves data.weather null, same
+// contract as the Tide & Fishing card).
+//
+// Rewritten to judge rain/wind/swell/tide against a fixed BUSINESS
+// HOURS window (10:00am-4:30pm local, see businessHoursStart/End in
+// fetchTideCardData) instead of the literal instant `now` happens to
+// be. The reason: this card's own daily refresh (regenerateCountdownDesigns
+// in index.js) runs once a day, overnight -- checking "is it raining/
+// windy/surfing/is there a tide RIGHT NOW" at 4-5am local (as this used
+// to) meant those branches were almost never true for a real device,
+// since it's before dawn nearly everywhere in the US: the card
+// defaulted to the nighttime moon-phase branch almost every single day,
+// regardless of what the actual day ahead looked like. Checking
+// forecast conditions across business hours instead means the card
+// reflects "what will today look like," reachable at any generation
+// time -- exactly what a once-a-day forecast card should do. The
+// nighttime moon-phase branch still exists, just demoted to a fallback
+// for whenever NONE of the business-hours signals fire AND the render
+// itself is happening at night (the live design-tool preview opened in
+// the evening, or the daily job running pre-dawn on an otherwise calm
+// day) -- so it's still reachable, just no longer the default outcome
+// for most days.
 function moodForBeachData(data, now) {
   const at = now || new Date();
   const nowMs = at.getTime();
   const weather = data.weather || {};
-  const rainWindows = weather.rainWindows || [];
-  const activeRain = rainWindows.find((w) => nowMs >= new Date(w.start).getTime() && nowMs <= new Date(w.end).getTime());
-  const upcomingRain = !activeRain && rainWindows.find((w) => new Date(w.start).getTime() > nowMs);
+  const bhStartMs = data.businessHoursStart ? new Date(data.businessHoursStart.t).getTime() : null;
+  const bhEndMs = data.businessHoursEnd ? new Date(data.businessHoursEnd.t).getTime() : null;
+  const overlapsBusinessHours = (startMs, endMs) => bhStartMs != null && bhEndMs != null && startMs <= bhEndMs && endMs >= bhStartMs;
 
-  if (activeRain || upcomingRain) {
-    const w = activeRain || upcomingRain;
+  const rainWindows = weather.rainWindows || [];
+  const businessRain = rainWindows.find((w) => overlapsBusinessHours(new Date(w.start).getTime(), new Date(w.end).getTime()));
+  if (businessRain) {
+    const activeNow = nowMs >= new Date(businessRain.start).getTime() && nowMs <= new Date(businessRain.end).getTime();
     return {
       pose: "umbrella",
-      headline: activeRain ? "RAINY DAY" : "RAIN LATER",
-      sub: w.label.replace("RAIN LIKELY ", ""),
+      headline: activeNow ? "RAINY DAY" : "RAIN LATER",
+      sub: businessRain.label.replace("RAIN LIKELY ", ""),
       props: ["umbrella"]
     };
   }
 
+  // A real business-hours forecast peak (not "right now") beats
+  // needing an explicit ramp pattern -- a day that's just uniformly
+  // windy all afternoon is still windy, ramp or no ramp.
   const windRamp = weather.windRamp;
-  const windMph = weather.wind ? weather.wind.mph : null;
-  if (windRamp || (windMph != null && windMph >= 20)) {
+  const bhWindMph = weather.businessHoursWind ? weather.businessHoursWind.mph : null;
+  if (windRamp || (bhWindMph != null && bhWindMph >= 20)) {
     return {
       pose: "windy",
       headline: "WINDY",
-      sub: windRamp ? windRamp.gustMph + " MPH GUSTS" : windMph + " MPH",
+      sub: windRamp ? windRamp.gustMph + " MPH GUSTS" : bhWindMph + " MPH",
       props: ["windLines"]
     };
   }
 
-  const daytime = !!(data.sunrise && data.sunset && nowMs >= new Date(data.sunrise.t).getTime() && nowMs <= new Date(data.sunset.t).getTime());
-  const swellFt = weather.swell ? weather.swell.heightFt : null;
-  if (daytime && swellFt != null && swellFt >= 3) {
-    return { pose: "surfing", headline: "SURF'S UP", sub: swellFt + " FT SWELL", props: ["surfboard"] };
+  const bhSwellFt = weather.businessHoursSwell ? weather.businessHoursSwell.heightFt : null;
+  if (bhSwellFt != null && bhSwellFt >= 3) {
+    return { pose: "surfing", headline: "SURF'S UP", sub: bhSwellFt + " FT SWELL", props: ["surfboard"] };
   }
 
+  // Only a tide actually falling inside business hours is headline-
+  // worthy -- an early-morning or late-evening tide isn't something
+  // anyone glancing at their desk during the day will ever see happen.
+  // extrema is chronological, so the LAST one remaining after filtering
+  // to the window is the LATER of however many qualify -- not the
+  // earliest/soonest, which is what a plain "next upcoming" pick would
+  // give.
+  const extrema = data.tideExtrema || [];
+  const businessTides = bhStartMs != null && bhEndMs != null
+    ? extrema.filter((e) => { const t = new Date(e.t).getTime(); return t >= bhStartMs && t <= bhEndMs; })
+    : [];
+  const headlineTide = businessTides.length ? businessTides[businessTides.length - 1] : null;
+  if (headlineTide) {
+    return {
+      pose: headlineTide.isHigh ? "pointing" : "lounging",
+      headline: (headlineTide.isHigh ? "HIGH TIDE " : "LOW TIDE ") + headlineTide.label,
+      sub: null,
+      props: ["wave"]
+    };
+  }
+
+  // Nothing notable is forecast for business hours -- if this render is
+  // actually happening at night, show tonight's moon instead of a bland
+  // default; otherwise it really is just a calm, unremarkable day.
+  const daytime = !!(data.sunrise && data.sunset && nowMs >= new Date(data.sunrise.t).getTime() && nowMs <= new Date(data.sunset.t).getTime());
   if (!daytime) {
     return {
       pose: "lounging",
       headline: (data.moon.phaseName || "CLEAR NIGHT").toUpperCase(),
       sub: null,
       props: ["moon", "star"]
-    };
-  }
-
-  const extrema = data.tideExtrema || [];
-  const upcoming = extrema.find((e) => new Date(e.t).getTime() > nowMs) || extrema[extrema.length - 1];
-  if (upcoming) {
-    return {
-      pose: upcoming.isHigh ? "pointing" : "lounging",
-      headline: (upcoming.isHigh ? "HIGH TIDE " : "LOW TIDE ") + upcoming.label,
-      sub: null,
-      props: ["wave"]
     };
   }
 
