@@ -3214,7 +3214,8 @@
     umbrella: { armL: [-14, 0], armR: [145, 0], legL: [-14, 0], legR: [14, 0] },
     windy: { armL: [-42, 24], armR: [102, -14], legL: [-34, 0], legR: [12, 0], rotate: -16 },
     surfing: { armL: [-100, 18], armR: [100, -18], legL: [-46, 0], legR: [46, 0], rotate: -8 },
-    paddleboard: { armL: [-15, 0], armR: [50, 24], legL: [-8, 0], legR: [10, 0] }
+    paddleboard: { armL: [-15, 0], armR: [50, 24], legL: [-8, 0], legR: [10, 0] },
+    stargazing: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] }
   };
 
   function drawStickFigure(ctx, hipX, hipY, u, poseName) {
@@ -3375,9 +3376,15 @@
     const bhEndMs = data.businessHoursEnd ? new Date(data.businessHoursEnd.t).getTime() : null;
     const overlapsBusinessHours = (startMs, endMs) => bhStartMs != null && bhEndMs != null && startMs <= bhEndMs && endMs >= bhStartMs;
     const sunny = weather.businessHoursCloudCoverPct != null && weather.businessHoursCloudCoverPct <= 20;
+    // Once business hours have actually elapsed for today, none of the
+    // business-hours-forecast branches below should still fire -- see
+    // businessHoursOver's own comment in moodForBeachData (lib/dynamic.js)
+    // for the live bug this fixes (a stale afternoon tide + a big sun
+    // still showing at night).
+    const businessHoursOver = bhEndMs != null && nowMs > bhEndMs;
 
     const rainWindows = weather.rainWindows || [];
-    const businessRain = rainWindows.find((w) => overlapsBusinessHours(new Date(w.start).getTime(), new Date(w.end).getTime()));
+    const businessRain = !businessHoursOver && rainWindows.find((w) => overlapsBusinessHours(new Date(w.start).getTime(), new Date(w.end).getTime()));
     if (businessRain) {
       const activeNow = nowMs >= new Date(businessRain.start).getTime() && nowMs <= new Date(businessRain.end).getTime();
       return {
@@ -3388,9 +3395,9 @@
       };
     }
 
-    const windRamp = weather.windRamp;
+    const windRamp = !businessHoursOver && weather.windRamp;
     const bhWindMph = weather.businessHoursWind ? weather.businessHoursWind.mph : null;
-    if (windRamp || (bhWindMph != null && bhWindMph >= 20)) {
+    if (windRamp || (!businessHoursOver && bhWindMph != null && bhWindMph >= 20)) {
       return {
         pose: "windy",
         headline: "WINDY",
@@ -3400,18 +3407,18 @@
     }
 
     const bhSwellFt = weather.businessHoursSwell ? weather.businessHoursSwell.heightFt : null;
-    if (bhSwellFt != null && bhSwellFt >= 3) {
+    if (!businessHoursOver && bhSwellFt != null && bhSwellFt >= 3) {
       return { pose: "surfing", headline: "SURF'S UP", sub: bhSwellFt + " FT SWELL", props: ["surfboard"] };
     }
 
-    if (bhSwellFt != null && bhSwellFt <= 2 && bhWindMph != null && bhWindMph < 12) {
+    if (!businessHoursOver && bhSwellFt != null && bhSwellFt <= 2 && bhWindMph != null && bhWindMph < 12) {
       const props = ["paddleboard"];
       if (sunny) props.push("sun");
       return { pose: "paddleboard", headline: "PADDLE DAY", sub: bhWindMph + " MPH WIND", props };
     }
 
     const extrema = data.tideExtrema || [];
-    const businessTides = bhStartMs != null && bhEndMs != null
+    const businessTides = !businessHoursOver && bhStartMs != null && bhEndMs != null
       ? extrema.filter((e) => { const t = new Date(e.t).getTime(); return t >= bhStartMs && t <= bhEndMs; })
       : [];
     const headlineTide = businessTides.length ? businessTides[businessTides.length - 1] : null;
@@ -3428,10 +3435,17 @@
 
     const daytime = !!(data.sunrise && data.sunset && nowMs >= new Date(data.sunrise.t).getTime() && nowMs <= new Date(data.sunset.t).getTime());
     if (!daytime) {
+      const upcomingEvents = [
+        data.moon.rise && { label: "MOONRISE " + data.moon.rise.label, t: data.moon.rise.t },
+        data.moon.set && { label: "MOONSET " + data.moon.set.label, t: data.moon.set.t },
+        data.sunrise && { label: "SUNRISE " + data.sunrise.label, t: data.sunrise.t }
+      ].filter(Boolean).filter((e) => new Date(e.t).getTime() > nowMs).sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
+      const nextEvent = upcomingEvents.length ? upcomingEvents[0] : null;
+
       return {
-        pose: "lounging",
+        pose: "stargazing",
         headline: (data.moon.phaseName || "CLEAR NIGHT").toUpperCase(),
-        sub: null,
+        sub: sunny ? "CLEAR SKIES, GREAT FOR STARGAZING" : (nextEvent ? nextEvent.label : null),
         props: ["moon", "star"]
       };
     }

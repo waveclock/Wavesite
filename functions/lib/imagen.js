@@ -176,7 +176,16 @@ const IMAGEN_SCENE_HINTS = {
   // Calm-water conditions (small waves, light wind -- see
   // moodForBeachData), standing upright rather than crouched like
   // surfing.
-  paddleboard: "Jake is standing upright on a long paddleboard on calm water, one arm reaching down with a paddle, gliding along peacefully"
+  paddleboard: "Jake is standing upright on a long paddleboard on calm water, one arm reaching down with a paddle, gliding along peacefully",
+  // Its own distinct nighttime scene -- previously nighttime shared the
+  // "lounging" pose (and so its daytime beach-chair-under-an-umbrella
+  // illustration) with low tide and a calm day, which read as wrong at
+  // night once the cached art was reused for all three. STYLE_PREFIX's
+  // own strict rules still apply here (solid black lines/fills on a
+  // plain WHITE background, no gray) -- "night" is conveyed the same
+  // way the procedural fallback conveys it, through the moon and stars
+  // themselves, not a black sky.
+  stargazing: "Jake is lying back in a low beach lounge chair, hands behind his head, gazing up at a big bright moon and a sky full of stars, peaceful and content"
 };
 
 // `mood.props` including "sun" (see moodForBeachData's businessHoursCloudCoverPct
