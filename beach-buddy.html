@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meet Buddy — Wave Clock</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="description" content="Buddy is your Wave Clock's daily beach character -- flying a kite, riding the waves, or watching the sunset, based on today's real tide and weather right where you live.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://waveclock.net/beach-buddy.html">
+<meta property="og:title" content="Meet Buddy — Wave Clock">
+<meta property="og:description" content="Buddy is your Wave Clock's daily beach character -- flying a kite, riding the waves, or watching the sunset, based on today's real tide and weather right where you live.">
+<meta property="og:image" content="https://waveclock.net/social_preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Meet Buddy — Wave Clock">
+<meta name="twitter:description" content="Buddy is your Wave Clock's daily beach character -- flying a kite, riding the waves, or watching the sunset, based on today's real tide and weather right where you live.">
+<meta name="twitter:image" content="https://waveclock.net/social_preview.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+    --script: 'Caveat', cursive;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+  section { padding: 56px 0; }
+  .section-foam { background: var(--foam); }
+
+  .kicker {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--navy);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-family: var(--display);
+    font-size: clamp(34px, 6vw, 54px);
+    color: var(--ink);
+    text-shadow: 3px 3px 0 var(--navy);
+    margin: 0 0 14px;
+    letter-spacing: 0.01em;
+  }
+  h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: clamp(24px, 3.2vw, 32px);
+    margin: 0 0 14px;
+    color: var(--ink);
+  }
+  .lede {
+    max-width: 62ch;
+    color: var(--ink-soft);
+    font-size: 17px;
+    margin-bottom: 8px;
+  }
+  p { max-width: 62ch; }
+
+  .cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 15px;
+    padding: 14px 26px;
+    border-radius: 999px;
+    text-decoration: none;
+    border: 2px solid var(--ink);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+  .btn-ghost { background: transparent; color: var(--ink); }
+  .btn-ghost:hover { background: rgba(20,48,45,0.06); }
+  .btn-coral { background: var(--coral); color: #fff; border-color: var(--coral-dark); }
+  .btn-coral:hover { background: var(--coral-dark); }
+
+  /* ---------- How it works list ---------- */
+  .how-list {
+    margin: 28px 0 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .how-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 0;
+    border-bottom: 1px dashed var(--line);
+    color: var(--ink-soft);
+    font-size: 15.5px;
+  }
+  .how-list li:last-child { border-bottom: none; }
+  .how-list li b { color: var(--ink); }
+  .how-icon {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid var(--driftwood);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+    margin-top: 1px;
+  }
+  .how-icon svg { width: 16px; height: 16px; }
+
+  /* ---------- Example cards ---------- */
+  .examples-grid {
+    margin-top: 32px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 22px;
+  }
+  .example-card {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 14px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
+  }
+  .example-card canvas {
+    width: 100%;
+    height: auto;
+    display: block;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    image-rendering: pixelated;
+  }
+  .example-card p {
+    margin: 12px 0 0;
+    font-size: 14px;
+    color: var(--ink-soft);
+    max-width: none;
+  }
+  .example-card p b { color: var(--ink); }
+  .examples-note {
+    margin-top: 16px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    font-style: italic;
+    max-width: 62ch;
+  }
+
+  .callout {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 20px 24px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
+    max-width: 62ch;
+    margin-top: 24px;
+  }
+  .callout b { color: var(--navy); }
+
+  /* ---------- Footer ---------- */
+  footer {
+    padding: 40px 0 50px;
+    text-align: center;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  .footer-name {
+    font-family: var(--script);
+    font-size: 28px;
+    color: var(--ink);
+    display: block;
+    margin-top: 6px;
+  }
+  .footer-name a { text-decoration: none; }
+  .footer-name a:hover { text-decoration: underline; }
+
+  ::selection { background: var(--wax); color: var(--ink); }
+</style>
+</head>
+<body>
+
+<section>
+  <div class="wrap">
+    <div class="cta-row" style="margin-top:48px;">
+      <a class="btn btn-ghost" href="index.html">&larr; Back to Wave Clock</a>
+    </div>
+  </div>
+</section>
+
+<section id="meet-buddy" style="padding-top:0;">
+  <div class="wrap">
+    <p class="kicker">Custom Screen &middot; Beach Buddy</p>
+    <h1>Meet Buddy</h1>
+    <p class="lede">A friendly recurring character who lives on your Custom screen -- and whose mood matches today's real tide and weather, right where you live.</p>
+    <p>No app, nothing to publish, nothing to keep up with. Turn Buddy on once from Custom Screen &rarr; Beach Buddy in the design tool, and he takes it from there: same friendly stick-figure guy every day, drawn fresh by AI, doing whatever today's actual conditions call for.</p>
+    <div class="cta-row">
+      <a class="btn btn-coral" href="design/index.html">Try it in the design tool &rarr;</a>
+      <a class="btn btn-ghost" href="guide.html">Back to the User Guide</a>
+    </div>
+  </div>
+</section>
+
+<section class="section-foam" id="how-it-works">
+  <div class="wrap">
+    <p class="kicker">How it works</p>
+    <h2>Buddy checks the real conditions, then acts them out</h2>
+    <p class="lede">Every hour, Buddy looks at the real tide, wind, waves, and sky for your exact town -- the same data your Tide screen already uses -- and picks whichever of these actually fits today. The headline always shows the real specific detail (the tide time, the wind speed, the swell height) -- never made up.</p>
+
+    <ul class="how-list">
+      <li>
+        <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 15c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 19c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 4v7M9 8l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span><b>Rain today?</b> Buddy's got his umbrella up.</span>
+      </li>
+      <li>
+        <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8l14-4v10L4 10z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M18 6v10M11 14l-3 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+        <span><b>Windy?</b> He's out flying a kite.</span>
+      </li>
+      <li>
+        <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 16c3-1 6-6 9-9 3 3-2 6-9 9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 16c4 3 9 4 14-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+        <span><b>Big swell?</b> He's up and riding it.</span>
+      </li>
+      <li>
+        <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="17" rx="8" ry="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 4v11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+        <span><b>Calm, small waves?</b> Paddleboard day.</span>
+      </li>
+      <li>
+        <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 15c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16.5" cy="6.5" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></span>
+        <span><b>A high or low tide coming up during the day?</b> He calls it out, right down to the time.</span>
+      </li>
+      <li>
+        <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="17" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 12.5V3M8 6h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+        <span><b>Sunrise or sunset happening right now?</b> He's watching it -- sunset from the end of a bayside dock.</span>
+      </li>
+      <li>
+        <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+        <span><b>After dark?</b> He's stargazing, under tonight's real moon phase.</span>
+      </li>
+      <li>
+        <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20l7-7M18 4l-4.5 1.5L12 10l4.5-1.5L18 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg></span>
+        <span><b>Great fishing conditions?</b> He's out on the jetty with a rod.</span>
+      </li>
+      <li>
+        <span class="how-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 10h.01M16 10h.01M8 15c1.2 1.3 2.6 2 4 2s2.8-.7 4-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span><b>Otherwise, just a perfect calm day?</b> Buddy mixes it up -- lounging under his umbrella, riding his beach cruiser along the boardwalk, or grabbing coffee and donuts -- so it's not the same scene every calm day.</span>
+      </li>
+    </ul>
+
+    <div class="callout">
+      Clear skies get their own little touch too: on a mostly-cloudless day (or a genuinely clear night), Buddy's scene gets a big sun overhead -- or, after dark, a callout that it's a great night for stargazing.
+    </div>
+  </div>
+</section>
+
+<section id="examples">
+  <div class="wrap">
+    <p class="kicker">A few examples</p>
+    <h2>Same Buddy, different day</h2>
+    <p class="lede">A handful of the moods Buddy can land on, depending on what's actually happening outside.</p>
+    <div class="examples-grid" id="examplesGrid"></div>
+    <p class="examples-note">Simplified previews of the idea -- the real Custom screen uses full illustrated artwork, drawn fresh by AI, so the real thing looks even better than this.</p>
+  </div>
+</section>
+
+<section class="section-foam" id="get-started">
+  <div class="wrap">
+    <p class="kicker">Try it</p>
+    <h2>Turn Buddy on</h2>
+    <p class="lede">In the design tool, turn on Custom Screen and pick the Beach Buddy tool -- there's nothing to fill in. Buddy already knows your town from your Wave Clock's own saved location, and updates himself every hour on his own.</p>
+    <div class="cta-row">
+      <a class="btn btn-coral" href="design/index.html">Open the design tool &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>WAVE CLOCK</p>
+    <p>Designed in OCNJ<span class="footer-name"><a href="index.html">waveclock.net</a></span></p>
+    <p><a href="index.html">&larr; Back to Wave Clock</a></p>
+    <p><a href="guide.html">User guide &rarr;</a></p>
+    <p><a href="about.html">The Wave Clock Story &rarr;</a></p>
+  </div>
+</footer>
+
+<script type="module">
+  // A small, self-contained, DETERMINISTIC copy of the procedural stick-
+  // figure rig (mirrors STICK_POSES/drawStickFigure/drawProp in
+  // functions/lib/dynamic.js and design/index.html) -- deliberately NOT
+  // calling imagenProxy here: this page gets real public traffic, and an
+  // uncached scenario bills a real Imagen call the first time anyone
+  // requests it. A marketing page has no business being the one that
+  // accidentally triggers that on a stranger's page load, so these
+  // examples are drawn locally instead, with no network call at all.
+  const INK = "#1F3347";
+  const STICK_HEAD_R = 0.42, STICK_TORSO = 1.5, STICK_UPPER = 0.75, STICK_LOWER = 0.7, STICK_THIGH = 0.85, STICK_SHIN = 0.85;
+
+  const STICK_POSES = {
+    surfing: { armL: [-100, 18], armR: [100, -18], legL: [-46, 0], legR: [46, 0], rotate: -8 },
+    paddleboard: { armL: [-15, 0], armR: [50, 24], legL: [-8, 0], legR: [10, 0] },
+    stargazing: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] },
+    windy: { armL: [-42, 24], armR: [102, -14], legL: [-34, 0], legR: [12, 0], rotate: -16 }
+  };
+
+  function stickLimb(ctx, from, ang1, len1, ang2, len2, u) {
+    const a1 = (ang1 * Math.PI) / 180;
+    const mid = { x: from.x + Math.sin(a1) * len1 * u, y: from.y - Math.cos(a1) * len1 * u };
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(mid.x, mid.y);
+    ctx.stroke();
+    const a2 = ((ang1 + ang2) * Math.PI) / 180;
+    const end = { x: mid.x + Math.sin(a2) * len2 * u, y: mid.y - Math.cos(a2) * len2 * u };
+    ctx.beginPath();
+    ctx.moveTo(mid.x, mid.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+  }
+
+  function drawStickFigure(ctx, hipX, hipY, u, poseName) {
+    const pose = STICK_POSES[poseName];
+    ctx.strokeStyle = INK;
+    ctx.fillStyle = INK;
+    ctx.lineWidth = Math.max(2, u * 0.16);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    const rotateRad = ((pose.rotate || 0) * Math.PI) / 180;
+    ctx.save();
+    ctx.translate(hipX, hipY);
+    if (rotateRad) ctx.rotate(rotateRad);
+    const lean = (pose.lean || 0) * u;
+    const shoulder = { x: lean, y: -STICK_TORSO * u };
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(shoulder.x, shoulder.y);
+    ctx.stroke();
+    const headR = STICK_HEAD_R * u;
+    const headCenter = { x: shoulder.x + lean * 0.3, y: shoulder.y - headR * 1.15 };
+    ctx.beginPath();
+    ctx.arc(headCenter.x, headCenter.y, headR, 0, Math.PI * 2);
+    ctx.stroke();
+    const eyeR = Math.max(1, headR * 0.13);
+    const eyeDX = headR * 0.36, eyeDY = -headR * 0.04;
+    ctx.beginPath();
+    ctx.arc(headCenter.x - eyeDX, headCenter.y + eyeDY, eyeR, 0, Math.PI * 2);
+    ctx.arc(headCenter.x + eyeDX, headCenter.y + eyeDY, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.lineWidth = Math.max(1.5, u * 0.07);
+    ctx.arc(headCenter.x, headCenter.y + headR * 0.12, headR * 0.42, 0.12 * Math.PI, 0.88 * Math.PI);
+    ctx.stroke();
+    ctx.lineWidth = Math.max(2, u * 0.16);
+    stickLimb(ctx, shoulder, pose.armL[0], STICK_UPPER, pose.armL[1], STICK_LOWER, u);
+    stickLimb(ctx, shoulder, pose.armR[0], STICK_UPPER, pose.armR[1], STICK_LOWER, u);
+    stickLimb(ctx, { x: 0, y: 0 }, pose.legL[0], STICK_THIGH, pose.legL[1], STICK_SHIN, u);
+    stickLimb(ctx, { x: 0, y: 0 }, pose.legR[0], STICK_THIGH, pose.legR[1], STICK_SHIN, u);
+    ctx.restore();
+  }
+
+  function drawProp(ctx, kind, x, y, s) {
+    ctx.strokeStyle = INK;
+    ctx.fillStyle = INK;
+    ctx.lineWidth = Math.max(2, s * 0.08);
+    ctx.lineCap = "round";
+    if (kind === "wave") {
+      ctx.beginPath();
+      ctx.moveTo(x - s, y);
+      for (let i = -s; i < s; i += s / 4) ctx.quadraticCurveTo(x + i + s / 8, y - s * 0.18, x + i + s / 4, y);
+      ctx.stroke();
+    } else if (kind === "surfboard") {
+      ctx.beginPath();
+      ctx.ellipse(x, y, s * 0.75, s * 0.16, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.65, y);
+      ctx.lineTo(x + s * 0.65, y);
+      ctx.stroke();
+    } else if (kind === "paddleboard") {
+      ctx.beginPath();
+      ctx.ellipse(x, y, s * 0.95, s * 0.13, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.85, y);
+      ctx.lineTo(x + s * 0.85, y);
+      ctx.stroke();
+    } else if (kind === "moon") {
+      ctx.beginPath();
+      ctx.arc(x, y, s * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(x + s * 0.18, y, s * 0.36, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (kind === "star") {
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 2 + (i * 4 * Math.PI) / 5;
+        const px = x + Math.cos(a) * s * 0.5, py = y + Math.sin(a) * s * 0.5;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    } else if (kind === "kite") {
+      ctx.beginPath();
+      ctx.moveTo(x, y - s * 0.45);
+      ctx.lineTo(x + s * 0.32, y);
+      ctx.lineTo(x, y + s * 0.45);
+      ctx.lineTo(x - s * 0.32, y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.32, y);
+      ctx.lineTo(x + s * 0.32, y);
+      ctx.moveTo(x, y - s * 0.45);
+      ctx.lineTo(x, y + s * 0.45);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.15, y + s * 0.45);
+      ctx.lineTo(x - s * 0.9, y + s * 1.4);
+      ctx.stroke();
+    }
+  }
+
+  const EXAMPLES = [
+    { pose: "surfing", headline: "SURF'S UP", sub: "4.5 FT SWELL", props: [{ kind: "surfboard", dx: 0, dy: 1.75 }] },
+    { pose: "paddleboard", headline: "PADDLE DAY", sub: "8 MPH WIND", props: [{ kind: "paddleboard", dx: 0, dy: 1.75 }, { kind: "wave", dx: 0, dy: 1.9 }] },
+    { pose: "windy", headline: "WINDY", sub: "22 MPH GUSTS", props: [{ kind: "kite", dx: 1.3, dy: -3.4 }] },
+    { pose: "stargazing", headline: "FIRST QUARTER", sub: "MOONRISE 9:15 PM", props: [{ kind: "moon", dx: 1.7, dy: -2.1 }, { kind: "star", dx: -1.7, dy: -2.3 }] }
+  ];
+
+  const grid = document.getElementById("examplesGrid");
+  EXAMPLES.forEach((ex) => {
+    const card = document.createElement("div");
+    card.className = "example-card";
+    const canvas = document.createElement("canvas");
+    const W = 396, H = 260;
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = INK;
+    ctx.textAlign = "center";
+    ctx.font = "bold 24px 'Bungee', sans-serif";
+    ctx.fillText(ex.headline, W / 2, 40);
+    ctx.font = "bold 14px 'Work Sans', sans-serif";
+    ctx.fillText(ex.sub, W / 2, 62);
+    const hipX = W / 2, hipY = 158, u = 34;
+    drawStickFigure(ctx, hipX, hipY, u, ex.pose);
+    ex.props.forEach((p) => drawProp(ctx, p.kind, hipX + p.dx * u, hipY + p.dy * u, u * 1.7));
+    card.appendChild(canvas);
+    const label = document.createElement("p");
+    label.innerHTML = "<b>" + ex.headline + "</b>" + (ex.sub ? "  &middot;  " + ex.sub : "");
+    card.appendChild(label);
+    grid.appendChild(card);
+  });
+</script>
+</body>
+</html>
