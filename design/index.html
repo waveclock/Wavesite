@@ -4753,6 +4753,21 @@
     } catch (err) {
       console.error("Couldn't check for a custom fishing spot (falling back to device location):", err);
     }
+    // device-status/{id}.json is written by the device itself and reflects
+    // what's actually applied right now -- preferred over locations/{id}.json,
+    // which is only ever what the website last submitted and may not have
+    // been picked up by the device yet (same precedence as
+    // location/index.html's loadExistingSettings). This is also what makes
+    // a location set locally on the device's own wheel visible here at
+    // all: that path never writes locations/{id}.json, only device-status.
+    try {
+      const deviceStatus = await fetchJsonFromStorage("device-status/" + deviceId + ".json", 8000);
+      if (deviceStatus && deviceStatus.location && typeof deviceStatus.location.lat === "number" && typeof deviceStatus.location.lon === "number" && deviceStatus.location.stationId) {
+        return deviceStatus.location;
+      }
+    } catch (err) {
+      console.error("Couldn't check device-status (falling back to submitted location):", err);
+    }
     return fetchJsonFromStorage("locations/" + deviceId + ".json", 12000);
   }
 
