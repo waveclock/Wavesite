@@ -1573,7 +1573,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   await test("drawProp accepts every prop kind moodForBeachData can pick without throwing", () => {
     const canvas = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = canvas.getContext("2d");
-    ["sun", "cloud", "moon", "star", "wave", "umbrella", "windLines", "surfboard"].forEach((kind) => {
+    ["sun", "cloud", "moon", "star", "wave", "umbrella", "windLines", "surfboard", "paddleboard"].forEach((kind) => {
       assert.doesNotThrow(() => drawProp(ctx, kind, 396, 120, 60), kind + " threw while drawing");
     });
   });
@@ -1709,12 +1709,59 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(mood.pose, "lounging");
     assert.strictEqual(mood.headline, "LOW TIDE 3:00 PM");
   });
+  await test("small waves AND light wind (both required) read PADDLE DAY, even with a tide also in the window", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursWind: { mph: 8, dir: "S" }, businessHoursSwell: { heightFt: 1.5, periodS: 6 } },
+      tideExtrema: [{ t: "2026-07-15T19:00:00.000Z", label: "3:00 PM", heightFt: 4.2, isHigh: true }]
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.strictEqual(mood.pose, "paddleboard");
+    assert.strictEqual(mood.headline, "PADDLE DAY");
+    assert.strictEqual(mood.sub, "8 MPH WIND");
+    assert.deepStrictEqual(mood.props, ["paddleboard"]);
+  });
+  await test("small waves but NOT light wind (12mph+) doesn't read PADDLE DAY -- both signals are required, not just one", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursWind: { mph: 14, dir: "S" }, businessHoursSwell: { heightFt: 1.5, periodS: 6 } }
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.notStrictEqual(mood.pose, "paddleboard");
+  });
+  await test("light wind but NOT small waves (over 2ft) doesn't read PADDLE DAY either", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursWind: { mph: 8, dir: "S" }, businessHoursSwell: { heightFt: 2.5, periodS: 6 } }
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.notStrictEqual(mood.pose, "paddleboard");
+  });
+  await test("a mostly-clear business-hours forecast adds a big sun to the props, on top of whatever the branch already draws", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursWind: { mph: 8, dir: "S" }, businessHoursSwell: { heightFt: 1.5, periodS: 6 }, businessHoursCloudCoverPct: 5 }
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.strictEqual(mood.pose, "paddleboard");
+    assert.deepStrictEqual(mood.props, ["paddleboard", "sun"]);
+  });
+  await test("a mostly cloudy business-hours forecast does NOT add a sun, even if otherwise calm", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursWind: { mph: 8, dir: "S" }, businessHoursSwell: { heightFt: 1.5, periodS: 6 }, businessHoursCloudCoverPct: 70 }
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.deepStrictEqual(mood.props, ["paddleboard"]);
+  });
   await test("with no tide extrema left today and no other signal, falls back to a calm PERFECT DAY (with water temp if known)", () => {
     const data = beachData({ weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: 74 } });
     const mood = moodForBeachData(data, NOON);
     assert.strictEqual(mood.pose, "lounging");
     assert.strictEqual(mood.headline, "PERFECT DAY");
     assert.strictEqual(mood.sub, "WATER 74°F");
+    assert.deepStrictEqual(mood.props, [], "no cloud cover data at all shouldn't be treated as sunny");
+  });
+  await test("PERFECT DAY with a mostly-clear forecast gets a sun in its otherwise-empty props", () => {
+    const data = beachData({ weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: 74, businessHoursCloudCoverPct: 10 } });
+    const mood = moodForBeachData(data, NOON);
+    assert.strictEqual(mood.headline, "PERFECT DAY");
+    assert.deepStrictEqual(mood.props, ["sun"]);
   });
   await test("the calm-day fallback tolerates weather being entirely null (a down Open-Meteo call)", () => {
     const mood = moodForBeachData(beachData({}), NOON);

@@ -538,7 +538,7 @@ async function fetchOpenMeteoWeather(lat, lon, fetchImpl) {
   const params = new URLSearchParams({
     latitude: String(lat),
     longitude: String(lon),
-    hourly: "wind_speed_10m,wind_direction_10m,surface_pressure,precipitation_probability",
+    hourly: "wind_speed_10m,wind_direction_10m,surface_pressure,precipitation_probability,cloud_cover",
     wind_speed_unit: "mph",
     timezone: "UTC",
     past_hours: "6",
@@ -554,7 +554,11 @@ async function fetchOpenMeteoWeather(lat, lon, fetchImpl) {
     windMph: h.wind_speed_10m ? h.wind_speed_10m[i] : null,
     windDir: h.wind_direction_10m ? h.wind_direction_10m[i] : null,
     pressureHpa: h.surface_pressure ? h.surface_pressure[i] : null,
-    precipProbability: h.precipitation_probability ? h.precipitation_probability[i] : null
+    precipProbability: h.precipitation_probability ? h.precipitation_probability[i] : null,
+    // Percent (0-100) of sky covered by cloud -- drives Beach Buddy's
+    // "sunny, no clouds" signal (see businessHoursCloudCoverPct below),
+    // not used by the Tide & Fishing card.
+    cloudCoverPct: h.cloud_cover ? h.cloud_cover[i] : null
   }));
 }
 
@@ -691,6 +695,18 @@ function computeWindowPeak(series, key, startMs, endMs) {
   return best;
 }
 
+// The AVERAGE value of `key` within [startMs, endMs] (inclusive) --
+// unlike computeWindowPeak's "worst single point," a signal like cloud
+// cover cares about the overall day, not one particularly clear or
+// overcast hour: a single clear 10am reading inside an otherwise
+// overcast business-hours window shouldn't read as "sunny."
+function computeWindowAverage(series, key, startMs, endMs) {
+  const inWindow = series.filter((p) => p.t.getTime() >= startMs && p.t.getTime() <= endMs && p[key] != null);
+  if (!inWindow.length) return null;
+  const sum = inWindow.reduce((total, p) => total + p[key], 0);
+  return sum / inWindow.length;
+}
+
 // Both Open-Meteo calls in parallel; returns null fields gracefully
 // rather than throwing when a value just isn't available (e.g. water
 // temp near shore) -- unlike a NOAA/network failure, a missing data
@@ -718,6 +734,7 @@ async function fetchWeatherSignals({ lat, lon, dawn, dusk, now, timeZone, busine
   const bhEndMs = businessHoursEnd ? businessHoursEnd.getTime() : null;
   const bhWindPeak = bhStartMs != null ? computeWindowPeak(weatherSeries, "windMph", bhStartMs, bhEndMs) : null;
   const bhSwellPeak = bhStartMs != null ? computeWindowPeak(marineSeries, "waveHeightFt", bhStartMs, bhEndMs) : null;
+  const bhCloudCoverAvg = bhStartMs != null ? computeWindowAverage(weatherSeries, "cloudCoverPct", bhStartMs, bhEndMs) : null;
 
   return {
     wind: currentWeather && currentWeather.windMph != null
@@ -735,7 +752,11 @@ async function fetchWeatherSignals({ lat, lon, dawn, dusk, now, timeZone, busine
       : null,
     businessHoursSwell: bhSwellPeak
       ? { heightFt: Math.round(bhSwellPeak.waveHeightFt * 10) / 10, periodS: bhSwellPeak.wavePeriodS != null ? Math.round(bhSwellPeak.wavePeriodS) : null }
-      : null
+      : null,
+    // Average, not peak (see computeWindowAverage) -- Beach Buddy's "big
+    // sun" detail (moodForBeachData in dynamic.js) wants "is today
+    // mostly clear," not "was there one especially clear hour."
+    businessHoursCloudCoverPct: bhCloudCoverAvg != null ? Math.round(bhCloudCoverAvg) : null
   };
 }
 
@@ -893,6 +914,7 @@ module.exports = {
   computeRainWindows,
   computeWindRamp,
   computeWindowPeak,
+  computeWindowAverage,
   fetchOpenMeteoWeather,
   fetchOpenMeteoMarine,
   fetchWeatherSignals,
