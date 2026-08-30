@@ -107,12 +107,22 @@ const IMAGEN_SCENE_HINTS = {
   // lines, since that's the detail the earlier wording accidentally
   // banned.
   surfing: "Buddy is crouched on a surfboard riding a cresting wave, the wave rendered with fine curved texture lines for motion and detail, arms out for balance, thrilled",
-  // Rewritten to match a second reference scene the user liked: a calm
-  // beach-chair-and-umbrella setup with a small child playing nearby --
-  // this pose already covers low tide, a calm default day, AND
-  // stargazing at night (see moodForBeachData), so it stays general
-  // enough to read fine as a relaxed daytime OR evening beach scene.
-  lounging: "Buddy is relaxing in a low beach lounge chair, shaded by a large beach umbrella, completely at ease, with a small child nearby happily playing and building in the sand",
+  // Rewritten again after a live call for this exact pose came back
+  // safety-filtered (finishReason: IMAGE_SAFETY) -- the earlier wording
+  // asked for "a small child... playing" in the same scene as Buddy,
+  // which directly conflicts with defaultGenerateImpl's own
+  // `personGeneration: "ALLOW_ADULT"` (deliberately excludes minors);
+  // asking for a child while telling the model not to generate one is
+  // exactly the kind of prompt that gets blocked outright rather than
+  // silently ignored. This version keeps the same "someone's been
+  // playing here" feeling (from a second reference scene the user
+  // liked: beach chair, umbrella, a kid in the sand) without depicting
+  // a person to do it -- a built sandcastle with a toy pail and shovel
+  // reads as evidence of play on its own. This pose already covers low
+  // tide, a calm default day, AND stargazing at night (see
+  // moodForBeachData), so it stays general enough to read fine as a
+  // relaxed daytime OR evening beach scene.
+  lounging: "Buddy is relaxing in a low beach lounge chair, shaded by a large beach umbrella, completely at ease, with a freshly-built sandcastle and a toy pail and shovel sitting in the sand nearby",
   pointing: "Buddy is standing at the shoreline pointing excitedly out at the ocean",
   standing: "Buddy is standing happily on the beach, waving"
 };
