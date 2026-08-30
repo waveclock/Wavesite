@@ -100,8 +100,22 @@ const IMAGE_ASPECT_RATIO = "21:9";
 // and torso, a simple circle head) -- that's Buddy's actual identity,
 // not an incidental style choice, so this spells it out explicitly and
 // says directly what to avoid (a rounded/chubby mascot body).
+//
+// Rewritten a fifth time comparing two live renders side by side: a
+// surfing scene the user liked (bold, mostly-flat linework, only the
+// wave itself carrying fine texture) against a lounging scene they
+// didn't (heavy cross-hatching all over the umbrella/sand/chair, and
+// Buddy's own body reading with real thickness/shading again instead
+// of a clean stick figure) -- the earlier "fine contrasting linework
+// for waves, water, sand" invited exactly that over-application. This
+// version confines dense fine linework to wave crests specifically
+// (sparingly, a few curling lines, not a fully hatched surface) and
+// tells the model everything else in the scene should be bold, mostly
+// flat outlines -- plus a stronger, more literal restatement of
+// Buddy's stick-figure body (uniform thin line weight, no shape or
+// volume at all, like a quick hand-drawn doodle).
 const STYLE_PREFIX =
-  "A wide horizontal beach-scene illustration starring a single recurring stick-figure cartoon character named Buddy, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Buddy is a classic minimalist STICK FIGURE: a simple circle for a head and thin single-line strokes for the arms, legs, and torso -- NOT a rounded, chubby, or bear-like mascot body, NOT a filled-in human silhouette. Buddy wears a floppy bucket hat and round sunglasses on that circle head -- this exact outfit every time, it's what makes Buddy recognizable as the same character scene to scene. Style: bold black ink line art, like a woodblock print or comic-strip panel. Buddy's own thin stick-figure linework is still bold and confident (a thick confident stroke, just not a filled body), while the surrounding scene -- waves, water, sand -- is rendered with a mix of bold and fine contrasting linework for texture and motion. STRICT rules, no exceptions: every mark is a real solid black line or solid black fill on a plain solid white background -- fine linework and texture are welcome, but NO gray, NO gradients, and NO halftone dot/stipple shading used to fake a gray value. No color. No photographic detail. No text, no lettering, no words or numbers anywhere in the image. ";
+  "A wide horizontal beach-scene illustration starring a single recurring stick-figure cartoon character named Buddy, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Buddy is a classic minimalist STICK FIGURE, drawn exactly like a quick hand-drawn doodle: a simple circle for a head and thin, uniform-width single-line strokes for the arms, legs, and torso -- no shape, no volume, no shading anywhere on Buddy's body. NOT a rounded, chubby, or bear-like mascot body, NOT a filled-in human silhouette. Buddy wears a floppy bucket hat and round sunglasses on that circle head -- this exact outfit every time, it's what makes Buddy recognizable as the same character scene to scene. Style: bold black ink line art, like a woodblock print or comic-strip panel, with thick, confident outlines throughout the whole scene -- clean and bold, not busy or fine. Cross-hatching and fine detail linework are used SPARINGLY and ONLY inside a wave's crest, as a handful of curling lines suggesting motion -- never densely covering an entire surface, and never on the sand, umbrella, chair, or any other prop, which stay simple bold outlines with flat solid black fills. STRICT rules, no exceptions: every mark is a real solid black line or solid black fill on a plain solid white background -- NO gray, NO gradients, and NO halftone dot/stipple shading used to fake a gray value. No color. No photographic detail. No text, no lettering, no words or numbers anywhere in the image. ";
 
 // Short present-tense action fragments describing what Buddy is doing,
 // keyed by the same pose names STICK_POSES uses for the procedural
