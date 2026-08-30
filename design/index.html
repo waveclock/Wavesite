@@ -3213,7 +3213,8 @@
     lounging: { armL: [65, -55], armR: [-65, 55], legL: [-18, 0], legR: [30, -12] },
     umbrella: { armL: [-14, 0], armR: [145, 0], legL: [-14, 0], legR: [14, 0] },
     windy: { armL: [-42, 24], armR: [102, -14], legL: [-34, 0], legR: [12, 0], rotate: -16 },
-    surfing: { armL: [-100, 18], armR: [100, -18], legL: [-46, 0], legR: [46, 0], rotate: -8 }
+    surfing: { armL: [-100, 18], armR: [100, -18], legL: [-46, 0], legR: [46, 0], rotate: -8 },
+    paddleboard: { armL: [-15, 0], armR: [50, 24], legL: [-8, 0], legR: [10, 0] }
   };
 
   function drawStickFigure(ctx, hipX, hipY, u, poseName) {
@@ -3339,6 +3340,14 @@
       ctx.moveTo(x - s * 0.65, y);
       ctx.lineTo(x + s * 0.65, y);
       ctx.stroke();
+    } else if (kind === "paddleboard") {
+      ctx.beginPath();
+      ctx.ellipse(x, y, s * 0.95, s * 0.13, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - s * 0.85, y);
+      ctx.lineTo(x + s * 0.85, y);
+      ctx.stroke();
     }
   }
 
@@ -3348,7 +3357,9 @@
     moon: { dx: 1.7, dy: -2.1 },
     star: { dx: -1.7, dy: -2.3 },
     windLines: { dx: -1.7, dy: -0.7 },
-    surfboard: { dx: 0, dy: 1.75 }
+    surfboard: { dx: 0, dy: 1.75 },
+    paddleboard: { dx: 0, dy: 1.75 },
+    sun: { dx: -1.9, dy: -2.6 }
   };
 
   // Mirrors moodForBeachData in functions/lib/dynamic.js exactly --
@@ -3363,6 +3374,7 @@
     const bhStartMs = data.businessHoursStart ? new Date(data.businessHoursStart.t).getTime() : null;
     const bhEndMs = data.businessHoursEnd ? new Date(data.businessHoursEnd.t).getTime() : null;
     const overlapsBusinessHours = (startMs, endMs) => bhStartMs != null && bhEndMs != null && startMs <= bhEndMs && endMs >= bhStartMs;
+    const sunny = weather.businessHoursCloudCoverPct != null && weather.businessHoursCloudCoverPct <= 20;
 
     const rainWindows = weather.rainWindows || [];
     const businessRain = rainWindows.find((w) => overlapsBusinessHours(new Date(w.start).getTime(), new Date(w.end).getTime()));
@@ -3392,17 +3404,25 @@
       return { pose: "surfing", headline: "SURF'S UP", sub: bhSwellFt + " FT SWELL", props: ["surfboard"] };
     }
 
+    if (bhSwellFt != null && bhSwellFt <= 2 && bhWindMph != null && bhWindMph < 12) {
+      const props = ["paddleboard"];
+      if (sunny) props.push("sun");
+      return { pose: "paddleboard", headline: "PADDLE DAY", sub: bhWindMph + " MPH WIND", props };
+    }
+
     const extrema = data.tideExtrema || [];
     const businessTides = bhStartMs != null && bhEndMs != null
       ? extrema.filter((e) => { const t = new Date(e.t).getTime(); return t >= bhStartMs && t <= bhEndMs; })
       : [];
     const headlineTide = businessTides.length ? businessTides[businessTides.length - 1] : null;
     if (headlineTide) {
+      const props = ["wave"];
+      if (sunny) props.push("sun");
       return {
         pose: headlineTide.isHigh ? "pointing" : "lounging",
         headline: (headlineTide.isHigh ? "HIGH TIDE " : "LOW TIDE ") + headlineTide.label,
         sub: null,
-        props: ["wave"]
+        props
       };
     }
 
@@ -3420,7 +3440,7 @@
       pose: "lounging",
       headline: "PERFECT DAY",
       sub: weather.waterTempF != null ? "WATER " + weather.waterTempF + "°F" : null,
-      props: []
+      props: sunny ? ["sun"] : []
     };
   }
 
@@ -3455,7 +3475,8 @@
 
     (mood.props || []).forEach((kind) => {
       const off = BUDDY_PROP_OFFSET[kind] || { dx: 1.5, dy: -1 };
-      drawBuddyProp(ctx, kind, hipX + off.dx * u, hipY + off.dy * u, u * 1.7);
+      const size = kind === "sun" ? u * 2.6 : u * 1.7;
+      drawBuddyProp(ctx, kind, hipX + off.dx * u, hipY + off.dy * u, size);
     });
   }
 

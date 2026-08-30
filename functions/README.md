@@ -804,7 +804,7 @@ a Timeline layer, and check what actually shows up.
 
 ## Beach Buddy
 
-A single recurring illustrated character ("Buddy"), one new pose/
+A single recurring illustrated character ("Jake"), one new pose/
 headline a day, driven entirely by the device's own real conditions --
 no separate settings to publish at all beyond the same `lat`/`lon`/
 `stationId` the Tide & Fishing card already uses (`{ type: "beachBuddy",
@@ -843,12 +843,12 @@ back":
    legible headline itself, in code, on top, exactly the way every other
    card here draws its own text.
 2. **One fixed style prefix on every single call** (`STYLE_PREFIX` in
-   `lib/imagen.js`) is what keeps "Buddy" reading as the same recurring
+   `lib/imagen.js`) is what keeps "Jake" reading as the same recurring
    character day to day rather than a new random illustration each time
    -- flat two-color linework (no gradients/shading a 1-bit threshold
    would turn to noise), the same character description, every time.
    `IMAGEN_SCENE_HINTS` supplies just the one line that actually changes
-   -- what Buddy is doing -- keyed by the same pose names the procedural
+   -- what Jake is doing -- keyed by the same pose names the procedural
    fallback's `STICK_POSES` uses, so a mood computed from real data
    drives the same scene idea whichever renderer ends up drawing it.
 

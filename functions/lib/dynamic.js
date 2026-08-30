@@ -1866,7 +1866,12 @@ const STICK_POSES = {
   // at a fixed offset above this exact arm, see BUDDY_PROP_OFFSET.
   umbrella: { armL: [-14, 0], armR: [145, 0], legL: [-14, 0], legR: [14, 0] },
   windy: { armL: [-42, 24], armR: [102, -14], legL: [-34, 0], legR: [12, 0], rotate: -16 },
-  surfing: { armL: [-100, 18], armR: [100, -18], legL: [-46, 0], legR: [46, 0], rotate: -8 }
+  surfing: { armL: [-100, 18], armR: [100, -18], legL: [-46, 0], legR: [46, 0], rotate: -8 },
+  // Upright and calm (unlike surfing's crouched rotate) -- one arm
+  // reaches down at an angle as if planting a paddle in the water, the
+  // other relaxed at the side. Legs stay close together, standing
+  // squarely on the board rather than braced wide like surfing's.
+  paddleboard: { armL: [-15, 0], armR: [50, 24], legL: [-8, 0], legR: [10, 0] }
 };
 
 // Draws one stick figure WITH a small face (two dot eyes, a smile arc) --
@@ -2006,6 +2011,17 @@ function drawProp(ctx, kind, x, y, s) {
     ctx.moveTo(x - s * 0.65, y);
     ctx.lineTo(x + s * 0.65, y);
     ctx.stroke();
+  } else if (kind === "paddleboard") {
+    // Longer and flatter than surfboard (a real paddleboard is a good
+    // deal longer than a surfboard), floating flat under the figure's
+    // feet, same reasoning as surfboard's own horizontal orientation.
+    ctx.beginPath();
+    ctx.ellipse(x, y, s * 0.95, s * 0.13, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.85, y);
+    ctx.lineTo(x + s * 0.85, y);
+    ctx.stroke();
   }
 }
 
@@ -2020,7 +2036,9 @@ const BUDDY_PROP_OFFSET = {
   moon: { dx: 1.7, dy: -2.1 },
   star: { dx: -1.7, dy: -2.3 },
   windLines: { dx: -1.7, dy: -0.7 },
-  surfboard: { dx: 0, dy: 1.75 }
+  surfboard: { dx: 0, dy: 1.75 },
+  paddleboard: { dx: 0, dy: 1.75 },
+  sun: { dx: -1.9, dy: -2.6 }
 };
 
 // Picks today's headline + pose from the SAME payload fetchTideCardData
@@ -2058,6 +2076,14 @@ function moodForBeachData(data, now) {
   const bhEndMs = data.businessHoursEnd ? new Date(data.businessHoursEnd.t).getTime() : null;
   const overlapsBusinessHours = (startMs, endMs) => bhStartMs != null && bhEndMs != null && startMs <= bhEndMs && endMs >= bhStartMs;
 
+  // A big sun only gets added to a scene's props on a genuinely mostly-
+  // clear business-hours forecast -- NOT on rain/wind/night branches
+  // regardless of this value (checked explicitly at each of those
+  // return points below, not just inferred from cloud cover, since a
+  // rare high-cloud-but-technically-dry reading shouldn't put a sun
+  // over Jake holding an umbrella).
+  const sunny = weather.businessHoursCloudCoverPct != null && weather.businessHoursCloudCoverPct <= 20;
+
   const rainWindows = weather.rainWindows || [];
   const businessRain = rainWindows.find((w) => overlapsBusinessHours(new Date(w.start).getTime(), new Date(w.end).getTime()));
   if (businessRain) {
@@ -2089,6 +2115,17 @@ function moodForBeachData(data, now) {
     return { pose: "surfing", headline: "SURF'S UP", sub: bhSwellFt + " FT SWELL", props: ["surfboard"] };
   }
 
+  // Calm-water conditions: small waves AND light wind, both required --
+  // choppy-but-small or calm-but-windy water isn't really paddleboard
+  // weather. Checked after surfing (>=3ft) so the two branches stay
+  // mutually exclusive on wave height, though the actual priority order
+  // between them doesn't matter since they never both fire.
+  if (bhSwellFt != null && bhSwellFt <= 2 && bhWindMph != null && bhWindMph < 12) {
+    const props = ["paddleboard"];
+    if (sunny) props.push("sun");
+    return { pose: "paddleboard", headline: "PADDLE DAY", sub: bhWindMph + " MPH WIND", props };
+  }
+
   // Only a tide actually falling inside business hours is headline-
   // worthy -- an early-morning or late-evening tide isn't something
   // anyone glancing at their desk during the day will ever see happen.
@@ -2102,11 +2139,13 @@ function moodForBeachData(data, now) {
     : [];
   const headlineTide = businessTides.length ? businessTides[businessTides.length - 1] : null;
   if (headlineTide) {
+    const props = ["wave"];
+    if (sunny) props.push("sun");
     return {
       pose: headlineTide.isHigh ? "pointing" : "lounging",
       headline: (headlineTide.isHigh ? "HIGH TIDE " : "LOW TIDE ") + headlineTide.label,
       sub: null,
-      props: ["wave"]
+      props
     };
   }
 
@@ -2127,7 +2166,7 @@ function moodForBeachData(data, now) {
     pose: "lounging",
     headline: "PERFECT DAY",
     sub: weather.waterTempF != null ? "WATER " + weather.waterTempF + "°F" : null,
-    props: []
+    props: sunny ? ["sun"] : []
   };
 }
 
@@ -2163,7 +2202,12 @@ function drawBeachBuddyCard(ctx, mood) {
 
   (mood.props || []).forEach((kind) => {
     const off = BUDDY_PROP_OFFSET[kind] || { dx: 1.5, dy: -1 };
-    drawProp(ctx, kind, BUDDY_HIP_X + off.dx * BUDDY_FIGURE_U, BUDDY_HIP_Y + off.dy * BUDDY_FIGURE_U, BUDDY_FIGURE_U * 1.7);
+    // "sun" is only ever added to props on a genuinely clear day (see
+    // moodForBeachData's businessHoursCloudCoverPct check) -- drawn
+    // noticeably bigger than the other small corner icons so a sunny
+    // day actually reads as bright, not just present.
+    const size = kind === "sun" ? BUDDY_FIGURE_U * 2.6 : BUDDY_FIGURE_U * 1.7;
+    drawProp(ctx, kind, BUDDY_HIP_X + off.dx * BUDDY_FIGURE_U, BUDDY_HIP_Y + off.dy * BUDDY_FIGURE_U, size);
   });
 }
 

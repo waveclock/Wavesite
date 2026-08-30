@@ -172,12 +172,27 @@ const IMAGEN_SCENE_HINTS = {
   // relaxed daytime OR evening beach scene.
   lounging: "Jake is relaxing in a low beach lounge chair, shaded by a large beach umbrella, completely at ease, with a freshly-built sandcastle and a toy pail and shovel sitting in the sand nearby",
   pointing: "Jake is standing at the shoreline pointing excitedly out at the ocean",
-  standing: "Jake is standing happily on the beach, waving"
+  standing: "Jake is standing happily on the beach, waving",
+  // Calm-water conditions (small waves, light wind -- see
+  // moodForBeachData), standing upright rather than crouched like
+  // surfing.
+  paddleboard: "Jake is standing upright on a long paddleboard on calm water, one arm reaching down with a paddle, gliding along peacefully"
 };
 
+// `mood.props` including "sun" (see moodForBeachData's businessHoursCloudCoverPct
+// check) means the day's forecast is genuinely mostly clear -- appended
+// as its own sentence, after the scene hint, so it layers onto any pose
+// rather than needing its own copy of every scene's wording. Still flat
+// black-and-white line art (see STYLE_PREFIX's own strict color/shading
+// rules) -- "a clear blue sky" would ask for color this whole prompt
+// otherwise strictly forbids, so this asks for a big bold sun drawn in
+// line art instead, the same "sun" icon idea the procedural fallback
+// (drawProp in dynamic.js) already draws bigger on a sunny mood.
 function buildPrompt(mood) {
   const hint = IMAGEN_SCENE_HINTS[mood && mood.pose] || IMAGEN_SCENE_HINTS.standing;
-  return STYLE_PREFIX + hint + ".";
+  const sunny = !!(mood && mood.props && mood.props.includes("sun"));
+  const sunnyClause = sunny ? " The sky is clear with no clouds at all, and a big, bold sun is drawn large in the sky." : "";
+  return STYLE_PREFIX + hint + "." + sunnyClause;
 }
 
 // `generateImpl`, when given, replaces the real Vertex AI call --
