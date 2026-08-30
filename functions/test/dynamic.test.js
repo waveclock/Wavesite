@@ -1588,6 +1588,11 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       sunrise: { t: "2026-07-15T10:00:00.000Z", label: "6:00 AM" },
       sunset: { t: "2026-07-16T00:30:00.000Z", label: "8:30 PM" },
       dusk: { t: "2026-07-16T01:00:00.000Z", label: "9:00 PM" },
+      // 10:00 AM-4:30 PM Eastern (EDT, UTC-4) on 2026-07-15 -- see
+      // moodForBeachData's own comment for why this window, not literal
+      // `now`, drives the rain/wind/swell/tide branches below.
+      businessHoursStart: { t: "2026-07-15T14:00:00.000Z", label: "10:00 AM" },
+      businessHoursEnd: { t: "2026-07-15T20:30:00.000Z", label: "4:30 PM" },
       moon: { illumination: 0.5, waxing: true, phaseName: "First Quarter", rise: null, set: null },
       tideCurve: [],
       tideExtrema: [],
@@ -1596,8 +1601,9 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       fishingScore: "Fair"
     }, overrides);
   }
-  const NOON = new Date("2026-07-15T16:00:00.000Z"); // noon Eastern, well inside the mock sunrise/sunset above
-  const MIDNIGHT = new Date("2026-07-15T05:00:00.000Z"); // 1 AM Eastern, outside it
+  const NOON = new Date("2026-07-15T16:00:00.000Z"); // noon Eastern, inside both business hours and the mock sunrise/sunset above
+  const MIDNIGHT = new Date("2026-07-15T05:00:00.000Z"); // 1 AM Eastern, outside both
+  const PREDAWN = new Date("2026-07-15T09:00:00.000Z"); // 5 AM Eastern -- roughly when the once-daily job actually runs (regenerateCountdownDesigns is 9am UTC), well before business hours or sunrise
 
   await test("active rain wins over everything else -- umbrella pose, RAINY DAY headline", () => {
     const data = beachData({
@@ -1625,26 +1631,41 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(mood.headline, "WINDY");
     assert.strictEqual(mood.sub, "28 MPH GUSTS");
   });
-  await test("high current wind with no ramp also reads windy", () => {
+  await test("a high business-hours wind forecast with no ramp also reads windy", () => {
     const data = beachData({
-      weather: { wind: { mph: 24, dir: "NW" }, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null }
+      weather: { wind: { mph: 3, dir: "NW" }, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursWind: { mph: 24, dir: "NW" }, businessHoursSwell: null }
     });
     const mood = moodForBeachData(data, NOON);
     assert.strictEqual(mood.pose, "windy");
     assert.strictEqual(mood.sub, "24 MPH");
   });
-  await test("big daytime swell (and nothing worse) reads SURF'S UP", () => {
+  await test("calm current wind doesn't matter if business hours are forecast calm too -- 'current' conditions are never consulted for this branch", () => {
     const data = beachData({
-      weather: { wind: { mph: 5, dir: "S" }, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: { heightFt: 4.5, periodS: 9 }, waterTempF: 70 }
+      weather: { wind: { mph: 24, dir: "NW" }, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursWind: { mph: 5, dir: "NW" }, businessHoursSwell: null }
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.strictEqual(mood.headline, "PERFECT DAY", "a windy INSTANT shouldn't matter if business hours themselves are forecast calm");
+  });
+  await test("a business-hours swell forecast (and nothing worse) reads SURF'S UP", () => {
+    const data = beachData({
+      weather: { wind: { mph: 5, dir: "S" }, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: 70, businessHoursWind: { mph: 5, dir: "S" }, businessHoursSwell: { heightFt: 4.5, periodS: 9 } }
     });
     const mood = moodForBeachData(data, NOON);
     assert.strictEqual(mood.pose, "surfing");
     assert.strictEqual(mood.headline, "SURF'S UP");
     assert.strictEqual(mood.sub, "4.5 FT SWELL");
   });
-  await test("the same big swell at night doesn't trigger surfing -- night takes priority", () => {
+  await test("a business-hours swell forecast wins even when generated pre-dawn -- the whole point of judging the forecast instead of the literal instant", () => {
     const data = beachData({
-      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: { heightFt: 4.5, periodS: 9 }, waterTempF: null }
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursWind: null, businessHoursSwell: { heightFt: 4.5, periodS: 9 } }
+    });
+    const mood = moodForBeachData(data, PREDAWN);
+    assert.strictEqual(mood.pose, "surfing");
+    assert.strictEqual(mood.headline, "SURF'S UP");
+  });
+  await test("with nothing forecast for business hours, and generated at night, falls back to tonight's moon phase", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursWind: null, businessHoursSwell: null }
     });
     const mood = moodForBeachData(data, MIDNIGHT);
     assert.strictEqual(mood.pose, "lounging");
@@ -1656,19 +1677,31 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const mood = moodForBeachData(data, MIDNIGHT);
     assert.strictEqual(mood.headline, "CLEAR NIGHT");
   });
-  await test("an upcoming high tide (no rain/wind/surf/night) points at it by name and time", () => {
+  await test("with two tides inside business hours, reports the LATER one, not the soonest-upcoming -- even when 'now' is well before both", () => {
     const data = beachData({
       tideExtrema: [
-        { t: "2026-07-15T13:00:00.000Z", label: "9:00 AM", heightFt: 0.5, isHigh: false },
-        { t: "2026-07-15T19:00:00.000Z", label: "3:00 PM", heightFt: 4.2, isHigh: true }
+        { t: "2026-07-15T15:00:00.000Z", label: "11:00 AM", heightFt: 0.5, isHigh: false }, // inside business hours
+        { t: "2026-07-15T19:00:00.000Z", label: "3:00 PM", heightFt: 4.2, isHigh: true } // also inside business hours, later
       ]
     });
-    const mood = moodForBeachData(data, NOON);
+    // PREDAWN is well before BOTH tides -- a "just pick the next one
+    // chronologically" rule would return the 11:00 AM low tide instead.
+    const mood = moodForBeachData(data, PREDAWN);
     assert.strictEqual(mood.pose, "pointing");
     assert.strictEqual(mood.headline, "HIGH TIDE 3:00 PM");
     assert.deepStrictEqual(mood.props, ["wave"]);
   });
-  await test("an upcoming low tide gets the relaxed lounging pose instead", () => {
+  await test("a tide outside business hours is ignored even when it's the only one left today", () => {
+    const data = beachData({
+      tideExtrema: [
+        { t: "2026-07-15T11:00:00.000Z", label: "7:00 AM", heightFt: 0.5, isHigh: false }, // before business hours
+        { t: "2026-07-16T00:00:00.000Z", label: "8:00 PM", heightFt: 4.2, isHigh: true } // after business hours
+      ]
+    });
+    const mood = moodForBeachData(data, NOON);
+    assert.ok(!mood.headline.includes("TIDE"), "neither tide falls inside business hours, so the tide branch shouldn't fire at all -- got: " + mood.headline);
+  });
+  await test("an upcoming low tide (alone, inside business hours) gets the relaxed lounging pose instead", () => {
     const data = beachData({
       tideExtrema: [{ t: "2026-07-15T19:00:00.000Z", label: "3:00 PM", heightFt: 0.2, isHigh: false }]
     });

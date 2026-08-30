@@ -677,11 +677,35 @@ function computeWindRamp(weatherSeries, dawn, dusk, nowMs, timeZone) {
   return { gustMph, after: crossing.t.toISOString(), label: "WIND TO " + gustMph + " MPH AFTER " + afterLabel };
 }
 
+// The single most extreme reading of `key` within [startMs, endMs]
+// (inclusive) -- the same "scan a window, keep the worst/most-notable
+// point" shape computeWindRamp's own peak search already uses,
+// generalized so businessHoursWind/businessHoursSwell below (and any
+// future window-based signal) can share it instead of each
+// reimplementing the loop.
+function computeWindowPeak(series, key, startMs, endMs) {
+  const inWindow = series.filter((p) => p.t.getTime() >= startMs && p.t.getTime() <= endMs && p[key] != null);
+  if (!inWindow.length) return null;
+  let best = inWindow[0];
+  inWindow.forEach((p) => { if (p[key] > best[key]) best = p; });
+  return best;
+}
+
 // Both Open-Meteo calls in parallel; returns null fields gracefully
 // rather than throwing when a value just isn't available (e.g. water
 // temp near shore) -- unlike a NOAA/network failure, a missing data
 // field is not a reason to fail the whole card.
-async function fetchWeatherSignals({ lat, lon, dawn, dusk, now, timeZone, fetchImpl }) {
+//
+// `businessHoursStart`/`businessHoursEnd`, when given, add two EXTRA
+// forward-looking fields (businessHoursWind/businessHoursSwell) on top
+// of the existing "right now" wind/swell -- Beach Buddy's mood
+// (moodForBeachData in dynamic.js) needs to know what conditions will
+// be like during the hours someone's actually likely to be looking at
+// the display, not literally this instant: the once-a-day regeneration
+// job runs overnight, when "current" conditions say nothing about the
+// afternoon ahead. The Tide & Fishing card doesn't pass these and
+// doesn't get them -- it genuinely wants "right now," unchanged.
+async function fetchWeatherSignals({ lat, lon, dawn, dusk, now, timeZone, businessHoursStart, businessHoursEnd, fetchImpl }) {
   const [weatherSeries, marineSeries] = await Promise.all([
     fetchOpenMeteoWeather(lat, lon, fetchImpl),
     fetchOpenMeteoMarine(lat, lon, fetchImpl)
@@ -689,6 +713,11 @@ async function fetchWeatherSignals({ lat, lon, dawn, dusk, now, timeZone, fetchI
   const nowMs = now.getTime();
   const currentWeather = nearestHourly(weatherSeries, nowMs);
   const currentMarine = nearestHourly(marineSeries, nowMs);
+
+  const bhStartMs = businessHoursStart ? businessHoursStart.getTime() : null;
+  const bhEndMs = businessHoursEnd ? businessHoursEnd.getTime() : null;
+  const bhWindPeak = bhStartMs != null ? computeWindowPeak(weatherSeries, "windMph", bhStartMs, bhEndMs) : null;
+  const bhSwellPeak = bhStartMs != null ? computeWindowPeak(marineSeries, "waveHeightFt", bhStartMs, bhEndMs) : null;
 
   return {
     wind: currentWeather && currentWeather.windMph != null
@@ -700,7 +729,13 @@ async function fetchWeatherSignals({ lat, lon, dawn, dusk, now, timeZone, fetchI
     swell: currentMarine && currentMarine.waveHeightFt != null
       ? { heightFt: Math.round(currentMarine.waveHeightFt * 10) / 10, periodS: currentMarine.wavePeriodS != null ? Math.round(currentMarine.wavePeriodS) : null }
       : null,
-    waterTempF: currentMarine && currentMarine.waterTempF != null ? Math.round(currentMarine.waterTempF) : null
+    waterTempF: currentMarine && currentMarine.waterTempF != null ? Math.round(currentMarine.waterTempF) : null,
+    businessHoursWind: bhWindPeak
+      ? { mph: Math.round(bhWindPeak.windMph), dir: degreesToCompass(bhWindPeak.windDir) }
+      : null,
+    businessHoursSwell: bhSwellPeak
+      ? { heightFt: Math.round(bhSwellPeak.waveHeightFt * 10) / 10, periodS: bhSwellPeak.wavePeriodS != null ? Math.round(bhSwellPeak.wavePeriodS) : null }
+      : null
   };
 }
 
@@ -723,6 +758,18 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
 
   const dawn = times.dawn;
   const dusk = times.dusk;
+
+  // Beach Buddy's "business hours" reference window (10:00am-4:30pm
+  // local) -- see moodForBeachData in dynamic.js for the full reasoning.
+  // Short version: rain/wind/swell/tide should be judged against what's
+  // actually forecast for the hours someone's likely to be at their
+  // desk, not literally "right now" -- the once-daily regeneration job
+  // runs overnight. Same fixed-offset-from-local-midnight approach
+  // localNoonAnchor above already uses (not exact across a DST-
+  // transition day, an existing, accepted limitation of that pattern in
+  // this file).
+  const businessHoursStart = new Date(dayStart.getTime() + 10 * 3600000);
+  const businessHoursEnd = new Date(dayStart.getTime() + 16.5 * 3600000);
 
   // See findMoonRiseSet's comment above: SunCalc.getMoonTimes' own search
   // window is UTC-midnight-anchored, not local-midnight, so it silently
@@ -795,7 +842,7 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
   // inside fetchWeatherSignals.
   let weather = null;
   try {
-    weather = await fetchWeatherSignals({ lat, lon, dawn, dusk, now: at, timeZone, fetchImpl });
+    weather = await fetchWeatherSignals({ lat, lon, dawn, dusk, now: at, timeZone, businessHoursStart, businessHoursEnd, fetchImpl });
   } catch (err) {
     console.error("Couldn't reach Open-Meteo for lat=" + lat + " lon=" + lon + " (continuing without weather data):", err);
   }
@@ -806,6 +853,8 @@ async function fetchTideCardData({ lat, lon, stationId }, now, fetchImpl) {
     sunrise: labeled(times.sunrise),
     sunset: labeled(times.sunset),
     dusk: labeled(dusk),
+    businessHoursStart: labeled(businessHoursStart),
+    businessHoursEnd: labeled(businessHoursEnd),
     moon: {
       illumination: illum.fraction,
       waxing: illum.waxing,
@@ -843,6 +892,7 @@ module.exports = {
   computePressure,
   computeRainWindows,
   computeWindRamp,
+  computeWindowPeak,
   fetchOpenMeteoWeather,
   fetchOpenMeteoMarine,
   fetchWeatherSignals,
