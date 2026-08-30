@@ -91,8 +91,17 @@ const IMAGE_ASPECT_RATIO = "21:9";
 // signature outfit (bucket hat + round sunglasses) so the character
 // reads as recognizably the same Buddy across different scenes and
 // poses, which the model has no other memory of between calls.
+//
+// Rewritten a fourth time after a live "lounging" render came back as a
+// chubby rounded mascot/bear-shaped character, not a stick figure --
+// "a friendly, rounded human figure" was exactly specific enough to
+// steer the model there. This whole feature has been a STICK FIGURE
+// from its very first reference image onward (thin single-line limbs
+// and torso, a simple circle head) -- that's Buddy's actual identity,
+// not an incidental style choice, so this spells it out explicitly and
+// says directly what to avoid (a rounded/chubby mascot body).
 const STYLE_PREFIX =
-  "A wide horizontal beach-scene illustration starring a single recurring cartoon character named Buddy, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Buddy is a friendly, rounded human figure wearing a floppy bucket hat and round sunglasses -- this exact outfit every time, it's what makes Buddy recognizable as the same character scene to scene. Style: bold black ink line art, like a woodblock print or comic-strip panel. Buddy's own outline is thick, bold, and confident, while the surrounding scene -- waves, water, sand, clothing folds -- is rendered with a mix of bold and fine contrasting linework, the way a woodcut print uses clusters of thin curved lines to suggest texture and motion (think detailed wave lines, not a flat solid shape). STRICT rules, no exceptions: every mark is a real solid black line or solid black fill on a plain solid white background -- fine linework and texture are welcome, but NO gray, NO gradients, and NO halftone dot/stipple shading used to fake a gray value. No color. No photographic detail. No text, no lettering, no words or numbers anywhere in the image. ";
+  "A wide horizontal beach-scene illustration starring a single recurring stick-figure cartoon character named Buddy, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Buddy is a classic minimalist STICK FIGURE: a simple circle for a head and thin single-line strokes for the arms, legs, and torso -- NOT a rounded, chubby, or bear-like mascot body, NOT a filled-in human silhouette. Buddy wears a floppy bucket hat and round sunglasses on that circle head -- this exact outfit every time, it's what makes Buddy recognizable as the same character scene to scene. Style: bold black ink line art, like a woodblock print or comic-strip panel. Buddy's own thin stick-figure linework is still bold and confident (a thick confident stroke, just not a filled body), while the surrounding scene -- waves, water, sand -- is rendered with a mix of bold and fine contrasting linework, the way a woodcut print uses clusters of thin curved lines to suggest texture and motion (think detailed wave lines, not a flat solid shape). STRICT rules, no exceptions: every mark is a real solid black line or solid black fill on a plain solid white background -- fine linework and texture are welcome, but NO gray, NO gradients, and NO halftone dot/stipple shading used to fake a gray value. No color. No photographic detail. No text, no lettering, no words or numbers anywhere in the image. ";
 
 // Short present-tense action fragments describing what Buddy is doing,
 // keyed by the same pose names STICK_POSES uses for the procedural
