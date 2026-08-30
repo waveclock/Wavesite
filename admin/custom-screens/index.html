@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Custom Screens by Device</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="../../favicon.png">
+<link rel="apple-touch-icon" href="../../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+    --good: #3E7A5C;
+    --aqua: #5FADA6;
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+
+  header.top {
+    text-align: center;
+    padding: 28px 20px 22px;
+    background:
+      radial-gradient(ellipse 500px 260px at 50% -20%, rgba(44,74,99,0.14), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 100%);
+  }
+  .brand-mark { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }
+  h1.brand {
+    font-family: var(--display);
+    font-size: 22px;
+    margin: 0;
+    color: var(--ink);
+    text-shadow: 2px 2px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+
+  .intro { text-align: center; padding: 4px 8px 22px; }
+  .intro h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 24px;
+    margin: 0 0 8px;
+  }
+  .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0 auto; max-width: 48ch; }
+
+  /* ---------- Summary stats ---------- */
+  .stat-row { display: flex; gap: 12px; margin: 0 0 20px; }
+  .stat-tile {
+    flex: 1;
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 3px 3px 0 rgba(20,48,45,0.10);
+    padding: 14px 12px;
+    text-align: center;
+  }
+  .stat-value { font-family: var(--heading); font-weight: 700; font-size: 26px; line-height: 1; color: var(--ink); }
+  .stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); margin-top: 6px; }
+
+  /* ---------- Status / error banners ---------- */
+  .banner {
+    display: none;
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-size: 13px;
+    margin: 0 0 18px;
+    line-height: 1.5;
+  }
+  .banner.error { background: var(--foam); border-left: 4px solid var(--coral); color: var(--ink); }
+  .banner.error code { background: rgba(31,51,71,0.08); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .banner.loading { background: var(--foam); border-left: 4px solid var(--navy); color: var(--ink-soft); }
+
+  /* ---------- Controls ---------- */
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; align-items: center; }
+  .search-input {
+    flex: 1 1 200px;
+    font-family: var(--body);
+    font-size: 13.5px;
+    padding: 9px 12px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .search-input:focus { outline: 2px solid var(--navy); outline-offset: 1px; }
+  .type-chip {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 12px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .type-chip.active { background: var(--navy); border-color: var(--navy); color: #fff; }
+
+  /* ---------- Screen cards ---------- */
+  .screens-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .screen-tile {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
+    overflow: hidden;
+  }
+  .screen-tile-img-wrap {
+    background: repeating-conic-gradient(#e9e0cc 0% 25%, #f4eeda 0% 50%) 50% / 16px 16px;
+    aspect-ratio: 792 / 272;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .screen-tile-img-wrap img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .screen-tile-img-wrap .img-missing { font-size: 12px; color: var(--ink-soft); padding: 10px; text-align: center; }
+  .screen-tile-body { padding: 10px 12px 12px; }
+  .screen-tile-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 0 0 6px; }
+  .screen-tile-id { font-family: var(--heading); font-weight: 600; font-size: 13px; color: var(--ink); word-break: break-all; }
+  .screen-tile-slot { font-size: 11px; color: var(--ink-soft); flex-shrink: 0; }
+  .type-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+    margin-bottom: 6px;
+  }
+  .type-badge.picture { background: var(--foam); color: var(--driftwood); }
+  .type-badge.countdown { background: rgba(217,164,65,0.20); color: var(--wax); }
+  .type-badge.team { background: rgba(44,74,99,0.14); color: var(--navy); }
+  .type-badge.tide, .type-badge.tideTimeline { background: rgba(95,173,166,0.16); color: var(--aqua); }
+  .type-badge.beachBuddy { background: rgba(201,116,86,0.16); color: var(--coral-dark); }
+  .type-badge.news { background: rgba(31,51,71,0.10); color: var(--ink-soft); }
+  .screen-tile-detail { font-size: 12px; color: var(--ink-soft); margin: 0 0 4px; }
+  .screen-tile-updated { font-size: 11px; color: var(--ink-soft); opacity: 0.8; }
+
+  .empty-msg { text-align: center; color: var(--ink-soft); font-size: 13.5px; padding: 30px 0; }
+
+  .refresh-row { text-align: center; margin: 22px 0 0; }
+  .refresh-btn {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 13.5px;
+    color: var(--navy);
+    background: #fff;
+    border: 2px solid var(--navy);
+    border-radius: 999px;
+    padding: 9px 20px;
+    cursor: pointer;
+  }
+  .refresh-btn:active { transform: translateY(1px); }
+  .refresh-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .as-of { text-align: center; font-size: 11.5px; color: var(--ink-soft); margin: 10px 0 0; }
+
+  footer {
+    text-align: center;
+    padding: 30px 20px 10px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  footer a { color: var(--navy); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <img src="../../logo.png" alt="WaveClock.net logo" class="brand-mark">
+  <h1 class="brand">WAVE CLOCK</h1>
+</header>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h2>Custom Screens by Device</h2>
+    <p>Every device's published Custom Screen &mdash; what kind it is, and the actual picture on the clock right now.</p>
+  </div>
+
+  <div class="banner loading" id="loadingBanner">Reading published designs&hellip;</div>
+  <div class="banner error" id="errorBanner"></div>
+
+  <div class="stat-row" id="statRow" style="display:none;">
+    <div class="stat-tile">
+      <div class="stat-value" id="screenCountValue">&ndash;</div>
+      <div class="stat-label">Screens</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-value" id="deviceCountValue">&ndash;</div>
+      <div class="stat-label">Devices</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-value" id="autoCountValue">&ndash;</div>
+      <div class="stat-label">Auto-updating</div>
+    </div>
+  </div>
+
+  <div class="controls" id="controlsRow" style="display:none;">
+    <input class="search-input" id="searchInput" type="text" placeholder="Filter by device ID&hellip;">
+  </div>
+  <div class="controls" id="typeChipsRow" style="display:none;"></div>
+
+  <div class="screens-grid" id="screensGrid"></div>
+  <p class="empty-msg" id="emptyMsg" style="display:none;">No published Custom Screens found yet.</p>
+
+  <div class="refresh-row">
+    <button class="refresh-btn" id="refreshBtn">Refresh</button>
+  </div>
+  <p class="as-of" id="asOf"></p>
+
+</div>
+
+<footer>
+  <p><a href="../../index.html">waveclock.net</a></p>
+</footer>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getStorage, ref, listAll, getMetadata } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+  // Same Firebase project/bucket used by /design/, /location/, /admin/locations/
+  // -- this page lists every file under designs/ once and groups them back
+  // into one card per published screen (a device can have up to 3
+  // independent Custom Screen slots -- see screenDesignPaths in
+  // design/index.html for the exact naming this mirrors).
+  const firebaseConfig = {
+    apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
+    authDomain: "waveclock.firebaseapp.com",
+    projectId: "waveclock",
+    storageBucket: "waveclock.firebasestorage.app",
+    messagingSenderId: "668302334840",
+    appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
+  };
+  const app = initializeApp(firebaseConfig);
+  const storage = getStorage(app);
+
+  const loadingBanner = document.getElementById("loadingBanner");
+  const errorBanner = document.getElementById("errorBanner");
+  const statRow = document.getElementById("statRow");
+  const screenCountValue = document.getElementById("screenCountValue");
+  const deviceCountValue = document.getElementById("deviceCountValue");
+  const autoCountValue = document.getElementById("autoCountValue");
+  const controlsRow = document.getElementById("controlsRow");
+  const searchInput = document.getElementById("searchInput");
+  const typeChipsRow = document.getElementById("typeChipsRow");
+  const screensGrid = document.getElementById("screensGrid");
+  const emptyMsg = document.getElementById("emptyMsg");
+  const refreshBtn = document.getElementById("refreshBtn");
+  const asOf = document.getElementById("asOf");
+
+  // Human labels for each dynamic layer's meta.type (see the
+  // dynamicMeta.type values written in design/index.html's publish
+  // handler). A screen with no -dynamic.json at all is a plain
+  // drawing/photo/text/sticker -- labeled "Picture".
+  const TYPE_LABELS = {
+    countdown: "Countdown",
+    team: "Team Schedule",
+    tide: "Tide & Moon",
+    tideTimeline: "Sun, Moon & Tide Timeline",
+    beachBuddy: "Beach Buddy",
+    news: "News Ticker"
+  };
+  const TYPE_ORDER = ["picture", "countdown", "team", "tide", "tideTimeline", "beachBuddy", "news"];
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))
+    ]);
+  }
+
+  async function fetchJsonFromStorage(path, timeoutMs) {
+    const url = "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + encodeURIComponent(path) + "?alt=media";
+    const resp = await withTimeout(fetch(url), timeoutMs);
+    if (resp.status === 404) return null;
+    if (!resp.ok) throw new Error("fetch failed: " + resp.status);
+    return resp.json();
+  }
+
+  function storagePreviewUrl(path) {
+    return "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + encodeURIComponent(path) + "?alt=media";
+  }
+
+  // Fetches with limited concurrency so a folder of a few hundred devices'
+  // worth of files doesn't fire a few hundred simultaneous requests at once.
+  async function mapWithConcurrency(items, limit, worker) {
+    const results = new Array(items.length);
+    let next = 0;
+    async function run() {
+      while (next < items.length) {
+        const i = next++;
+        results[i] = await worker(items[i], i);
+      }
+    }
+    const workers = Array.from({ length: Math.min(limit, items.length) }, run);
+    await Promise.all(workers);
+    return results;
+  }
+
+  // Every published screen writes up to 4 files under designs/: the
+  // rendered ".png" (what's actually on the board -- see
+  // loadCurrentBoardPreview in design/index.html), a ".bin" (the firmware
+  // bitmap), and, only for an auto-updating layer, a "-base.png" (the
+  // pre-dither source) and a "-dynamic.json" (the layer's own settings).
+  // Screen 1 also dual-writes an unsuffixed legacy path alongside its
+  // "_1"-suffixed one (older firmware only ever reads the unsuffixed
+  // path) -- so "_1" and unsuffixed are the SAME screen, not two.
+  function parseDesignFilename(name) {
+    let rest = name, kind;
+    if (rest.endsWith("-dynamic.json")) { kind = "dynamic"; rest = rest.slice(0, -"-dynamic.json".length); }
+    else if (rest.endsWith("-base.png")) { kind = "base"; rest = rest.slice(0, -"-base.png".length); }
+    else if (rest.endsWith(".bin")) { kind = "bin"; rest = rest.slice(0, -".bin".length); }
+    else if (rest.endsWith(".png")) { kind = "png"; rest = rest.slice(0, -".png".length); }
+    else return null;
+    let screen = 1;
+    const m = rest.match(/^(.*)_([123])$/);
+    if (m) { screen = parseInt(m[2], 10); rest = m[1]; }
+    if (!rest) return null;
+    return { deviceId: rest, screen, kind };
+  }
+
+  function typeBadgeClass(type) {
+    return type in TYPE_LABELS ? type : "picture";
+  }
+
+  function detailLineFor(type, meta) {
+    if (!meta) return "";
+    if (type === "countdown") {
+      const date = meta.targetDate ? String(meta.targetDate) : "";
+      return "Counts down to " + escapeHtml(date) + (meta.label ? " &mdash; " + escapeHtml(meta.label) : "");
+    }
+    if (type === "team") {
+      return escapeHtml(meta.teamName || meta.teamId || "") + (meta.league ? " (" + escapeHtml(meta.league) + ")" : "");
+    }
+    if (type === "tideTimeline") {
+      return meta.townName ? escapeHtml(meta.townName) + " &mdash; redraws daily" : "Redraws daily";
+    }
+    if (type === "tide") {
+      return "Redraws daily";
+    }
+    if (type === "beachBuddy") {
+      return "Refreshes hourly";
+    }
+    if (type === "news") {
+      return escapeHtml(meta.location || meta.feedUrl || "");
+    }
+    return "";
+  }
+
+  async function load() {
+    refreshBtn.disabled = true;
+    loadingBanner.style.display = "block";
+    errorBanner.style.display = "none";
+    statRow.style.display = "none";
+    controlsRow.style.display = "none";
+    typeChipsRow.style.display = "none";
+    screensGrid.innerHTML = "";
+    emptyMsg.style.display = "none";
+
+    try {
+      const folderRef = ref(storage, "designs");
+      const listing = await listAll(folderRef);
+
+      const pngItems = [];
+      const dynamicKeys = new Map(); // "deviceId|screen" -> storage item
+      for (const item of listing.items) {
+        const parsed = parseDesignFilename(item.name);
+        if (!parsed) continue;
+        const key = parsed.deviceId + "|" + parsed.screen;
+        if (parsed.kind === "png") pngItems.push({ item, deviceId: parsed.deviceId, screen: parsed.screen, key });
+        else if (parsed.kind === "dynamic") dynamicKeys.set(key, item);
+      }
+
+      // Dedupe screen 1's dual-written unsuffixed + "_1" paths -- same
+      // screen, identical content, just two paths for firmware-version
+      // compatibility (see screenDesignPaths in design/index.html).
+      const byKey = new Map();
+      for (const entry of pngItems) byKey.set(entry.key, entry);
+      const uniquePngs = Array.from(byKey.values());
+
+      const cards = await mapWithConcurrency(uniquePngs, 10, async (entry) => {
+        const card = {
+          deviceId: entry.deviceId,
+          screen: entry.screen,
+          imgUrl: storagePreviewUrl(entry.item.fullPath),
+          type: "picture",
+          detail: "",
+          updated: null
+        };
+        try {
+          const meta = await getMetadata(entry.item);
+          card.updated = meta && meta.updated ? new Date(meta.updated) : null;
+        } catch (err) {
+          console.error("Couldn't read metadata for " + entry.item.fullPath + ":", err);
+        }
+        const dynamicItem = dynamicKeys.get(entry.key);
+        if (dynamicItem) {
+          try {
+            const dynMeta = await fetchJsonFromStorage(dynamicItem.fullPath, 12000);
+            if (dynMeta && typeof dynMeta.type === "string") {
+              card.type = dynMeta.type;
+              card.detail = detailLineFor(dynMeta.type, dynMeta);
+            }
+          } catch (err) {
+            console.error("Couldn't read " + dynamicItem.fullPath + ":", err);
+            card.type = "picture";
+            card.detail = "Couldn't read its auto-update settings right now.";
+          }
+        }
+        return card;
+      });
+
+      cards.sort((a, b) => a.deviceId.localeCompare(b.deviceId) || a.screen - b.screen);
+
+      loadingBanner.style.display = "none";
+      renderAll(cards);
+      asOf.textContent = "Updated " + new Date().toLocaleString();
+    } catch (err) {
+      console.error("Couldn't list designs/:", err);
+      loadingBanner.style.display = "none";
+      let msg;
+      if (err && err.code === "storage/unauthorized") {
+        msg = "Can't list device files yet &mdash; the Storage rules need to permit <code>list</code> on <code>designs/</code>, not just <code>get</code> on individual files.";
+      } else {
+        msg = "Something went wrong loading device data &mdash; try refreshing in a moment.";
+      }
+      errorBanner.innerHTML = msg;
+      errorBanner.style.display = "block";
+    } finally {
+      refreshBtn.disabled = false;
+    }
+  }
+
+  let allCards = [];
+  let activeType = "all";
+
+  function renderAll(cards) {
+    allCards = cards;
+
+    screenCountValue.textContent = String(cards.length);
+    deviceCountValue.textContent = String(new Set(cards.map((c) => c.deviceId)).size);
+    autoCountValue.textContent = String(cards.filter((c) => c.type !== "picture").length);
+    statRow.style.display = cards.length ? "flex" : "none";
+    controlsRow.style.display = cards.length ? "flex" : "none";
+
+    const typesPresent = TYPE_ORDER.filter((t) => cards.some((c) => c.type === t));
+    typeChipsRow.style.display = typesPresent.length ? "flex" : "none";
+    typeChipsRow.innerHTML = ['<button class="type-chip active" data-type="all">All</button>']
+      .concat(typesPresent.map((t) => '<button class="type-chip" data-type="' + t + '">' + escapeHtml(TYPE_LABELS[t] || "Picture") + "</button>"))
+      .join("");
+    typeChipsRow.querySelectorAll(".type-chip").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeType = btn.dataset.type;
+        typeChipsRow.querySelectorAll(".type-chip").forEach((b) => b.classList.toggle("active", b === btn));
+        applyFilters();
+      });
+    });
+
+    applyFilters();
+  }
+
+  function applyFilters() {
+    const q = searchInput.value.trim().toLowerCase();
+    const filtered = allCards.filter((c) => {
+      if (activeType !== "all" && c.type !== activeType) return false;
+      if (q && !c.deviceId.toLowerCase().includes(q)) return false;
+      return true;
+    });
+    renderGrid(filtered);
+  }
+
+  function renderGrid(cards) {
+    if (!cards.length) {
+      screensGrid.innerHTML = "";
+      emptyMsg.textContent = allCards.length ? "No screens match that filter." : "No published Custom Screens found yet.";
+      emptyMsg.style.display = "block";
+      return;
+    }
+    emptyMsg.style.display = "none";
+    screensGrid.innerHTML = cards.map((c) => {
+      const badgeClass = typeBadgeClass(c.type);
+      const label = TYPE_LABELS[c.type] || "Picture";
+      const updatedStr = c.updated ? "Updated " + c.updated.toLocaleString() : "";
+      return (
+        '<div class="screen-tile">' +
+          '<div class="screen-tile-img-wrap"><img loading="lazy" src="' + escapeHtml(c.imgUrl) + '" alt="Custom screen for ' + escapeHtml(c.deviceId) + '"></div>' +
+          '<div class="screen-tile-body">' +
+            '<div class="screen-tile-head"><span class="screen-tile-id">' + escapeHtml(c.deviceId) + '</span><span class="screen-tile-slot">Screen ' + c.screen + '</span></div>' +
+            '<span class="type-badge ' + badgeClass + '">' + escapeHtml(label) + '</span>' +
+            (c.detail ? '<p class="screen-tile-detail">' + c.detail + '</p>' : '') +
+            (updatedStr ? '<p class="screen-tile-updated">' + escapeHtml(updatedStr) + '</p>' : '') +
+          '</div>' +
+        '</div>'
+      );
+    }).join("");
+
+    screensGrid.querySelectorAll(".screen-tile-img-wrap img").forEach((img) => {
+      img.addEventListener("error", () => {
+        img.parentElement.innerHTML = '<div class="img-missing">Couldn\'t load this picture.</div>';
+      }, { once: true });
+    });
+  }
+
+  searchInput.addEventListener("input", applyFilters);
+  refreshBtn.addEventListener("click", load);
+  load();
+</script>
+
+</body>
+</html>
