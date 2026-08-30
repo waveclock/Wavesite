@@ -101,7 +101,7 @@ const IMAGE_ASPECT_RATIO = "21:9";
 // not an incidental style choice, so this spells it out explicitly and
 // says directly what to avoid (a rounded/chubby mascot body).
 const STYLE_PREFIX =
-  "A wide horizontal beach-scene illustration starring a single recurring stick-figure cartoon character named Buddy, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Buddy is a classic minimalist STICK FIGURE: a simple circle for a head and thin single-line strokes for the arms, legs, and torso -- NOT a rounded, chubby, or bear-like mascot body, NOT a filled-in human silhouette. Buddy wears a floppy bucket hat and round sunglasses on that circle head -- this exact outfit every time, it's what makes Buddy recognizable as the same character scene to scene. Style: bold black ink line art, like a woodblock print or comic-strip panel. Buddy's own thin stick-figure linework is still bold and confident (a thick confident stroke, just not a filled body), while the surrounding scene -- waves, water, sand -- is rendered with a mix of bold and fine contrasting linework, the way a woodcut print uses clusters of thin curved lines to suggest texture and motion (think detailed wave lines, not a flat solid shape). STRICT rules, no exceptions: every mark is a real solid black line or solid black fill on a plain solid white background -- fine linework and texture are welcome, but NO gray, NO gradients, and NO halftone dot/stipple shading used to fake a gray value. No color. No photographic detail. No text, no lettering, no words or numbers anywhere in the image. ";
+  "A wide horizontal beach-scene illustration starring a single recurring stick-figure cartoon character named Buddy, drawn large enough that the scene reaches both the left and right edges of the frame -- NOT a small centered figure floating in empty white space. Buddy is a classic minimalist STICK FIGURE: a simple circle for a head and thin single-line strokes for the arms, legs, and torso -- NOT a rounded, chubby, or bear-like mascot body, NOT a filled-in human silhouette. Buddy wears a floppy bucket hat and round sunglasses on that circle head -- this exact outfit every time, it's what makes Buddy recognizable as the same character scene to scene. Style: bold black ink line art, like a woodblock print or comic-strip panel. Buddy's own thin stick-figure linework is still bold and confident (a thick confident stroke, just not a filled body), while the surrounding scene -- waves, water, sand -- is rendered with a mix of bold and fine contrasting linework for texture and motion. STRICT rules, no exceptions: every mark is a real solid black line or solid black fill on a plain solid white background -- fine linework and texture are welcome, but NO gray, NO gradients, and NO halftone dot/stipple shading used to fake a gray value. No color. No photographic detail. No text, no lettering, no words or numbers anywhere in the image. ";
 
 // Short present-tense action fragments describing what Buddy is doing,
 // keyed by the same pose names STICK_POSES uses for the procedural
@@ -170,17 +170,15 @@ function defaultGenerateImpl(project, location) {
     config: {
       responseModalities: RESPONSE_MODALITIES,
       imageConfig: {
-        aspectRatio: IMAGE_ASPECT_RATIO,
-        // Buddy is drawn as a simple human-like figure (see
-        // STYLE_PREFIX), so image generation needs to be allowed to
-        // depict a person at all -- the model's default is stricter
-        // than this feature needs. Confirmed live: this field takes
-        // "ALLOW_ALL"/"ALLOW_ADULT"/"ALLOW_NONE" here (uppercase,
-        // under `imageConfig`) -- a DIFFERENT shape from the
-        // lowercase `"allow_adult"` the old standalone Imagen
-        // `generateImages` config took at the top level, easy to get
-        // wrong copying from that API's own examples.
-        personGeneration: "ALLOW_ADULT"
+        aspectRatio: IMAGE_ASPECT_RATIO
+        // personGeneration: "ALLOW_ADULT" was here (explicitly allowing
+        // generation of adult-looking people, since Buddy is a
+        // human-like figure) -- removed at the user's request. If
+        // real calls start coming back safety-filtered again with no
+        // obvious prompt-content cause (see the `lounging`/IMAGE_SAFETY
+        // incident this was originally added to guard against, and to
+        // fix), that field defaulting to something stricter than this
+        // feature needs is the first thing to check.
       }
     }
   });
