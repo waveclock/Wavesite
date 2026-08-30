@@ -338,10 +338,18 @@
   }
 
   .screen-card p { color: var(--ink-soft); font-size: 15px; margin: 0; }
+  .screen-card p a { color: var(--coral-dark); font-weight: 600; text-decoration: none; border-bottom: 1px solid rgba(200,116,86,0.4); }
+  .screen-card p a:hover { border-bottom-color: var(--coral-dark); }
+
+  .screen-card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
 
   .screen-card .tag {
     display: inline-block;
-    margin-top: 12px;
     font-size: 12px;
     font-weight: 600;
     color: var(--aqua);
@@ -808,8 +816,12 @@
         <span class="screen-order">Custom Screen</span>
         <p><b>Personalized screen from your phone to the WaveClock.</b></p>
         <img class="screen-thumb" src="screen_custom_photo.jpg" alt="Custom screen showing a hand-drawn scene of a rowboat with an anchor, flag, seagull, and crab, plus sun and cloud stickers and the text OCEAN CITY N.J.">
-        <p>Draw, write, upload a photo, or set up a tool that keeps itself current &mdash; a countdown, your team's next game, or a full day of sun, moon &amp; tide &mdash; automatically, every day.</p>
-        <span class="tag">New: Game Day Countdown</span>
+        <p>Draw, write, or upload a <b>Picture</b> &mdash; or turn on a tool that keeps itself current automatically, every day: a <b>Countdown</b>, your team's <b>Game Day</b> schedule, the <a href="guide.html#custom-screen">Sun, Moon &amp; Tide Timeline</a>, or <a href="beach-buddy.html">Beach Buddy</a>, a daily character illustrated by AI to match today's weather and tide.</p>
+        <div class="screen-card-tags">
+          <span class="tag">New: Game Day Countdown</span>
+          <span class="tag">New: Sun, Moon &amp; Tide Timeline</span>
+          <span class="tag">New: Beach Buddy</span>
+        </div>
       </div>
     </div>
   </div>
