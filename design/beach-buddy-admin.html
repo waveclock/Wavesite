@@ -66,6 +66,9 @@
   }
   .wrap { max-width: 900px; margin: 0 auto; padding: 28px 20px 0; }
   header { margin-bottom: 6px; }
+  .admin-nav { font-size: 12.5px; margin: 0 0 10px; }
+  .admin-nav a { color: var(--navy); font-weight: 600; text-decoration: none; }
+  .admin-nav a:hover { text-decoration: underline; }
   h1 {
     font-family: var(--display);
     font-size: clamp(22px, 5vw, 30px);
@@ -217,6 +220,7 @@
 <body>
 <div class="wrap">
   <header>
+    <p class="admin-nav"><a href="../admin/">&larr; All Admin Pages</a></p>
     <h1>Beach Buddy &mdash; Scenario Catalog</h1>
     <p class="sub">Every mood branch <code>moodForBeachData</code> can pick, in the exact order it checks them (first match wins), and the real cached illustration for each one.</p>
   </header>

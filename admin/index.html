@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 20px; }
+
+  header.top {
+    text-align: center;
+    padding: 28px 20px 22px;
+    background:
+      radial-gradient(ellipse 500px 260px at 50% -20%, rgba(44,74,99,0.14), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 100%);
+  }
+  .brand-mark { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }
+  h1.brand {
+    font-family: var(--display);
+    font-size: 22px;
+    margin: 0;
+    color: var(--ink);
+    text-shadow: 2px 2px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+
+  .intro { text-align: center; padding: 4px 8px 22px; }
+  .intro h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 24px;
+    margin: 0 0 8px;
+  }
+  .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0 auto; max-width: 44ch; }
+
+  .page-list { display: flex; flex-direction: column; gap: 12px; }
+  .page-card {
+    display: block;
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
+    padding: 16px 18px;
+    text-decoration: none;
+    color: inherit;
+  }
+  .page-card:active { transform: translateY(1px); box-shadow: 2px 2px 0 rgba(20,48,45,0.10); }
+  .page-card-title { font-family: var(--heading); font-weight: 700; font-size: 16.5px; color: var(--ink); margin: 0 0 4px; }
+  .page-card-desc { font-size: 13.5px; color: var(--ink-soft); margin: 0; }
+  .page-card-path { display: block; font-size: 11.5px; color: var(--driftwood); margin-top: 6px; font-family: monospace; }
+
+  footer {
+    text-align: center;
+    padding: 30px 20px 10px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  footer a { color: var(--navy); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <img src="../logo.png" alt="WaveClock.net logo" class="brand-mark">
+  <h1 class="brand">WAVE CLOCK</h1>
+</header>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h2>Admin Pages</h2>
+    <p>Unlisted internal pages &mdash; nothing here requires a login, so "admin" just means "not linked from the site itself."</p>
+  </div>
+
+  <div class="page-list">
+    <a class="page-card" href="custom-screens/">
+      <p class="page-card-title">Custom Screens by Device</p>
+      <p class="page-card-desc">Every device's published Custom Screen and the actual picture on it &mdash; static drawings/photos and auto-updating layers alike.</p>
+      <span class="page-card-path">/admin/custom-screens/</span>
+    </a>
+
+    <a class="page-card" href="locations/">
+      <p class="page-card-title">Wave Clocks by Location</p>
+      <p class="page-card-desc">Live count of registered devices, grouped by the town each one currently reports.</p>
+      <span class="page-card-path">/admin/locations/</span>
+    </a>
+
+    <a class="page-card" href="../design/beach-buddy-admin.html">
+      <p class="page-card-title">Beach Buddy Scenario Catalog</p>
+      <p class="page-card-desc">Every mood Beach Buddy can show, in priority order, with an on-demand preview of the real cached illustration for each one.</p>
+      <span class="page-card-path">/design/beach-buddy-admin.html</span>
+    </a>
+
+    <a class="page-card" href="moonrise/">
+      <p class="page-card-title">Moonrise Photo Moderation</p>
+      <p class="page-card-desc">Approve or reject photos submitted at /moonrise/submit/.</p>
+      <span class="page-card-path">/admin/moonrise/</span>
+    </a>
+
+    <a class="page-card" href="reviews/">
+      <p class="page-card-title">Review Moderation</p>
+      <p class="page-card-desc">Approve or reject customer reviews submitted at /reviews/submit/.</p>
+      <span class="page-card-path">/admin/reviews/</span>
+    </a>
+  </div>
+
+</div>
+
+<footer>
+  <p><a href="../index.html">waveclock.net</a></p>
+</footer>
+
+</body>
+</html>
