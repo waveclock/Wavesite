@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backfill Missing Previews</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="../../favicon.png">
+<link rel="apple-touch-icon" href="../../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+    --good: #3E7A5C;
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+
+  .admin-nav { text-align: center; font-size: 12.5px; margin: 0 0 10px; }
+  .admin-nav a { color: var(--navy); font-weight: 600; text-decoration: none; }
+  .admin-nav a:hover { text-decoration: underline; }
+
+  header.top {
+    text-align: center;
+    padding: 28px 20px 22px;
+    background:
+      radial-gradient(ellipse 500px 260px at 50% -20%, rgba(44,74,99,0.14), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 100%);
+  }
+  .brand-mark { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }
+  h1.brand {
+    font-family: var(--display);
+    font-size: 22px;
+    margin: 0;
+    color: var(--ink);
+    text-shadow: 2px 2px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+
+  .intro { text-align: center; padding: 4px 8px 22px; }
+  .intro h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 24px;
+    margin: 0 0 8px;
+  }
+  .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0 auto 8px; max-width: 48ch; }
+  .intro p:last-child { margin-bottom: 0; }
+
+  .stat-row { display: flex; gap: 12px; margin: 0 0 20px; }
+  .stat-tile {
+    flex: 1;
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 3px 3px 0 rgba(20,48,45,0.10);
+    padding: 14px 12px;
+    text-align: center;
+  }
+  .stat-value { font-family: var(--heading); font-weight: 700; font-size: 26px; line-height: 1; color: var(--ink); }
+  .stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); margin-top: 6px; }
+
+  .banner {
+    display: none;
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-size: 13px;
+    margin: 0 0 18px;
+    line-height: 1.5;
+  }
+  .banner.error { background: var(--foam); border-left: 4px solid var(--coral); color: var(--ink); }
+  .banner.error code { background: rgba(31,51,71,0.08); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .banner.loading { background: var(--foam); border-left: 4px solid var(--navy); color: var(--ink-soft); }
+  .banner.note { background: rgba(217,164,65,0.16); border-left: 4px solid var(--wax); color: var(--ink); }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; align-items: center; }
+  .search-input {
+    flex: 1 1 200px;
+    font-family: var(--body);
+    font-size: 13.5px;
+    padding: 9px 12px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .search-input:focus { outline: 2px solid var(--navy); outline-offset: 1px; }
+  .bulk-btn, .refresh-btn {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 13.5px;
+    color: #fff;
+    background: var(--navy);
+    border: 2px solid var(--navy);
+    border-radius: 999px;
+    padding: 9px 18px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .refresh-btn { color: var(--navy); background: #fff; }
+  .bulk-btn:disabled, .refresh-btn:disabled { opacity: 0.5; cursor: default; }
+  .bulk-btn:active, .refresh-btn:active { transform: translateY(1px); }
+
+  .gap-list { display: flex; flex-direction: column; gap: 10px; }
+  .gap-row {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 3px 3px 0 rgba(20,48,45,0.10);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .gap-info { flex: 1; min-width: 180px; }
+  .gap-id { font-family: monospace; font-size: 13px; color: var(--ink); }
+  .gap-id a { color: var(--navy); text-decoration: none; }
+  .gap-id a:hover { text-decoration: underline; }
+  .gap-slot { font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; }
+  .gap-status { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); min-width: 90px; text-align: right; }
+  .gap-status.done { color: var(--good); }
+  .gap-status.error { color: var(--coral-dark); }
+  .gap-btn {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 12.5px;
+    color: var(--navy);
+    background: #fff;
+    border: 2px solid var(--navy);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+  .gap-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .empty-msg { text-align: center; color: var(--ink-soft); font-size: 13.5px; padding: 30px 0; }
+
+  .as-of { text-align: center; font-size: 11.5px; color: var(--ink-soft); margin: 18px 0 0; }
+
+  footer {
+    text-align: center;
+    padding: 30px 20px 10px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  footer a { color: var(--navy); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <p class="admin-nav"><a href="../">&larr; All Admin Pages</a></p>
+  <img src="../../logo.png" alt="WaveClock.net logo" class="brand-mark">
+  <h1 class="brand">WAVE CLOCK</h1>
+</header>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h2>Backfill Missing Previews</h2>
+    <p>PNG previews weren't always generated alongside the firmware .bin -- this finds every published Custom Screen that has a .bin but no matching .png, and regenerates the .png straight from the .bin's own pixel data.</p>
+    <p>Read-only until you click a button: nothing is downloaded or written until you press "Generate" on a row, or "Generate all" below. Only ever creates the missing .png -- never touches the .bin or anything already published.</p>
+  </div>
+
+  <div class="banner loading" id="loadingBanner">Reading published designs&hellip;</div>
+  <div class="banner error" id="errorBanner"></div>
+  <div class="banner note" id="noteBanner"></div>
+
+  <div class="stat-row" id="statRow" style="display:none;">
+    <div class="stat-tile">
+      <div class="stat-value" id="totalValue">&ndash;</div>
+      <div class="stat-label">Screens found</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-value" id="gapValue">&ndash;</div>
+      <div class="stat-label">Missing preview</div>
+    </div>
+  </div>
+
+  <div class="controls" id="controlsRow" style="display:none;">
+    <input class="search-input" id="searchInput" type="text" placeholder="Filter by device ID&hellip;">
+    <button class="bulk-btn" id="bulkBtn">Generate all</button>
+    <button class="refresh-btn" id="refreshBtn">Refresh</button>
+  </div>
+
+  <div class="gap-list" id="gapList"></div>
+  <p class="empty-msg" id="emptyMsg" style="display:none;"></p>
+
+  <p class="as-of" id="asOf"></p>
+
+</div>
+
+<footer>
+  <p><a href="../../index.html">waveclock.net</a></p>
+</footer>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getStorage, ref, listAll, uploadBytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+  // Same Firebase project/bucket used by /design/ and every other admin
+  // page -- see admin/custom-screens/index.html's own comment for the
+  // designs/ naming this mirrors (screen 1 dual-writes an unsuffixed
+  // legacy path alongside its "_1" one; screens 2/3 only ever exist at
+  // their own "_N" suffix).
+  const firebaseConfig = {
+    apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
+    authDomain: "waveclock.firebaseapp.com",
+    projectId: "waveclock",
+    storageBucket: "waveclock.firebasestorage.app",
+    messagingSenderId: "668302334840",
+    appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
+  };
+  const app = initializeApp(firebaseConfig);
+  const storage = getStorage(app);
+
+  // Mirrors CANVAS_WIDTH/HEIGHT/BIT_THRESHOLD in functions/lib/dynamic.js's
+  // packTo1Bit -- 1 bit per pixel, MSB-first within each byte, each row
+  // padded to a whole byte, a set bit meaning "black." Decoding just
+  // reverses that: bit=1 -> black pixel, bit=0 -> white pixel, no need to
+  // know whether the original render was ever "inverted" -- that decision
+  // is already baked into which bits got set when the .bin was written.
+  const CANVAS_WIDTH = 792, CANVAS_HEIGHT = 272;
+  const BYTES_PER_ROW = Math.ceil(CANVAS_WIDTH / 8);
+  const EXPECTED_BIN_SIZE = BYTES_PER_ROW * CANVAS_HEIGHT;
+
+  const loadingBanner = document.getElementById("loadingBanner");
+  const errorBanner = document.getElementById("errorBanner");
+  const noteBanner = document.getElementById("noteBanner");
+  const statRow = document.getElementById("statRow");
+  const totalValue = document.getElementById("totalValue");
+  const gapValue = document.getElementById("gapValue");
+  const controlsRow = document.getElementById("controlsRow");
+  const searchInput = document.getElementById("searchInput");
+  const bulkBtn = document.getElementById("bulkBtn");
+  const refreshBtn = document.getElementById("refreshBtn");
+  const gapList = document.getElementById("gapList");
+  const emptyMsg = document.getElementById("emptyMsg");
+  const asOf = document.getElementById("asOf");
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function storagePreviewUrl(path) {
+    return "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + encodeURIComponent(path) + "?alt=media";
+  }
+
+  async function mapWithConcurrency(items, limit, worker) {
+    let next = 0;
+    async function run() {
+      while (next < items.length) {
+        const i = next++;
+        await worker(items[i], i);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
+  }
+
+  // Same base-name parsing as admin/custom-screens/index.html: every
+  // published screen writes up to 4 files under designs/ (.bin, .png,
+  // -base.png, -dynamic.json), with screen 1 dual-writing an unsuffixed
+  // legacy path alongside its "_1" one.
+  function parseDesignFilename(name) {
+    let rest = name, kind;
+    if (rest.endsWith("-dynamic.json")) { kind = "dynamic"; rest = rest.slice(0, -"-dynamic.json".length); }
+    else if (rest.endsWith("-base.png")) { kind = "base"; rest = rest.slice(0, -"-base.png".length); }
+    else if (rest.endsWith(".bin")) { kind = "bin"; rest = rest.slice(0, -".bin".length); }
+    else if (rest.endsWith(".png")) { kind = "png"; rest = rest.slice(0, -".png".length); }
+    else return null;
+    let screen = 1;
+    const m = rest.match(/^(.*)_([123])$/);
+    if (m) { screen = parseInt(m[2], 10); rest = m[1]; }
+    if (!rest) return null;
+    return { deviceId: rest, screen, kind };
+  }
+
+  function pngPathsFor(deviceId, screen) {
+    if (screen === 1) return ["designs/" + deviceId + ".png", "designs/" + deviceId + "_1.png"];
+    return ["designs/" + deviceId + "_" + screen + ".png"];
+  }
+
+  function decodeBinToCanvas(buffer) {
+    const bytes = new Uint8Array(buffer);
+    if (bytes.length !== EXPECTED_BIN_SIZE) {
+      throw new Error("unexpected .bin size (" + bytes.length + " bytes, expected " + EXPECTED_BIN_SIZE + ")");
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = CANVAS_WIDTH; canvas.height = CANVAS_HEIGHT;
+    const ctx = canvas.getContext("2d");
+    const imgData = ctx.createImageData(CANVAS_WIDTH, CANVAS_HEIGHT);
+    for (let y = 0; y < CANVAS_HEIGHT; y++) {
+      const rowStart = y * BYTES_PER_ROW;
+      for (let x = 0; x < CANVAS_WIDTH; x++) {
+        const byteVal = bytes[rowStart + (x >> 3)];
+        const isBlack = (byteVal & (1 << (7 - (x & 7)))) !== 0;
+        const v = isBlack ? 0 : 255;
+        const p = (y * CANVAS_WIDTH + x) * 4;
+        imgData.data[p] = v; imgData.data[p + 1] = v; imgData.data[p + 2] = v; imgData.data[p + 3] = 255;
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+    return canvas;
+  }
+
+  function canvasToPngBlob(canvas) {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("canvas.toBlob failed"))), "image/png");
+    });
+  }
+
+  async function backfillOne(entry) {
+    const resp = await fetch(storagePreviewUrl(entry.binPath));
+    if (!resp.ok) throw new Error(".bin download failed: HTTP " + resp.status);
+    const buffer = await resp.arrayBuffer();
+    const canvas = decodeBinToCanvas(buffer);
+    const blob = await canvasToPngBlob(canvas);
+    for (const path of pngPathsFor(entry.deviceId, entry.screen)) {
+      await uploadBytes(ref(storage, path), blob, { contentType: "image/png" });
+    }
+  }
+
+  let allGaps = [];
+
+  function renderList() {
+    const q = searchInput.value.trim().toLowerCase();
+    const filtered = q ? allGaps.filter((g) => g.deviceId.toLowerCase().includes(q)) : allGaps;
+
+    if (!filtered.length) {
+      gapList.innerHTML = "";
+      emptyMsg.textContent = allGaps.length ? "No missing previews match that filter." : "No missing previews found -- every published .bin already has a .png.";
+      emptyMsg.style.display = "block";
+      bulkBtn.disabled = true;
+      return;
+    }
+    emptyMsg.style.display = "none";
+    bulkBtn.disabled = false;
+
+    gapList.innerHTML = filtered.map((g, i) => (
+      '<div class="gap-row" data-index="' + g._index + '">' +
+        '<div class="gap-info">' +
+          '<div class="gap-id"><a href="../../manage/?id=' + encodeURIComponent(g.deviceId) + '">' + escapeHtml(g.deviceId) + '</a></div>' +
+          '<div class="gap-slot">Screen ' + g.screen + '</div>' +
+        '</div>' +
+        '<span class="gap-status" id="status-' + g._index + '">Not generated</span>' +
+        '<button class="gap-btn" id="btn-' + g._index + '">Generate</button>' +
+      '</div>'
+    )).join("");
+
+    filtered.forEach((g) => {
+      document.getElementById("btn-" + g._index).addEventListener("click", () => runOne(g));
+    });
+  }
+
+  async function runOne(entry) {
+    const btn = document.getElementById("btn-" + entry._index);
+    const status = document.getElementById("status-" + entry._index);
+    if (!btn || !status) return;
+    btn.disabled = true;
+    status.textContent = "Generating…";
+    status.className = "gap-status";
+    try {
+      await backfillOne(entry);
+      status.textContent = "✓ Created";
+      status.className = "gap-status done";
+      entry.done = true;
+    } catch (err) {
+      console.error("Backfill failed for " + entry.deviceId + " screen " + entry.screen + ":", err);
+      status.textContent = "✗ " + err.message;
+      status.className = "gap-status error";
+      btn.disabled = false;
+    }
+  }
+
+  bulkBtn.addEventListener("click", async () => {
+    const pending = allGaps.filter((g) => !g.done);
+    if (!pending.length) return;
+    if (!confirm("Generate " + pending.length + " missing preview(s) now? This writes a new .png for each -- nothing existing is changed or deleted.")) return;
+    bulkBtn.disabled = true;
+    refreshBtn.disabled = true;
+    await mapWithConcurrency(pending, 4, (entry) => runOne(entry));
+    bulkBtn.disabled = false;
+    refreshBtn.disabled = false;
+  });
+
+  async function load() {
+    refreshBtn.disabled = true;
+    bulkBtn.disabled = true;
+    loadingBanner.style.display = "block";
+    errorBanner.style.display = "none";
+    noteBanner.style.display = "none";
+    statRow.style.display = "none";
+    controlsRow.style.display = "none";
+    gapList.innerHTML = "";
+    emptyMsg.style.display = "none";
+
+    try {
+      const listing = await listAll(ref(storage, "designs"));
+
+      const binByKey = new Map();
+      const pngKeys = new Set();
+      for (const item of listing.items) {
+        const parsed = parseDesignFilename(item.name);
+        if (!parsed) continue;
+        const key = parsed.deviceId + "|" + parsed.screen;
+        if (parsed.kind === "bin") {
+          if (!binByKey.has(key)) binByKey.set(key, { deviceId: parsed.deviceId, screen: parsed.screen, binPath: "designs/" + item.name });
+        } else if (parsed.kind === "png") {
+          pngKeys.add(key);
+        }
+      }
+
+      let index = 0;
+      allGaps = Array.from(binByKey.entries())
+        .filter(([key]) => !pngKeys.has(key))
+        .map(([, entry]) => Object.assign({ _index: index++, done: false }, entry))
+        .sort((a, b) => a.deviceId.localeCompare(b.deviceId) || a.screen - b.screen);
+
+      totalValue.textContent = String(binByKey.size);
+      gapValue.textContent = String(allGaps.length);
+      statRow.style.display = "flex";
+      controlsRow.style.display = "flex";
+
+      if (allGaps.length) {
+        noteBanner.textContent = "Found " + allGaps.length + " screen(s) with a .bin but no .png. Generate individually or use “Generate all” below.";
+        noteBanner.style.display = "block";
+      }
+
+      loadingBanner.style.display = "none";
+      renderList();
+      asOf.textContent = "Updated " + new Date().toLocaleString();
+    } catch (err) {
+      console.error("Couldn't list designs/:", err);
+      loadingBanner.style.display = "none";
+      let msg;
+      if (err && err.code === "storage/unauthorized") {
+        msg = "Can't list device files yet &mdash; the Storage rules need to permit <code>list</code> on <code>designs/</code>.";
+      } else {
+        msg = "Something went wrong loading device data &mdash; try refreshing in a moment.";
+      }
+      errorBanner.innerHTML = msg;
+      errorBanner.style.display = "block";
+    } finally {
+      refreshBtn.disabled = false;
+      bulkBtn.disabled = !allGaps.length;
+    }
+  }
+
+  searchInput.addEventListener("input", renderList);
+  refreshBtn.addEventListener("click", load);
+  load();
+</script>
+
+</body>
+</html>
