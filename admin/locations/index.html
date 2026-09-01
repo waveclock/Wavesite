@@ -179,6 +179,7 @@
   }
   .device-chip:hover { background: #fff; border-color: var(--navy); }
   .device-chip mark { background: rgba(217,164,65,0.45); color: inherit; border-radius: 2px; }
+  .device-chip .chip-time { color: var(--ink-soft); margin-left: 2px; }
 
   .refresh-row { text-align: center; margin: 22px 0 0; }
   .refresh-btn {
@@ -255,7 +256,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getStorage, ref, listAll } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+  import { getStorage, ref, listAll, getMetadata } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
   // Same Firebase project/bucket used by /design/, /location/, /settings/ --
   // this page just reads across every device-status/{id}.json instead of
@@ -295,6 +296,21 @@
       promise,
       new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))
     ]);
+  }
+
+  // Compact "how stale is this" label for a device chip -- checked in
+  // recently vs. gone quiet is exactly what matters at a glance here.
+  function relativeTime(date) {
+    if (!date) return "";
+    const ms = Date.now() - date.getTime();
+    const min = Math.floor(ms / 60000);
+    if (min < 1) return "just now";
+    if (min < 60) return min + "m ago";
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return hr + "h ago";
+    const day = Math.floor(hr / 24);
+    if (day < 30) return day + "d ago";
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
 
   async function fetchJsonFromStorage(path, timeoutMs) {
@@ -359,13 +375,17 @@
 
     const rowHtml = (label, ids, extraClass) => {
       const labelMatches = !q || label.toLowerCase().includes(q);
-      const matchingIds = !q ? ids : ids.filter((id) => id.toLowerCase().includes(q));
+      const matchingIds = !q ? ids : ids.filter((entry) => entry.id.toLowerCase().includes(q));
       if (q && !labelMatches && !matchingIds.length) return "";
 
       const expanded = manuallyExpanded.has(label) || (!!q && (labelMatches || matchingIds.length));
       const pct = Math.max(4, Math.round((ids.length / maxCount) * 100));
       const chips = (labelMatches ? ids : matchingIds)
-        .map((id) => '<a class="device-chip" href="../../manage/?id=' + encodeURIComponent(id) + '" title="Manage this device">' + highlightMatch(id, q) + "</a>")
+        .map((entry) => {
+          const title = entry.updated ? "Last check-in: " + entry.updated.toLocaleString() : "Last check-in unknown";
+          const time = entry.updated ? '<span class="chip-time">&middot; ' + escapeHtml(relativeTime(entry.updated)) + "</span>" : "";
+          return '<a class="device-chip" href="../../manage/?id=' + encodeURIComponent(entry.id) + '" title="' + escapeHtml(title) + '">' + highlightMatch(entry.id, q) + time + "</a>";
+        })
         .join("");
 
       return (
@@ -432,10 +452,22 @@
           console.error("Couldn't read " + item.name + ":", err);
           label = LOAD_ERROR_LABEL;
         }
-        (deviceIdsByLabel[label] = deviceIdsByLabel[label] || []).push(deviceId);
+
+        // The file's own Storage "updated" timestamp -- the device
+        // overwrites this file on every check-in, so it doubles as
+        // "last seen" without needing a field inside the JSON itself.
+        let updated = null;
+        try {
+          const meta = await getMetadata(item);
+          updated = meta && meta.updated ? new Date(meta.updated) : null;
+        } catch (err) {
+          console.error("Couldn't read metadata for " + item.name + ":", err);
+        }
+
+        (deviceIdsByLabel[label] = deviceIdsByLabel[label] || []).push({ id: deviceId, updated });
       });
 
-      for (const ids of Object.values(deviceIdsByLabel)) ids.sort();
+      for (const ids of Object.values(deviceIdsByLabel)) ids.sort((a, b) => a.id.localeCompare(b.id));
 
       loadingBanner.style.display = "none";
       renderRows();
