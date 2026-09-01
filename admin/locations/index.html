@@ -141,6 +141,45 @@
 
   .empty-msg { text-align: center; color: var(--ink-soft); font-size: 13.5px; padding: 10px 0 18px; display: none; }
 
+  /* ---------- Search ---------- */
+  .search-row { margin: 0 0 16px; display: none; }
+  .search-input {
+    width: 100%;
+    font-family: var(--body);
+    font-size: 13.5px;
+    padding: 9px 12px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .search-input:focus { outline: 2px solid var(--navy); outline-offset: 1px; }
+
+  /* ---------- Expandable device-ID list per location ---------- */
+  .loc-row-head { cursor: pointer; }
+  .loc-row-head:hover .loc-name { text-decoration: underline; }
+  .loc-chevron { display: inline-block; margin-left: 6px; font-size: 10px; color: var(--ink-soft); transition: transform 0.15s ease; }
+  .loc-row.expanded .loc-chevron { transform: rotate(90deg); }
+  .loc-devices {
+    display: none;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 10px 0 4px;
+  }
+  .loc-row.expanded .loc-devices { display: flex; }
+  .device-chip {
+    font-family: monospace;
+    font-size: 11.5px;
+    color: var(--navy);
+    background: var(--foam);
+    border: 1px solid var(--line);
+    padding: 3px 8px;
+    border-radius: 6px;
+    text-decoration: none;
+  }
+  .device-chip:hover { background: #fff; border-color: var(--navy); }
+  .device-chip mark { background: rgba(217,164,65,0.45); color: inherit; border-radius: 2px; }
+
   .refresh-row { text-align: center; margin: 22px 0 0; }
   .refresh-btn {
     font-family: var(--body);
@@ -179,11 +218,15 @@
 
   <div class="intro">
     <h2>Wave Clocks by Location</h2>
-    <p>Live count of registered devices, grouped by the location each one currently reports.</p>
+    <p>Live count of registered devices, grouped by the location each one currently reports. Tap a location, or search, to see its device IDs.</p>
   </div>
 
   <div class="banner loading" id="loadingBanner">Reading device-status files&hellip;</div>
   <div class="banner error" id="errorBanner"></div>
+
+  <div class="search-row" id="searchRow">
+    <input class="search-input" id="searchInput" type="text" placeholder="Find a location or a device ID&hellip;">
+  </div>
 
   <div class="stat-row" id="statRow" style="display:none;">
     <div class="stat-tile">
@@ -237,6 +280,8 @@
   const emptyMsg = document.getElementById("emptyMsg");
   const refreshBtn = document.getElementById("refreshBtn");
   const asOf = document.getElementById("asOf");
+  const searchRow = document.getElementById("searchRow");
+  const searchInput = document.getElementById("searchInput");
 
   const NO_LOCATION_LABEL = "No location set yet";
   const LOAD_ERROR_LABEL = "Couldn't read status file";
@@ -275,40 +320,89 @@
     return results;
   }
 
-  function render(counts, total) {
-    const entries = Object.entries(counts).filter(([label]) => label !== NO_LOCATION_LABEL && label !== LOAD_ERROR_LABEL);
-    entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    const noLocationCount = counts[NO_LOCATION_LABEL] || 0;
-    const errorCount = counts[LOAD_ERROR_LABEL] || 0;
+  // deviceIdsByLabel populated by load(); manuallyExpanded tracks which
+  // labels the customer clicked open by hand (persists across re-filters,
+  // separate from the auto-expand a search match triggers).
+  let deviceIdsByLabel = {};
+  let manuallyExpanded = new Set();
+
+  function highlightMatch(text, query) {
+    const escaped = escapeHtml(text);
+    if (!query) return escaped;
+    const i = text.toLowerCase().indexOf(query.toLowerCase());
+    if (i === -1) return escaped;
+    return escapeHtml(text.slice(0, i)) + "<mark>" + escapeHtml(text.slice(i, i + query.length)) + "</mark>" + escapeHtml(text.slice(i + query.length));
+  }
+
+  function renderRows() {
+    const total = Object.values(deviceIdsByLabel).reduce((sum, ids) => sum + ids.length, 0);
+    const entries = Object.entries(deviceIdsByLabel).filter(([label]) => label !== NO_LOCATION_LABEL && label !== LOAD_ERROR_LABEL);
+    entries.sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+    const noLocationIds = deviceIdsByLabel[NO_LOCATION_LABEL] || [];
+    const errorIds = deviceIdsByLabel[LOAD_ERROR_LABEL] || [];
 
     deviceCountValue.textContent = String(total);
     locationCountValue.textContent = String(entries.length);
     statRow.style.display = total ? "flex" : "none";
+    searchRow.style.display = total ? "block" : "none";
 
     if (!total) {
       locCard.style.display = "none";
+      emptyMsg.textContent = "No device-status files found yet.";
       emptyMsg.style.display = "block";
       return;
     }
-    emptyMsg.style.display = "none";
 
-    const maxCount = entries.length ? entries[0][1] : 1;
-    const rowHtml = (label, count, extraClass) => {
-      const pct = Math.max(4, Math.round((count / maxCount) * 100));
+    const query = searchInput.value.trim();
+    const q = query.toLowerCase();
+    const maxCount = entries.length ? entries[0][1].length : 1;
+
+    const rowHtml = (label, ids, extraClass) => {
+      const labelMatches = !q || label.toLowerCase().includes(q);
+      const matchingIds = !q ? ids : ids.filter((id) => id.toLowerCase().includes(q));
+      if (q && !labelMatches && !matchingIds.length) return "";
+
+      const expanded = manuallyExpanded.has(label) || (!!q && (labelMatches || matchingIds.length));
+      const pct = Math.max(4, Math.round((ids.length / maxCount) * 100));
+      const chips = (labelMatches ? ids : matchingIds)
+        .map((id) => '<a class="device-chip" href="../../manage/?id=' + encodeURIComponent(id) + '" title="Manage this device">' + highlightMatch(id, q) + "</a>")
+        .join("");
+
       return (
-        '<div class="loc-row' + (extraClass ? " " + extraClass : "") + '">' +
-          '<div class="loc-row-head"><span class="loc-name">' + escapeHtml(label) + '</span><span class="loc-count">' + count + '</span></div>' +
+        '<div class="loc-row' + (extraClass ? " " + extraClass : "") + (expanded ? " expanded" : "") + '" data-label="' + escapeHtml(label) + '">' +
+          '<div class="loc-row-head"><span class="loc-name">' + highlightMatch(label, labelMatches ? q : "") + '<span class="loc-chevron">&#9656;</span></span><span class="loc-count">' + ids.length + '</span></div>' +
           '<div class="loc-track"><div class="loc-fill" style="width:' + pct + '%"></div></div>' +
+          '<div class="loc-devices">' + chips + '</div>' +
         '</div>'
       );
     };
 
-    let html = entries.map(([label, count]) => rowHtml(label, count)).join("");
-    if (noLocationCount) html += rowHtml(NO_LOCATION_LABEL, noLocationCount, "no-location");
-    if (errorCount) html += rowHtml(LOAD_ERROR_LABEL, errorCount, "load-error");
+    let html = entries.map(([label, ids]) => rowHtml(label, ids)).join("");
+    if (noLocationIds.length) html += rowHtml(NO_LOCATION_LABEL, noLocationIds, "no-location");
+    if (errorIds.length) html += rowHtml(LOAD_ERROR_LABEL, errorIds, "load-error");
+
+    if (!html) {
+      locCard.style.display = "none";
+      emptyMsg.textContent = "No location or device ID matches “" + query + "”.";
+      emptyMsg.style.display = "block";
+      return;
+    }
+    emptyMsg.style.display = "none";
     locCard.innerHTML = html;
     locCard.style.display = "block";
   }
+
+  locCard.addEventListener("click", (e) => {
+    const head = e.target.closest(".loc-row-head");
+    if (!head) return;
+    const row = head.closest(".loc-row");
+    const label = row.dataset.label;
+    if (manuallyExpanded.has(label)) manuallyExpanded.delete(label);
+    else manuallyExpanded.add(label);
+    renderRows();
+  });
+
+  searchInput.addEventListener("input", renderRows);
 
   async function load() {
     refreshBtn.disabled = true;
@@ -323,10 +417,12 @@
       const listing = await listAll(folderRef);
       const files = listing.items.filter((item) => item.name.endsWith(".json"));
 
-      const counts = {};
-      let total = 0;
+      deviceIdsByLabel = {};
+      manuallyExpanded = new Set();
+      searchInput.value = "";
 
       await mapWithConcurrency(files, 12, async (item) => {
+        const deviceId = item.name.slice(0, -".json".length);
         let label;
         try {
           const status = await fetchJsonFromStorage("device-status/" + item.name, 10000);
@@ -336,12 +432,13 @@
           console.error("Couldn't read " + item.name + ":", err);
           label = LOAD_ERROR_LABEL;
         }
-        counts[label] = (counts[label] || 0) + 1;
-        total += 1;
+        (deviceIdsByLabel[label] = deviceIdsByLabel[label] || []).push(deviceId);
       });
 
+      for (const ids of Object.values(deviceIdsByLabel)) ids.sort();
+
       loadingBanner.style.display = "none";
-      render(counts, total);
+      renderRows();
       asOf.textContent = "Updated " + new Date().toLocaleString();
     } catch (err) {
       console.error("Couldn't list device-status/:", err);
