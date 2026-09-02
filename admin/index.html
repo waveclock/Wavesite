@@ -106,7 +106,7 @@
 
   <div class="intro">
     <h2>Admin Pages</h2>
-    <p>Unlisted internal pages &mdash; nothing here requires a login, so "admin" just means "not linked from the site itself."</p>
+    <p>Unlisted internal pages, gated behind sign-in with an authorized Google account.</p>
   </div>
 
   <div class="page-list">
@@ -152,6 +152,23 @@
 <footer>
   <p><a href="../index.html">waveclock.net</a></p>
 </footer>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { requireAdmin } from "./auth-gate.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
+    authDomain: "waveclock.firebaseapp.com",
+    projectId: "waveclock",
+    storageBucket: "waveclock.firebasestorage.app",
+    messagingSenderId: "668302334840",
+    appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  await requireAdmin(app);
+</script>
 
 </body>
 </html>

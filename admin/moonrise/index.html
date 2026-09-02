@@ -124,6 +124,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getStorage, ref, listAll, deleteObject, uploadBytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+  import { requireAdmin } from "../auth-gate.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
@@ -135,6 +136,7 @@
   };
 
   const app = initializeApp(firebaseConfig);
+  await requireAdmin(app);
   const storage = getStorage(app);
 
   const loadingMsg = document.getElementById("loadingMsg");

@@ -11,10 +11,9 @@
 <!--
   Internal admin reference for Beach Buddy (see functions/lib/dynamic.js's
   moodForBeachData and functions/lib/imagen.js's IMAGEN_SCENE_HINTS) --
-  NOT linked from the design tool or anywhere customer-facing. Nothing on
-  this site requires a login, so "admin" here just means "not linked,"
-  the same posture the hidden Beach Buddy toolbar button used before its
-  own live smoke test (see functions/README.md's Beach Buddy section).
+  NOT linked from the design tool or anywhere customer-facing, and gated
+  behind sign-in with an authorized Google account (see
+  admin/auth-gate.js), same as everything under /admin/.
 
   Two things this page is for:
   1. A plain-English reference table of EVERY mood branch, in the exact
@@ -239,6 +238,21 @@
 </footer>
 
 <script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { requireAdmin } from "../admin/auth-gate.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
+    authDomain: "waveclock.firebaseapp.com",
+    projectId: "waveclock",
+    storageBucket: "waveclock.firebasestorage.app",
+    messagingSenderId: "668302334840",
+    appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  await requireAdmin(app);
+
   const IMAGEN_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/imagenProxy";
 
   // Mirrors the real card dimensions/banner (CANVAS_WIDTH/HEIGHT,

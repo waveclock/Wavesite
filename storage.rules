@@ -1,0 +1,69 @@
+rules_version = '2';
+
+// Firebase Storage security rules for the waveclock project.
+//
+// IMPORTANT -- this file is not currently wired into firebase.json or the
+// deploy workflow, and is NOT auto-deployed. There's no `storage.rules`
+// in this repo today, which means whatever rules exist right now live
+// only in the Firebase console and were never checked in. A blind
+// `firebase deploy --only storage` from this file would REPLACE the
+// entire live ruleset, including rules for paths this file doesn't even
+// know about (designs/, device-status/, settings/, locations/, etc. --
+// see the catch-all note at the bottom). Before deploying:
+//   1. Pull the current rules from the Firebase console (Storage > Rules)
+//      and diff them against this file.
+//   2. Merge the match blocks below into that live ruleset rather than
+//      replacing it wholesale.
+//   3. Test with the Rules Playground in the console.
+//   4. Only then run `firebase deploy --only storage` (after adding a
+//      "storage": { "rules": "storage.rules" } entry to firebase.json).
+//
+// What this tightens: reviews/ and moonrise/ moderation, which is the
+// part of admin/ that writes and deletes real user submissions. It
+// deliberately does NOT touch designs/, device-status/, settings/, or
+// locations/ -- those paths are written directly by customers with no
+// login system of their own (a device ID is effectively the "credential"
+// for the public design tool), so tightening them to require Firebase
+// Auth would break that live customer flow, not just lock out outsiders.
+// The admin viewers for those paths (custom-screens, locations,
+// backfill-previews) are gated at the UI layer only (admin/auth-gate.js);
+// their underlying Storage access is unchanged by this file.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email in ['kurt.woehr@gmail.com'];
+    }
+
+    // Public review submissions (reviews/submit/) create pending entries
+    // unauthenticated; only an admin (admin/reviews/) can publish one to
+    // approved/ or delete a rejected one.
+    match /reviews/pending/{fileName} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isAdmin();
+    }
+    match /reviews/approved/{fileName} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Same pattern for moonrise/submit/ + admin/moonrise/.
+    match /moonrise/pending/{fileName} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isAdmin();
+    }
+    match /moonrise/approved/{fileName} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Everything else (designs/, device-status/, settings/, locations/,
+    // ...) keeps whatever the live console rules already say -- merge
+    // those rules in here rather than relying on a catch-all, since a
+    // catch-all in this file would silently take over for any path not
+    // listed above the moment this got deployed.
+  }
+}

@@ -227,6 +227,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getStorage, ref, listAll, uploadBytes } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+  import { requireAdmin } from "../auth-gate.js";
 
   // Same Firebase project/bucket used by /design/ and every other admin
   // page -- see admin/custom-screens/index.html's own comment for the
@@ -242,6 +243,7 @@
     appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
   };
   const app = initializeApp(firebaseConfig);
+  await requireAdmin(app);
   const storage = getStorage(app);
 
   // Mirrors CANVAS_WIDTH/HEIGHT/BIT_THRESHOLD in functions/lib/dynamic.js's

@@ -257,6 +257,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getStorage, ref, listAll, getMetadata } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+  import { requireAdmin } from "../auth-gate.js";
 
   // Same Firebase project/bucket used by /design/, /location/, /settings/ --
   // this page just reads across every device-status/{id}.json instead of
@@ -270,6 +271,7 @@
     appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
   };
   const app = initializeApp(firebaseConfig);
+  await requireAdmin(app);
   const storage = getStorage(app);
 
   const loadingBanner = document.getElementById("loadingBanner");
