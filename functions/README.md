@@ -1056,12 +1056,23 @@ one of its tracked fields, but app-only with no public API) and Beach
 Day API (a real, documented, developer-first REST API -- but paid, and
 every other data source in this app is free).
 
-**Bonus stats, not a new source**: the surf-height/water-temp line on
-the card (`fetchBeachFlagCardData` in `lib/beachflag.js`) reuses
+**Bonus stats, not a new source**: the surf-height/water-temp/rip-risk
+line on the card (`fetchBeachFlagCardData` in `lib/beachflag.js`) reuses
 `fetchTideCardData` exactly as the Tide card does -- no new fetch, and
 it degrades gracefully (stats just don't show) rather than failing the
 card if that call fails, since the flag status is the whole point of
-this card and wave height is a nice-to-have.
+this card and the rest is a nice-to-have. Rip current risk
+(`ripCurrentRisk` in `lib/astro.js`) is a simplified LOW/MODERATE/HIGH
+estimate derived from Open-Meteo Marine's wave height + period alone --
+explicitly NOT the official NWS Beach Hazards Statement, which also
+weighs tide stage, wind direction relative to the coast, and local
+bathymetry per beach; see that function's own comment for the exact
+thresholds and reasoning. The town name shown alongside it is never
+fetched -- it's the device's own saved location nickname
+(`locations/{id}.json`'s `name` field, via `resolveTideLocation` in
+`design/index.html`), stored on the layer's `-dynamic.json` meta at
+publish time as `townName`, the same "save it once, don't refetch it"
+approach `tideTimeline`'s own `meta.townName` already uses.
 
 **Refresh schedule**: `regenerateBeachFlagDesigns`, every 3 hours (not
 hourly like Beach Buddy) -- the flag color itself only actually changes

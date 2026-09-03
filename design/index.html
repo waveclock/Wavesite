@@ -3912,6 +3912,17 @@
     let y = BANNER_HEIGHT + 52;
     ctx.textAlign = "left";
     ctx.fillStyle = "#000";
+
+    if (data.townName) {
+      const townText = data.townName.toUpperCase();
+      const townSize = fitBannerFontSize(ctx, townText, textMaxWidth, "Georgia, serif", 13, 9);
+      ctx.font = townSize + "px Georgia, serif";
+      ctx.fillStyle = "#444";
+      ctx.fillText(townText, textX, y);
+      ctx.fillStyle = "#000";
+      y += 20;
+    }
+
     const primaryLabel = flags[0].label.toUpperCase();
     const labelSize = fitBannerFontSize(ctx, primaryLabel, textMaxWidth, "'Bungee', sans-serif", 22, 13);
     ctx.font = labelSize + "px 'Bungee', sans-serif";
@@ -3927,9 +3938,16 @@
     const statParts = [];
     if (data.swellHeightFt != null) statParts.push("Surf " + data.swellHeightFt + " ft");
     if (data.waterTempF != null) statParts.push("Water " + data.waterTempF + "°F");
+    if (data.ripRisk) statParts.push("Rip Risk: " + data.ripRisk);
     if (statParts.length) {
-      ctx.font = "600 15px Georgia, serif";
-      ctx.fillText(statParts.join("   ·   "), textX, h - 20);
+      const statText = statParts.join("   ·   ");
+      let statSize = 15;
+      while (statSize > 10) {
+        ctx.font = "600 " + statSize + "px Georgia, serif";
+        if (ctx.measureText(statText).width <= textMaxWidth) break;
+        statSize--;
+      }
+      ctx.fillText(statText, textX, h - 20);
     }
 
     if (data.lastRefreshedText) {
@@ -3942,13 +3960,14 @@
 
   const BEACH_FLAG_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/beachFlagProxy";
 
-  async function fetchBeachFlagCardDataClient(lat, lon, stationId) {
+  async function fetchBeachFlagCardDataClient(lat, lon, stationId, townName) {
     const params = new URLSearchParams();
     if (typeof lat === "number" && typeof lon === "number" && stationId) {
       params.set("lat", String(lat));
       params.set("lon", String(lon));
       params.set("stationId", String(stationId));
     }
+    if (townName) params.set("townName", townName);
     const qs = params.toString();
     const resp = await fetch(BEACH_FLAG_PROXY_BASE + (qs ? "?" + qs : ""));
     const data = await resp.json();
@@ -3978,7 +3997,7 @@
         kind: "localInfo", id: nextLayerId++, subType,
         x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
         font: "Georgia, serif", outline: false,
-        lat: null, lon: null, stationId: null, cardData: null, previewContent: "LOADING…"
+        lat: null, lon: null, stationId: null, townName: null, cardData: null, previewContent: "LOADING…"
       };
       layers.push(layer);
     } else {
@@ -3997,14 +4016,20 @@
         layer.lat = location.lat;
         layer.lon = location.lon;
         layer.stationId = location.stationId;
+        layer.townName = location.name || null;
       }
 
-      const data = await fetchBeachFlagCardDataClient(hasLocation ? location.lat : null, hasLocation ? location.lon : null, hasLocation ? location.stationId : null);
+      const data = await fetchBeachFlagCardDataClient(
+        hasLocation ? location.lat : null,
+        hasLocation ? location.lon : null,
+        hasLocation ? location.stationId : null,
+        hasLocation ? location.name : null
+      );
       if (token !== localInfoFetchToken) return;
       layer.cardData = data;
       layer.previewContent = null;
       localInfoStatus.textContent = "This is the real card — it updates itself every few hours after you publish."
-        + (hasLocation ? "" : " Set a device location (see Manage) to also show today's surf height and water temperature.");
+        + (hasLocation ? "" : " Set a device location (see Manage) to also show your town name, today's surf height, water temperature, and rip current risk.");
     } catch (err) {
       if (token !== localInfoFetchToken) return;
       console.error("Couldn't load beach flag data:", err);
@@ -5964,10 +5989,11 @@
           } else if (dynamicLayer.kind === "beachBuddy") {
             dynamicMeta = Object.assign({ type: "beachBuddy", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId }, shared);
           } else if (dynamicLayer.kind === "localInfo") {
-            // dynamicLayer.subType is the Local Info dropdown's value --
-            // only "beachFlag" exists today, matching renderDynamicDesign's
-            // meta.type check in functions/lib/dynamic.js exactly.
-            dynamicMeta = Object.assign({ type: dynamicLayer.subType || "beachFlag", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId }, shared);
+            // dynamicLayer.subType is whichever option was picked on the
+            // gallery page (local-info-gallery.html) -- only "beachFlag"
+            // exists today, matching renderDynamicDesign's meta.type check
+            // in functions/lib/dynamic.js exactly.
+            dynamicMeta = Object.assign({ type: dynamicLayer.subType || "beachFlag", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId, townName: dynamicLayer.townName || "" }, shared);
           } else {
             dynamicMeta = Object.assign({ type: "news", location: dynamicLayer.location || "", feedUrl: dynamicLayer.feedUrl || "" }, shared);
           }
