@@ -619,6 +619,12 @@
     cursor: pointer;
   }
   .fishing-save-btn:disabled { opacity: 0.4; cursor: default; }
+  .local-info-browse-link {
+    display: block; box-sizing: border-box; width: 100%; padding: 10px; margin-top: 10px;
+    border: 2px solid var(--navy); border-radius: 8px;
+    background: var(--navy); color: #fff; font-weight: 700; font-size: 13px;
+    text-align: center; text-decoration: none;
+  }
   .fishing-remove-btn {
     width: 100%; padding: 8px; margin-top: 6px;
     border: 2px solid var(--coral); border-radius: 8px;
@@ -1074,15 +1080,8 @@
   </div>
 
   <div class="tool-panel hidden" id="localInfoPanel">
-    <div class="countdown-fields">
-      <label class="countdown-field">
-        <span>What to show</span>
-        <select id="localInfoSelect">
-          <option value="beachFlag">Beach Flags (South Walton, FL)</option>
-        </select>
-      </label>
-    </div>
-    <p class="clipart-status" id="localInfoStatus">Loading today's beach flag&hellip;</p>
+    <p class="clipart-status" id="localInfoStatus">Nothing selected yet &mdash; browse the options below to see a live preview of each one before picking.</p>
+    <a class="local-info-browse-link" id="localInfoBrowseLink" href="#">Browse Local Info options &rarr;</a>
   </div>
 
   <div class="tool-panel hidden" id="layersPanel">
@@ -2928,11 +2927,12 @@
       if (tool === "beachBuddy") {
         loadBeachBuddyLayer();
       }
-      // Local Info: the dropdown picks WHICH regional data source, but
-      // there's no picker beyond that (Beach Flags, like Beach Buddy,
-      // just uses the device's own saved location for its bonus surf/
-      // water stats) -- opening the tab loads whatever the dropdown is
-      // currently set to.
+      // Local Info: which regional data source is picked on a separate
+      // gallery page (local-info-gallery.html, linked from the panel),
+      // not here -- there's more room there for a live preview + a
+      // description per option than a toolbar dropdown ever had. Opening
+      // this tab just resumes whatever's already chosen (or prompts to
+      // go browse, if nothing is yet).
       if (tool === "localInfo") {
         loadLocalInfoLayer();
       }
@@ -3231,7 +3231,10 @@
   // fallback contract the daily job's own server-side render has.
   const beachBuddyStatus = document.getElementById("beachBuddyStatus");
   const localInfoStatus = document.getElementById("localInfoStatus");
-  const localInfoSelectEl = document.getElementById("localInfoSelect");
+  const localInfoBrowseLink = document.getElementById("localInfoBrowseLink");
+  if (deviceId) {
+    localInfoBrowseLink.href = "local-info-gallery.html?id=" + encodeURIComponent(deviceId) + "&screen=" + screen;
+  }
 
   const BUDDY_INK = "#000";
 
@@ -3954,9 +3957,16 @@
   }
 
   let localInfoFetchToken = 0;
-  async function loadLocalInfoLayer() {
+  // subType is optional: pass it when applying a fresh pick from the
+  // gallery page (?localInfoChoice=...), omit it to just resume whatever
+  // is already on the layer (opening the tab with nothing chosen yet).
+  async function loadLocalInfoLayer(subType) {
     let layer = layers.find((l) => l.kind === "localInfo");
-    const subType = localInfoSelectEl.value; // only "beachFlag" exists today
+    if (!subType) subType = layer ? layer.subType : null;
+    if (!subType) {
+      localInfoStatus.textContent = "Nothing selected yet — browse the options below to see a live preview of each one before picking.";
+      return;
+    }
     if (layer && layer.cardData && layer.subType === subType) {
       localInfoStatus.textContent = "This is the real card — it updates itself every few hours after you publish.";
       return;
@@ -4004,11 +4014,14 @@
     renderLayers();
   }
 
-  localInfoSelectEl.addEventListener("change", () => {
-    const layer = layers.find((l) => l.kind === "localInfo");
-    if (layer) layer.subType = localInfoSelectEl.value;
-    loadLocalInfoLayer();
-  });
+  // Coming back from the gallery page with a fresh pick
+  // (?localInfoChoice=beachFlag) applies it immediately instead of making
+  // the customer reopen the tab and pick again.
+  const localInfoChoiceParam = params.get("localInfoChoice");
+  if (localInfoChoiceParam) {
+    showToolPanel("localInfo");
+    loadLocalInfoLayer(localInfoChoiceParam);
+  }
 
   // ================= Tide & Fishing tool (Phase 1: tide + moon only) =================
   // astroProxy does the FULL computation server-side (twilight bounds,

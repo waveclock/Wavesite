@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Local Info — Design Your Wave Clock</title>
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --line: rgba(31, 51, 71, 0.14);
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    font-family: var(--body);
+    color: var(--ink);
+    padding: 20px 16px 60px;
+  }
+
+  .top-bar {
+    max-width: 760px;
+    margin: 0 auto 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .back-link {
+    font-family: var(--body);
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--navy);
+    text-decoration: none;
+    padding: 8px 4px;
+  }
+  .back-link:hover { text-decoration: underline; }
+
+  h1 {
+    font-family: var(--heading);
+    font-size: 22px;
+    margin: 0;
+  }
+
+  .intro {
+    max-width: 760px;
+    margin: 0 auto 24px;
+    color: var(--ink-soft);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .option-list {
+    max-width: 760px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .option-card {
+    background: var(--foam);
+    border: 2px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+  }
+
+  .option-title {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 18px;
+    margin: 0 0 4px;
+  }
+
+  .option-desc {
+    font-size: 14px;
+    color: var(--ink-soft);
+    line-height: 1.5;
+    margin: 0 0 14px;
+  }
+
+  .preview-frame {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px;
+    margin-bottom: 12px;
+  }
+  .preview-frame canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .preview-status {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 0 0 12px;
+  }
+
+  .use-this-btn {
+    display: inline-block;
+    padding: 10px 20px;
+    border: 2px solid var(--navy);
+    border-radius: 8px;
+    background: var(--navy);
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .use-this-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <a class="back-link" id="backLink" href="index.html">&larr; Back</a>
+  <h1>Local Info</h1>
+</div>
+<p class="intro">
+  These cards pull live, hyper-regional data — pick one to preview it below,
+  then use it on your screen. More will be added here over time as we hear
+  what your area could use.
+</p>
+
+<div class="option-list" id="optionList"></div>
+
+<script type="module">
+  // Standalone page -- deliberately duplicates the flag-drawing code from
+  // index.html/functions/lib/beachflag.js rather than sharing a module,
+  // same "no shared module" convention used everywhere else in this repo
+  // (see dynamic.js's own header comment). If the real card layout
+  // changes, this preview must be updated too or it'll mislead customers
+  // about what they're picking.
+  const params = new URLSearchParams(window.location.search);
+  const deviceId = params.get("id");
+  const screenParam = parseInt(params.get("screen"), 10);
+  const screen = (screenParam === 2 || screenParam === 3) ? screenParam : 1;
+
+  const backLink = document.getElementById("backLink");
+  if (deviceId) {
+    backLink.href = "index.html?id=" + encodeURIComponent(deviceId) + "&screen=" + screen;
+  }
+
+  const CANVAS_WIDTH = 792;
+  const CANVAS_HEIGHT = 272;
+  const BANNER_HEIGHT = 48;
+
+  function fitBannerFontSize(ctx, text, maxWidth, family, maxSize, minSize) {
+    for (let size = maxSize; size > minSize; size--) {
+      ctx.font = size + "px " + family;
+      if (ctx.measureText(text).width <= maxWidth) return size;
+    }
+    ctx.font = minSize + "px " + family;
+    return minSize;
+  }
+
+  function flagPennantPathClient(ctx, x, y, w, h) {
+    const notch = w * 0.24;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + w, y);
+    ctx.lineTo(x + w - notch, y + h / 2);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x, y + h);
+    ctx.closePath();
+  }
+
+  const LOCAL_INFO_FLAG_PATTERNS = { GREEN: "dots", YELLOW: "lines", RED: "solid", "DOUBLE RED": "solid2", PURPLE: "cross" };
+
+  function drawFlagIconClient(ctx, x, y, w, h, pattern) {
+    ctx.strokeStyle = "#000";
+    ctx.fillStyle = "#000";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 6);
+    ctx.lineTo(x, y + h + 6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y - 9, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    flagPennantPathClient(ctx, x, y, w, h);
+    ctx.clip();
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = "#000";
+    ctx.strokeStyle = "#000";
+    if (pattern === "solid" || pattern === "solid2") {
+      ctx.fillRect(x, y, w, h);
+    } else if (pattern === "dots") {
+      for (let yy = y + 4; yy < y + h; yy += 8) {
+        for (let xx = x + 4; xx < x + w; xx += 8) {
+          ctx.beginPath();
+          ctx.arc(xx, yy, 1.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    } else if (pattern === "lines") {
+      ctx.lineWidth = 2;
+      for (let yy = y + 4; yy < y + h; yy += 6) {
+        ctx.beginPath();
+        ctx.moveTo(x, yy);
+        ctx.lineTo(x + w, yy);
+        ctx.stroke();
+      }
+    } else if (pattern === "cross") {
+      ctx.lineWidth = 1.6;
+      for (let d = -h; d < w + h; d += 7) {
+        ctx.beginPath();
+        ctx.moveTo(x + d, y);
+        ctx.lineTo(x + d - h, y + h);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + w - d, y);
+        ctx.lineTo(x + w - d + h, y + h);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#000";
+    flagPennantPathClient(ctx, x, y, w, h);
+    ctx.stroke();
+  }
+
+  function beachFlagBannerTitleClient(flags) {
+    if (!flags.length) return "BEACH FLAGS";
+    return flags.map((f) => f.color).join(" + ");
+  }
+
+  function drawBeachFlagCardClient(ctx, data) {
+    const w = CANVAS_WIDTH, h = CANVAS_HEIGHT;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    const bannerTitle = beachFlagBannerTitleClient(data.flags);
+    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 26, 14);
+    ctx.font = bannerSize + "px 'Bungee', sans-serif";
+    ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+    const iconY = BANNER_HEIGHT + 40;
+    const iconW = 70, iconH = 50;
+    const doubleStackGap = 4;
+    let iconX = 56;
+    const flags = data.flags.length ? data.flags : [{ color: "GREEN", label: "No current advisory" }];
+    flags.forEach((f) => {
+      const pattern = LOCAL_INFO_FLAG_PATTERNS[f.color] || "dots";
+      drawFlagIconClient(ctx, iconX, iconY, iconW, iconH, pattern);
+      let bottomY = iconY + iconH;
+      if (f.color === "DOUBLE RED") {
+        drawFlagIconClient(ctx, iconX, iconY + iconH + doubleStackGap, iconW, iconH, pattern);
+        bottomY = iconY + iconH + doubleStackGap + iconH;
+      }
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#000";
+      ctx.font = "600 12px Georgia, serif";
+      ctx.fillText(f.color, iconX + iconW / 2, bottomY + 24);
+      iconX += 130;
+    });
+
+    const textX = 340;
+    const textMaxWidth = w - textX - 32;
+    let y = BANNER_HEIGHT + 52;
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#000";
+    const primaryLabel = flags[0].label.toUpperCase();
+    const labelSize = fitBannerFontSize(ctx, primaryLabel, textMaxWidth, "'Bungee', sans-serif", 22, 13);
+    ctx.font = labelSize + "px 'Bungee', sans-serif";
+    ctx.fillText(primaryLabel, textX, y);
+    y += labelSize + 14;
+
+    ctx.font = "16px Georgia, serif";
+    for (const f of flags.slice(1)) {
+      ctx.fillText(f.label, textX, y);
+      y += 22;
+    }
+
+    const statParts = [];
+    if (data.swellHeightFt != null) statParts.push("Surf " + data.swellHeightFt + " ft");
+    if (data.waterTempF != null) statParts.push("Water " + data.waterTempF + "°F");
+    if (statParts.length) {
+      ctx.font = "600 15px Georgia, serif";
+      ctx.fillText(statParts.join("   ·   "), textX, h - 20);
+    }
+
+    if (data.lastRefreshedText) {
+      ctx.textAlign = "right";
+      ctx.font = "11px Georgia, serif";
+      ctx.fillStyle = "#444";
+      ctx.fillText("Updated " + data.lastRefreshedText, w - 24, h - 10);
+    }
+  }
+
+  function drawLoadingCard(ctx, message) {
+    const w = CANVAS_WIDTH, h = CANVAS_HEIGHT;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#444";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "16px Georgia, serif";
+    ctx.fillText(message, w / 2, h / 2 + BANNER_HEIGHT / 2);
+  }
+
+  const BEACH_FLAG_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/beachFlagProxy";
+
+  async function fetchBeachFlagCardDataClient() {
+    // The gallery preview never has a saved device location handy (it's
+    // reached before a layer exists), so it always fetches the
+    // location-independent version -- same graceful "no bonus stats"
+    // degradation beachFlagProxy already provides for Beach Buddy/Tide
+    // when nothing is set yet.
+    const resp = await fetch(BEACH_FLAG_PROXY_BASE);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("Beach flag fetch failed: " + resp.status));
+    return data;
+  }
+
+  // Each entry is one Local Info option. subType must match what
+  // design/index.html and functions/lib/dynamic.js expect on the layer
+  // (meta.subType) -- adding "Live Music" here later is just another
+  // entry with its own draw()/load() pair, no other page changes needed.
+  const OPTIONS = [
+    {
+      subType: "beachFlag",
+      title: "Beach Flags",
+      description: "Today's beach hazard flag color(s) for the 30A corridor, straight from the daily posted advisory, plus a bonus surf height and water temperature reading when your clock has a saved location. Updates automatically every few hours.",
+      load: fetchBeachFlagCardDataClient,
+      draw: drawBeachFlagCardClient
+    }
+  ];
+
+  const optionList = document.getElementById("optionList");
+
+  OPTIONS.forEach((opt) => {
+    const card = document.createElement("div");
+    card.className = "option-card";
+
+    const title = document.createElement("h2");
+    title.className = "option-title";
+    title.textContent = opt.title;
+    card.appendChild(title);
+
+    const desc = document.createElement("p");
+    desc.className = "option-desc";
+    desc.textContent = opt.description;
+    card.appendChild(desc);
+
+    const frame = document.createElement("div");
+    frame.className = "preview-frame";
+    const canvas = document.createElement("canvas");
+    canvas.width = CANVAS_WIDTH;
+    canvas.height = CANVAS_HEIGHT;
+    frame.appendChild(canvas);
+    card.appendChild(frame);
+
+    const status = document.createElement("p");
+    status.className = "preview-status";
+    status.textContent = "Loading a live preview…";
+    card.appendChild(status);
+
+    const useBtn = document.createElement("a");
+    useBtn.className = "use-this-btn";
+    useBtn.textContent = "Use This";
+    const target = new URLSearchParams();
+    if (deviceId) target.set("id", deviceId);
+    target.set("screen", String(screen));
+    target.set("localInfoChoice", opt.subType);
+    useBtn.href = "index.html?" + target.toString();
+    card.appendChild(useBtn);
+
+    optionList.appendChild(card);
+
+    const ctx = canvas.getContext("2d");
+    drawLoadingCard(ctx, "Loading a live preview…");
+
+    opt.load().then((data) => {
+      opt.draw(ctx, data);
+      status.textContent = "This is a live preview — it's pulling today's real data right now.";
+    }).catch((err) => {
+      console.error("Couldn't load preview for " + opt.subType + ":", err);
+      drawLoadingCard(ctx, "Couldn't load a live preview right now");
+      status.textContent = "Couldn't load a live preview right now (" + err.message + "), but you can still pick this option.";
+    });
+  });
+</script>
+
+</body>
+</html>

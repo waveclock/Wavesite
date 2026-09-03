@@ -1024,13 +1024,20 @@ comment in index.js).
 
 A customer feature request from a Santa Rosa Beach, FL customer, asking
 for the day's beach-hazard flag color and (later) local live music
-listings. Built as a dropdown-based tool (`design/index.html`'s "Local
-Info" toolbar button, currently hidden -- see below) rather than a new
+listings. Built as a single "Local Info" tool (`design/index.html`'s
+toolbar button, currently hidden -- see below) rather than a new
 toolbar icon per data source, since these are hyper-regional requests --
 useful to a handful of customers along one stretch of coast, not
 everyone -- and more will likely come in over time from other towns.
-"Beach Flags" is the only real dropdown option today; a future "Live
-Music" option (`30a.com/events/`) would slot into the same tool.
+Picking WHICH option happens on a separate gallery page
+(`design/local-info-gallery.html`, linked from the tool panel) rather
+than an in-panel dropdown -- a customer needs room to see a live
+preview and a description per option before picking, which a toolbar
+dropdown doesn't have space for. Selecting "Use This" there bounces
+back to `index.html?...&localInfoChoice=<subType>`, which applies it
+immediately. "Beach Flags" is the only real gallery option today; a
+future "Live Music" option (`30a.com/events/`) would slot into the same
+gallery page as a second entry.
 
 **Data source, and its real caveat**: `https://30a.com/beachflag/`, a
 single URL covering the whole 30A corridor (not per-device -- flag
