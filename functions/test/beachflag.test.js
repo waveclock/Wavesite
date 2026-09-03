@@ -218,10 +218,11 @@ function hasInkInRegion(canvas, x, y, w, h) {
     });
     // Measured directly off a real render (not derived from the layout
     // constants, which are easy to get subtly wrong by hand): the second
-    // pennant's own ink ends at y=197, the "DOUBLE RED" label's glyph ink
-    // starts at y=208, so y=200..205 is genuine clear space between them
-    // -- the pre-fix version had the label overlapping the flag directly.
-    const belowSecondFlag = c.getContext("2d").getImageData(56, 200, 70, 6).data;
+    // pennant's own ink ends by y=219, the "DOUBLE RED" label's glyph ink
+    // doesn't start until y=233, so y=222..228 is genuine clear space
+    // between them -- the pre-fix version had the label overlapping the
+    // flag directly.
+    const belowSecondFlag = c.getContext("2d").getImageData(60, 222, 60, 6).data;
     let allWhite = true;
     for (let i = 0; i < belowSecondFlag.length; i += 4) { if (belowSecondFlag[i] < 200) allWhite = false; }
     assert.ok(allWhite, "expected clear space between the stacked flags and their label, not overlapping ink");
@@ -241,15 +242,15 @@ function hasInkInRegion(canvas, x, y, w, h) {
       waterTempF: 78,
       ripRisk: "HIGH"
     });
-    assert.ok(hasInkInRegion(c, 340, 90, 160, 8), "expected the town name row to have ink");
-    // Measured off a real render: the town name's own ink ends by y=99,
-    // the primary hazard label's glyph ink doesn't start until y=104 --
-    // y=100..103 is genuine clear space between them.
-    const gapRow = c.getContext("2d").getImageData(340, 100, 160, 4).data;
+    assert.ok(hasInkInRegion(c, 340, 92, 160, 10), "expected the town name row to have ink");
+    // Measured off a real render: the town name's own ink ends by y=105,
+    // the primary hazard label's glyph ink doesn't start until y=117 --
+    // y=106..116 is genuine clear space between them.
+    const gapRow = c.getContext("2d").getImageData(340, 107, 160, 8).data;
     let allWhite = true;
     for (let i = 0; i < gapRow.length; i += 4) { if (gapRow[i] < 200) allWhite = false; }
     assert.ok(allWhite, "expected clear space between the town name and the primary hazard label");
-    assert.ok(hasInkInRegion(c, 340, 240, 300, 20), "expected the stat line (including Rip Risk) to have ink");
+    assert.ok(hasInkInRegion(c, 340, 233, 300, 18), "expected the stat line (including Rip Risk) to have ink");
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");
