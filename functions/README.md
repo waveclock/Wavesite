@@ -1145,10 +1145,10 @@ the very bottom. A 7th+ event doesn't cost one of those 6 rows: the
 alignment), using the response's own `music_total` to know how many are
 left.
 
-**"Live Music (More Shows)" -- a second page, not a second data
-source**: a customer wanting to see more than 6 shows a day can put
-"Live Music" on one Custom Screen and "Live Music (More Shows)"
-(`meta.type: "liveMusicMore"`) on another; together they cover 12.
+**"More Live Music" -- a second page, not a second data source**: a
+customer wanting to see more than 6 shows a day can put "Live Music" on
+one Custom Screen and "More Live Music" (`meta.type: "liveMusicMore"`)
+on another; together they cover 12.
 `/v1/device` has no offset parameter of its own, so page 1 just asks
 for double the row budget (`music_limit` = 12) and slices off the first
 6, leaving events 7-12 -- one extra API call's worth of rows, not a
