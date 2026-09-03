@@ -1431,6 +1431,49 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(result.flagData.townName, "Santa Rosa Beach");
   });
 
+  console.log("renderDynamicDesign (type: liveMusic)");
+  function fakeMusicDeviceFetch(payload) {
+    return async (url) => {
+      const u = new URL(url);
+      if (u.hostname !== "beach-api-741108980745.us-east1.run.app") throw new Error("unexpected host in test: " + u.hostname);
+      return { ok: true, status: 200, json: async () => payload };
+    };
+  }
+  const SAMPLE_MUSIC_PAYLOAD = {
+    gen: "2026-09-02T21:32:10-05:00",
+    music: [{ s: "5:30P", e: "9:00P", r: "5:30-9:00P", v: "Red Bar", a: "The Red Bar Jazz Band" }],
+    music_total: 1,
+    stale: { flag: false, music: false }
+  };
+  await test("renders a live music card from real (mocked) Beach API data, no lat/lon/stationId needed", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-09-02T21:32:10-05:00");
+    const meta = { type: "liveMusic" };
+    const result = await renderDynamicDesign(base, meta, now, fakeMusicDeviceFetch(SAMPLE_MUSIC_PAYLOAD));
+    assert.ok(result);
+    assert.strictEqual(result.musicData.events[0].venue, "Red Bar");
+    assert.strictEqual(result.content, "The Red Bar Jazz Band @ Red Bar");
+    assert.ok(result.binBuffer.some((b) => b !== 0));
+    const decoded = await loadImage(result.pngBuffer);
+    assert.strictEqual(decoded.width, CANVAS_WIDTH);
+    assert.strictEqual(decoded.height, CANVAS_HEIGHT);
+  });
+  await test("zero events today publishes a real card (fallback message), not a thrown error", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-09-02T21:32:10-05:00");
+    const meta = { type: "liveMusic" };
+    const payload = Object.assign({}, SAMPLE_MUSIC_PAYLOAD, { music: [], music_total: 0 });
+    const result = await renderDynamicDesign(base, meta, now, fakeMusicDeviceFetch(payload));
+    assert.strictEqual(result.content, "No live music today");
+  });
+  await test("a Beach API outage throws, same as every other real data-fetch failure in this app", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-09-02T21:32:10-05:00");
+    const meta = { type: "liveMusic" };
+    const fetchImpl = async () => { throw new Error("network down"); };
+    await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
+  });
+
   console.log("drawTideTimelineCard (Sun/Moon/Tide Timeline card)");
   // x-positions below are derived from this card's own dayStart/dayEnd
   // (a 24h window) the same way drawTideTimelineCard computes them

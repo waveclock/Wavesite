@@ -904,13 +904,14 @@
           <button class="icon-tool-btn" id="toolTideBtn" data-tool="tide" title="Tide &amp; Fishing" style="display:none;">
             <svg viewBox="0 0 24 24"><path d="M3 15c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 19c2 0 2-2.5 4-2.5s2 2.5 4 2.5 2-2.5 4-2.5 2 2.5 4 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16.5" cy="6.5" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
           </button>
-          <!-- Local Info: a dropdown-based tool so new hyper-regional data
-               sources (Beach Flags first, more later -- e.g. Live Music)
-               can be added as options here without a new toolbar icon
-               each time. Hidden until the Beach Flags parser has been
-               verified against the real live page from outside this
-               sandbox -- see the header comment in lib/beachflag.js for
-               why that verification couldn't happen here. -->
+          <!-- Local Info: which regional data source is picked on a
+               separate gallery page (local-info-gallery.html), so new
+               ones (Beach Flags, Live Music, more later) can be added as
+               options there without a new toolbar icon each time. Hidden
+               until both current options have been verified against
+               their real live sources from outside this sandbox -- see
+               the header comments in lib/beachflag.js and lib/liveMusic.js
+               for why that verification couldn't happen here. -->
           <button class="icon-tool-btn" id="toolLocalInfoBtn" data-tool="localInfo" title="Local Info — hyper-regional data for your town" style="display:none;">
             <svg viewBox="0 0 24 24"><path d="M5 21V3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M5 4h13l-3 3.5L18 11H5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
           </button>
@@ -1964,9 +1965,14 @@
       }
     } else if (obj.kind === "localInfo") {
       // obj.cardData is resolved asynchronously by loadLocalInfoLayer
-      // below, same idea as Tide's obj.cardData.
+      // below, same idea as Tide's obj.cardData. Which draw function
+      // depends on which gallery option was picked (obj.subType) --
+      // defaults to Beach Flags for a layer saved before Live Music
+      // existed, same fallback loadLocalInfoLayer/the publish-time
+      // dynamicMeta assignment both already use.
       if (obj.cardData) {
-        drawBeachFlagCardClient(ctx, obj.cardData);
+        const drawFn = obj.subType === "liveMusic" ? drawMusicCardClient : drawBeachFlagCardClient;
+        drawFn(ctx, obj.cardData);
       } else {
         drawText(ctx, obj.previewContent || "LOADING…", obj);
       }
@@ -2011,7 +2017,7 @@
     if (obj.kind === "tideTimeline") return "Sun/Moon/Tide Timeline" + (obj.townName ? ": " + obj.townName : "") + (obj.cardData ? "" : " (loading…)");
     if (obj.kind === "news") return "News: " + (obj.feedUrl || obj.location || "(add a location)");
     if (obj.kind === "beachBuddy") return "Beach Buddy" + (obj.mood ? ": " + obj.mood.headline : " (loading…)");
-    if (obj.kind === "localInfo") return "Local Info: Beach Flags" + (obj.cardData ? "" : " (loading…)");
+    if (obj.kind === "localInfo") return "Local Info: " + (obj.subType === "liveMusic" ? "Live Music" : "Beach Flags") + (obj.cardData ? "" : " (loading…)");
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
     if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Normal") + ")";
     if (obj.kind === "stroke") return "Drawing";
@@ -3791,16 +3797,18 @@
     renderLayers();
   }
 
-  // ================= Local Info tool (Beach Flags first) =================
-  // A dropdown-based tool so more hyper-regional data sources can be
-  // added as options here later (Live Music next) without a new toolbar
-  // icon each time -- see the comment on toolLocalInfoBtn above. Unlike
-  // Beach Buddy, a device location is a nice-to-have here, not required:
-  // the flag color itself covers the whole 30A corridor from one fixed
-  // page, only the bonus surf-height/water-temp line needs a location,
-  // and beachFlagProxy already degrades gracefully without one -- so
-  // this never blocks on "set your location first" the way Beach Buddy
-  // does.
+  // ================= Local Info tool (Beach Flags + Live Music) =================
+  // Which regional data source is active is picked on a separate gallery
+  // page (local-info-gallery.html, see LOCAL_INFO_SUBTYPES below) so more
+  // hyper-regional sources can be added there later without a new
+  // toolbar icon each time -- see the comment on toolLocalInfoBtn above.
+  // Unlike Beach Buddy, a device location is never required here: Beach
+  // Flags treats it as a nice-to-have (the flag color itself covers the
+  // whole 30A corridor from one fixed page, only the bonus surf-height/
+  // water-temp/rip-risk line needs a location, and beachFlagProxy already
+  // degrades gracefully without one), and Live Music doesn't use a
+  // location at all. Neither subType blocks on "set your location first"
+  // the way Beach Buddy does.
   //
   // Mirrors drawBeachFlagCard in functions/lib/beachflag.js exactly (see
   // that file's own header comment for why the flag-color parsing itself
@@ -4049,6 +4057,126 @@
     return data;
   }
 
+  // ================= Live Music (Local Info: liveMusic) =================
+  // Mirrors drawMusicCard/fetchMusicEventsCardData in
+  // functions/lib/liveMusic.js exactly -- see that file's own header
+  // comment for why this uses the customer-provided Beach API's
+  // /v1/device endpoint specifically, and ignores that payload's own
+  // `flag` field (Beach Flags has its own independent source). If one
+  // changes, the other must too, or what a customer previews here won't
+  // match what the board shows once the scheduled job redraws it.
+  function drawMusicCardClient(ctx, data) {
+    const w = baseCanvas.width, h = baseCanvas.height;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    const bannerTitle = "LIVE MUSIC TODAY";
+    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 30, 20);
+    ctx.font = bannerSize + "px 'Bungee', sans-serif";
+    ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+    if (!data.events.length) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#000";
+      ctx.font = "26px Georgia, serif";
+      ctx.fillText("No live music scheduled today", w / 2, BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2 + 8);
+      return;
+    }
+
+    const leftX = 40;
+    const timeColWidth = 168;
+    const detailX = leftX + timeColWidth;
+    const detailMaxWidth = w - detailX - 32;
+    const rowStep = 40;
+    let y = BANNER_HEIGHT + 46;
+
+    const MAX_ROWS = 4;
+    const shown = data.events.slice(0, MAX_ROWS);
+    const moreCount = Math.max(0, data.totalToday - shown.length);
+    shown.forEach((event, i) => {
+      const isLastRowWithMore = i === MAX_ROWS - 1 && moreCount > 0;
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#000";
+      ctx.font = "600 22px Georgia, serif";
+      if (event.range) ctx.fillText(event.range, leftX, y);
+
+      const detailParts = [];
+      if (event.venue) detailParts.push(event.venue.toUpperCase());
+      if (event.act) detailParts.push(event.act);
+      const detailText = detailParts.join(" — ");
+      if (detailText) {
+        ctx.font = "22px Georgia, serif";
+        ctx.fillText(truncateToFitClient(ctx, detailText, detailMaxWidth), detailX, y);
+      }
+      y += rowStep;
+
+      if (isLastRowWithMore) {
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#444";
+        ctx.font = "italic 20px Georgia, serif";
+        ctx.fillText("+ " + moreCount + " more today", leftX, y);
+      }
+    });
+
+    if (data.generatedAtLabel) {
+      ctx.textAlign = "right";
+      ctx.font = "11px Georgia, serif";
+      ctx.fillStyle = "#444";
+      const label = "Updated " + data.generatedAtLabel + (data.stale ? " (may be delayed)" : "");
+      ctx.fillText(label, w - 24, h - 10);
+    }
+  }
+
+  const LIVE_MUSIC_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/liveMusicProxy";
+
+  async function fetchMusicEventsCardDataClient() {
+    const resp = await fetch(LIVE_MUSIC_PROXY_BASE);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("Live music fetch failed: " + resp.status));
+    return data;
+  }
+
+  // One entry per Local Info gallery option -- adding a new one (see
+  // local-info-gallery.html's OPTIONS array) means adding it here too,
+  // nothing else in loadLocalInfoLayer below needs to change.
+  // needsLocation: false skips resolveTideLocation entirely (an extra
+  // Firebase Storage read this subType would never use anyway -- Live
+  // Music covers the whole 30A corridor from one API call, same as Beach
+  // Flags' flag color itself, just without even the bonus stats that
+  // make Beach Flags location-optional rather than location-free).
+  const LOCAL_INFO_SUBTYPES = {
+    beachFlag: {
+      needsLocation: true,
+      loadingText: "Loading today's beach flag…",
+      errorLabel: "today's beach flag",
+      async fetchData(location) {
+        const hasLocation = location && typeof location.lat === "number" && typeof location.lon === "number" && location.stationId;
+        const data = await fetchBeachFlagCardDataClient(
+          hasLocation ? location.lat : null,
+          hasLocation ? location.lon : null,
+          hasLocation ? location.stationId : null,
+          hasLocation ? location.name : null
+        );
+        return {
+          data,
+          successText: "This is the real card — it updates itself every few hours after you publish."
+            + (hasLocation ? "" : " Set a device location (see Manage) to also show your town name, today's surf height, water temperature, and rip current risk.")
+        };
+      }
+    },
+    liveMusic: {
+      needsLocation: false,
+      loadingText: "Loading today's live music schedule…",
+      errorLabel: "today's live music schedule",
+      async fetchData() {
+        const data = await fetchMusicEventsCardDataClient();
+        return { data, successText: "This is the real card — it updates itself hourly after you publish." };
+      }
+    }
+  };
+
   let localInfoFetchToken = 0;
   // subType is optional: pass it when applying a fresh pick from the
   // gallery page (?localInfoChoice=...), omit it to just resume whatever
@@ -4056,7 +4184,8 @@
   async function loadLocalInfoLayer(subType) {
     let layer = layers.find((l) => l.kind === "localInfo");
     if (!subType) subType = layer ? layer.subType : null;
-    if (!subType) {
+    const config = subType ? LOCAL_INFO_SUBTYPES[subType] : null;
+    if (!config) {
       localInfoStatus.textContent = "Nothing selected yet — browse the options below to see a live preview of each one before picking.";
       return;
     }
@@ -4081,9 +4210,9 @@
 
     renderLayers();
     const token = ++localInfoFetchToken;
-    localInfoStatus.textContent = "Loading today's beach flag…";
+    localInfoStatus.textContent = config.loadingText;
     try {
-      const location = await resolveTideLocation().catch(() => null);
+      const location = config.needsLocation ? await resolveTideLocation().catch(() => null) : null;
       if (token !== localInfoFetchToken) return;
       const hasLocation = location && typeof location.lat === "number" && typeof location.lon === "number" && location.stationId;
       if (hasLocation) {
@@ -4093,22 +4222,16 @@
         layer.townName = location.name || null;
       }
 
-      const data = await fetchBeachFlagCardDataClient(
-        hasLocation ? location.lat : null,
-        hasLocation ? location.lon : null,
-        hasLocation ? location.stationId : null,
-        hasLocation ? location.name : null
-      );
+      const { data, successText } = await config.fetchData(location);
       if (token !== localInfoFetchToken) return;
       layer.cardData = data;
       layer.previewContent = null;
-      localInfoStatus.textContent = "This is the real card — it updates itself every few hours after you publish."
-        + (hasLocation ? "" : " Set a device location (see Manage) to also show your town name, today's surf height, water temperature, and rip current risk.");
+      localInfoStatus.textContent = successText;
     } catch (err) {
       if (token !== localInfoFetchToken) return;
-      console.error("Couldn't load beach flag data:", err);
-      layer.previewContent = "Couldn't load today's beach flag right now — it'll try again on its own.";
-      localInfoStatus.textContent = "Couldn't load today's beach flag right now (" + err.message + ") — it'll try again on its own.";
+      console.error("Couldn't load " + config.errorLabel + ":", err);
+      layer.previewContent = "Couldn't load " + config.errorLabel + " right now — it'll try again on its own.";
+      localInfoStatus.textContent = "Couldn't load " + config.errorLabel + " right now (" + err.message + ") — it'll try again on its own.";
     }
     renderLayers();
   }
@@ -6064,9 +6187,13 @@
             dynamicMeta = Object.assign({ type: "beachBuddy", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId }, shared);
           } else if (dynamicLayer.kind === "localInfo") {
             // dynamicLayer.subType is whichever option was picked on the
-            // gallery page (local-info-gallery.html) -- only "beachFlag"
-            // exists today, matching renderDynamicDesign's meta.type check
-            // in functions/lib/dynamic.js exactly.
+            // gallery page (local-info-gallery.html) -- "beachFlag" or
+            // "liveMusic" today, matching renderDynamicDesign's meta.type
+            // check in functions/lib/dynamic.js exactly. lat/lon/stationId/
+            // townName are only ever read by the beachFlag branch there;
+            // liveMusic ignores them (see fetchMusicEventsCardData's own
+            // comment), so harmlessly sending them along either way keeps
+            // this assignment from needing an extra per-subType branch.
             dynamicMeta = Object.assign({ type: dynamicLayer.subType || "beachFlag", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId, townName: dynamicLayer.townName || "" }, shared);
           } else {
             dynamicMeta = Object.assign({ type: "news", location: dynamicLayer.location || "", feedUrl: dynamicLayer.feedUrl || "" }, shared);

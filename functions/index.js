@@ -23,6 +23,7 @@ const { fetchTideCardData, fetchTideTimelineData } = require("./lib/astro");
 const { isTeamsnapIcsUrl, fetchIcsSchedule } = require("./lib/teamsnap");
 const { generateBeachBuddyArt, IMAGEN_SCENE_HINTS, PROMPT_VERSION, cacheKeyForMood } = require("./lib/imagen");
 const { fetchBeachFlagCardData } = require("./lib/beachflag");
+const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -92,14 +93,14 @@ async function processDevice(bucket, deviceId, now, fetchImpl, options) {
   return "updated";
 }
 
-// "beachBuddy" and "beachFlag" are both explicitly excluded here -- each
-// refreshes on its own separate schedule instead (see
-// regenerateBeachBuddyDesigns and regenerateBeachFlagDesigns below),
-// since both need to stay current through the day in a way a once-daily
-// run can't give them, while beachBuddy's ART specifically doesn't need
-// to change that often at all (see getOrGenerateBeachBuddyArt's own
-// comment).
-const DAILY_REGEN_TYPES = (type) => type !== "beachBuddy" && type !== "beachFlag";
+// "beachBuddy", "beachFlag" and "liveMusic" are all explicitly excluded
+// here -- each refreshes on its own separate schedule instead (see
+// regenerateBeachBuddyDesigns, regenerateBeachFlagDesigns, and
+// regenerateLiveMusicDesigns below), since all three need to stay
+// current through the day in a way a once-daily run can't give them,
+// while beachBuddy's ART specifically doesn't need to change that often
+// at all (see getOrGenerateBeachBuddyArt's own comment).
+const DAILY_REGEN_TYPES = (type) => type !== "beachBuddy" && type !== "beachFlag" && type !== "liveMusic";
 
 exports.regenerateCountdownDesigns = onSchedule(
   { schedule: "0 9 * * *", timeZone: "Etc/UTC", retryCount: 1 },
@@ -129,7 +130,7 @@ exports.regenerateCountdownDesigns = onSchedule(
         logger.error("Failed to regenerate dynamic layer for " + deviceId + ":", err);
       }
     }
-    logger.info("Done. updated=" + updated + " expired=" + expired + " skipped(beachBuddy/beachFlag)=" + skipped + " failed=" + failed);
+    logger.info("Done. updated=" + updated + " expired=" + expired + " skipped(beachBuddy/beachFlag/liveMusic)=" + skipped + " failed=" + failed);
   }
 );
 
@@ -233,6 +234,39 @@ exports.regenerateBeachFlagDesigns = onSchedule(
       }
     }
     logger.info("Beach Flag refresh done. updated=" + updated + " skipped(not beachFlag)=" + skipped + " failed=" + failed);
+  }
+);
+
+// Hourly, like Beach Buddy -- unlike the flag color (which only changes a
+// couple of times a day), shows start and end at specific clock times a
+// customer actually cares about "right now," and /v1/device's own
+// from_now filtering means a later run naturally drops shows that have
+// already started. Cheap either way: one JSON fetch against the
+// customer-provided Beach API, no Imagen-style per-generation cost.
+exports.regenerateLiveMusicDesigns = onSchedule(
+  { schedule: "0 * * * *", timeZone: "Etc/UTC", retryCount: 1 },
+  async () => {
+    const bucket = admin.storage().bucket();
+    const [files] = await bucket.getFiles({ prefix: DESIGNS_PREFIX });
+    const deviceIds = files
+      .map((f) => deviceIdFromDynamicPath(f.name))
+      .filter(Boolean);
+
+    const now = new Date();
+    let updated = 0, skipped = 0, failed = 0;
+    for (const deviceId of deviceIds) {
+      try {
+        const outcome = await processDevice(bucket, deviceId, now, undefined, {
+          typeFilter: (type) => type === "liveMusic"
+        });
+        if (outcome === "updated") updated++;
+        else if (outcome === "skipped") skipped++;
+      } catch (err) {
+        failed++;
+        logger.error("Failed to refresh Live Music layer for " + deviceId + ":", err);
+      }
+    }
+    logger.info("Live Music refresh done. updated=" + updated + " skipped(not liveMusic)=" + skipped + " failed=" + failed);
   }
 );
 
@@ -531,6 +565,23 @@ async function beachFlagProxyHandler(req, res) {
 
 exports.beachFlagProxy = onRequest({ cors: true, region: "us-central1" }, beachFlagProxyHandler);
 
+// ================= Live music proxy =================
+// design's Live Music tool live preview. No query params at all --
+// unlike Beach Flags, nothing on this card is per-device (see
+// fetchMusicEventsCardData's own comment), so there's nothing here to
+// validate or pass through.
+async function liveMusicProxyHandler(req, res) {
+  try {
+    const data = await fetchMusicEventsCardData();
+    res.status(200).json(data);
+  } catch (err) {
+    logger.error("Live music proxy request failed:", err);
+    res.status(502).json({ error: "Couldn't reach the live music schedule right now" });
+  }
+}
+
+exports.liveMusicProxy = onRequest({ cors: true, region: "us-central1" }, liveMusicProxyHandler);
+
 // ================= Imagen proxy (Beach Buddy) =================
 // design's Beach Buddy tool needs to show the REAL Imagen illustration
 // while previewing, not just the procedural fallback -- same CORS
@@ -625,4 +676,4 @@ exports.teamsnapProxy = onRequest({ cors: true, region: "us-central1" }, teamsna
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, imagenProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, imagenProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };

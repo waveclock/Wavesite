@@ -457,6 +457,85 @@
     }
   }
 
+  // Mirrors drawMusicCard/fetchMusicEventsCardData in
+  // functions/lib/liveMusic.js exactly -- see that file's own header
+  // comment for the customer-provided Beach API this pulls from. If one
+  // changes, the other must too.
+  function drawMusicCardClient(ctx, data) {
+    const w = CANVAS_WIDTH, h = CANVAS_HEIGHT;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    const bannerTitle = "LIVE MUSIC TODAY";
+    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 30, 20);
+    ctx.font = bannerSize + "px 'Bungee', sans-serif";
+    ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+    if (!data.events.length) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#000";
+      ctx.font = "26px Georgia, serif";
+      ctx.fillText("No live music scheduled today", w / 2, BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2 + 8);
+      return;
+    }
+
+    const leftX = 40;
+    const timeColWidth = 168;
+    const detailX = leftX + timeColWidth;
+    const detailMaxWidth = w - detailX - 32;
+    const rowStep = 40;
+    let y = BANNER_HEIGHT + 46;
+
+    const MAX_ROWS = 4;
+    const shown = data.events.slice(0, MAX_ROWS);
+    const moreCount = Math.max(0, data.totalToday - shown.length);
+    shown.forEach((event, i) => {
+      const isLastRowWithMore = i === MAX_ROWS - 1 && moreCount > 0;
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#000";
+      ctx.font = "600 22px Georgia, serif";
+      if (event.range) ctx.fillText(event.range, leftX, y);
+
+      const detailParts = [];
+      if (event.venue) detailParts.push(event.venue.toUpperCase());
+      if (event.act) detailParts.push(event.act);
+      const detailText = detailParts.join(" — ");
+      if (detailText) {
+        ctx.font = "22px Georgia, serif";
+        ctx.fillText(truncateToFitClient(ctx, detailText, detailMaxWidth), detailX, y);
+      }
+      y += rowStep;
+
+      if (isLastRowWithMore) {
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#444";
+        ctx.font = "italic 20px Georgia, serif";
+        ctx.fillText("+ " + moreCount + " more today", leftX, y);
+      }
+    });
+
+    if (data.generatedAtLabel) {
+      ctx.textAlign = "right";
+      ctx.font = "11px Georgia, serif";
+      ctx.fillStyle = "#444";
+      const label = "Updated " + data.generatedAtLabel + (data.stale ? " (may be delayed)" : "");
+      ctx.fillText(label, w - 24, h - 10);
+    }
+  }
+
+  const LIVE_MUSIC_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/liveMusicProxy";
+
+  async function fetchMusicEventsCardDataClient() {
+    const resp = await fetch(LIVE_MUSIC_PROXY_BASE);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("Live music fetch failed: " + resp.status));
+    return data;
+  }
+
   function drawLoadingCard(ctx, message) {
     const w = CANVAS_WIDTH, h = CANVAS_HEIGHT;
     ctx.fillStyle = "#fff";
@@ -506,6 +585,13 @@
       description: "Today's beach hazard flag color(s) for the 30A corridor, straight from the daily posted advisory, plus your town name, surf height, water temperature, and a rip current risk estimate when your clock has a saved location. Updates automatically every few hours.",
       load: fetchBeachFlagCardDataClient,
       draw: drawBeachFlagCardClient
+    },
+    {
+      subType: "liveMusic",
+      title: "Live Music Florida - 30A",
+      description: "Who's playing tonight at the coastal bars and restaurants along 30A -- show time, venue, and act for today's live music, straight from a real-time events feed covering the whole corridor. No location needed. Updates automatically every hour.",
+      load: fetchMusicEventsCardDataClient,
+      draw: drawMusicCardClient
     }
   ];
 
