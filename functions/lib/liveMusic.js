@@ -34,11 +34,11 @@ const BANNER_HEIGHT = 48;
 const FONT_BLOCK = "WC Countdown Block";
 const FONT_SERIF = "WC Countdown Serif";
 
-// How many rows the card actually has room to draw at a legible size --
-// requesting exactly this many from the API (via music_limit) means no
-// separate slicing step, and totalToday (from the response's own
-// music_total) still tells us whether to show a "+N more" line.
-const MAX_ROWS = 4;
+// How many rows the card actually has room to draw at a legible size.
+// This is a hard cap on physical lines drawn, event rows AND a "+N more"
+// line alike -- when there's overflow, the last slot becomes the "+N
+// more" line instead of a 6th event, rather than growing to a 7th line.
+const MAX_ROWS = 6;
 
 function fitFontSize(ctx, text, maxWidth, family, maxSize, minSize) {
   for (let size = maxSize; size > minSize; size--) {
@@ -81,7 +81,7 @@ function formatGeneratedAtLabel(iso) {
 // run, not silently publish stale-looking blank content.
 async function fetchMusicEventsCardData(fetchImpl) {
   const doFetch = fetchImpl || fetch;
-  const params = new URLSearchParams({ music_limit: String(MAX_ROWS + 1) });
+  const params = new URLSearchParams({ music_limit: String(MAX_ROWS) });
   const resp = await doFetch(MUSIC_API_BASE + "/v1/device?" + params.toString(), { headers: MUSIC_API_HEADERS });
   if (!resp.ok) throw new Error("Live music fetch failed: " + resp.status);
   const data = await resp.json();
@@ -102,15 +102,28 @@ async function fetchMusicEventsCardData(fetchImpl) {
   };
 }
 
+// Row geometry: packed tight enough to fit all MAX_ROWS (6) EVENT rows
+// between the banner and the very bottom of the card, ending at the same
+// baseline (CANVAS_HEIGHT - 24) the Beach Flags card's own stat line
+// uses right above its "Updated ..." timestamp -- a gap already proven
+// (there) not to collide with that timestamp. A "+N more today" line,
+// when there's overflow, does NOT take one of those 6 slots -- it shares
+// the bottom footer row with the timestamp instead (left-aligned,
+// opposite the right-aligned timestamp), so all 6 real events always
+// get shown.
+const ROW_START_Y = BANNER_HEIGHT + 28;
+const ROW_LAST_Y = CANVAS_HEIGHT - 24;
+const ROW_STEP = Math.round((ROW_LAST_Y - ROW_START_Y) / (MAX_ROWS - 1));
+const FOOTER_Y = CANVAS_HEIGHT - 10;
+
 // Card layout: black banner (matching every other Custom Screen layer)
 // reads "LIVE MUSIC TODAY"; the body lists up to MAX_ROWS shows (time
 // range, venue, act) at a size meant to be read at a glance, not
-// squinted at -- a "+N more today" line takes the place of a row only
-// when there's genuinely more than fits. No events at all falls back to
-// a plain "no live music" message instead of an empty-looking card.
-// Draws directly onto an already-composited ctx, same contract as
-// drawTideCard/drawNewsCard/drawBeachFlagCard -- compositeAndPack in
-// dynamic.js owns creating the canvas and packing the result.
+// squinted at. No events at all falls back to a plain "no live music"
+// message instead of an empty-looking card. Draws directly onto an
+// already-composited ctx, same contract as drawTideCard/drawNewsCard/
+// drawBeachFlagCard -- compositeAndPack in dynamic.js owns creating the
+// canvas and packing the result.
 function drawMusicCard(ctx, data) {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
@@ -120,7 +133,9 @@ function drawMusicCard(ctx, data) {
   const bannerTitle = "LIVE MUSIC TODAY";
   const bannerSize = fitFontSize(ctx, bannerTitle, CANVAS_WIDTH - 40, FONT_BLOCK, 30, 20);
   ctx.font = bannerSize + "px \"" + FONT_BLOCK + "\"";
-  ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+  // Nudged up from the plain vertical center (0.35 -> 0.30) -- tucks the
+  // banner text toward the top of its bar rather than dead center.
+  ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.30));
 
   if (!data.events.length) {
     ctx.textAlign = "center";
@@ -132,13 +147,12 @@ function drawMusicCard(ctx, data) {
     const timeColWidth = 168;
     const detailX = leftX + timeColWidth;
     const detailMaxWidth = CANVAS_WIDTH - detailX - 32;
-    const rowStep = 40;
-    let y = BANNER_HEIGHT + 46;
 
     const shown = data.events.slice(0, MAX_ROWS);
     const moreCount = Math.max(0, data.totalToday - shown.length);
-    shown.forEach((event, i) => {
-      const isLastRowWithMore = i === MAX_ROWS - 1 && moreCount > 0;
+
+    let y = ROW_START_Y;
+    shown.forEach((event) => {
       ctx.textAlign = "left";
       ctx.fillStyle = "#000";
       ctx.font = "600 22px \"" + FONT_SERIF + "\"";
@@ -152,15 +166,15 @@ function drawMusicCard(ctx, data) {
         ctx.font = "22px \"" + FONT_SERIF + "\"";
         ctx.fillText(truncateToFit(ctx, detailText, detailMaxWidth), detailX, y);
       }
-      y += rowStep;
-
-      if (isLastRowWithMore) {
-        ctx.textAlign = "left";
-        ctx.fillStyle = "#444";
-        ctx.font = "italic 20px \"" + FONT_SERIF + "\"";
-        ctx.fillText("+ " + moreCount + " more today", leftX, y);
-      }
+      y += ROW_STEP;
     });
+
+    if (moreCount > 0) {
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#444";
+      ctx.font = "14px \"" + FONT_SERIF + "\"";
+      ctx.fillText("+ " + moreCount + " more today", leftX, FOOTER_Y);
+    }
   }
 
   if (data.generatedAtLabel) {
@@ -168,7 +182,7 @@ function drawMusicCard(ctx, data) {
     ctx.font = "11px \"" + FONT_SERIF + "\"";
     ctx.fillStyle = "#444";
     const label = "Updated " + data.generatedAtLabel + (data.stale ? " (may be delayed)" : "");
-    ctx.fillText(label, CANVAS_WIDTH - 24, CANVAS_HEIGHT - 10);
+    ctx.fillText(label, CANVAS_WIDTH - 24, FOOTER_Y);
   }
 }
 

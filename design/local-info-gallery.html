@@ -461,8 +461,19 @@
   // functions/lib/liveMusic.js exactly -- see that file's own header
   // comment for the customer-provided Beach API this pulls from. If one
   // changes, the other must too.
+  // Row geometry mirrors liveMusic.js's MAX_ROWS/ROW_START_Y/ROW_LAST_Y/
+  // ROW_STEP/FOOTER_Y exactly -- see that file's own comment for why the
+  // last row ends at h-24 (the same baseline Beach Flags' stat line uses
+  // right above the "Updated ..." timestamp) and why overflow shares the
+  // bottom footer row with the timestamp instead of costing a 7th row.
+  const MUSIC_MAX_ROWS = 6;
+  const MUSIC_ROW_START_Y = BANNER_HEIGHT + 28;
+
   function drawMusicCardClient(ctx, data) {
     const w = CANVAS_WIDTH, h = CANVAS_HEIGHT;
+    const rowLastY = h - 24;
+    const rowStep = Math.round((rowLastY - MUSIC_ROW_START_Y) / (MUSIC_MAX_ROWS - 1));
+    const footerY = h - 10;
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = "#000";
@@ -473,7 +484,9 @@
     const bannerTitle = "LIVE MUSIC TODAY";
     const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 30, 20);
     ctx.font = bannerSize + "px 'Bungee', sans-serif";
-    ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+    // Nudged up from the plain vertical center (0.35 -> 0.30) -- tucks
+    // the banner text toward the top of its bar rather than dead center.
+    ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.30));
 
     if (!data.events.length) {
       ctx.textAlign = "center";
@@ -487,14 +500,12 @@
     const timeColWidth = 168;
     const detailX = leftX + timeColWidth;
     const detailMaxWidth = w - detailX - 32;
-    const rowStep = 40;
-    let y = BANNER_HEIGHT + 46;
 
-    const MAX_ROWS = 4;
-    const shown = data.events.slice(0, MAX_ROWS);
+    const shown = data.events.slice(0, MUSIC_MAX_ROWS);
     const moreCount = Math.max(0, data.totalToday - shown.length);
-    shown.forEach((event, i) => {
-      const isLastRowWithMore = i === MAX_ROWS - 1 && moreCount > 0;
+
+    let y = MUSIC_ROW_START_Y;
+    shown.forEach((event) => {
       ctx.textAlign = "left";
       ctx.fillStyle = "#000";
       ctx.font = "600 22px Georgia, serif";
@@ -509,21 +520,21 @@
         ctx.fillText(truncateToFitClient(ctx, detailText, detailMaxWidth), detailX, y);
       }
       y += rowStep;
-
-      if (isLastRowWithMore) {
-        ctx.textAlign = "left";
-        ctx.fillStyle = "#444";
-        ctx.font = "italic 20px Georgia, serif";
-        ctx.fillText("+ " + moreCount + " more today", leftX, y);
-      }
     });
+
+    if (moreCount > 0) {
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#444";
+      ctx.font = "14px Georgia, serif";
+      ctx.fillText("+ " + moreCount + " more today", leftX, footerY);
+    }
 
     if (data.generatedAtLabel) {
       ctx.textAlign = "right";
       ctx.font = "11px Georgia, serif";
       ctx.fillStyle = "#444";
       const label = "Updated " + data.generatedAtLabel + (data.stale ? " (may be delayed)" : "");
-      ctx.fillText(label, w - 24, h - 10);
+      ctx.fillText(label, w - 24, footerY);
     }
   }
 
