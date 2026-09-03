@@ -504,7 +504,9 @@
     const detailMaxWidth = w - detailX - 32;
 
     const shown = data.events.slice(0, MUSIC_MAX_ROWS);
-    const moreCount = Math.max(0, data.totalToday - shown.length);
+    // page*MUSIC_MAX_ROWS events were already accounted for on earlier
+    // pages -- moreCount is what's left beyond THIS page's own shown rows.
+    const moreCount = Math.max(0, data.totalToday - (page * MUSIC_MAX_ROWS + shown.length));
 
     let y = MUSIC_ROW_START_Y;
     shown.forEach((event) => {
