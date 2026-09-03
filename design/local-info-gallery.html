@@ -165,6 +165,58 @@
     backLink.href = "index.html?id=" + encodeURIComponent(deviceId) + "&screen=" + screen;
   }
 
+  // Resolves the device's saved location the same way index.html's own
+  // resolveTideLocation does -- WITHOUT pulling in the Firebase SDK this
+  // page otherwise has no use for (this is read-only), since
+  // fetchJsonFromStorage is just a plain fetch() against Storage's public
+  // download URL. Needed so the live preview here actually matches what
+  // "Use This" hands back to index.html: without a location, the real
+  // card (once published) still shows the customer's town name and
+  // surf/water/rip-risk stats, and a preview that never fetches those
+  // would mislead the customer about what they're picking.
+  const STORAGE_BUCKET = "waveclock.firebasestorage.app";
+  const FISHING_SPOT_SUFFIX = "-fishing.json";
+
+  function withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms))
+    ]);
+  }
+
+  async function fetchJsonFromStorage(path, timeoutMs) {
+    const url = "https://firebasestorage.googleapis.com/v0/b/" + STORAGE_BUCKET + "/o/" + encodeURIComponent(path) + "?alt=media";
+    const resp = await withTimeout(fetch(url), timeoutMs);
+    if (resp.status === 404) return null;
+    if (!resp.ok) throw new Error("fetch failed: " + resp.status);
+    return resp.json();
+  }
+
+  // Mirrors index.html's resolveTideLocation exactly -- same precedence
+  // (custom fishing spot, then the device's own reported location, then
+  // whatever the website last submitted) for the same reasons; see that
+  // function's own comments in design/index.html.
+  async function resolveTideLocation() {
+    if (!deviceId) return null;
+    try {
+      const fishing = await fetchJsonFromStorage("locations/" + deviceId + FISHING_SPOT_SUFFIX, 8000);
+      if (fishing && typeof fishing.lat === "number" && typeof fishing.lon === "number" && fishing.stationId) {
+        return fishing;
+      }
+    } catch (err) {
+      console.error("Couldn't check for a custom fishing spot (falling back to device location):", err);
+    }
+    try {
+      const deviceStatus = await fetchJsonFromStorage("device-status/" + deviceId + ".json", 8000);
+      if (deviceStatus && deviceStatus.location && typeof deviceStatus.location.lat === "number" && typeof deviceStatus.location.lon === "number" && deviceStatus.location.stationId) {
+        return deviceStatus.location;
+      }
+    } catch (err) {
+      console.error("Couldn't check device-status (falling back to submitted location):", err);
+    }
+    return fetchJsonFromStorage("locations/" + deviceId + ".json", 12000);
+  }
+
   const CANVAS_WIDTH = 792;
   const CANVAS_HEIGHT = 272;
   const BANNER_HEIGHT = 48;
@@ -421,12 +473,23 @@
   const BEACH_FLAG_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/beachFlagProxy";
 
   async function fetchBeachFlagCardDataClient() {
-    // The gallery preview never has a saved device location handy (it's
-    // reached before a layer exists), so it always fetches the
-    // location-independent version -- same graceful "no bonus stats"
-    // degradation beachFlagProxy already provides for Beach Buddy/Tide
-    // when nothing is set yet.
-    const resp = await fetch(BEACH_FLAG_PROXY_BASE);
+    // Resolve the device's saved location first, same as index.html's
+    // loadLocalInfoLayer does, so this preview shows the same town name
+    // and surf/water/rip-risk stats "Use This" ends up publishing --
+    // without a location (no device id in the link, or nothing saved
+    // yet), this still degrades gracefully to the location-independent
+    // version, same as beachFlagProxy already does for Beach Buddy/Tide.
+    const location = await resolveTideLocation().catch(() => null);
+    const hasLocation = location && typeof location.lat === "number" && typeof location.lon === "number" && location.stationId;
+    const query = new URLSearchParams();
+    if (hasLocation) {
+      query.set("lat", String(location.lat));
+      query.set("lon", String(location.lon));
+      query.set("stationId", String(location.stationId));
+      if (location.name) query.set("townName", location.name);
+    }
+    const qs = query.toString();
+    const resp = await fetch(BEACH_FLAG_PROXY_BASE + (qs ? "?" + qs : ""));
     const data = await resp.json();
     if (!resp.ok) throw new Error((data && data.error) || ("Beach flag fetch failed: " + resp.status));
     return data;
