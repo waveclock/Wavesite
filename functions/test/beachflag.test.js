@@ -208,7 +208,7 @@ function hasInkInRegion(canvas, x, y, w, h) {
     assert.ok(hasInkInRegion(c, 0, 0, 792, 48), "expected the black banner to be drawn");
     assert.ok(hasInkInRegion(c, 40, 60, 90, 60), "expected a flag icon to be drawn on the left");
   });
-  await test("DOUBLE RED stacks two pennants without the color label overlapping the second flag", () => {
+  await test("DOUBLE RED stacks two (shorter, to leave room below for the caption) pennants without overlapping their label", () => {
     const c = whiteCanvas(792, 272);
     drawBeachFlagCard(c.getContext("2d"), {
       flags: [{ color: "DOUBLE RED", label: "WATER CLOSED TO PUBLIC" }],
@@ -218,11 +218,11 @@ function hasInkInRegion(canvas, x, y, w, h) {
     });
     // Measured directly off a real render (not derived from the layout
     // constants, which are easy to get subtly wrong by hand): the second
-    // pennant's own ink ends by y=219, the "DOUBLE RED" label's glyph ink
-    // doesn't start until y=233, so y=222..228 is genuine clear space
+    // pennant's own ink ends by y=193, the "DOUBLE RED" label's glyph ink
+    // doesn't start until y=204, so y=195..201 is genuine clear space
     // between them -- the pre-fix version had the label overlapping the
     // flag directly.
-    const belowSecondFlag = c.getContext("2d").getImageData(60, 222, 60, 6).data;
+    const belowSecondFlag = c.getContext("2d").getImageData(60, 195, 60, 6).data;
     let allWhite = true;
     for (let i = 0; i < belowSecondFlag.length; i += 4) { if (belowSecondFlag[i] < 200) allWhite = false; }
     assert.ok(allWhite, "expected clear space between the stacked flags and their label, not overlapping ink");
@@ -232,7 +232,7 @@ function hasInkInRegion(canvas, x, y, w, h) {
     drawBeachFlagCard(c.getContext("2d"), { flags: [], lastRefreshedText: null, swellHeightFt: null, waterTempF: null });
     assert.ok(hasInkInRegion(c, 40, 60, 90, 60), "expected a fallback flag icon even with zero active flags");
   });
-  await test("townName and ripRisk both draw without overlapping the primary hazard label", () => {
+  await test("townName draws bigger and doesn't overlap the primary hazard label", () => {
     const c = whiteCanvas(792, 272);
     drawBeachFlagCard(c.getContext("2d"), {
       flags: [{ color: "YELLOW", label: "MEDIUM HAZARD" }],
@@ -242,15 +242,56 @@ function hasInkInRegion(canvas, x, y, w, h) {
       waterTempF: 78,
       ripRisk: "HIGH"
     });
-    assert.ok(hasInkInRegion(c, 340, 92, 160, 10), "expected the town name row to have ink");
-    // Measured off a real render: the town name's own ink ends by y=105,
-    // the primary hazard label's glyph ink doesn't start until y=117 --
-    // y=106..116 is genuine clear space between them.
-    const gapRow = c.getContext("2d").getImageData(340, 107, 160, 8).data;
+    assert.ok(hasInkInRegion(c, 340, 75, 160, 10), "expected the town name row to have ink");
+    // Measured off a real render: the town name's own ink ends by y=93,
+    // the primary hazard label's glyph ink doesn't start until y=119 --
+    // y=95..117 is genuine clear space between them.
+    const gapRow = c.getContext("2d").getImageData(340, 96, 160, 18).data;
     let allWhite = true;
     for (let i = 0; i < gapRow.length; i += 4) { if (gapRow[i] < 200) allWhite = false; }
     assert.ok(allWhite, "expected clear space between the town name and the primary hazard label");
-    assert.ok(hasInkInRegion(c, 340, 233, 300, 18), "expected the stat line (including Rip Risk) to have ink");
+    assert.ok(hasInkInRegion(c, 340, 227, 300, 18), "expected the surf/water stat line to have ink");
+  });
+  await test("ripRisk draws under the flag icons, not in the surf/water stat line", () => {
+    const c = whiteCanvas(792, 272);
+    drawBeachFlagCard(c.getContext("2d"), {
+      flags: [{ color: "YELLOW", label: "MEDIUM HAZARD" }],
+      lastRefreshedText: "09/02/2026 6:05 pm CDT",
+      swellHeightFt: 4.5,
+      waterTempF: 78,
+      ripRisk: "HIGH"
+    });
+    // Under the icon column (x starts at 56, same as the flag icons and
+    // their color captions), below the "YELLOW" caption.
+    assert.ok(hasInkInRegion(c, 56, 188, 200, 20), "expected a RIP RISK line under the flag icon");
+    // The surf/water stat line (right column, bottom row) should still
+    // draw -- rip risk moving out of it shouldn't take Surf/Water with it.
+    assert.ok(hasInkInRegion(c, 340, 227, 300, 18), "expected the surf/water stat line to still draw on its own");
+  });
+  await test("a town name too long to fit even at the smallest allowed size is truncated, not drawn past the card's edge", () => {
+    const c = whiteCanvas(792, 272);
+    drawBeachFlagCard(c.getContext("2d"), {
+      flags: [{ color: "YELLOW", label: "MEDIUM HAZARD" }],
+      lastRefreshedText: "09/02/2026 6:05 pm CDT",
+      townName: "Grayton Beach / Watersound / Inlet Beach",
+      swellHeightFt: 4.5,
+      waterTempF: 78
+    });
+    // Regression: raising the town name's minimum font size (for
+    // legibility) means fitWeightedFontSize's shrink-to-fit can bottom
+    // out still wider than the card -- a real long town name once ran
+    // off the right edge before truncateToFit was added.
+    assert.ok(!hasInkInRegion(c, 785, 75, 7, 20), "expected the town name to stop short of the card's right edge");
+  });
+  await test("a scraped hazard label too long to fit is truncated the same way", () => {
+    const c = whiteCanvas(792, 272);
+    drawBeachFlagCard(c.getContext("2d"), {
+      flags: [{ color: "RED", label: "HIGH HAZARD, DANGEROUS CURRENTS" }],
+      lastRefreshedText: "09/02/2026 6:05 pm CDT",
+      swellHeightFt: 4.5,
+      waterTempF: 78
+    });
+    assert.ok(!hasInkInRegion(c, 785, 119, 7, 26), "expected the primary hazard label to stop short of the card's right edge");
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");
