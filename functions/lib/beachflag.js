@@ -223,6 +223,40 @@ function fitFontSize(ctx, text, maxWidth, family, maxSize, minSize) {
   return minSize;
 }
 
+// Same shrink-to-fit as fitFontSize, but measures WITH a font-weight
+// prefix (e.g. "600", "700") included -- fitFontSize alone can't do this,
+// and a bold face measures wider than the regular weight it'd otherwise
+// be sized against, so sizing with one weight and drawing with another
+// risks overflowing past maxWidth (found live: a long town name drawn
+// bold after being sized unweighted ran off the right edge of the card).
+function fitWeightedFontSize(ctx, text, maxWidth, family, weight, maxSize, minSize) {
+  for (let size = maxSize; size > minSize; size--) {
+    ctx.font = weight + " " + size + "px \"" + family + "\"";
+    if (ctx.measureText(text).width <= maxWidth) return size;
+  }
+  ctx.font = weight + " " + minSize + "px \"" + family + "\"";
+  return minSize;
+}
+
+// Shrinking the font only goes so far -- fitFontSize/fitWeightedFontSize
+// both stop at a floor rather than keep shrinking indefinitely (the whole
+// point of raising those floors was to stop using tiny, hard-to-read
+// text), so a genuinely long string can still be wider than maxWidth even
+// at the smallest allowed size. Call this AFTER settling on a final font
+// (ctx.font already set) to clip with an ellipsis instead of letting it
+// run off the edge of the card. Only ever needed for townName -- it's the
+// one field on this card that's a customer's own free-text nickname
+// rather than a short, bounded label from 30a.com or a fixed format this
+// code composes itself.
+function truncateToFit(ctx, text, maxWidth) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let truncated = text;
+  while (truncated.length > 1 && ctx.measureText(truncated.trim() + "…").width > maxWidth) {
+    truncated = truncated.slice(0, -1);
+  }
+  return truncated.trim() + "…";
+}
+
 // Card layout: black banner (matching every other Custom Screen layer)
 // names the active color(s); the body shows one flag icon per active
 // color on the left, the primary hazard description and any secondary
@@ -249,75 +283,99 @@ function drawBeachFlagCard(ctx, data) {
   // read from a distance) should be as large as the layout can fit.
   const iconY = BANNER_HEIGHT + 36;
   const iconW = 88, iconH = 64;
-  const doubleStackGap = 6; // real double-red flags fly tight together on one pole
+  const doubleStackGap = 4; // real double-red flags fly tight together on one pole
+  const iconMaxWidth = 264; // clear of the right column (textX below) with room to spare
   let iconX = 56;
+  let maxIconBottomY = 0;
   const flags = data.flags.length ? data.flags : [{ color: "GREEN", label: "No current advisory" }];
   flags.forEach((f) => {
     const pattern = FLAG_PATTERNS[f.color] || "dots";
-    drawFlagIcon(ctx, iconX, iconY, iconW, iconH, pattern);
-    let bottomY = iconY + iconH;
+    let bottomY;
     if (f.color === "DOUBLE RED") {
-      drawFlagIcon(ctx, iconX, iconY + iconH + doubleStackGap, iconW, iconH, pattern);
-      bottomY = iconY + iconH + doubleStackGap + iconH;
+      // Shorter than a single flag's iconH (64) -- two full-height
+      // pennants stacked on one pole would leave no room below for the
+      // caption + rip risk line within the card's fixed height, so this
+      // pair is drawn a little more compact than a lone flag is.
+      const stackH = 52;
+      drawFlagIcon(ctx, iconX, iconY, iconW, stackH, pattern);
+      drawFlagIcon(ctx, iconX, iconY + stackH + doubleStackGap, iconW, stackH, pattern);
+      bottomY = iconY + stackH * 2 + doubleStackGap;
+    } else {
+      drawFlagIcon(ctx, iconX, iconY, iconW, iconH, pattern);
+      bottomY = iconY + iconH;
     }
     ctx.textAlign = "center";
     ctx.fillStyle = "#000";
-    ctx.font = "600 16px \"" + FONT_SERIF + "\"";
-    ctx.fillText(f.color, iconX + iconW / 2, bottomY + 26);
+    ctx.font = "600 18px \"" + FONT_SERIF + "\"";
+    ctx.fillText(f.color, iconX + iconW / 2, bottomY + 24);
+    maxIconBottomY = Math.max(maxIconBottomY, bottomY);
     iconX += 150; // wide enough for the bigger icon above, no overlap with a second flag
   });
 
+  // Rip current risk sits under the flags themselves, not buried in the
+  // stats line with surf height/water temp -- it's a hazard reading, not
+  // a nice-to-have stat, so it gets equal billing with the flag icons it
+  // describes. Approximate, not the official NWS Beach Hazards Statement
+  // -- see ripCurrentRisk's own comment in astro.js.
+  if (data.ripRisk) {
+    const ripText = "RIP RISK: " + data.ripRisk;
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#000";
+    fitWeightedFontSize(ctx, ripText, iconMaxWidth, FONT_SERIF, "700", 24, 18);
+    ctx.fillText(ripText, 56, maxIconBottomY + 58);
+  }
+
   const textX = 340;
   const textMaxWidth = CANVAS_WIDTH - textX - 32;
-  let y = BANNER_HEIGHT + 58;
+  let y = BANNER_HEIGHT + 46;
   ctx.textAlign = "left";
   ctx.fillStyle = "#000";
 
   // Town name, when the device has a saved location -- a label above the
   // hazard text, not the banner itself (the banner stays the flag
   // color(s), same as every card without a location set). A device's
-  // town nickname is normally short, but shrink-to-fit anyway (same as
-  // the primary hazard label below) rather than trust it never runs long.
+  // town nickname is normally short, but shrink-to-fit (and, in the rare
+  // case that's still not enough, truncateToFit) anyway rather than trust
+  // it never runs long -- it's the customer's own free text, unlike every
+  // other label on this card.
   if (data.townName) {
-    const townText = data.townName.toUpperCase();
-    const townSize = fitFontSize(ctx, townText, textMaxWidth, FONT_SERIF, 20, 15);
-    ctx.font = townSize + "px \"" + FONT_SERIF + "\"";
+    let townText = data.townName.toUpperCase();
+    const townSize = fitWeightedFontSize(ctx, townText, textMaxWidth, FONT_SERIF, "600", 28, 20);
+    townText = truncateToFit(ctx, townText, textMaxWidth);
     ctx.fillStyle = "#444";
     ctx.fillText(townText, textX, y);
     ctx.fillStyle = "#000";
-    y += 36;
+    y += townSize + 22;
   }
 
-  const primaryLabel = flags[0].label.toUpperCase();
+  // primaryLabel/secondary labels come from 30a.com's scraped page, not
+  // this app's own fixed strings -- shrink-to-fit like townName above,
+  // and same truncateToFit safety net for the rare label too long to fit
+  // even at the smallest allowed size.
+  let primaryLabel = flags[0].label.toUpperCase();
   const labelSize = fitFontSize(ctx, primaryLabel, textMaxWidth, FONT_BLOCK, 34, 22);
   ctx.font = labelSize + "px \"" + FONT_BLOCK + "\"";
+  primaryLabel = truncateToFit(ctx, primaryLabel, textMaxWidth);
   ctx.fillText(primaryLabel, textX, y);
-  y += labelSize + 18;
+  y += labelSize + 20;
 
-  ctx.font = "20px \"" + FONT_SERIF + "\"";
+  // Secondary flag labels and the surf/water stat line both aim for
+  // roughly the same size as the primary hazard label above (the "nice
+  // size" this card is built around) -- just not drawn with FONT_BLOCK's
+  // heavy display weight, so the primary label still reads as the one
+  // headline.
+  ctx.font = "30px \"" + FONT_SERIF + "\"";
   for (const f of flags.slice(1)) {
-    ctx.fillText(f.label, textX, y);
-    y += 28;
+    ctx.fillText(truncateToFit(ctx, f.label, textMaxWidth), textX, y);
+    y += 36;
   }
 
   const statParts = [];
   if (data.swellHeightFt != null) statParts.push("Surf " + data.swellHeightFt + " ft");
   if (data.waterTempF != null) statParts.push("Water " + data.waterTempF + "°F");
-  // Approximate, not the official NWS Beach Hazards Statement -- see
-  // ripCurrentRisk's own comment in astro.js.
-  if (data.ripRisk) statParts.push("Rip Risk: " + data.ripRisk);
   if (statParts.length) {
     const statText = statParts.join("   ·   ");
-    // Shrink-to-fit like the banner/primary label above -- unlike those,
-    // this measures WITH the "600 " weight prefix included (fitFontSize
-    // doesn't support one), since a bold face measures wider than the
-    // regular weight it'd otherwise be sized against.
-    let statSize = 22;
-    while (statSize > 15) {
-      ctx.font = "600 " + statSize + "px \"" + FONT_SERIF + "\"";
-      if (ctx.measureText(statText).width <= textMaxWidth) break;
-      statSize--;
-    }
+    fitWeightedFontSize(ctx, statText, textMaxWidth, FONT_SERIF, "600", 28, 20);
     ctx.fillText(statText, textX, CANVAS_HEIGHT - 24);
   }
 

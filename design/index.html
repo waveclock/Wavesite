@@ -3875,6 +3875,36 @@
     return flags.map((f) => f.color).join(" + ");
   }
 
+  // Same shrink-to-fit as fitBannerFontSize, but measures WITH a
+  // font-weight prefix included -- fitBannerFontSize alone can't do this,
+  // and a bold face measures wider than the regular weight it'd otherwise
+  // be sized against, so sizing with one weight and drawing with another
+  // risks overflowing past maxWidth. Mirrors fitWeightedFontSize in
+  // functions/lib/beachflag.js exactly.
+  function fitWeightedBannerFontSize(ctx, text, maxWidth, family, weight, maxSize, minSize) {
+    for (let size = maxSize; size > minSize; size--) {
+      ctx.font = weight + " " + size + "px " + family;
+      if (ctx.measureText(text).width <= maxWidth) return size;
+    }
+    ctx.font = weight + " " + minSize + "px " + family;
+    return minSize;
+  }
+
+  // Shrinking the font only goes so far -- both fit*FontSize helpers stop
+  // at a floor, so a genuinely long string can still be wider than
+  // maxWidth even at the smallest allowed size. Call this AFTER settling
+  // on a final font (ctx.font already set) to clip with an ellipsis
+  // instead of letting it run off the edge of the card. Mirrors
+  // truncateToFit in functions/lib/beachflag.js exactly.
+  function truncateToFitClient(ctx, text, maxWidth) {
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    let truncated = text;
+    while (truncated.length > 1 && ctx.measureText(truncated.trim() + "…").width > maxWidth) {
+      truncated = truncated.slice(0, -1);
+    }
+    return truncated.trim() + "…";
+  }
+
   function drawBeachFlagCardClient(ctx, data) {
     const w = baseCanvas.width, h = baseCanvas.height;
     ctx.fillStyle = "#000";
@@ -3893,64 +3923,96 @@
     // read from a distance) should be as large as the layout can fit.
     const iconY = BANNER_HEIGHT + 36;
     const iconW = 88, iconH = 64;
-    const doubleStackGap = 6;
+    const doubleStackGap = 4;
+    const iconMaxWidth = 264;
     let iconX = 56;
+    let maxIconBottomY = 0;
     const flags = data.flags.length ? data.flags : [{ color: "GREEN", label: "No current advisory" }];
     flags.forEach((f) => {
       const pattern = LOCAL_INFO_FLAG_PATTERNS[f.color] || "dots";
-      drawFlagIconClient(ctx, iconX, iconY, iconW, iconH, pattern);
-      let bottomY = iconY + iconH;
+      let bottomY;
       if (f.color === "DOUBLE RED") {
-        drawFlagIconClient(ctx, iconX, iconY + iconH + doubleStackGap, iconW, iconH, pattern);
-        bottomY = iconY + iconH + doubleStackGap + iconH;
+        // Shorter than a single flag's iconH (64) -- two full-height
+        // pennants stacked on one pole would leave no room below for the
+        // caption + rip risk line within the card's fixed height, so this
+        // pair is drawn a little more compact than a lone flag is.
+        const stackH = 52;
+        drawFlagIconClient(ctx, iconX, iconY, iconW, stackH, pattern);
+        drawFlagIconClient(ctx, iconX, iconY + stackH + doubleStackGap, iconW, stackH, pattern);
+        bottomY = iconY + stackH * 2 + doubleStackGap;
+      } else {
+        drawFlagIconClient(ctx, iconX, iconY, iconW, iconH, pattern);
+        bottomY = iconY + iconH;
       }
       ctx.textAlign = "center";
       ctx.fillStyle = "#000";
-      ctx.font = "600 16px Georgia, serif";
-      ctx.fillText(f.color, iconX + iconW / 2, bottomY + 26);
+      ctx.font = "600 18px Georgia, serif";
+      ctx.fillText(f.color, iconX + iconW / 2, bottomY + 24);
+      maxIconBottomY = Math.max(maxIconBottomY, bottomY);
       iconX += 150;
     });
 
+    // Rip current risk sits under the flags themselves, not buried in the
+    // stats line with surf height/water temp -- it's a hazard reading, not
+    // a nice-to-have stat, so it gets equal billing with the flag icons it
+    // describes.
+    if (data.ripRisk) {
+      const ripText = "RIP RISK: " + data.ripRisk;
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#000";
+      fitWeightedBannerFontSize(ctx, ripText, iconMaxWidth, "Georgia, serif", "700", 24, 18);
+      ctx.fillText(ripText, 56, maxIconBottomY + 58);
+    }
+
     const textX = 340;
     const textMaxWidth = w - textX - 32;
-    let y = BANNER_HEIGHT + 58;
+    let y = BANNER_HEIGHT + 46;
     ctx.textAlign = "left";
     ctx.fillStyle = "#000";
 
+    // Town name, when the device has a saved location. A device's town
+    // nickname is normally short, but shrink-to-fit (and, in the rare
+    // case that's still not enough, truncateToFitClient) anyway rather
+    // than trust it never runs long -- it's the customer's own free
+    // text, unlike every other label on this card.
     if (data.townName) {
-      const townText = data.townName.toUpperCase();
-      const townSize = fitBannerFontSize(ctx, townText, textMaxWidth, "Georgia, serif", 20, 15);
-      ctx.font = townSize + "px Georgia, serif";
+      let townText = data.townName.toUpperCase();
+      const townSize = fitWeightedBannerFontSize(ctx, townText, textMaxWidth, "Georgia, serif", "600", 28, 20);
+      townText = truncateToFitClient(ctx, townText, textMaxWidth);
       ctx.fillStyle = "#444";
       ctx.fillText(townText, textX, y);
       ctx.fillStyle = "#000";
-      y += 36;
+      y += townSize + 22;
     }
 
-    const primaryLabel = flags[0].label.toUpperCase();
+    // primaryLabel/secondary labels come from 30a.com's scraped page, not
+    // this app's own fixed strings -- shrink-to-fit like townName above,
+    // and same truncateToFitClient safety net for the rare label too long
+    // to fit even at the smallest allowed size.
+    let primaryLabel = flags[0].label.toUpperCase();
     const labelSize = fitBannerFontSize(ctx, primaryLabel, textMaxWidth, "'Bungee', sans-serif", 34, 22);
     ctx.font = labelSize + "px 'Bungee', sans-serif";
+    primaryLabel = truncateToFitClient(ctx, primaryLabel, textMaxWidth);
     ctx.fillText(primaryLabel, textX, y);
-    y += labelSize + 18;
+    y += labelSize + 20;
 
-    ctx.font = "20px Georgia, serif";
+    // Secondary flag labels and the surf/water stat line both aim for
+    // roughly the same size as the primary hazard label above (the "nice
+    // size" this card is built around) -- just not drawn with the heavy
+    // Bungee display weight, so the primary label still reads as the one
+    // headline.
+    ctx.font = "30px Georgia, serif";
     for (const f of flags.slice(1)) {
-      ctx.fillText(f.label, textX, y);
-      y += 28;
+      ctx.fillText(truncateToFitClient(ctx, f.label, textMaxWidth), textX, y);
+      y += 36;
     }
 
     const statParts = [];
     if (data.swellHeightFt != null) statParts.push("Surf " + data.swellHeightFt + " ft");
     if (data.waterTempF != null) statParts.push("Water " + data.waterTempF + "°F");
-    if (data.ripRisk) statParts.push("Rip Risk: " + data.ripRisk);
     if (statParts.length) {
       const statText = statParts.join("   ·   ");
-      let statSize = 22;
-      while (statSize > 15) {
-        ctx.font = "600 " + statSize + "px Georgia, serif";
-        if (ctx.measureText(statText).width <= textMaxWidth) break;
-        statSize--;
-      }
+      fitWeightedBannerFontSize(ctx, statText, textMaxWidth, "Georgia, serif", "600", 28, 20);
       ctx.fillText(statText, textX, h - 24);
     }
 
