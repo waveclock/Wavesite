@@ -2667,7 +2667,7 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
   }
 
   if (meta.type === "beachFlag") {
-    const data = await fetchBeachFlagCardData({ lat: meta.lat, lon: meta.lon, stationId: meta.stationId }, now, fetchImpl);
+    const data = await fetchBeachFlagCardData({ lat: meta.lat, lon: meta.lon, stationId: meta.stationId, townName: meta.townName }, now, fetchImpl);
     const result = await compositeAndPack(basePngBuffer, (ctx) => drawBeachFlagCard(ctx, data), meta);
     const content = data.flags.map((f) => f.color + ": " + f.label).join(", ");
     return Object.assign(result, { flagData: data, content });

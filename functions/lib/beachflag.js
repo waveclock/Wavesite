@@ -1,7 +1,10 @@
 // Beach Flag card: the daily beach-hazard flag color(s) for the 30A /
-// South Walton, FL corridor, plus (when available) today's surf height
-// and water temperature from the same free NOAA/Open-Meteo pipeline the
-// Tide card already uses.
+// South Walton, FL corridor, plus (when the device has a saved location)
+// the town name, today's surf height, water temperature, and a
+// simplified rip current risk estimate -- all from the same free
+// NOAA/Open-Meteo pipeline the Tide card already uses (see
+// ripCurrentRisk in lib/astro.js for the risk estimate's own caveat: it's
+// an approximation, not the official NWS Beach Hazards Statement).
 //
 // There's no documented API for the flag color itself -- 30a.com/beachflag/
 // is a single page (one URL, covers every town along 30A, not per-device)
@@ -88,27 +91,38 @@ async function fetchBeachFlagStatus(fetchImpl) {
   return parsed;
 }
 
-// Combines the scraped flag status with wave-height/water-temp from the
-// SAME free data fetchTideCardData already pulls for the Tide card at
-// this device's own location. Those two fields are a nice-to-have, not
-// load-bearing -- the flag status is the whole point of this card, so a
-// tide-data hiccup degrades the stats row rather than failing the card.
-async function fetchBeachFlagCardData({ lat, lon, stationId }, now, fetchImpl) {
+// Combines the scraped flag status with wave-height/water-temp/rip-risk
+// from the SAME free data fetchTideCardData already pulls for the Tide
+// card at this device's own location. Those fields are a nice-to-have,
+// not load-bearing -- the flag status is the whole point of this card, so
+// a tide-data hiccup degrades the stats row rather than failing the card.
+// townName is never fetched here -- it's whatever the caller already has
+// on hand from the device's saved location (see resolveTideLocation in
+// design/index.html / the -dynamic.json meta's own townName field), the
+// same "just pass along what's already resolved" approach tideTimeline's
+// meta.townName uses.
+async function fetchBeachFlagCardData({ lat, lon, stationId, townName }, now, fetchImpl) {
   const [flagStatus, tideData] = await Promise.all([
     fetchBeachFlagStatus(fetchImpl),
     (lat != null && lon != null && stationId)
       ? fetchTideCardData({ lat, lon, stationId }, now, fetchImpl).catch(() => null)
       : Promise.resolve(null)
   ]);
-  // swell/waterTempF live under tideData.weather (see fetchTideCardData's
-  // return shape in astro.js), not top-level on the card -- weather
-  // itself is already optional there (null on an Open-Meteo outage).
+  // swell/waterTempF/ripRisk live under tideData.weather (see
+  // fetchTideCardData's return shape in astro.js), not top-level on the
+  // card -- weather itself is already optional there (null on an
+  // Open-Meteo outage).
   const weather = tideData && tideData.weather;
   return {
     flags: flagStatus.flags,
     lastRefreshedText: flagStatus.lastRefreshedText,
+    townName: townName || null,
     swellHeightFt: weather && weather.swell ? weather.swell.heightFt : null,
-    waterTempF: weather && weather.waterTempF != null ? weather.waterTempF : null
+    waterTempF: weather && weather.waterTempF != null ? weather.waterTempF : null,
+    // See ripCurrentRisk in astro.js -- a simplified LOW/MODERATE/HIGH
+    // approximation from wave height + period alone, not the official NWS
+    // Beach Hazards Statement.
+    ripRisk: weather ? weather.ripRisk : null
   };
 }
 
@@ -254,6 +268,22 @@ function drawBeachFlagCard(ctx, data) {
   let y = BANNER_HEIGHT + 52;
   ctx.textAlign = "left";
   ctx.fillStyle = "#000";
+
+  // Town name, when the device has a saved location -- a small label
+  // above the hazard text, not the banner itself (the banner stays the
+  // flag color(s), same as every card without a location set). A device's
+  // town nickname is normally short, but shrink-to-fit anyway (same as
+  // the primary hazard label below) rather than trust it never runs long.
+  if (data.townName) {
+    const townText = data.townName.toUpperCase();
+    const townSize = fitFontSize(ctx, townText, textMaxWidth, FONT_SERIF, 13, 9);
+    ctx.font = townSize + "px \"" + FONT_SERIF + "\"";
+    ctx.fillStyle = "#444";
+    ctx.fillText(townText, textX, y);
+    ctx.fillStyle = "#000";
+    y += 20;
+  }
+
   const primaryLabel = flags[0].label.toUpperCase();
   const labelSize = fitFontSize(ctx, primaryLabel, textMaxWidth, FONT_BLOCK, 22, 13);
   ctx.font = labelSize + "px \"" + FONT_BLOCK + "\"";
@@ -269,9 +299,22 @@ function drawBeachFlagCard(ctx, data) {
   const statParts = [];
   if (data.swellHeightFt != null) statParts.push("Surf " + data.swellHeightFt + " ft");
   if (data.waterTempF != null) statParts.push("Water " + data.waterTempF + "°F");
+  // Approximate, not the official NWS Beach Hazards Statement -- see
+  // ripCurrentRisk's own comment in astro.js.
+  if (data.ripRisk) statParts.push("Rip Risk: " + data.ripRisk);
   if (statParts.length) {
-    ctx.font = "600 15px \"" + FONT_SERIF + "\"";
-    ctx.fillText(statParts.join("   ·   "), textX, CANVAS_HEIGHT - 20);
+    const statText = statParts.join("   ·   ");
+    // Shrink-to-fit like the banner/primary label above -- unlike those,
+    // this measures WITH the "600 " weight prefix included (fitFontSize
+    // doesn't support one), since a bold face measures wider than the
+    // regular weight it'd otherwise be sized against.
+    let statSize = 15;
+    while (statSize > 10) {
+      ctx.font = "600 " + statSize + "px \"" + FONT_SERIF + "\"";
+      if (ctx.measureText(statText).width <= textMaxWidth) break;
+      statSize--;
+    }
+    ctx.fillText(statText, textX, CANVAS_HEIGHT - 20);
   }
 
   if (data.lastRefreshedText) {

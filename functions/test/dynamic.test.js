@@ -1422,6 +1422,14 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const fetchImpl = fakeBeachFlagFetch({ html: "<html><body>Site under maintenance.</body></html>" });
     await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
   });
+  await test("meta.townName (saved at publish time, same as tideTimeline's own townName) reaches the rendered card", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = { type: "beachFlag", lat: 30.35, lon: -86.15, stationId: "8729210", townName: "Santa Rosa Beach" };
+    const fetchImpl = fakeBeachFlagFetch({ html: SAMPLE_FLAG_HTML });
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.strictEqual(result.flagData.townName, "Santa Rosa Beach");
+  });
 
   console.log("drawTideTimelineCard (Sun/Moon/Tide Timeline card)");
   // x-positions below are derived from this card's own dayStart/dayEnd

@@ -515,8 +515,13 @@ async function beachFlagProxyHandler(req, res) {
     }
   }
 
+  // Free-text, not validated like lat/lon/stationId above -- it's only
+  // ever drawn as a label on the card (never interpreted), same as
+  // newsProxyHandler's own `location` query param.
+  const townName = typeof req.query.townName === "string" ? req.query.townName.trim() : "";
+
   try {
-    const data = await fetchBeachFlagCardData({ lat, lon, stationId }, new Date());
+    const data = await fetchBeachFlagCardData({ lat, lon, stationId, townName: townName || null }, new Date());
     res.status(200).json(data);
   } catch (err) {
     logger.error("Beach flag proxy request failed:", err);

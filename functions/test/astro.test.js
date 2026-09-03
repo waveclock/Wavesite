@@ -22,6 +22,7 @@ const {
   computePressure,
   computeRainWindows,
   computeWindRamp,
+  ripCurrentRisk,
   fetchOpenMeteoWeather,
   fetchOpenMeteoMarine,
   fetchWeatherSignals,
@@ -657,6 +658,37 @@ function buildHourlySeries(startHour, endHour, fields) {
     assert.ok(weather.wind && weather.wind.mph === 10 && weather.wind.dir === "S");
     assert.strictEqual(weather.swell, null);
     assert.strictEqual(weather.waterTempF, null);
+    assert.strictEqual(weather.ripRisk, null);
+  });
+  await test("fetchWeatherSignals derives ripRisk from the same marine swell reading it returns", async () => {
+    const fetchImpl = mockAllApisFetch({
+      marineHourly: { time: ["2026-07-15T16:00"], wave_height: [4.5], wave_period: [11], sea_surface_temperature: [82] }
+    });
+    const now = new Date("2026-07-15T16:00:00Z");
+    const weather = await fetchWeatherSignals({ lat: 30.35, lon: -86.15, dawn: now, dusk: now, now, timeZone: "America/Chicago", fetchImpl });
+    assert.strictEqual(weather.swell.heightFt, 4.5);
+    assert.strictEqual(weather.ripRisk, "HIGH");
+  });
+
+  console.log("ripCurrentRisk");
+  await test("no swell reading at all yields no risk estimate, not a guess", () => {
+    assert.strictEqual(ripCurrentRisk(null), null);
+    assert.strictEqual(ripCurrentRisk({ heightFt: null, periodS: 12 }), null);
+  });
+  await test("small waves with an unremarkable (short) period are LOW", () => {
+    assert.strictEqual(ripCurrentRisk({ heightFt: 1.5, periodS: 6 }), "LOW");
+  });
+  await test("moderate waves (2ft+) with an unremarkable period are MODERATE", () => {
+    assert.strictEqual(ripCurrentRisk({ heightFt: 2.5, periodS: 7 }), "MODERATE");
+  });
+  await test("a long-period swell (10s+) escalates even a small-ish wave height to MODERATE", () => {
+    assert.strictEqual(ripCurrentRisk({ heightFt: 1, periodS: 11 }), "MODERATE");
+  });
+  await test("4ft+ waves are HIGH on their own, no period needed", () => {
+    assert.strictEqual(ripCurrentRisk({ heightFt: 4, periodS: null }), "HIGH");
+  });
+  await test("a long-period swell escalates a 2.5ft+ wave straight to HIGH", () => {
+    assert.strictEqual(ripCurrentRisk({ heightFt: 2.5, periodS: 10 }), "HIGH");
   });
 
   console.log("localMidnight / formatLongDate (Sun/Moon/Tide Timeline helpers)");

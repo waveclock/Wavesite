@@ -168,6 +168,7 @@ function hasInkInRegion(canvas, x, y, w, h) {
     const data = await fetchBeachFlagCardData({ lat: 30.35, lon: -86.15, stationId: "8729210" }, now, fetchImpl);
     assert.strictEqual(data.flags.length, 2);
     assert.ok(data.waterTempF != null, "expected a water temp pulled from the tide pipeline");
+    assert.strictEqual(data.ripRisk, "LOW", "1.5ft @ 7s is a calm, unremarkable swell reading");
   });
   await test("a tide-data hiccup degrades the stats row but does not fail the card -- the flag is the point, wave height is a bonus", async () => {
     const now = new Date("2026-07-15T16:00:00Z");
@@ -180,12 +181,19 @@ function hasInkInRegion(canvas, x, y, w, h) {
     assert.strictEqual(data.flags.length, 2);
     assert.strictEqual(data.swellHeightFt, null);
     assert.strictEqual(data.waterTempF, null);
+    assert.strictEqual(data.ripRisk, null, "no swell reading means no risk estimate either, not a guess");
   });
   await test("skips the tide fetch entirely when no location is on the layer yet", async () => {
     const now = new Date("2026-07-15T16:00:00Z");
     const data = await fetchBeachFlagCardData({}, now, mockBeachFlagFetch(SAMPLE_PAGE_HTML));
     assert.strictEqual(data.flags.length, 2);
     assert.strictEqual(data.waterTempF, null);
+    assert.strictEqual(data.townName, null, "no location means no townName either, not the caller's fallback");
+  });
+  await test("passes townName straight through from the caller -- it's never fetched here, just relayed", async () => {
+    const now = new Date("2026-07-15T16:00:00Z");
+    const data = await fetchBeachFlagCardData({ townName: "Santa Rosa Beach" }, now, mockBeachFlagFetch(SAMPLE_PAGE_HTML));
+    assert.strictEqual(data.townName, "Santa Rosa Beach");
   });
 
   console.log("drawBeachFlagCard");
@@ -222,6 +230,26 @@ function hasInkInRegion(canvas, x, y, w, h) {
     const c = whiteCanvas(792, 272);
     drawBeachFlagCard(c.getContext("2d"), { flags: [], lastRefreshedText: null, swellHeightFt: null, waterTempF: null });
     assert.ok(hasInkInRegion(c, 40, 60, 90, 60), "expected a fallback flag icon even with zero active flags");
+  });
+  await test("townName and ripRisk both draw without overlapping the primary hazard label", () => {
+    const c = whiteCanvas(792, 272);
+    drawBeachFlagCard(c.getContext("2d"), {
+      flags: [{ color: "YELLOW", label: "MEDIUM HAZARD" }],
+      lastRefreshedText: "09/02/2026 6:05 pm CDT",
+      townName: "Santa Rosa Beach",
+      swellHeightFt: 4.5,
+      waterTempF: 78,
+      ripRisk: "HIGH"
+    });
+    assert.ok(hasInkInRegion(c, 340, 90, 160, 8), "expected the town name row to have ink");
+    // Measured off a real render: the town name's own ink ends by y=99,
+    // the primary hazard label's glyph ink doesn't start until y=104 --
+    // y=100..103 is genuine clear space between them.
+    const gapRow = c.getContext("2d").getImageData(340, 100, 160, 4).data;
+    let allWhite = true;
+    for (let i = 0; i < gapRow.length; i += 4) { if (gapRow[i] < 200) allWhite = false; }
+    assert.ok(allWhite, "expected clear space between the town name and the primary hazard label");
+    assert.ok(hasInkInRegion(c, 340, 240, 300, 20), "expected the stat line (including Rip Risk) to have ink");
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");

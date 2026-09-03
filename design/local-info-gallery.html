@@ -293,6 +293,17 @@
     let y = BANNER_HEIGHT + 52;
     ctx.textAlign = "left";
     ctx.fillStyle = "#000";
+
+    if (data.townName) {
+      const townText = data.townName.toUpperCase();
+      const townSize = fitBannerFontSize(ctx, townText, textMaxWidth, "Georgia, serif", 13, 9);
+      ctx.font = townSize + "px Georgia, serif";
+      ctx.fillStyle = "#444";
+      ctx.fillText(townText, textX, y);
+      ctx.fillStyle = "#000";
+      y += 20;
+    }
+
     const primaryLabel = flags[0].label.toUpperCase();
     const labelSize = fitBannerFontSize(ctx, primaryLabel, textMaxWidth, "'Bungee', sans-serif", 22, 13);
     ctx.font = labelSize + "px 'Bungee', sans-serif";
@@ -308,9 +319,16 @@
     const statParts = [];
     if (data.swellHeightFt != null) statParts.push("Surf " + data.swellHeightFt + " ft");
     if (data.waterTempF != null) statParts.push("Water " + data.waterTempF + "°F");
+    if (data.ripRisk) statParts.push("Rip Risk: " + data.ripRisk);
     if (statParts.length) {
-      ctx.font = "600 15px Georgia, serif";
-      ctx.fillText(statParts.join("   ·   "), textX, h - 20);
+      const statText = statParts.join("   ·   ");
+      let statSize = 15;
+      while (statSize > 10) {
+        ctx.font = "600 " + statSize + "px Georgia, serif";
+        if (ctx.measureText(statText).width <= textMaxWidth) break;
+        statSize--;
+      }
+      ctx.fillText(statText, textX, h - 20);
     }
 
     if (data.lastRefreshedText) {
@@ -356,7 +374,7 @@
     {
       subType: "beachFlag",
       title: "Beach Flags",
-      description: "Today's beach hazard flag color(s) for the 30A corridor, straight from the daily posted advisory, plus a bonus surf height and water temperature reading when your clock has a saved location. Updates automatically every few hours.",
+      description: "Today's beach hazard flag color(s) for the 30A corridor, straight from the daily posted advisory, plus your town name, surf height, water temperature, and a rip current risk estimate when your clock has a saved location. Updates automatically every few hours.",
       load: fetchBeachFlagCardDataClient,
       draw: drawBeachFlagCardClient
     }

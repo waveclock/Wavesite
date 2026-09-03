@@ -106,6 +106,19 @@ function stubFetchByHost(handlers) {
     }
   });
 
+  await test("a townName query param is relayed straight through onto the response, free-text and unvalidated", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = stubFetchByHost({ "30a.com": async () => ({ ok: true, status: 200, text: async () => SAMPLE_FLAG_HTML }) });
+    try {
+      const res = fakeRes();
+      await beachFlagProxyHandler(fakeReq({ townName: "Santa Rosa Beach" }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.townName, "Santa Rosa Beach");
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
   console.log(passed + " passed, " + failed + " failed");
   if (failed > 0) process.exit(1);
 })();

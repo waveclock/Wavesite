@@ -707,6 +707,28 @@ function computeWindowAverage(series, key, startMs, endMs) {
   return sum / inWindow.length;
 }
 
+// A simplified LOW/MODERATE/HIGH rip current risk estimate from wave
+// height + period alone -- the only two swell fields Open-Meteo Marine
+// gives us. This is NOT the official NWS Beach Hazards Statement, which
+// also weighs tide stage, wind direction relative to the coast, and
+// local bathymetry per beach -- it's a rule-of-thumb approximation (bigger
+// AND longer-period swell carries more energy into a rip), shown on the
+// card with that caveat, not as a safety guarantee. Thresholds: waves
+// under 2ft rarely build a meaningful rip regardless of period; 4ft+ is
+// HIGH on its own, and a long-period (10s+) swell escalates a smaller
+// 2.5ft+ swell into HIGH too, since a long, well-organized swell moves
+// more water even at a moderate height. Mirrors moodForBeachData's own
+// "SURF'S UP" threshold in dynamic.js (businessHoursSwell >= 3ft) as the
+// closest existing precedent in this app for what counts as notable surf.
+function ripCurrentRisk(swell) {
+  if (!swell || swell.heightFt == null) return null;
+  const h = swell.heightFt;
+  const longPeriod = swell.periodS != null && swell.periodS >= 10;
+  if (h >= 4 || (h >= 2.5 && longPeriod)) return "HIGH";
+  if (h >= 2 || longPeriod) return "MODERATE";
+  return "LOW";
+}
+
 // Both Open-Meteo calls in parallel; returns null fields gracefully
 // rather than throwing when a value just isn't available (e.g. water
 // temp near shore) -- unlike a NOAA/network failure, a missing data
@@ -735,6 +757,9 @@ async function fetchWeatherSignals({ lat, lon, dawn, dusk, now, timeZone, busine
   const bhWindPeak = bhStartMs != null ? computeWindowPeak(weatherSeries, "windMph", bhStartMs, bhEndMs) : null;
   const bhSwellPeak = bhStartMs != null ? computeWindowPeak(marineSeries, "waveHeightFt", bhStartMs, bhEndMs) : null;
   const bhCloudCoverAvg = bhStartMs != null ? computeWindowAverage(weatherSeries, "cloudCoverPct", bhStartMs, bhEndMs) : null;
+  const swell = currentMarine && currentMarine.waveHeightFt != null
+    ? { heightFt: Math.round(currentMarine.waveHeightFt * 10) / 10, periodS: currentMarine.wavePeriodS != null ? Math.round(currentMarine.wavePeriodS) : null }
+    : null;
 
   return {
     wind: currentWeather && currentWeather.windMph != null
@@ -743,9 +768,10 @@ async function fetchWeatherSignals({ lat, lon, dawn, dusk, now, timeZone, busine
     pressure: computePressure(weatherSeries, nowMs),
     rainWindows: computeRainWindows(weatherSeries, dawn, dusk, timeZone),
     windRamp: computeWindRamp(weatherSeries, dawn, dusk, nowMs, timeZone),
-    swell: currentMarine && currentMarine.waveHeightFt != null
-      ? { heightFt: Math.round(currentMarine.waveHeightFt * 10) / 10, periodS: currentMarine.wavePeriodS != null ? Math.round(currentMarine.wavePeriodS) : null }
-      : null,
+    swell,
+    // Derived straight from `swell` above -- see ripCurrentRisk's own
+    // comment for the (approximate, not-official-NWS) reasoning.
+    ripRisk: ripCurrentRisk(swell),
     waterTempF: currentMarine && currentMarine.waterTempF != null ? Math.round(currentMarine.waterTempF) : null,
     businessHoursWind: bhWindPeak
       ? { mph: Math.round(bhWindPeak.windMph), dir: degreesToCompass(bhWindPeak.windDir) }
@@ -915,6 +941,7 @@ module.exports = {
   computeWindRamp,
   computeWindowPeak,
   computeWindowAverage,
+  ripCurrentRisk,
   fetchOpenMeteoWeather,
   fetchOpenMeteoMarine,
   fetchWeatherSignals,
