@@ -2021,7 +2021,7 @@
     if (obj.kind === "news") return "News: " + (obj.feedUrl || obj.location || "(add a location)");
     if (obj.kind === "beachBuddy") return "Beach Buddy" + (obj.mood ? ": " + obj.mood.headline : " (loading…)");
     if (obj.kind === "localInfo") {
-      const subTypeLabel = obj.subType === "liveMusicMore" ? "Live Music (More Shows)" : obj.subType === "liveMusic" ? "Live Music" : "Beach Flags";
+      const subTypeLabel = obj.subType === "liveMusicMore" ? "More Live Music" : obj.subType === "liveMusic" ? "Live Music" : "Beach Flags";
       return "Local Info: " + subTypeLabel + (obj.cardData ? "" : " (loading…)");
     }
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
