@@ -93,14 +93,18 @@ async function processDevice(bucket, deviceId, now, fetchImpl, options) {
   return "updated";
 }
 
-// "beachBuddy", "beachFlag" and "liveMusic" are all explicitly excluded
-// here -- each refreshes on its own separate schedule instead (see
-// regenerateBeachBuddyDesigns, regenerateBeachFlagDesigns, and
-// regenerateLiveMusicDesigns below), since all three need to stay
-// current through the day in a way a once-daily run can't give them,
-// while beachBuddy's ART specifically doesn't need to change that often
-// at all (see getOrGenerateBeachBuddyArt's own comment).
-const DAILY_REGEN_TYPES = (type) => type !== "beachBuddy" && type !== "beachFlag" && type !== "liveMusic";
+// "beachBuddy", "beachFlag", "liveMusic" and "liveMusicMore" are all
+// explicitly excluded here -- each refreshes on its own separate
+// schedule instead (see regenerateBeachBuddyDesigns,
+// regenerateBeachFlagDesigns, and regenerateLiveMusicDesigns below),
+// since all of them need to stay current through the day in a way a
+// once-daily run can't give them, while beachBuddy's ART specifically
+// doesn't need to change that often at all (see
+// getOrGenerateBeachBuddyArt's own comment). liveMusicMore is just page
+// 1 of the same Live Music card (see fetchMusicEventsCardData's own
+// comment), so it rides the same regenerateLiveMusicDesigns schedule as
+// liveMusic rather than getting a schedule of its own.
+const DAILY_REGEN_TYPES = (type) => type !== "beachBuddy" && type !== "beachFlag" && type !== "liveMusic" && type !== "liveMusicMore";
 
 exports.regenerateCountdownDesigns = onSchedule(
   { schedule: "0 9 * * *", timeZone: "Etc/UTC", retryCount: 1 },
@@ -257,7 +261,7 @@ exports.regenerateLiveMusicDesigns = onSchedule(
     for (const deviceId of deviceIds) {
       try {
         const outcome = await processDevice(bucket, deviceId, now, undefined, {
-          typeFilter: (type) => type === "liveMusic"
+          typeFilter: (type) => type === "liveMusic" || type === "liveMusicMore"
         });
         if (outcome === "updated") updated++;
         else if (outcome === "skipped") skipped++;
@@ -566,13 +570,17 @@ async function beachFlagProxyHandler(req, res) {
 exports.beachFlagProxy = onRequest({ cors: true, region: "us-central1" }, beachFlagProxyHandler);
 
 // ================= Live music proxy =================
-// design's Live Music tool live preview. No query params at all --
-// unlike Beach Flags, nothing on this card is per-device (see
-// fetchMusicEventsCardData's own comment), so there's nothing here to
-// validate or pass through.
+// design's Live Music tool live preview. `page` is the only query param
+// -- unlike Beach Flags, nothing else on this card is per-device (see
+// fetchMusicEventsCardData's own comment). Anything other than the
+// literal string "1" is treated as page 0, same lenient-clamp handling
+// design's own screen-number parsing uses elsewhere, since this is a
+// value our own client code sets from a fixed subType, never something a
+// customer types in.
 async function liveMusicProxyHandler(req, res) {
+  const page = req.query.page === "1" ? 1 : 0;
   try {
-    const data = await fetchMusicEventsCardData();
+    const data = await fetchMusicEventsCardData(undefined, page);
     res.status(200).json(data);
   } catch (err) {
     logger.error("Live music proxy request failed:", err);

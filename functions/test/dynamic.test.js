@@ -1473,6 +1473,25 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const fetchImpl = async () => { throw new Error("network down"); };
     await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
   });
+  await test("type: liveMusicMore fetches page 1 (a bigger music_limit) and returns events 7-12", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-09-02T21:32:10-05:00");
+    const meta = { type: "liveMusicMore" };
+    const twelveEvents = Array.from({ length: 12 }, (_, i) => ({
+      s: (i + 1) + ":00P", e: null, r: (i + 1) + ":00P", v: "Venue " + (i + 1), a: "Act " + (i + 1)
+    }));
+    const fetchImpl = async (url) => {
+      const u = new URL(url);
+      if (u.hostname !== "beach-api-741108980745.us-east1.run.app") throw new Error("unexpected host in test: " + u.hostname);
+      const limit = parseInt(u.searchParams.get("music_limit"), 10);
+      assert.strictEqual(limit, 12, "expected liveMusicMore (page 1) to request double the row budget");
+      return { ok: true, status: 200, json: async () => Object.assign({}, SAMPLE_MUSIC_PAYLOAD, { music: twelveEvents.slice(0, limit), music_total: 12 }) };
+    };
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.strictEqual(result.musicData.page, 1);
+    assert.strictEqual(result.musicData.events[0].act, "Act 7");
+    assert.strictEqual(result.musicData.events.length, 6);
+  });
 
   console.log("drawTideTimelineCard (Sun/Moon/Tide Timeline card)");
   // x-positions below are derived from this card's own dayStart/dayEnd

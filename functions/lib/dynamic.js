@@ -9,7 +9,7 @@
 // section below -- a single recurring character whose pose is driven by
 // real tide/weather data, illustrated by Imagen with a procedural
 // vector-line fallback), and the two Local Info subTypes, "beachFlag"
-// (lib/beachflag.js) and "liveMusic" (lib/liveMusic.js).
+// (lib/beachflag.js) and "liveMusic"/"liveMusicMore" (lib/liveMusic.js).
 //
 // IMPORTANT: daysUntil(), formatCountdownText(), formatTeamText(),
 // findNextGame(), the dithering functions, and drawGameDayCard() are
@@ -2675,12 +2675,17 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
     return Object.assign(result, { flagData: data, content });
   }
 
-  if (meta.type === "liveMusic") {
+  if (meta.type === "liveMusic" || meta.type === "liveMusicMore") {
     // No lat/lon/stationId involved at all -- unlike Beach Flags' bonus
     // stats, every field on this card comes from the one Beach API call,
     // which already covers the whole 30A corridor with no per-device
-    // parameter.
-    const data = await fetchMusicEventsCardData(fetchImpl);
+    // parameter. "liveMusicMore" is the same card, one page further in --
+    // a customer can put "Live Music" on one screen and "Live Music (More
+    // Shows)" on another so the two together cover more of today's
+    // schedule than one screen has room for (see fetchMusicEventsCardData's
+    // own comment on how page 1 is fetched).
+    const page = meta.type === "liveMusicMore" ? 1 : 0;
+    const data = await fetchMusicEventsCardData(fetchImpl, page);
     const result = await compositeAndPack(basePngBuffer, (ctx) => drawMusicCard(ctx, data), meta);
     const content = data.events.length
       ? data.events.map((e) => e.act + " @ " + e.venue).join(", ")

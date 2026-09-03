@@ -1969,9 +1969,12 @@
       // depends on which gallery option was picked (obj.subType) --
       // defaults to Beach Flags for a layer saved before Live Music
       // existed, same fallback loadLocalInfoLayer/the publish-time
-      // dynamicMeta assignment both already use.
+      // dynamicMeta assignment both already use. "liveMusic" and
+      // "liveMusicMore" share the same draw function -- drawMusicCardClient
+      // reads obj.cardData.page to pick the right banner/empty-state text.
       if (obj.cardData) {
-        const drawFn = obj.subType === "liveMusic" ? drawMusicCardClient : drawBeachFlagCardClient;
+        const isMusic = obj.subType === "liveMusic" || obj.subType === "liveMusicMore";
+        const drawFn = isMusic ? drawMusicCardClient : drawBeachFlagCardClient;
         drawFn(ctx, obj.cardData);
       } else {
         drawText(ctx, obj.previewContent || "LOADING…", obj);
@@ -2017,7 +2020,10 @@
     if (obj.kind === "tideTimeline") return "Sun/Moon/Tide Timeline" + (obj.townName ? ": " + obj.townName : "") + (obj.cardData ? "" : " (loading…)");
     if (obj.kind === "news") return "News: " + (obj.feedUrl || obj.location || "(add a location)");
     if (obj.kind === "beachBuddy") return "Beach Buddy" + (obj.mood ? ": " + obj.mood.headline : " (loading…)");
-    if (obj.kind === "localInfo") return "Local Info: " + (obj.subType === "liveMusic" ? "Live Music" : "Beach Flags") + (obj.cardData ? "" : " (loading…)");
+    if (obj.kind === "localInfo") {
+      const subTypeLabel = obj.subType === "liveMusicMore" ? "Live Music (More Shows)" : obj.subType === "liveMusic" ? "Live Music" : "Beach Flags";
+      return "Local Info: " + subTypeLabel + (obj.cardData ? "" : " (loading…)");
+    }
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
     if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Normal") + ")";
     if (obj.kind === "stroke") return "Drawing";
@@ -4142,8 +4148,9 @@
 
   const LIVE_MUSIC_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/liveMusicProxy";
 
-  async function fetchMusicEventsCardDataClient() {
-    const resp = await fetch(LIVE_MUSIC_PROXY_BASE);
+  async function fetchMusicEventsCardDataClient(page) {
+    const qs = page === 1 ? "?page=1" : "";
+    const resp = await fetch(LIVE_MUSIC_PROXY_BASE + qs);
     const data = await resp.json();
     if (!resp.ok) throw new Error((data && data.error) || ("Live music fetch failed: " + resp.status));
     return data;
@@ -4183,6 +4190,19 @@
       errorLabel: "today's live music schedule",
       async fetchData() {
         const data = await fetchMusicEventsCardDataClient();
+        return { data, successText: "This is the real card — it updates itself hourly after you publish." };
+      }
+    },
+    // Same data source, one page further in (see fetchMusicEventsCardData's
+    // own comment in lib/liveMusic.js) -- put this on a different screen
+    // than "liveMusic" and the two together cover more of today's live
+    // music than one screen has room for.
+    liveMusicMore: {
+      needsLocation: false,
+      loadingText: "Loading more of today's live music schedule…",
+      errorLabel: "more of today's live music schedule",
+      async fetchData() {
+        const data = await fetchMusicEventsCardDataClient(1);
         return { data, successText: "This is the real card — it updates itself hourly after you publish." };
       }
     }
@@ -6198,13 +6218,15 @@
             dynamicMeta = Object.assign({ type: "beachBuddy", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId }, shared);
           } else if (dynamicLayer.kind === "localInfo") {
             // dynamicLayer.subType is whichever option was picked on the
-            // gallery page (local-info-gallery.html) -- "beachFlag" or
-            // "liveMusic" today, matching renderDynamicDesign's meta.type
-            // check in functions/lib/dynamic.js exactly. lat/lon/stationId/
-            // townName are only ever read by the beachFlag branch there;
-            // liveMusic ignores them (see fetchMusicEventsCardData's own
-            // comment), so harmlessly sending them along either way keeps
-            // this assignment from needing an extra per-subType branch.
+            // gallery page (local-info-gallery.html) -- "beachFlag",
+            // "liveMusic", or "liveMusicMore" today, matching
+            // renderDynamicDesign's meta.type check in
+            // functions/lib/dynamic.js exactly. lat/lon/stationId/townName
+            // are only ever read by the beachFlag branch there; both Live
+            // Music subTypes ignore them (see fetchMusicEventsCardData's
+            // own comment), so harmlessly sending them along either way
+            // keeps this assignment from needing an extra per-subType
+            // branch.
             dynamicMeta = Object.assign({ type: dynamicLayer.subType || "beachFlag", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId, townName: dynamicLayer.townName || "" }, shared);
           } else {
             dynamicMeta = Object.assign({ type: "news", location: dynamicLayer.location || "", feedUrl: dynamicLayer.feedUrl || "" }, shared);
