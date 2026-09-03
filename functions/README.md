@@ -1020,24 +1020,27 @@ if it's not working -- the browser never sees more than a generic
 "couldn't generate" message, by design (see imagenProxyHandler's own
 comment in index.js).
 
-## Local Info (Beach Flags)
+## Local Info (Beach Flags + Live Music)
 
 A customer feature request from a Santa Rosa Beach, FL customer, asking
-for the day's beach-hazard flag color and (later) local live music
-listings. Built as a single "Local Info" tool (`design/index.html`'s
-toolbar button, currently hidden -- see below) rather than a new
-toolbar icon per data source, since these are hyper-regional requests --
-useful to a handful of customers along one stretch of coast, not
-everyone -- and more will likely come in over time from other towns.
-Picking WHICH option happens on a separate gallery page
+for the day's beach-hazard flag color and local live music listings.
+Built as a single "Local Info" tool (`design/index.html`'s toolbar
+button, currently hidden -- see each subsection below) rather than a
+new toolbar icon per data source, since these are hyper-regional
+requests -- useful to a handful of customers along one stretch of
+coast, not everyone -- and more will likely come in over time from
+other towns. Picking WHICH option happens on a separate gallery page
 (`design/local-info-gallery.html`, linked from the tool panel) rather
 than an in-panel dropdown -- a customer needs room to see a live
 preview and a description per option before picking, which a toolbar
 dropdown doesn't have space for. Selecting "Use This" there bounces
 back to `index.html?...&localInfoChoice=<subType>`, which applies it
-immediately. "Beach Flags" is the only real gallery option today; a
-future "Live Music" option (`30a.com/events/`) would slot into the same
-gallery page as a second entry.
+immediately. `design/index.html`'s `LOCAL_INFO_SUBTYPES` registry is
+where a new subType's loading behavior (whether it needs a device
+location, its status-line copy) lives -- adding a third option means an
+entry there, an entry in the gallery page's `OPTIONS` array, and a
+`meta.type` branch in `renderDynamicDesign` (`lib/dynamic.js`), nothing
+else in the shared plumbing needs to change.
 
 **Data source, and its real caveat**: `https://30a.com/beachflag/`, a
 single URL covering the whole 30A corridor (not per-device -- flag
@@ -1089,8 +1092,78 @@ a page structure reconstructed from an actual screenshot of the live
 page (see the file's own header comment), not the real HTML source.
 The toolbar button (`toolLocalInfoBtn`) ships hidden (`style="display:
 none;"`, same convention as the currently-hidden Tide & Fishing button)
-until someone with real network access confirms it against production
--- remove that style attribute once it's verified.
+until someone with real network access confirms both Beach Flags and
+Live Music against production -- remove that style attribute once
+they're both verified.
+
+### Live Music
+
+The second Local Info option, added once a customer's own developer
+built and deployed a real API for it (see the 2 Sep 2026 handoff doc --
+not reproduced here, but its contract is what `lib/liveMusic.js` is
+built against verbatim, including the exact example JSON payloads).
+Unlike Beach Flags, this is a genuine documented REST API, not a page
+scrape -- meaningfully less fragile, and no API key is required at the
+moment.
+
+**Data source**: `GET /v1/device` on `https://beach-api-741108980745.us-east1.run.app`,
+specifically -- not `/v1/events`. The handoff doc describes `/v1/device`
+as "one compact payload for the clock": pre-formatted clock-style time
+ranges (`"5:30-9:00P"`) and venue/act strings the API itself caps at
+26/34 characters, clearly sized with a small device display in mind, so
+this card just draws them as given rather than reformatting anything
+itself. That payload also carries its own `flag` field (the API bundles
+a SWFD-sourced flag reading alongside the music schedule) -- deliberately
+ignored here. Beach Flags already has its own, independently verified
+flag pipeline (`lib/beachflag.js`); the two must never disagree about
+which one is "the" flag color for a customer who has both enabled, so
+this card only ever reads `.music`/`.music_total`/`.stale.music`/`.gen`
+off the response, never `.flag`.
+
+**No location, no per-device parameter at all**: every field comes from
+the one API call, which already covers the whole 30A corridor -- unlike
+Beach Flags, there isn't even an optional bonus-stats case that needs
+one. `liveMusicProxy` (design's live-preview proxy, mirroring
+`beachFlagProxy`) takes no query parameters as a result.
+
+**Zero events is a real day, not an error**: an off-season evening or a
+rained-out night can genuinely have no live music scheduled --
+`fetchMusicEventsCardData` returns an empty `events` array rather than
+throwing, and `drawMusicCard` falls back to a plain "No live music
+scheduled today" message. It DOES throw on an actual fetch/parse
+failure (non-2xx, unreachable, or a response missing the `music` array
+the card depends on), same as every other data source in this app --
+that's what makes the scheduled job retry instead of publishing
+blank-looking content.
+
+**Row budget**: the card only has room for `MAX_ROWS` (4) events at a
+size worth reading from across a room -- `music_limit` on the API
+request is set to exactly one more than that, and a 5th+ event becomes
+a "+N more today" line (using the response's own `music_total`) rather
+than a 5th, cramped row.
+
+**Refresh schedule**: `regenerateLiveMusicDesigns`, hourly (same
+cadence as Beach Buddy, unlike Beach Flags' 3-hour schedule) -- shows
+have specific start/end clock times a customer cares about "right now,"
+and `/v1/device`'s own `from_now` filtering (default on) means a later
+hourly run naturally drops shows that have already started, so polling
+faster than the flag's twice-a-day cadence actually matters here.
+
+**User-Agent**: this is the customer's own service, not a third-party
+site being politely impersonated -- the handoff doc explicitly asks for
+a descriptive identifying UA ("Send `User-Agent: WaveClock/<version>
+(<contact>)`"), the opposite of `OUTBOUND_FETCH_HEADERS`' browser-
+spoofing (`lib/http.js`) that Beach Flags/News use for sites that block
+obviously-a-script requests. `lib/liveMusic.js` sends its own honest UA
+instead.
+
+**Not yet verified against the live service**: same situation as Beach
+Flags -- this development sandbox's network access doesn't reach
+`beach-api-741108980745.us-east1.run.app` (confirmed: the outbound
+proxy returns a 403 policy denial for that host). Built and tested
+against the handoff doc's own example payloads (`examples/device.json`
+verbatim), not a live response. Ships hidden alongside Beach Flags,
+same toolbar button, until both are confirmed against production.
 
 ## Known tradeoffs
 

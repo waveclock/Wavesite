@@ -5,10 +5,11 @@
 // credentials. Covers every dynamic-layer type published from design:
 // "countdown" (a target date), "team" (a sports team's next game,
 // rendered as a full "Game Day" card with logos when a game is found),
-// "news", "tide", "tideTimeline", and "beachBuddy" (see the "Beach
-// Buddy" section below -- a single recurring character whose pose is
-// driven by real tide/weather data, illustrated by Imagen with a
-// procedural vector-line fallback).
+// "news", "tide", "tideTimeline", "beachBuddy" (see the "Beach Buddy"
+// section below -- a single recurring character whose pose is driven by
+// real tide/weather data, illustrated by Imagen with a procedural
+// vector-line fallback), and the two Local Info subTypes, "beachFlag"
+// (lib/beachflag.js) and "liveMusic" (lib/liveMusic.js).
 //
 // IMPORTANT: daysUntil(), formatCountdownText(), formatTeamText(),
 // findNextGame(), the dithering functions, and drawGameDayCard() are
@@ -26,6 +27,7 @@ const { fetchTideCardData, fetchTideTimelineData, formatLongDate } = require("./
 const { OUTBOUND_FETCH_HEADERS } = require("./http");
 const { generateBeachBuddyArt } = require("./imagen");
 const { fetchBeachFlagCardData, drawBeachFlagCard } = require("./beachflag");
+const { fetchMusicEventsCardData, drawMusicCard } = require("./liveMusic");
 
 const CANVAS_WIDTH = 792;
 const CANVAS_HEIGHT = 272;
@@ -2671,6 +2673,19 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
     const result = await compositeAndPack(basePngBuffer, (ctx) => drawBeachFlagCard(ctx, data), meta);
     const content = data.flags.map((f) => f.color + ": " + f.label).join(", ");
     return Object.assign(result, { flagData: data, content });
+  }
+
+  if (meta.type === "liveMusic") {
+    // No lat/lon/stationId involved at all -- unlike Beach Flags' bonus
+    // stats, every field on this card comes from the one Beach API call,
+    // which already covers the whole 30A corridor with no per-device
+    // parameter.
+    const data = await fetchMusicEventsCardData(fetchImpl);
+    const result = await compositeAndPack(basePngBuffer, (ctx) => drawMusicCard(ctx, data), meta);
+    const content = data.events.length
+      ? data.events.map((e) => e.act + " @ " + e.venue).join(", ")
+      : "No live music today";
+    return Object.assign(result, { musicData: data, content });
   }
 
   throw new Error("Unknown dynamic layer type: " + meta.type);
