@@ -4080,6 +4080,7 @@
   const MUSIC_ROW_START_Y = BANNER_HEIGHT + 28;
 
   function drawMusicCardClient(ctx, data) {
+    const page = data.page === 1 ? 1 : 0;
     const w = baseCanvas.width, h = baseCanvas.height;
     const rowLastY = h - 24;
     const rowStep = Math.round((rowLastY - MUSIC_ROW_START_Y) / (MUSIC_MAX_ROWS - 1));
@@ -4089,7 +4090,7 @@
     ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
-    const bannerTitle = "LIVE MUSIC TODAY";
+    const bannerTitle = page === 1 ? "MORE LIVE MUSIC TODAY" : "LIVE MUSIC TODAY";
     const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 30, 20);
     ctx.font = bannerSize + "px 'Bungee', sans-serif";
     // Nudged up from the plain vertical center (0.35 -> 0.30) -- tucks
@@ -4100,7 +4101,8 @@
       ctx.textAlign = "center";
       ctx.fillStyle = "#000";
       ctx.font = "26px Georgia, serif";
-      ctx.fillText("No live music scheduled today", w / 2, BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2 + 8);
+      const message = page === 1 ? "No more shows scheduled today" : "No live music scheduled today";
+      ctx.fillText(message, w / 2, BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2 + 8);
       return;
     }
 
