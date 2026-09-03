@@ -115,8 +115,8 @@ function hasInkInRegion(canvas, x, y, w, h) {
       generatedAtLabel: "9:32 PM"
     });
     assert.ok(hasInkInRegion(c, 0, 0, 792, 48), "expected the black banner to be drawn");
-    assert.ok(hasInkInRegion(c, 40, 74, 700, 20), "expected the first event row to have ink");
-    assert.ok(hasInkInRegion(c, 40, 114, 700, 20), "expected the second event row to have ink");
+    assert.ok(hasInkInRegion(c, 40, 60, 700, 19), "expected the first event row to have ink");
+    assert.ok(hasInkInRegion(c, 40, 94, 700, 16), "expected the second event row to have ink");
   });
   await test("zero events falls back to a plain 'no live music' message instead of a blank body", () => {
     const c = whiteCanvas(792, 272);
@@ -124,22 +124,47 @@ function hasInkInRegion(canvas, x, y, w, h) {
     assert.ok(hasInkInRegion(c, 0, 0, 792, 48), "expected the banner to still draw");
     assert.ok(hasInkInRegion(c, 150, 130, 500, 30), "expected the fallback message to have ink");
   });
-  await test("more events than fit shows a '+N more today' line instead of overflowing rows", () => {
+  await test("overflow shares the bottom footer row with the timestamp -- it does NOT cost one of the 6 event rows", () => {
     const c = whiteCanvas(792, 272);
-    drawMusicCard(c.getContext("2d"), {
-      events: [
-        { range: "5:30-9:00P", venue: "Red Bar", act: "Act One" },
-        { range: "6:00-8:00P", venue: "Venue Two", act: "Act Two" },
-        { range: "7:00-9:00P", venue: "Venue Three", act: "Act Three" },
-        { range: "8:00-10:00P", venue: "Venue Four", act: "Act Four" }
-      ],
-      totalToday: 11,
-      stale: false,
-      generatedAtLabel: "9:32 PM"
-    });
-    // The 5th row slot (below the 4 drawn events) should carry the
-    // "+N more" line, not be blank.
-    assert.ok(hasInkInRegion(c, 40, 190, 300, 20), "expected a '+N more today' line below the last shown row");
+    const sixEvents = [
+      { range: "5:30-9:00P", venue: "Red Bar", act: "Act One" },
+      { range: "6:00-8:00P", venue: "Venue Two", act: "Act Two" },
+      { range: "7:00-9:00P", venue: "Venue Three", act: "Act Three" },
+      { range: "8:00-10:00P", venue: "Venue Four", act: "Act Four" },
+      { range: "6:30-9:30P", venue: "Venue Five", act: "Act Five" },
+      { range: "7:30-10:30P", venue: "Venue Six", act: "Act Six" }
+    ];
+    drawMusicCard(c.getContext("2d"), { events: sixEvents, totalToday: 11, stale: false, generatedAtLabel: "9:32 PM" });
+    // All 6 real events still get their own row -- the "+N more" line
+    // doesn't displace one.
+    assert.ok(hasInkInRegion(c, 40, 60, 700, 19), "expected the 1st event row to have ink");
+    assert.ok(hasInkInRegion(c, 40, 230, 700, 19), "expected the 6th event row to still have ink");
+    // The "+N more today" line shares the bottom footer row with the
+    // "Updated ..." timestamp (left-aligned vs. its right-aligned) rather
+    // than taking a 7th row slot -- measured off a real render: it sits
+    // at x=40..~130, well clear of the timestamp's own x=550+.
+    assert.ok(hasInkInRegion(c, 40, 250, 100, 16), "expected a '+N more today' line on the bottom footer row");
+    assert.ok(!hasInkInRegion(c, 220, 250, 300, 16), "expected clear space between the '+N more' line and the timestamp");
+  });
+  await test("exactly 6 events fill every row with no '+N more' line", () => {
+    const c = whiteCanvas(792, 272);
+    const sixEvents = [
+      { range: "5:30-9:00P", venue: "Red Bar", act: "The Red Bar Jazz Band" },
+      { range: "6:00-8:00P", venue: "Bud & Alleys", act: "Sunset Sessions Duo" },
+      { range: "7:00-10:00P", venue: "The Perfect Pig", act: "Kentucky Man" },
+      { range: "8:00-11:00P", venue: "AJ's Grayton Beach", act: "Modern Eldorados" },
+      { range: "6:30-9:30P", venue: "Shunk Gulley", act: "Coastal Cowboys" },
+      { range: "7:30-10:30P", venue: "Bishops Bar", act: "Sandy Feet Trio" }
+    ];
+    drawMusicCard(c.getContext("2d"), { events: sixEvents, totalToday: 6, stale: false, generatedAtLabel: "9:32 PM" });
+    // The 6th (last) row -- measured off a real render: its own ink runs
+    // y=230..249, and the "Updated ..." timestamp's ink doesn't start
+    // until y=253, so y=250..252 is genuine clear space between them.
+    assert.ok(hasInkInRegion(c, 40, 230, 700, 19), "expected the 6th event row to have ink");
+    const gapRow = c.getContext("2d").getImageData(40, 250, 700, 3).data;
+    let allWhite = true;
+    for (let i = 0; i < gapRow.length; i += 4) { if (gapRow[i] < 200) allWhite = false; }
+    assert.ok(allWhite, "expected clear space between the 6th row and the 'Updated ...' timestamp");
   });
   await test("a venue/act pair too long to fit is truncated, not drawn past the card's edge", () => {
     const c = whiteCanvas(792, 272);
