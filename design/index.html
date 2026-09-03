@@ -184,6 +184,7 @@
   }
   .tool-guide-list li:last-child { border-bottom: none; }
   .tool-guide-list li b { color: var(--ink); }
+  .tool-guide-list li a { color: var(--navy); font-weight: 700; text-decoration: underline; }
   .tool-guide-icon {
     flex-shrink: 0;
     width: 26px;
@@ -847,6 +848,10 @@
         <li>
           <span class="tool-guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></span>
           <span><b>Invert Colors</b> &mdash; preview your design with the colors flipped, since the actual display is black-and-white.</span>
+        </li>
+        <li>
+          <span class="tool-guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 21V3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M5 4h13l-3 3.5L18 11H5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+          <span><a id="seeScreenGalleryLink" href="local-info-gallery.html">See Screen Gallery</a> &mdash; browse hyper-regional data screens, like today's beach flag color, with a live preview before picking one.</span>
         </li>
       </ul>
     </details>
@@ -3232,8 +3237,11 @@
   const beachBuddyStatus = document.getElementById("beachBuddyStatus");
   const localInfoStatus = document.getElementById("localInfoStatus");
   const localInfoBrowseLink = document.getElementById("localInfoBrowseLink");
+  const seeScreenGalleryLink = document.getElementById("seeScreenGalleryLink");
   if (deviceId) {
-    localInfoBrowseLink.href = "local-info-gallery.html?id=" + encodeURIComponent(deviceId) + "&screen=" + screen;
+    const galleryHref = "local-info-gallery.html?id=" + encodeURIComponent(deviceId) + "&screen=" + screen;
+    localInfoBrowseLink.href = galleryHref;
+    seeScreenGalleryLink.href = galleryHref;
   }
 
   const BUDDY_INK = "#000";
