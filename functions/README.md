@@ -1136,11 +1136,29 @@ the card depends on), same as every other data source in this app --
 that's what makes the scheduled job retry instead of publishing
 blank-looking content.
 
-**Row budget**: the card only has room for `MAX_ROWS` (4) events at a
-size worth reading from across a room -- `music_limit` on the API
-request is set to exactly one more than that, and a 5th+ event becomes
-a "+N more today" line (using the response's own `music_total`) rather
-than a 5th, cramped row.
+**Row budget**: the card fits `MAX_ROWS` (6) events at a size worth
+reading from across a room -- title tucked toward the top of the
+banner, tight but legible row spacing, the last row reaching almost to
+the very bottom. A 7th+ event doesn't cost one of those 6 rows: the
+"+N more today" line shares the bottom footer row with the "Updated
+..." timestamp instead (left-aligned, opposite the timestamp's right
+alignment), using the response's own `music_total` to know how many are
+left.
+
+**"Live Music (More Shows)" -- a second page, not a second data
+source**: a customer wanting to see more than 6 shows a day can put
+"Live Music" on one Custom Screen and "Live Music (More Shows)"
+(`meta.type: "liveMusicMore"`) on another; together they cover 12.
+`/v1/device` has no offset parameter of its own, so page 1 just asks
+for double the row budget (`music_limit` = 12) and slices off the first
+6, leaving events 7-12 -- one extra API call's worth of rows, not a
+second call. `fetchMusicEventsCardData(fetchImpl, page)` handles both
+pages; `drawMusicCard` reads `data.page` to swap in "MORE LIVE MUSIC
+TODAY" for the banner and a page-appropriate empty-state message ("No
+more shows scheduled today," not the page-0 "No live music scheduled
+today" -- wrong if page 0 has plenty). `liveMusicProxy` takes one query
+param, `page` (`"1"` or omitted), and `regenerateLiveMusicDesigns`
+refreshes both subTypes on the same hourly schedule.
 
 **Refresh schedule**: `regenerateLiveMusicDesigns`, hourly (same
 cadence as Beach Buddy, unlike Beach Flags' 3-hour schedule) -- shows

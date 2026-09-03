@@ -540,8 +540,9 @@
 
   const LIVE_MUSIC_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/liveMusicProxy";
 
-  async function fetchMusicEventsCardDataClient() {
-    const resp = await fetch(LIVE_MUSIC_PROXY_BASE);
+  async function fetchMusicEventsCardDataClient(page) {
+    const qs = page === 1 ? "?page=1" : "";
+    const resp = await fetch(LIVE_MUSIC_PROXY_BASE + qs);
     const data = await resp.json();
     if (!resp.ok) throw new Error((data && data.error) || ("Live music fetch failed: " + resp.status));
     return data;
@@ -602,6 +603,13 @@
       title: "Live Music Florida - 30A",
       description: "Who's playing tonight at the coastal bars and restaurants along 30A -- show time, venue, and act for today's live music, straight from a real-time events feed covering the whole corridor. No location needed. Updates automatically every hour.",
       load: fetchMusicEventsCardDataClient,
+      draw: drawMusicCardClient
+    },
+    {
+      subType: "liveMusicMore",
+      title: "Live Music (More Shows) Florida - 30A",
+      description: "The next set of live music happening today at the coastal bars along 30A, picking up where the main Live Music screen leaves off -- put both on your board to see more of today's lineup at once. No location needed. Updates automatically every hour.",
+      load: () => fetchMusicEventsCardDataClient(1),
       draw: drawMusicCardClient
     }
   ];

@@ -79,23 +79,34 @@ function formatGeneratedAtLabel(iso) {
 // response missing the `music` array this card depends on), same as
 // every other data source in this app: a real failure should retry next
 // run, not silently publish stale-looking blank content.
-async function fetchMusicEventsCardData(fetchImpl) {
+//
+// page (0 or 1) is what makes "Live Music" and "Live Music (More Shows)"
+// two different cards from the same data: /v1/device has no offset
+// parameter of its own, so a page-1 request just asks for MAX_ROWS more
+// results (music_limit doubled) and slices off the first MAX_ROWS,
+// giving events 7-12 instead of 1-6. totalToday is always the API's own
+// music_total (the true total for the day, not just this page), so
+// moreCount below can still tell page 1 whether there's a page 2's worth
+// left over.
+async function fetchMusicEventsCardData(fetchImpl, page) {
+  const pageIndex = page === 1 ? 1 : 0;
   const doFetch = fetchImpl || fetch;
-  const params = new URLSearchParams({ music_limit: String(MAX_ROWS) });
+  const params = new URLSearchParams({ music_limit: String(MAX_ROWS * (pageIndex + 1)) });
   const resp = await doFetch(MUSIC_API_BASE + "/v1/device?" + params.toString(), { headers: MUSIC_API_HEADERS });
   if (!resp.ok) throw new Error("Live music fetch failed: " + resp.status);
   const data = await resp.json();
   if (!data || !Array.isArray(data.music)) throw new Error("Unexpected live music response shape (no music[] array)");
 
-  const events = data.music.map((m) => ({
+  const allEvents = data.music.map((m) => ({
     range: m.r || null,
     venue: m.v || null,
     act: m.a || null
   }));
-  const totalToday = typeof data.music_total === "number" ? data.music_total : events.length;
+  const totalToday = typeof data.music_total === "number" ? data.music_total : allEvents.length;
 
   return {
-    events,
+    page: pageIndex,
+    events: allEvents.slice(pageIndex * MAX_ROWS, pageIndex * MAX_ROWS + MAX_ROWS),
     totalToday,
     stale: !!(data.stale && data.stale.music),
     generatedAtLabel: formatGeneratedAtLabel(data.gen)
@@ -117,20 +128,24 @@ const ROW_STEP = Math.round((ROW_LAST_Y - ROW_START_Y) / (MAX_ROWS - 1));
 const FOOTER_Y = CANVAS_HEIGHT - 10;
 
 // Card layout: black banner (matching every other Custom Screen layer)
-// reads "LIVE MUSIC TODAY"; the body lists up to MAX_ROWS shows (time
-// range, venue, act) at a size meant to be read at a glance, not
-// squinted at. No events at all falls back to a plain "no live music"
-// message instead of an empty-looking card. Draws directly onto an
-// already-composited ctx, same contract as drawTideCard/drawNewsCard/
-// drawBeachFlagCard -- compositeAndPack in dynamic.js owns creating the
-// canvas and packing the result.
+// reads "LIVE MUSIC TODAY" (or "MORE LIVE MUSIC TODAY" on page 1, so the
+// two screens read as a pair rather than looking like duplicates); the
+// body lists up to MAX_ROWS shows (time range, venue, act) at a size
+// meant to be read at a glance, not squinted at. No events on this page
+// falls back to a plain message (worded per-page -- page 1 has its own,
+// since "no live music" would be wrong when page 0 has plenty) instead
+// of an empty-looking card. Draws directly onto an already-composited
+// ctx, same contract as drawTideCard/drawNewsCard/drawBeachFlagCard --
+// compositeAndPack in dynamic.js owns creating the canvas and packing
+// the result.
 function drawMusicCard(ctx, data) {
+  const page = data.page === 1 ? 1 : 0;
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
-  const bannerTitle = "LIVE MUSIC TODAY";
+  const bannerTitle = page === 1 ? "MORE LIVE MUSIC TODAY" : "LIVE MUSIC TODAY";
   const bannerSize = fitFontSize(ctx, bannerTitle, CANVAS_WIDTH - 40, FONT_BLOCK, 30, 20);
   ctx.font = bannerSize + "px \"" + FONT_BLOCK + "\"";
   // Nudged up from the plain vertical center (0.35 -> 0.30) -- tucks the
@@ -141,7 +156,8 @@ function drawMusicCard(ctx, data) {
     ctx.textAlign = "center";
     ctx.fillStyle = "#000";
     ctx.font = "26px \"" + FONT_SERIF + "\"";
-    ctx.fillText("No live music scheduled today", CANVAS_WIDTH / 2, BANNER_HEIGHT + (CANVAS_HEIGHT - BANNER_HEIGHT) / 2 + 8);
+    const message = page === 1 ? "No more shows scheduled today" : "No live music scheduled today";
+    ctx.fillText(message, CANVAS_WIDTH / 2, BANNER_HEIGHT + (CANVAS_HEIGHT - BANNER_HEIGHT) / 2 + 8);
   } else {
     const leftX = 40;
     const timeColWidth = 168;
@@ -149,7 +165,9 @@ function drawMusicCard(ctx, data) {
     const detailMaxWidth = CANVAS_WIDTH - detailX - 32;
 
     const shown = data.events.slice(0, MAX_ROWS);
-    const moreCount = Math.max(0, data.totalToday - shown.length);
+    // page*MAX_ROWS events were already accounted for on earlier pages --
+    // moreCount is what's left beyond THIS page's own shown rows.
+    const moreCount = Math.max(0, data.totalToday - (page * MAX_ROWS + shown.length));
 
     let y = ROW_START_Y;
     shown.forEach((event) => {
