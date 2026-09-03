@@ -22,6 +22,7 @@ const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, espnTeamUrl, fetchHe
 const { fetchTideCardData, fetchTideTimelineData } = require("./lib/astro");
 const { isTeamsnapIcsUrl, fetchIcsSchedule } = require("./lib/teamsnap");
 const { generateBeachBuddyArt, IMAGEN_SCENE_HINTS, PROMPT_VERSION, cacheKeyForMood } = require("./lib/imagen");
+const { fetchBeachFlagCardData } = require("./lib/beachflag");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -91,12 +92,14 @@ async function processDevice(bucket, deviceId, now, fetchImpl, options) {
   return "updated";
 }
 
-// "beachBuddy" is explicitly excluded here -- it refreshes on its own
-// hourly schedule instead (see regenerateBeachBuddyDesigns below),
-// since its headline needs to stay current through the day in a way a
-// once-daily run can't give it, while its ART doesn't need to change
-// that often at all (see getOrGenerateBeachBuddyArt's own comment).
-const NOT_BEACH_BUDDY = (type) => type !== "beachBuddy";
+// "beachBuddy" and "beachFlag" are both explicitly excluded here -- each
+// refreshes on its own separate schedule instead (see
+// regenerateBeachBuddyDesigns and regenerateBeachFlagDesigns below),
+// since both need to stay current through the day in a way a once-daily
+// run can't give them, while beachBuddy's ART specifically doesn't need
+// to change that often at all (see getOrGenerateBeachBuddyArt's own
+// comment).
+const DAILY_REGEN_TYPES = (type) => type !== "beachBuddy" && type !== "beachFlag";
 
 exports.regenerateCountdownDesigns = onSchedule(
   { schedule: "0 9 * * *", timeZone: "Etc/UTC", retryCount: 1 },
@@ -113,7 +116,7 @@ exports.regenerateCountdownDesigns = onSchedule(
     let updated = 0, expired = 0, skipped = 0, failed = 0;
     for (const deviceId of deviceIds) {
       try {
-        const outcome = await processDevice(bucket, deviceId, now, undefined, { typeFilter: NOT_BEACH_BUDDY });
+        const outcome = await processDevice(bucket, deviceId, now, undefined, { typeFilter: DAILY_REGEN_TYPES });
         if (outcome === "updated") updated++;
         else if (outcome === "expired") expired++;
         else if (outcome === "skipped") skipped++;
@@ -126,7 +129,7 @@ exports.regenerateCountdownDesigns = onSchedule(
         logger.error("Failed to regenerate dynamic layer for " + deviceId + ":", err);
       }
     }
-    logger.info("Done. updated=" + updated + " expired=" + expired + " skipped(beachBuddy)=" + skipped + " failed=" + failed);
+    logger.info("Done. updated=" + updated + " expired=" + expired + " skipped(beachBuddy/beachFlag)=" + skipped + " failed=" + failed);
   }
 );
 
@@ -196,6 +199,40 @@ exports.regenerateBeachBuddyDesigns = onSchedule(
       }
     }
     logger.info("Beach Buddy hourly refresh done. updated=" + updated + " skipped(not beachBuddy)=" + skipped + " failed=" + failed);
+  }
+);
+
+// Every 3 hours rather than hourly like Beach Buddy: the flag color
+// itself only actually changes a couple of times a day (morning/
+// afternoon, per 30a.com's own "Last Refreshed"/"Last Changed"
+// timestamps), so an hourly poll would mostly refetch the same value --
+// still cheap either way (a lightweight text fetch, no Imagen-style
+// per-generation cost), but there's no real freshness gained by polling
+// faster than conditions actually change.
+exports.regenerateBeachFlagDesigns = onSchedule(
+  { schedule: "0 */3 * * *", timeZone: "Etc/UTC", retryCount: 1 },
+  async () => {
+    const bucket = admin.storage().bucket();
+    const [files] = await bucket.getFiles({ prefix: DESIGNS_PREFIX });
+    const deviceIds = files
+      .map((f) => deviceIdFromDynamicPath(f.name))
+      .filter(Boolean);
+
+    const now = new Date();
+    let updated = 0, skipped = 0, failed = 0;
+    for (const deviceId of deviceIds) {
+      try {
+        const outcome = await processDevice(bucket, deviceId, now, undefined, {
+          typeFilter: (type) => type === "beachFlag"
+        });
+        if (outcome === "updated") updated++;
+        else if (outcome === "skipped") skipped++;
+      } catch (err) {
+        failed++;
+        logger.error("Failed to refresh Beach Flag layer for " + deviceId + ":", err);
+      }
+    }
+    logger.info("Beach Flag refresh done. updated=" + updated + " skipped(not beachFlag)=" + skipped + " failed=" + failed);
   }
 );
 
@@ -448,6 +485,47 @@ async function astroTimelineProxyHandler(req, res) {
 
 exports.astroTimelineProxy = onRequest({ cors: true, region: "us-central1" }, astroTimelineProxyHandler);
 
+// ================= Beach flag proxy =================
+// design's Beach Flags tool live preview. Unlike astroProxy/
+// astroTimelineProxy above, lat/lon/stationId are OPTIONAL here, not
+// required -- they only feed the bonus surf-height/water-temp stat line
+// (via the same free fetchTideCardData every Tide card already uses);
+// the flag color itself comes from a single fixed page (30a.com/beachflag/)
+// that covers the whole 30A corridor, not a per-device lookup. Present-
+// but-invalid coordinates still get rejected, same reasoning as
+// astroProxyHandler: better to fail loudly than silently ignore a typo'd
+// value.
+async function beachFlagProxyHandler(req, res) {
+  const hasLat = typeof req.query.lat === "string" && req.query.lat.trim() !== "";
+  const hasLon = typeof req.query.lon === "string" && req.query.lon.trim() !== "";
+  const hasStation = typeof req.query.stationId === "string" && req.query.stationId.trim() !== "";
+  let lat = null, lon = null, stationId = null;
+
+  if (hasLat || hasLon || hasStation) {
+    lat = parseFloat(req.query.lat);
+    lon = parseFloat(req.query.lon);
+    stationId = hasStation ? req.query.stationId : "";
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+      res.status(400).json({ error: "lat/lon must be valid coordinates" });
+      return;
+    }
+    if (!/^[0-9]{5,9}$/.test(stationId)) {
+      res.status(400).json({ error: "stationId must be a NOAA station number" });
+      return;
+    }
+  }
+
+  try {
+    const data = await fetchBeachFlagCardData({ lat, lon, stationId }, new Date());
+    res.status(200).json(data);
+  } catch (err) {
+    logger.error("Beach flag proxy request failed:", err);
+    res.status(502).json({ error: "Couldn't reach 30a.com's beach flag status right now" });
+  }
+}
+
+exports.beachFlagProxy = onRequest({ cors: true, region: "us-central1" }, beachFlagProxyHandler);
+
 // ================= Imagen proxy (Beach Buddy) =================
 // design's Beach Buddy tool needs to show the REAL Imagen illustration
 // while previewing, not just the procedural fallback -- same CORS
@@ -542,4 +620,4 @@ exports.teamsnapProxy = onRequest({ cors: true, region: "us-central1" }, teamsna
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, imagenProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, imagenProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };

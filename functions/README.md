@@ -1020,6 +1020,60 @@ if it's not working -- the browser never sees more than a generic
 "couldn't generate" message, by design (see imagenProxyHandler's own
 comment in index.js).
 
+## Local Info (Beach Flags)
+
+A customer feature request from a Santa Rosa Beach, FL customer, asking
+for the day's beach-hazard flag color and (later) local live music
+listings. Built as a dropdown-based tool (`design/index.html`'s "Local
+Info" toolbar button, currently hidden -- see below) rather than a new
+toolbar icon per data source, since these are hyper-regional requests --
+useful to a handful of customers along one stretch of coast, not
+everyone -- and more will likely come in over time from other towns.
+"Beach Flags" is the only real dropdown option today; a future "Live
+Music" option (`30a.com/events/`) would slot into the same tool.
+
+**Data source, and its real caveat**: `https://30a.com/beachflag/`, a
+single URL covering the whole 30A corridor (not per-device -- flag
+color doesn't vary town to town along that stretch). There's no
+documented API for it -- `lib/beachflag.js` fetches the page and pattern-
+matches its visible text (`"YELLOW: MEDIUM HAZARD"`, a separate
+`"PURPLE: Marine Pests Present..."` line when more than one flag is
+flying, `"Last Refreshed: ..."`), the same "read the visible words"
+approach `fetchHeadlines` already uses for RSS, just over plain text
+instead of XML. This is meaningfully more fragile than every other data
+source in this app (NOAA, ESPN, TeamSnap's iCal feeds are all real,
+documented APIs) -- if 30a.com redesigns that page, the parser will need
+an update. Two sources were seriously considered and rejected first:
+Mote Marine's BCRS (the more "official" source, flag color is literally
+one of its tracked fields, but app-only with no public API) and Beach
+Day API (a real, documented, developer-first REST API -- but paid, and
+every other data source in this app is free).
+
+**Bonus stats, not a new source**: the surf-height/water-temp line on
+the card (`fetchBeachFlagCardData` in `lib/beachflag.js`) reuses
+`fetchTideCardData` exactly as the Tide card does -- no new fetch, and
+it degrades gracefully (stats just don't show) rather than failing the
+card if that call fails, since the flag status is the whole point of
+this card and wave height is a nice-to-have.
+
+**Refresh schedule**: `regenerateBeachFlagDesigns`, every 3 hours (not
+hourly like Beach Buddy) -- the flag color itself only actually changes
+a couple of times a day per 30a.com's own "Last Refreshed"/"Last
+Changed" timestamps, so polling faster than that just re-fetches the
+same value. Cheap either way (a lightweight text fetch, no Imagen-style
+per-generation cost).
+
+**Not yet verified against the live page**: this development sandbox's
+network access is restricted to an allowlist that doesn't cover
+`30a.com` (or `api.weather.gov`, or any other external site tried during
+this build) -- `lib/beachflag.js`'s parser was built and tested against
+a page structure reconstructed from an actual screenshot of the live
+page (see the file's own header comment), not the real HTML source.
+The toolbar button (`toolLocalInfoBtn`) ships hidden (`style="display:
+none;"`, same convention as the currently-hidden Tide & Fishing button)
+until someone with real network access confirms it against production
+-- remove that style attribute once it's verified.
+
 ## Known tradeoffs
 
 **At most one dynamic layer per screen, enforced client-side, not server-side**:

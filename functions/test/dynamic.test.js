@@ -1379,6 +1379,50 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
   });
 
+  console.log("renderDynamicDesign (type: beachFlag)");
+  function fakeBeachFlagFetch({ html, noaa = {} }) {
+    return async (url) => {
+      const u = new URL(url);
+      if (u.hostname === "30a.com") return { ok: true, status: 200, text: async () => html };
+      if (u.hostname === "api.tidesandcurrents.noaa.gov") {
+        const interval = u.searchParams.get("interval");
+        return { json: async () => ({ predictions: noaa[interval] || [] }) };
+      }
+      if (u.hostname === "api.open-meteo.com" || u.hostname === "marine-api.open-meteo.com") {
+        return { json: async () => ({ hourly: { time: [] } }) };
+      }
+      throw new Error("unexpected host in test: " + u.hostname);
+    };
+  }
+  const SAMPLE_FLAG_HTML = "<html><body><h2>YELLOW: MEDIUM HAZARD</h2><p>Last Refreshed: 09/02/2026 6:05 pm CDT</p></body></html>";
+  await test("renders a beach flag card from real (mocked) 30a.com + NOAA data", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = { type: "beachFlag", lat: 30.35, lon: -86.15, stationId: "8729210" };
+    const fetchImpl = fakeBeachFlagFetch({
+      html: SAMPLE_FLAG_HTML,
+      noaa: {
+        h: [{ t: "2026-07-15 12:00", v: "2.00" }],
+        hilo: [{ t: "2026-07-15 07:14", v: "0.60", type: "L" }, { t: "2026-07-15 13:22", v: "4.40", type: "H" }]
+      }
+    });
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.ok(result);
+    assert.strictEqual(result.flagData.flags[0].color, "YELLOW");
+    assert.strictEqual(result.content, "YELLOW: MEDIUM HAZARD");
+    assert.ok(result.binBuffer.some((b) => b !== 0));
+    const decoded = await loadImage(result.pngBuffer);
+    assert.strictEqual(decoded.width, CANVAS_WIDTH);
+    assert.strictEqual(decoded.height, CANVAS_HEIGHT);
+  });
+  await test("a page with no recognizable flag color throws instead of publishing an empty card (beach flag status is never optional)", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = { type: "beachFlag", lat: 30.35, lon: -86.15, stationId: "8729210" };
+    const fetchImpl = fakeBeachFlagFetch({ html: "<html><body>Site under maintenance.</body></html>" });
+    await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
+  });
+
   console.log("drawTideTimelineCard (Sun/Moon/Tide Timeline card)");
   // x-positions below are derived from this card's own dayStart/dayEnd
   // (a 24h window) the same way drawTideTimelineCard computes them

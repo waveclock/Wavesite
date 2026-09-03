@@ -25,6 +25,7 @@ const path = require("path");
 const { fetchTideCardData, fetchTideTimelineData, formatLongDate } = require("./astro");
 const { OUTBOUND_FETCH_HEADERS } = require("./http");
 const { generateBeachBuddyArt } = require("./imagen");
+const { fetchBeachFlagCardData, drawBeachFlagCard } = require("./beachflag");
 
 const CANVAS_WIDTH = 792;
 const CANVAS_HEIGHT = 272;
@@ -2663,6 +2664,13 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
       usedArt: !!artImage,
       content: mood.headline + (mood.sub ? " -- " + mood.sub : "")
     });
+  }
+
+  if (meta.type === "beachFlag") {
+    const data = await fetchBeachFlagCardData({ lat: meta.lat, lon: meta.lon, stationId: meta.stationId }, now, fetchImpl);
+    const result = await compositeAndPack(basePngBuffer, (ctx) => drawBeachFlagCard(ctx, data), meta);
+    const content = data.flags.map((f) => f.color + ": " + f.label).join(", ");
+    return Object.assign(result, { flagData: data, content });
   }
 
   throw new Error("Unknown dynamic layer type: " + meta.type);
