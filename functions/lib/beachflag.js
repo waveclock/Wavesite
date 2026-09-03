@@ -239,13 +239,17 @@ function drawBeachFlagCard(ctx, data) {
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   const bannerTitle = beachFlagBannerTitle(data.flags);
-  const bannerSize = fitFontSize(ctx, bannerTitle, CANVAS_WIDTH - 40, FONT_BLOCK, 26, 14);
+  const bannerSize = fitFontSize(ctx, bannerTitle, CANVAS_WIDTH - 40, FONT_BLOCK, 30, 20);
   ctx.font = bannerSize + "px \"" + FONT_BLOCK + "\"";
   ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
 
-  const iconY = BANNER_HEIGHT + 40;
-  const iconW = 70, iconH = 50;
-  const doubleStackGap = 4; // real double-red flags fly tight together on one pole
+  // Bigger icons than the first cut (88x64, was 70x50) -- this card reads
+  // at a glance from across a room, so both the icon and every label on
+  // it (except the small "Updated ..." timestamp, which nobody needs to
+  // read from a distance) should be as large as the layout can fit.
+  const iconY = BANNER_HEIGHT + 36;
+  const iconW = 88, iconH = 64;
+  const doubleStackGap = 6; // real double-red flags fly tight together on one pole
   let iconX = 56;
   const flags = data.flags.length ? data.flags : [{ color: "GREEN", label: "No current advisory" }];
   flags.forEach((f) => {
@@ -258,42 +262,42 @@ function drawBeachFlagCard(ctx, data) {
     }
     ctx.textAlign = "center";
     ctx.fillStyle = "#000";
-    ctx.font = "600 12px \"" + FONT_SERIF + "\"";
-    ctx.fillText(f.color, iconX + iconW / 2, bottomY + 24);
-    iconX += 130;
+    ctx.font = "600 16px \"" + FONT_SERIF + "\"";
+    ctx.fillText(f.color, iconX + iconW / 2, bottomY + 26);
+    iconX += 150; // wide enough for the bigger icon above, no overlap with a second flag
   });
 
   const textX = 340;
   const textMaxWidth = CANVAS_WIDTH - textX - 32;
-  let y = BANNER_HEIGHT + 52;
+  let y = BANNER_HEIGHT + 58;
   ctx.textAlign = "left";
   ctx.fillStyle = "#000";
 
-  // Town name, when the device has a saved location -- a small label
-  // above the hazard text, not the banner itself (the banner stays the
-  // flag color(s), same as every card without a location set). A device's
+  // Town name, when the device has a saved location -- a label above the
+  // hazard text, not the banner itself (the banner stays the flag
+  // color(s), same as every card without a location set). A device's
   // town nickname is normally short, but shrink-to-fit anyway (same as
   // the primary hazard label below) rather than trust it never runs long.
   if (data.townName) {
     const townText = data.townName.toUpperCase();
-    const townSize = fitFontSize(ctx, townText, textMaxWidth, FONT_SERIF, 13, 9);
+    const townSize = fitFontSize(ctx, townText, textMaxWidth, FONT_SERIF, 20, 15);
     ctx.font = townSize + "px \"" + FONT_SERIF + "\"";
     ctx.fillStyle = "#444";
     ctx.fillText(townText, textX, y);
     ctx.fillStyle = "#000";
-    y += 20;
+    y += 36;
   }
 
   const primaryLabel = flags[0].label.toUpperCase();
-  const labelSize = fitFontSize(ctx, primaryLabel, textMaxWidth, FONT_BLOCK, 22, 13);
+  const labelSize = fitFontSize(ctx, primaryLabel, textMaxWidth, FONT_BLOCK, 34, 22);
   ctx.font = labelSize + "px \"" + FONT_BLOCK + "\"";
   ctx.fillText(primaryLabel, textX, y);
-  y += labelSize + 14;
+  y += labelSize + 18;
 
-  ctx.font = "16px \"" + FONT_SERIF + "\"";
+  ctx.font = "20px \"" + FONT_SERIF + "\"";
   for (const f of flags.slice(1)) {
     ctx.fillText(f.label, textX, y);
-    y += 22;
+    y += 28;
   }
 
   const statParts = [];
@@ -308,13 +312,13 @@ function drawBeachFlagCard(ctx, data) {
     // this measures WITH the "600 " weight prefix included (fitFontSize
     // doesn't support one), since a bold face measures wider than the
     // regular weight it'd otherwise be sized against.
-    let statSize = 15;
-    while (statSize > 10) {
+    let statSize = 22;
+    while (statSize > 15) {
       ctx.font = "600 " + statSize + "px \"" + FONT_SERIF + "\"";
       if (ctx.measureText(statText).width <= textMaxWidth) break;
       statSize--;
     }
-    ctx.fillText(statText, textX, CANVAS_HEIGHT - 20);
+    ctx.fillText(statText, textX, CANVAS_HEIGHT - 24);
   }
 
   if (data.lastRefreshedText) {
