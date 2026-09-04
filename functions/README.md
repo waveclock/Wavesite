@@ -1183,6 +1183,139 @@ against the handoff doc's own example payloads (`examples/device.json`
 verbatim), not a live response. Ships hidden alongside Beach Flags,
 same toolbar button, until both are confirmed against production.
 
+## OCNJ Events
+
+A daily-refreshed events feed for Ocean City, NJ, published as a single
+shared JSON file rather than drawn onto any one device's board directly --
+unlike every other Local Info card above, this doesn't render a
+`.bin`/`.png` at all. It exists so a future device-side or design-tool
+consumer has one JSON URL to poll for "what's happening today/this week
+in Ocean City" without needing its own scraper.
+
+**Where this came from**: five Python scripts (`parse_calendar.py`,
+`source_oceancityvacation.py`, `merge_sources.py`, `curate_with_llm.py`,
+`run_pipeline.py`) from a customer handoff (2 Sep 2026), already written
+and locally tested against real source text. Ported line-for-line into
+this codebase's existing Node/Cloud Functions single-codebase convention
+(`lib/ocnjCalendar.js`, `lib/ocnjIcs.js`, `lib/ocnjMerge.js`,
+`lib/ocnjCurate.js`, `lib/ocnjPipeline.js`, one JS file per Python file so
+either can still be diffed against the other) rather than deployed as a
+second, Python-runtime Cloud Function -- this repo has no other Python
+functions, no Python deploy step in `deploy-functions.yml`, and no second
+`npm test`-equivalent for a second runtime, so a Node port keeps this on
+the same single build/test/deploy pipeline as everything else here.
+
+**Two sources, merged and deduped**:
+- `lib/ocnjCalendar.js` parses the town's own annual PDF calendar
+  (`https://www.ocnj.us/media/Events/{year}CalendarOfEvents.pdf`, city
+  staff-maintained) via `pdf-parse`. PDF text extraction breaks ordinal
+  suffixes onto their own line ("JUNE 3\nrd -- Farmers Market...") because
+  they were superscripted in the source layout; `normalizeText` stitches
+  that back together before any date-boundary parsing happens.
+- `lib/ocnjIcs.js` parses the Ocean City Regional Chamber of Commerce's
+  weekly iCalendar feed (`oceancityvacation.com/events/week/{date}/?ical=1`,
+  "The Events Calendar" WordPress plugin) via `node-ical`. This feed is
+  only exposed one week at a time, so `fetchRange` loops forward
+  `ICS_WEEKS_AHEAD` (4) weeks, deduping by UID within the whole range (a
+  recurring event's real weekly occurrences each get a distinct UID from
+  the feed -- that's correct, not something to dedupe away).
+- `lib/ocnjMerge.js` groups both sources by date and matches titles by
+  longest-common-substring-vs-shorter-title similarity (>= 0.75 counts as
+  a match) -- a plain diff ratio penalizes the PDF parser's messy,
+  regex-split titles too harshly (e.g. "Straight No Chaser" vs "Straight
+  No Chaser The concert begins at 7:00 p" should still match). On a
+  match, the ICS record wins (clean time/location) but falls back to the
+  PDF's description if the ICS one is too thin to be useful. This has to
+  happen here, in code, rather than leaving the LLM step to notice
+  duplicates itself -- getting it wrong risks either double-counting one
+  real event toward the 6-per-day cap, or picking whichever copy has the
+  worse (unmerged) time/location.
+- `lib/ocnjCurate.js` hands the merged, deduped pool to Claude
+  (`CURATION_MODEL`, currently `claude-sonnet-5`) with a fixed system
+  prompt and a fixed `{"days": [...]}` JSON output contract -- one
+  scheduled, unattended API call per run, not a chat session. Reconstructs
+  cut-off/fragment-like titles, extracts a time/location from free-text
+  description when no clean field was already present, drops pure noise
+  (page numbers, the "Updated:" footer line), and keeps only the 6 most
+  interesting events on any day with more than that (favoring one-time
+  events -- concerts, festivals, fireworks -- over routine recurring ones
+  unless nothing else exists that day). The original handoff doc's script
+  named a model id (`claude-sonnet-4-6`) that doesn't match any Claude
+  model actually available at deploy time; this port uses the current
+  Sonnet instead -- check `CURATION_MODEL` is still current before
+  assuming a curation failure is something else.
+- `lib/ocnjPipeline.js` orchestrates all of the above with the same
+  per-source error isolation as the original: either source failing (site
+  down, layout changed) is tolerated and logged, not fatal, as long as
+  the OTHER source still produces enough events. Only when the merged
+  total falls below `MIN_EXPECTED_EVENTS` (15) -- meaning both sources
+  are effectively down, or badly broken -- does it fall back to serving
+  the last known-good cached output (`data/ocnj-events-cache.json`)
+  instead of publishing a suspiciously-thin result; a malformed LLM
+  response triggers the same fallback. If there's no cache to fall back
+  to either (e.g. the very first run), it logs the failure and leaves
+  `data/ocnj-events.json` untouched rather than publishing something
+  broken.
+
+**Output**: `data/ocnj-events.json` in the `waveclock.firebasestorage.app`
+Storage bucket, matching the output contract in the original handoff doc
+(`generated_at`, `sources`, `source_last_updated`, `merged_event_count`,
+`days[].events[]` capped at 6 and already curated/ranked). `curate()`
+hard-caps `events` at 6 itself even if the model doesn't obey the prompt's
+own limit, since that cap is part of the contract any consumer of this
+file gets to rely on.
+
+**Public URL -- needs a one-time Storage Rules check**: this repo has no
+`storage.rules` file, so whatever currently makes `designs/{id}.bin`
+publicly readable (confirmed live: `manage/index.html` fetches those via
+`https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<path>?alt=media`
+with no auth token) is a Firebase Storage security rule set directly in
+**Firebase Console -> Build -> Storage -> Rules**, not tracked in this
+repo and not something a Cloud Function can grant itself. `data/*.json`
+needs the same "allow public read" coverage for
+`https://firebasestorage.googleapis.com/v0/b/waveclock.firebasestorage.app/o/data%2Focnj-events.json?alt=media`
+to actually be reachable -- if the existing rule is scoped narrowly to
+`designs/**` only, it needs a `data/**` (or a `data/{file}` match for
+just this file) rule added alongside it. This is the one piece of this
+feature that can't be verified or fixed from code -- check the URL
+returns JSON (not a Storage "permission denied" response) after first
+deploy.
+
+**Secret**: `ANTHROPIC_API_KEY`, granted to `generateOcnjEventsJson` via
+Secret Manager (Cloud Functions v2's `secrets:` option), never hardcoded.
+One-time setup, done by a human with project access:
+```
+firebase functions:secrets:set ANTHROPIC_API_KEY
+```
+(prompts for the key value, stores it in Secret Manager, and grants the
+function's service account access automatically on next deploy).
+
+**Refresh schedule**: `generateOcnjEventsJson`, once a day at 08:00 UTC
+(03:00-04:00 Eastern depending on DST) -- early morning, before anyone's
+board would want the day's fresh events, same reasoning as the firmware's
+own daily 3 AM OTA window, just server-side. Not tied to any per-device
+schedule like the cards above -- this publishes one shared file regardless
+of how many (if any) devices end up consuming it.
+
+**Not yet verified against the live sources**: same situation as every
+other scraped/proxied source in this codebase -- this development
+sandbox's network access doesn't reach `ocnj.us`, `oceancityvacation.com`,
+or the Anthropic API directly. Built and tested (`test/ocnjCalendar.test.js`,
+`test/ocnjIcs.test.js`, `test/ocnjMerge.test.js`, `test/ocnjCurate.test.js`,
+`test/ocnjPipeline.test.js`) against literal source-shaped fixture text
+(including the exact dedup fixture from the handoff doc's own
+`merge_sources.py` smoke test), stubbed fetches, and a fully in-memory
+fake Storage bucket -- never a live response from any of the three real
+services. After first deploy: trigger `generateOcnjEventsJson` manually
+(Firebase Console -> Functions -> generateOcnjEventsJson -> Testing tab,
+or `gcloud scheduler jobs run` on its underlying Cloud Scheduler job),
+confirm the public URL above returns JSON matching the output contract,
+and check `merged_event_count` lands at 15+ -- if it's near 0, one or
+both sources' page layout/feed shape has likely changed; the function's
+own logs (Cloud Functions -> `generateOcnjEventsJson` -> Logs) name which
+source failed and why via the same `source_notes`-equivalent detail this
+port logs on every run.
+
 ## Known tradeoffs
 
 **At most one dynamic layer per screen, enforced client-side, not server-side**:

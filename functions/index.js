@@ -16,6 +16,7 @@
 
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onRequest } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, espnTeamUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
@@ -24,8 +25,15 @@ const { isTeamsnapIcsUrl, fetchIcsSchedule } = require("./lib/teamsnap");
 const { generateBeachBuddyArt, IMAGEN_SCENE_HINTS, PROMPT_VERSION, cacheKeyForMood } = require("./lib/imagen");
 const { fetchBeachFlagCardData } = require("./lib/beachflag");
 const { fetchMusicEventsCardData } = require("./lib/liveMusic");
+const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
+
+// The OCNJ Events pipeline's only secret -- granted to
+// generateOcnjEventsJson below via its `secrets:` option, never
+// hardcoded. Set with:
+//   firebase functions:secrets:set ANTHROPIC_API_KEY
+const ANTHROPIC_API_KEY = defineSecret("ANTHROPIC_API_KEY");
 
 const DESIGNS_PREFIX = "designs/";
 const DYNAMIC_SUFFIX = "-dynamic.json";
@@ -271,6 +279,30 @@ exports.regenerateLiveMusicDesigns = onSchedule(
       }
     }
     logger.info("Live Music refresh done. updated=" + updated + " skipped(not liveMusic)=" + skipped + " failed=" + failed);
+  }
+);
+
+// ================= OCNJ Events pipeline =================
+// Publishes data/ocnj-events.json to Storage once a day, early morning
+// Eastern (before anyone's clock would want fresh event data -- same
+// reasoning as the firmware's own daily 3 AM OTA window, just server-side
+// instead of on-device). Not tied to any one device's dynamic layer --
+// this is a single shared file, not a per-device render like the
+// scheduled functions above.
+//
+// See lib/ocnjPipeline.js for the full fetch -> merge -> curate ->
+// publish flow (ported from the customer's parse_calendar.py /
+// source_oceancityvacation.py / merge_sources.py / curate_with_llm.py /
+// run_pipeline.py handoff, 2 Sep 2026) and its own comment for why the
+// output lands in Storage instead of on local disk.
+exports.generateOcnjEventsJson = onSchedule(
+  { schedule: "0 8 * * *", timeZone: "Etc/UTC", retryCount: 1, timeoutSeconds: 300, memory: "512MiB", secrets: [ANTHROPIC_API_KEY] },
+  async () => {
+    const bucket = admin.storage().bucket();
+    const result = await runOcnjEventsPipeline({ bucket, apiKey: ANTHROPIC_API_KEY.value() });
+    if (result.status === "error") {
+      throw new Error("ocnj-events pipeline failed with no fallback available: " + result.reason);
+    }
   }
 );
 
