@@ -26,6 +26,7 @@ const { generateBeachBuddyArt, IMAGEN_SCENE_HINTS, PROMPT_VERSION, cacheKeyForMo
 const { fetchBeachFlagCardData } = require("./lib/beachflag");
 const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
+const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -111,7 +112,12 @@ async function processDevice(bucket, deviceId, now, fetchImpl, options) {
 // getOrGenerateBeachBuddyArt's own comment). liveMusicMore is just page
 // 1 of the same Live Music card (see fetchMusicEventsCardData's own
 // comment), so it rides the same regenerateLiveMusicDesigns schedule as
-// liveMusic rather than getting a schedule of its own.
+// liveMusic rather than getting a schedule of its own. "ocnjEvents" is
+// deliberately NOT excluded here -- its underlying data
+// (data/ocnj-events.json) only refreshes once a day itself
+// (generateOcnjEventsJson, 08:00 UTC, an hour before this job runs), so
+// there's no reason for the card to redraw any more often than this
+// daily pass already does.
 const DAILY_REGEN_TYPES = (type) => type !== "beachBuddy" && type !== "beachFlag" && type !== "liveMusic" && type !== "liveMusicMore";
 
 exports.regenerateCountdownDesigns = onSchedule(
@@ -622,6 +628,23 @@ async function liveMusicProxyHandler(req, res) {
 
 exports.liveMusicProxy = onRequest({ cors: true, region: "us-central1" }, liveMusicProxyHandler);
 
+// ================= OCNJ Events proxy =================
+// design's OCNJ Events tool live preview. No query params at all -- same
+// reasoning as liveMusicProxy, and this reads the daily pipeline's own
+// published data/ocnj-events.json (see lib/ocnjCard.js's own header
+// comment) rather than re-running the pipeline itself.
+async function ocnjEventsProxyHandler(req, res) {
+  try {
+    const data = await fetchOcnjEventsCardData(undefined);
+    res.status(200).json(data);
+  } catch (err) {
+    logger.error("OCNJ events proxy request failed:", err);
+    res.status(502).json({ error: "Couldn't reach today's OCNJ events right now" });
+  }
+}
+
+exports.ocnjEventsProxy = onRequest({ cors: true, region: "us-central1" }, ocnjEventsProxyHandler);
+
 // ================= Imagen proxy (Beach Buddy) =================
 // design's Beach Buddy tool needs to show the REAL Imagen illustration
 // while previewing, not just the procedural fallback -- same CORS
@@ -716,4 +739,4 @@ exports.teamsnapProxy = onRequest({ cors: true, region: "us-central1" }, teamsna
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, imagenProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, imagenProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };

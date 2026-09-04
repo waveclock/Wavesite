@@ -552,6 +552,78 @@
     return data;
   }
 
+  // ================= OCNJ Events (Local Info: ocnjEvents) =================
+  // Mirrors drawOcnjEventsCard/fetchOcnjEventsCardData in
+  // functions/lib/ocnjCard.js exactly -- see design/index.html's own copy
+  // of this same pair for why (reads the daily pipeline's published
+  // data/ocnj-events.json through ocnjEventsProxy rather than re-running
+  // it). If one changes, all three must.
+  const OCNJ_MAX_ROWS = 6;
+  const OCNJ_ROW_START_Y = BANNER_HEIGHT + 28;
+
+  function drawOcnjEventsCardClient(ctx, data) {
+    const w = CANVAS_WIDTH, h = CANVAS_HEIGHT;
+    const rowLastY = h - 24;
+    const rowStep = Math.round((rowLastY - OCNJ_ROW_START_Y) / (OCNJ_MAX_ROWS - 1));
+    const footerY = h - 10;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    const bannerTitle = "TODAY IN OCEAN CITY";
+    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 30, 20);
+    ctx.font = bannerSize + "px 'Bungee', sans-serif";
+    ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.30));
+
+    if (!data.events.length) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#000";
+      ctx.font = "26px Georgia, serif";
+      ctx.fillText("No events scheduled today", w / 2, BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2 + 8);
+    } else {
+      const leftX = 40;
+      const timeColWidth = 168;
+      const detailX = leftX + timeColWidth;
+      const detailMaxWidth = w - detailX - 32;
+
+      let y = OCNJ_ROW_START_Y;
+      data.events.forEach((event) => {
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#000";
+        ctx.font = "600 22px Georgia, serif";
+        if (event.time) ctx.fillText(event.time, leftX, y);
+
+        const detailParts = [];
+        if (event.title) detailParts.push(event.title);
+        if (event.location) detailParts.push(event.location);
+        const detailText = detailParts.join(" — ");
+        if (detailText) {
+          ctx.font = "22px Georgia, serif";
+          ctx.fillText(truncateToFitClient(ctx, detailText, detailMaxWidth), detailX, y);
+        }
+        y += rowStep;
+      });
+    }
+
+    if (data.generatedAtLabel) {
+      ctx.textAlign = "right";
+      ctx.font = "11px Georgia, serif";
+      ctx.fillStyle = "#444";
+      const label = "Updated " + data.generatedAtLabel + (data.stale ? " (may be delayed)" : "");
+      ctx.fillText(label, w - 24, footerY);
+    }
+  }
+
+  const OCNJ_EVENTS_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/ocnjEventsProxy";
+
+  async function fetchOcnjEventsCardDataClient() {
+    const resp = await fetch(OCNJ_EVENTS_PROXY_BASE);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("OCNJ events fetch failed: " + resp.status));
+    return data;
+  }
+
   function drawLoadingCard(ctx, message) {
     const w = CANVAS_WIDTH, h = CANVAS_HEIGHT;
     ctx.fillStyle = "#fff";
@@ -615,6 +687,13 @@
       description: "The next set of live music happening today at the coastal bars along 30A, picking up where the main Live Music screen leaves off -- put both on your board to see more of today's lineup at once. No location needed. Updates automatically every hour.",
       load: () => fetchMusicEventsCardDataClient(1),
       draw: drawMusicCardClient
+    },
+    {
+      subType: "ocnjEvents",
+      title: "OCNJ Events",
+      description: "Today's curated events in Ocean City, NJ -- farmers markets, fireworks, concerts, and more -- merged from the town's own calendar and the Chamber of Commerce's events feed. No location needed. Updates automatically once a day.",
+      load: fetchOcnjEventsCardDataClient,
+      draw: drawOcnjEventsCardClient
     }
   ];
 

@@ -1974,7 +1974,7 @@
       // reads obj.cardData.page to pick the right banner/empty-state text.
       if (obj.cardData) {
         const isMusic = obj.subType === "liveMusic" || obj.subType === "liveMusicMore";
-        const drawFn = isMusic ? drawMusicCardClient : drawBeachFlagCardClient;
+        const drawFn = isMusic ? drawMusicCardClient : obj.subType === "ocnjEvents" ? drawOcnjEventsCardClient : drawBeachFlagCardClient;
         drawFn(ctx, obj.cardData);
       } else {
         drawText(ctx, obj.previewContent || "LOADING…", obj);
@@ -2021,7 +2021,7 @@
     if (obj.kind === "news") return "News: " + (obj.feedUrl || obj.location || "(add a location)");
     if (obj.kind === "beachBuddy") return "Beach Buddy" + (obj.mood ? ": " + obj.mood.headline : " (loading…)");
     if (obj.kind === "localInfo") {
-      const subTypeLabel = obj.subType === "liveMusicMore" ? "More Live Music" : obj.subType === "liveMusic" ? "Live Music" : "Beach Flags";
+      const subTypeLabel = obj.subType === "liveMusicMore" ? "More Live Music" : obj.subType === "liveMusic" ? "Live Music" : obj.subType === "ocnjEvents" ? "OCNJ Events" : "Beach Flags";
       return "Local Info: " + subTypeLabel + (obj.cardData ? "" : " (loading…)");
     }
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
@@ -4160,6 +4160,83 @@
     return data;
   }
 
+  // ================= OCNJ Events (Local Info: ocnjEvents) =================
+  // Mirrors drawOcnjEventsCard/fetchOcnjEventsCardData in
+  // functions/lib/ocnjCard.js exactly -- see that file's own header
+  // comment for why this reads the daily pipeline's own published
+  // data/ocnj-events.json through ocnjEventsProxy rather than re-running
+  // the fetch/merge/curate pipeline itself. If one changes, the other
+  // must too, or what a customer previews here won't match what the
+  // board shows once the scheduled job redraws it. Row geometry mirrors
+  // Live Music's above (same ROW_START_Y/ROW_LAST_Y/ROW_STEP shape), but
+  // there's no "+N more" footer line -- the published data is already
+  // capped at 6 events for any one date.
+  const OCNJ_MAX_ROWS = 6;
+  const OCNJ_ROW_START_Y = BANNER_HEIGHT + 28;
+
+  function drawOcnjEventsCardClient(ctx, data) {
+    const w = baseCanvas.width, h = baseCanvas.height;
+    const rowLastY = h - 24;
+    const rowStep = Math.round((rowLastY - OCNJ_ROW_START_Y) / (OCNJ_MAX_ROWS - 1));
+    const footerY = h - 10;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    const bannerTitle = "TODAY IN OCEAN CITY";
+    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 30, 20);
+    ctx.font = bannerSize + "px 'Bungee', sans-serif";
+    ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.30));
+
+    if (!data.events.length) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#000";
+      ctx.font = "26px Georgia, serif";
+      ctx.fillText("No events scheduled today", w / 2, BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2 + 8);
+    } else {
+      const leftX = 40;
+      const timeColWidth = 168;
+      const detailX = leftX + timeColWidth;
+      const detailMaxWidth = w - detailX - 32;
+
+      let y = OCNJ_ROW_START_Y;
+      data.events.forEach((event) => {
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#000";
+        ctx.font = "600 22px Georgia, serif";
+        if (event.time) ctx.fillText(event.time, leftX, y);
+
+        const detailParts = [];
+        if (event.title) detailParts.push(event.title);
+        if (event.location) detailParts.push(event.location);
+        const detailText = detailParts.join(" — ");
+        if (detailText) {
+          ctx.font = "22px Georgia, serif";
+          ctx.fillText(truncateToFitClient(ctx, detailText, detailMaxWidth), detailX, y);
+        }
+        y += rowStep;
+      });
+    }
+
+    if (data.generatedAtLabel) {
+      ctx.textAlign = "right";
+      ctx.font = "11px Georgia, serif";
+      ctx.fillStyle = "#444";
+      const label = "Updated " + data.generatedAtLabel + (data.stale ? " (may be delayed)" : "");
+      ctx.fillText(label, w - 24, footerY);
+    }
+  }
+
+  const OCNJ_EVENTS_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/ocnjEventsProxy";
+
+  async function fetchOcnjEventsCardDataClient() {
+    const resp = await fetch(OCNJ_EVENTS_PROXY_BASE);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("OCNJ events fetch failed: " + resp.status));
+    return data;
+  }
+
   // One entry per Local Info gallery option -- adding a new one (see
   // local-info-gallery.html's OPTIONS array) means adding it here too,
   // nothing else in loadLocalInfoLayer below needs to change.
@@ -4208,6 +4285,15 @@
       async fetchData() {
         const data = await fetchMusicEventsCardDataClient(1);
         return { data, successText: "This is the real card — it updates itself hourly after you publish." };
+      }
+    },
+    ocnjEvents: {
+      needsLocation: false,
+      loadingText: "Loading today's Ocean City, NJ events…",
+      errorLabel: "today's Ocean City, NJ events",
+      async fetchData() {
+        const data = await fetchOcnjEventsCardDataClient();
+        return { data, successText: "This is the real card — it updates itself daily after you publish." };
       }
     }
   };
