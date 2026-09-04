@@ -1493,6 +1493,47 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(result.musicData.events.length, 6);
   });
 
+  console.log("renderDynamicDesign (type: ocnjEvents)");
+  const OCNJ_EVENTS_URL = "https://firebasestorage.googleapis.com/v0/b/waveclock.firebasestorage.app/o/data%2Focnj-events.json?alt=media";
+  function fakeOcnjEventsFetch(payload) {
+    return async (url) => {
+      if (url !== OCNJ_EVENTS_URL) throw new Error("unexpected URL in test: " + url);
+      return { ok: true, status: 200, json: async () => payload };
+    };
+  }
+  await test("renders an OCNJ events card from the daily pipeline's own published JSON, no lat/lon/stationId needed", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-08T18:00:00Z");
+    const meta = { type: "ocnjEvents" };
+    const payload = {
+      generated_at: new Date("2026-07-08T12:00:00Z").toISOString(),
+      days: [{ date: "2026-07-08", events: [{ title: "Farmers Market", time: "8:00 AM", location: "Ocean City Tabernacle" }] }]
+    };
+    const result = await renderDynamicDesign(base, meta, now, fakeOcnjEventsFetch(payload));
+    assert.ok(result);
+    assert.strictEqual(result.ocnjEventsData.events[0].title, "Farmers Market");
+    assert.strictEqual(result.content, "Farmers Market");
+    assert.ok(result.binBuffer.some((b) => b !== 0));
+    const decoded = await loadImage(result.pngBuffer);
+    assert.strictEqual(decoded.width, CANVAS_WIDTH);
+    assert.strictEqual(decoded.height, CANVAS_HEIGHT);
+  });
+  await test("zero events today publishes a real card (fallback message), not a thrown error", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-08T18:00:00Z");
+    const meta = { type: "ocnjEvents" };
+    const payload = { generated_at: new Date("2026-07-08T12:00:00Z").toISOString(), days: [] };
+    const result = await renderDynamicDesign(base, meta, now, fakeOcnjEventsFetch(payload));
+    assert.strictEqual(result.content, "No OCNJ events today");
+  });
+  await test("the published data being unreachable throws, same as every other real data-fetch failure in this app", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-08T18:00:00Z");
+    const meta = { type: "ocnjEvents" };
+    const fetchImpl = async () => { throw new Error("network down"); };
+    await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
+  });
+
   console.log("drawTideTimelineCard (Sun/Moon/Tide Timeline card)");
   // x-positions below are derived from this card's own dayStart/dayEnd
   // (a 24h window) the same way drawTideTimelineCard computes them

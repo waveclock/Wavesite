@@ -1020,16 +1020,17 @@ if it's not working -- the browser never sees more than a generic
 "couldn't generate" message, by design (see imagenProxyHandler's own
 comment in index.js).
 
-## Local Info (Beach Flags + Live Music)
+## Local Info (Beach Flags, Live Music + OCNJ Events)
 
 A customer feature request from a Santa Rosa Beach, FL customer, asking
-for the day's beach-hazard flag color and local live music listings.
-Built as a single "Local Info" tool (`design/index.html`'s toolbar
-button, currently hidden -- see each subsection below) rather than a
-new toolbar icon per data source, since these are hyper-regional
-requests -- useful to a handful of customers along one stretch of
-coast, not everyone -- and more will likely come in over time from
-other towns. Picking WHICH option happens on a separate gallery page
+for the day's beach-hazard flag color and local live music listings --
+later joined by a second customer's Ocean City, NJ events feed. Built as
+a single "Local Info" tool (`design/index.html`'s toolbar button,
+currently hidden -- see each subsection below) rather than a new
+toolbar icon per data source, since these are hyper-regional requests
+-- useful to a handful of customers along one stretch of coast, not
+everyone -- and more will likely come in over time from other towns.
+Picking WHICH option happens on a separate gallery page
 (`design/local-info-gallery.html`, linked from the tool panel) rather
 than an in-panel dropdown -- a customer needs room to see a live
 preview and a description per option before picking, which a toolbar
@@ -1037,7 +1038,7 @@ dropdown doesn't have space for. Selecting "Use This" there bounces
 back to `index.html?...&localInfoChoice=<subType>`, which applies it
 immediately. `design/index.html`'s `LOCAL_INFO_SUBTYPES` registry is
 where a new subType's loading behavior (whether it needs a device
-location, its status-line copy) lives -- adding a third option means an
+location, its status-line copy) lives -- adding another option means an
 entry there, an entry in the gallery page's `OPTIONS` array, and a
 `meta.type` branch in `renderDynamicDesign` (`lib/dynamic.js`), nothing
 else in the shared plumbing needs to change.
@@ -1183,14 +1184,15 @@ against the handoff doc's own example payloads (`examples/device.json`
 verbatim), not a live response. Ships hidden alongside Beach Flags,
 same toolbar button, until both are confirmed against production.
 
-## OCNJ Events
+### OCNJ Events
 
-A daily-refreshed events feed for Ocean City, NJ, published as a single
-shared JSON file rather than drawn onto any one device's board directly --
-unlike every other Local Info card above, this doesn't render a
-`.bin`/`.png` at all. It exists so a future device-side or design-tool
-consumer has one JSON URL to poll for "what's happening today/this week
-in Ocean City" without needing its own scraper.
+The third Local Info option, and the only one built on top of this
+app's own daily data pipeline rather than a single live fetch at render
+time. The card itself (`meta.type: "ocnjEvents"`) is a normal Local
+Info card like Beach Flags/Live Music -- it just gets its data from a
+JSON file this same codebase publishes once a day, rather than
+re-fetching/re-curating from scratch on every render (see "The
+pipeline" below for why).
 
 **Where this came from**: five Python scripts (`parse_calendar.py`,
 `source_oceancityvacation.py`, `merge_sources.py`, `curate_with_llm.py`,
@@ -1290,31 +1292,65 @@ firebase functions:secrets:set ANTHROPIC_API_KEY
 (prompts for the key value, stores it in Secret Manager, and grants the
 function's service account access automatically on next deploy).
 
-**Refresh schedule**: `generateOcnjEventsJson`, once a day at 08:00 UTC
-(03:00-04:00 Eastern depending on DST) -- early morning, before anyone's
-board would want the day's fresh events, same reasoning as the firmware's
-own daily 3 AM OTA window, just server-side. Not tied to any per-device
-schedule like the cards above -- this publishes one shared file regardless
-of how many (if any) devices end up consuming it.
+**Pipeline refresh schedule**: `generateOcnjEventsJson`, once a day at
+08:00 UTC (03:00-04:00 Eastern depending on DST) -- early morning,
+before anyone's board would want the day's fresh events, same reasoning
+as the firmware's own daily 3 AM OTA window, just server-side.
+
+**The card** (`lib/ocnjCard.js`, `fetchOcnjEventsCardData`/
+`drawOcnjEventsCard`): reads `data/ocnj-events.json` through the same
+public URL above (never re-runs the pipeline itself -- see this
+section's intro), picks out just today's entry from `days[]` (today, in
+`America/New_York`), and draws up to 6 rows of time/title/location.
+Unlike Live Music there's no "+N more" footer line -- `curate()` already
+guarantees at most 6 events for any one date, so every row on this card
+is always a real event, never an overflow count. A date with no
+matching `days[]` entry (or an empty `events[]` for it) is a real "no
+events today" state, not an error -- same contract as Live Music's empty
+schedule. `data.generated_at` older than 48 hours shows a "(may be
+delayed)" hint next to the "Updated ..." timestamp, the same signal the
+output contract documents for any consumer of this file.
+
+**Live preview proxy**: `ocnjEventsProxy` (mirrors `liveMusicProxy`
+exactly -- no query params, since nothing here is per-device) is what
+`design/index.html`/`local-info-gallery.html`'s live preview calls
+instead of fetching the public Storage URL directly from the browser,
+sidestepping the same CORS considerations every other Local Info proxy
+in this file already exists for.
+
+**Card refresh schedule**: rides `regenerateCountdownDesigns`'s existing
+daily pass (09:00 UTC) rather than getting a schedule of its own --
+`ocnjEvents` is deliberately NOT in `DAILY_REGEN_TYPES`'s exclusion list
+(see that constant's own comment in `index.js`). Since the underlying
+`data/ocnj-events.json` only refreshes once a day itself (an hour
+earlier), redrawing the card any more often would just redraw the exact
+same data.
 
 **Not yet verified against the live sources**: same situation as every
 other scraped/proxied source in this codebase -- this development
 sandbox's network access doesn't reach `ocnj.us`, `oceancityvacation.com`,
-or the Anthropic API directly. Built and tested (`test/ocnjCalendar.test.js`,
-`test/ocnjIcs.test.js`, `test/ocnjMerge.test.js`, `test/ocnjCurate.test.js`,
-`test/ocnjPipeline.test.js`) against literal source-shaped fixture text
-(including the exact dedup fixture from the handoff doc's own
+or the Anthropic API directly, and can't reach this app's own public
+Storage URL either (nothing in this sandbox can reach the live
+`waveclock` Firebase project at all). Built and tested
+(`test/ocnjCalendar.test.js`, `test/ocnjIcs.test.js`,
+`test/ocnjMerge.test.js`, `test/ocnjCurate.test.js`,
+`test/ocnjPipeline.test.js`, `test/ocnjCard.test.js`,
+`test/ocnjEventsProxy.test.js`) against literal source-shaped fixture
+text (including the exact dedup fixture from the handoff doc's own
 `merge_sources.py` smoke test), stubbed fetches, and a fully in-memory
-fake Storage bucket -- never a live response from any of the three real
-services. After first deploy: trigger `generateOcnjEventsJson` manually
+fake Storage bucket -- never a live response from any of the four real
+services (the three pipeline sources plus this app's own published
+JSON). After first deploy: trigger `generateOcnjEventsJson` manually
 (Firebase Console -> Functions -> generateOcnjEventsJson -> Testing tab,
 or `gcloud scheduler jobs run` on its underlying Cloud Scheduler job),
 confirm the public URL above returns JSON matching the output contract,
-and check `merged_event_count` lands at 15+ -- if it's near 0, one or
-both sources' page layout/feed shape has likely changed; the function's
-own logs (Cloud Functions -> `generateOcnjEventsJson` -> Logs) name which
-source failed and why via the same `source_notes`-equivalent detail this
-port logs on every run.
+check `merged_event_count` lands at 15+ (if it's near 0, one or both
+sources' page layout/feed shape has likely changed -- the function's
+own logs name which source failed and why), and publish an "OCNJ
+Events" Local Info layer from `design/index.html` to confirm the live
+preview (and, after the next daily regen, the real device card) render
+correctly end to end. Ships hidden alongside Beach Flags/Live Music,
+same toolbar button, until confirmed against production.
 
 ## Known tradeoffs
 

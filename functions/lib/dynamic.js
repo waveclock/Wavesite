@@ -8,8 +8,9 @@
 // "news", "tide", "tideTimeline", "beachBuddy" (see the "Beach Buddy"
 // section below -- a single recurring character whose pose is driven by
 // real tide/weather data, illustrated by Imagen with a procedural
-// vector-line fallback), and the two Local Info subTypes, "beachFlag"
-// (lib/beachflag.js) and "liveMusic"/"liveMusicMore" (lib/liveMusic.js).
+// vector-line fallback), and the three Local Info subTypes, "beachFlag"
+// (lib/beachflag.js), "liveMusic"/"liveMusicMore" (lib/liveMusic.js), and
+// "ocnjEvents" (lib/ocnjCard.js).
 //
 // IMPORTANT: daysUntil(), formatCountdownText(), formatTeamText(),
 // findNextGame(), the dithering functions, and drawGameDayCard() are
@@ -28,6 +29,7 @@ const { OUTBOUND_FETCH_HEADERS } = require("./http");
 const { generateBeachBuddyArt } = require("./imagen");
 const { fetchBeachFlagCardData, drawBeachFlagCard } = require("./beachflag");
 const { fetchMusicEventsCardData, drawMusicCard } = require("./liveMusic");
+const { fetchOcnjEventsCardData, drawOcnjEventsCard } = require("./ocnjCard");
 
 const CANVAS_WIDTH = 792;
 const CANVAS_HEIGHT = 272;
@@ -2691,6 +2693,18 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
       ? data.events.map((e) => e.act + " @ " + e.venue).join(", ")
       : "No live music today";
     return Object.assign(result, { musicData: data, content });
+  }
+
+  if (meta.type === "ocnjEvents") {
+    // No lat/lon/stationId/townName either -- same reasoning as Live
+    // Music, and reads the daily pipeline's own published output rather
+    // than re-running it (see lib/ocnjCard.js's own header comment).
+    const data = await fetchOcnjEventsCardData(fetchImpl, now);
+    const result = await compositeAndPack(basePngBuffer, (ctx) => drawOcnjEventsCard(ctx, data), meta);
+    const content = data.events.length
+      ? data.events.map((e) => e.title).join(", ")
+      : "No OCNJ events today";
+    return Object.assign(result, { ocnjEventsData: data, content });
   }
 
   throw new Error("Unknown dynamic layer type: " + meta.type);
