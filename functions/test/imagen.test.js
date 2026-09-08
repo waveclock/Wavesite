@@ -17,7 +17,9 @@ const {
   STYLE_PREFIX,
   IMAGEN_SCENE_HINTS,
   buildPrompt,
-  generateBeachBuddyArt
+  generateBeachBuddyArt,
+  INKBLOT_PROMPT,
+  generateInkBlotArt
 } = require("../lib/imagen");
 
 let passed = 0, failed = 0;
@@ -78,6 +80,45 @@ async function test(name, fn) {
   await test("throws when the underlying call itself throws (network/auth failure) -- propagates rather than swallowing it", async () => {
     const generateImpl = async () => { throw new Error("Vertex AI unreachable"); };
     await assert.rejects(() => generateBeachBuddyArt({ pose: "standing" }, { generateImpl }), /Vertex AI unreachable/);
+  });
+
+  await test("INKBLOT_PROMPT asks for black-and-white ink art with no color/text -- sanity check against a typo breaking the one prompt every ink-blot call sends", () => {
+    assert.strictEqual(typeof INKBLOT_PROMPT, "string");
+    assert.ok(/ink/i.test(INKBLOT_PROMPT));
+    assert.ok(/no color/i.test(INKBLOT_PROMPT));
+    assert.ok(/no text/i.test(INKBLOT_PROMPT));
+  });
+
+  await test("generateInkBlotArt sends the fixed prompt plus an inlineData image part (not the user's own free text) and returns the decoded image bytes", async () => {
+    const fakeBytes = Buffer.from("not a real png, just bytes for the test", "utf8");
+    const sourceBytes = Buffer.from("pretend jpeg bytes", "utf8");
+    let capturedContents = null;
+    const generateImpl = async (contents) => {
+      capturedContents = contents;
+      return { data: fakeBytes.toString("base64"), candidates: [{ finishReason: "STOP" }] };
+    };
+    const result = await generateInkBlotArt(sourceBytes, "image/jpeg", { generateImpl });
+    assert.ok(Buffer.isBuffer(result));
+    assert.ok(result.equals(fakeBytes));
+    assert.deepStrictEqual(capturedContents, [
+      { text: INKBLOT_PROMPT },
+      { inlineData: { mimeType: "image/jpeg", data: sourceBytes.toString("base64") } }
+    ]);
+  });
+  await test("generateInkBlotArt throws when the response has no inline image data at all", async () => {
+    const generateImpl = async () => ({ data: undefined, candidates: [{ finishReason: "STOP" }] });
+    await assert.rejects(() => generateInkBlotArt(Buffer.from("x"), "image/png", { generateImpl }));
+  });
+  await test("generateInkBlotArt throws when the image was safety-filtered, including the finish reason in the message", async () => {
+    const generateImpl = async () => ({ data: undefined, candidates: [{ finishReason: "SAFETY" }] });
+    await assert.rejects(
+      () => generateInkBlotArt(Buffer.from("x"), "image/png", { generateImpl }),
+      /SAFETY/
+    );
+  });
+  await test("generateInkBlotArt throws when the underlying call itself throws (network/auth failure) -- propagates rather than swallowing it", async () => {
+    const generateImpl = async () => { throw new Error("Vertex AI unreachable"); };
+    await assert.rejects(() => generateInkBlotArt(Buffer.from("x"), "image/png", { generateImpl }), /Vertex AI unreachable/);
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");

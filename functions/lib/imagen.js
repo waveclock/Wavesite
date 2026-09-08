@@ -283,11 +283,22 @@ function cacheKeyForMood(mood) {
 
 // `generateImpl`, when given, replaces the real Vertex AI call --
 // injected by tests so they never need real GCP credentials, same
-// convention as `fetchImpl` throughout dynamic.js/astro.js. Takes just
-// the prompt string and returns whatever shape the real SDK call
-// returns (a GenerateContentResponse-like object), so a test double can
-// be a plain object literal instead of a mocked class.
-function defaultGenerateImpl(project, location) {
+// convention as `fetchImpl` throughout dynamic.js/astro.js. Takes
+// `contents` (either a plain prompt string, for text-to-image, or an
+// array of parts -- text plus an inlineData image, for image editing --
+// both are valid shapes for @google/genai's own `contents` field) and
+// returns whatever shape the real SDK call returns (a
+// GenerateContentResponse-like object), so a test double can be a plain
+// object literal instead of a mocked class.
+//
+// `imageConfig`, when given, is passed straight through as the call's
+// own imageConfig (e.g. Beach Buddy's fixed aspectRatio, to always fill
+// its wide banner). Omitted entirely for image-editing calls (see
+// generateInkBlotArt) -- constraining the OUTPUT aspect ratio away from
+// the INPUT photo's own shape would crop or letterbox someone's actual
+// photo, which a generated-from-nothing illustration never has to
+// worry about.
+function defaultGenerateImpl(project, location, imageConfig) {
   const { GoogleGenAI } = require("@google/genai");
   // `enterprise: true`, not the older `vertexai: true` -- same
   // underlying REST API (Google renamed "Vertex AI" to "Gemini
@@ -304,13 +315,13 @@ function defaultGenerateImpl(project, location) {
   // this to work -- see functions/README.md's "Beach Buddy" setup
   // section; neither of those can be done from code.
   const ai = new GoogleGenAI({ enterprise: true, project, location });
-  return (prompt) => ai.models.generateContent({
+  return (contents) => ai.models.generateContent({
     model: IMAGEN_MODEL,
-    contents: prompt,
-    config: {
-      responseModalities: RESPONSE_MODALITIES,
-      imageConfig: {
-        aspectRatio: IMAGE_ASPECT_RATIO
+    contents,
+    config: Object.assign(
+      { responseModalities: RESPONSE_MODALITIES },
+      imageConfig ? {
+        imageConfig
         // personGeneration: "ALLOW_ADULT" was here (explicitly allowing
         // generation of adult-looking people, since Buddy is a
         // human-like figure) -- removed at the user's request. If
@@ -319,8 +330,8 @@ function defaultGenerateImpl(project, location) {
         // incident this was originally added to guard against, and to
         // fix), that field defaulting to something stricter than this
         // feature needs is the first thing to check.
-      }
-    }
+      } : {}
+    )
   });
 }
 
@@ -334,13 +345,48 @@ function defaultGenerateImpl(project, location) {
 // down for the day.
 async function generateBeachBuddyArt(mood, { project, location, generateImpl } = {}) {
   const prompt = buildPrompt(mood);
-  const generate = generateImpl || defaultGenerateImpl(project, location);
+  const generate = generateImpl || defaultGenerateImpl(project, location, { aspectRatio: IMAGE_ASPECT_RATIO });
   const response = await generate(prompt);
   // `.data` is GenerateContentResponse's own convenience getter: the
   // concatenation of any inline-data parts in the response's first
   // candidate (a plain string property on the test doubles used here,
   // a real getter on the SDK's own class -- property access reads the
   // same either way).
+  const base64 = response && response.data;
+  if (!base64) {
+    const candidate = response && response.candidates && response.candidates[0];
+    const reason = candidate && candidate.finishReason;
+    throw new Error("Gemini returned no image" + (reason ? " (finishReason: " + reason + ")" : ""));
+  }
+  return Buffer.from(base64, "base64");
+}
+
+// ================= Photo tool's "AI Ink Blot" style =================
+// A single fixed prompt (never user-supplied text, only a user-supplied
+// PHOTO) applied via Gemini's image-EDITING path -- the same
+// generateContent call as generateBeachBuddyArt above, but `contents`
+// carries an inlineData image part alongside the text part instead of
+// text alone, which is what turns this into "edit this picture" rather
+// than "draw something new." The design tool then runs the result
+// through the exact same Atkinson dithering every other photo style
+// already uses (see design/index.html's stageDither) -- this function's
+// only job is the AI step, not the 1-bit-display processing after it.
+const INKBLOT_PROMPT =
+  "Turn this photo into a black and white ink blot illustration -- bold, expressive black ink shapes and brushstrokes on a plain white background, in the style of a Rorschach inkblot test card or a hand-painted ink wash portrait. Keep the subject and composition recognizable from the original photo, but render it entirely in solid black ink, with no color, no gray, no gradients or soft shading, and no text or lettering anywhere in the image.";
+
+// Generates the ink-blot version of `imageBuffer` (raw bytes of a
+// user-uploaded photo, any common image format) and returns the result's
+// raw image bytes (PNG). Throws on ANY failure -- no image, a
+// safety-filtered result, a network/auth error -- same contract as
+// generateBeachBuddyArt, so callers handle both failure classes the same
+// way.
+async function generateInkBlotArt(imageBuffer, mimeType, { project, location, generateImpl } = {}) {
+  const generate = generateImpl || defaultGenerateImpl(project, location);
+  const contents = [
+    { text: INKBLOT_PROMPT },
+    { inlineData: { mimeType, data: imageBuffer.toString("base64") } }
+  ];
+  const response = await generate(contents);
   const base64 = response && response.data;
   if (!base64) {
     const candidate = response && response.candidates && response.candidates[0];
@@ -359,5 +405,7 @@ module.exports = {
   PROMPT_VERSION,
   buildPrompt,
   cacheKeyForMood,
-  generateBeachBuddyArt
+  generateBeachBuddyArt,
+  INKBLOT_PROMPT,
+  generateInkBlotArt
 };
