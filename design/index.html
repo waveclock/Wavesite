@@ -807,7 +807,7 @@
         </li>
         <li>
           <span class="tool-guide-icon" aria-hidden="true">&#128247;</span>
-          <span><b>Photo</b> &mdash; upload a picture &mdash; it's turned into line art automatically.</span>
+          <span><b>Photo</b> &mdash; upload a picture &mdash; it's turned into line art automatically, or ask AI to turn it into black-and-white ink blot art first.</span>
         </li>
         <li>
           <span class="tool-guide-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
@@ -983,7 +983,9 @@
     <div class="toolbar" id="photoStyleRow">
       <button class="tool-btn" id="photoStyleRetroBtn" data-style="atkinson">&#128247; Normal Photo</button>
       <button class="tool-btn" id="photoStyleSketchBtn" data-style="sketch">&#128247; Sketch Photo</button>
+      <button class="tool-btn" id="photoStyleInkblotBtn" data-style="inkblot">&#10024; AI Ink Blot</button>
     </div>
+    <p class="clipart-status" id="inkblotStatus"></p>
   </div>
 
   <div class="tool-panel hidden" id="countdownPanel">
@@ -2025,7 +2027,7 @@
       return "Local Info: " + subTypeLabel + (obj.cardData ? "" : " (loading…)");
     }
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
-    if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : "Normal") + ")";
+    if (obj.kind === "photo") return "Photo (" + (obj.photoStyle === "sketch" ? "Sketch" : obj.photoStyle === "inkblot" ? "AI Ink Blot" : "Normal") + ")";
     if (obj.kind === "stroke") return "Drawing";
     return "Layer";
   }
@@ -5793,6 +5795,23 @@
   });
   const sensitivityRow = document.getElementById("sensitivityRow");
   const sensitivitySlider = document.getElementById("sensitivitySlider");
+  const inkblotStatus = document.getElementById("inkblotStatus");
+
+  // Scales an Image down to a manageable working resolution and draws it
+  // onto a fresh canvas -- shared by both the initial upload (below) and
+  // the AI Ink Blot result (runInkBlot), so a large AI-returned image
+  // gets capped the same way an oversized upload does before it's run
+  // through gray/dither arrays sized by pixel count.
+  function drawToWorkingCanvas(img) {
+    const scale = Math.min(1, MAX_WORKING_DIMENSION / Math.max(img.width, img.height));
+    const workW = Math.round(img.width * scale);
+    const workH = Math.round(img.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = workW;
+    canvas.height = workH;
+    canvas.getContext("2d").drawImage(img, 0, 0, workW, workH);
+    return { canvas, workW, workH };
+  }
 
   // Runs an uploaded photo through the edge-detection pipeline and stages
   // it as line art -- this is the "Sketch Photo" style.
@@ -5823,6 +5842,72 @@
     startStaging(staged);
   }
 
+  // ================= AI Ink Blot photo style =================
+  // Sends the uploaded (already downscaled) photo to inkBlotProxy, which
+  // runs it through Gemini's image-editing path with a single fixed
+  // prompt ("turn this photo into black and white ink blot style") --
+  // never anything the browser supplies, same closed-prompt shape as
+  // Beach Buddy's imagenProxy. The AI result then goes through the exact
+  // same stageDither() call the "Normal Photo" button already uses --
+  // this style is "AI first, then the normal process," not a
+  // replacement for it.
+  const INKBLOT_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/inkBlotProxy";
+
+  function setInkblotStatus(text) {
+    inkblotStatus.textContent = text || "";
+  }
+
+  async function fetchInkBlotArt(dataUrl) {
+    const mimeType = dataUrl.slice(5, dataUrl.indexOf(";"));
+    const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+    const resp = await fetch(INKBLOT_PROXY_BASE, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: base64, mimeType })
+    });
+    if (!resp.ok) {
+      let message = "Couldn't generate ink blot art right now";
+      try {
+        const data = await resp.json();
+        if (data && data.error) message = data.error;
+      } catch (err) { /* use the default message above */ }
+      throw new Error(message);
+    }
+    return resp.blob();
+  }
+
+  function loadImageFromBlob(blob) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Couldn't decode the AI-generated image")); };
+      img.src = url;
+    });
+  }
+
+  // Locks the whole toolbar (setControlsEnabled(false) with no
+  // stagedObject yet disables everything uniformly) while the AI call is
+  // in flight, since this is the one photo style that isn't instant --
+  // re-enables it on failure only; success hands off into startStaging,
+  // which already keeps controls disabled for the placement step.
+  async function runInkBlot(sourceCanvas, workW, workH) {
+    setControlsEnabled(false);
+    setInkblotStatus("Turning your photo into ink blot art… this can take a few seconds.");
+    try {
+      const dataUrl = sourceCanvas.toDataURL("image/png");
+      const blob = await fetchInkBlotArt(dataUrl);
+      const aiImg = await loadImageFromBlob(blob);
+      const { canvas, workW: aiW, workH: aiH } = drawToWorkingCanvas(aiImg);
+      setInkblotStatus("");
+      stageDither(canvas, aiW, aiH, "inkblot");
+    } catch (err) {
+      console.error(err);
+      setInkblotStatus("Couldn't generate ink blot art right now — try again in a moment.");
+      setControlsEnabled(true);
+    }
+  }
+
   photoInput.addEventListener("change", (evt) => {
     const file = evt.target.files[0];
     if (!file) return;
@@ -5831,18 +5916,12 @@
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        // Scale down to a manageable working resolution before processing
-        const scale = Math.min(1, MAX_WORKING_DIMENSION / Math.max(img.width, img.height));
-        const workW = Math.round(img.width * scale);
-        const workH = Math.round(img.height * scale);
-
-        const workCanvas = document.createElement("canvas");
-        workCanvas.width = workW;
-        workCanvas.height = workH;
-        workCanvas.getContext("2d").drawImage(img, 0, 0, workW, workH);
+        const { canvas: workCanvas, workW, workH } = drawToWorkingCanvas(img);
 
         if (selectedPhotoStyle === "sketch") {
           stageLineArt(workCanvas, workW, workH);
+        } else if (selectedPhotoStyle === "inkblot") {
+          runInkBlot(workCanvas, workW, workH);
         } else {
           stageDither(workCanvas, workW, workH, selectedPhotoStyle);
         }

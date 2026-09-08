@@ -931,6 +931,28 @@ preview falls back to the procedural stick-figure card, same contract as
 the daily job's own server-side fallback -- see `beachBuddyMoodStatus`
 in `design/index.html` for the status text shown either way.
 
+**The Photo tool's "AI Ink Blot" style reuses this exact same Gemini
+Enterprise/Vertex AI setup** -- no additional IAM role or API to enable
+beyond what's already set up for Beach Buddy above. `inkBlotProxy`
+(`inkBlotProxyHandler` in `index.js`, `generateInkBlotArt` in
+`lib/imagen.js`) is a second, separate proxy, though, not a variant of
+`imagenProxy`: instead of a fixed pose name picking from a small set of
+server-built prompts, the browser POSTs the user's own uploaded photo
+(base64, capped by `INKBLOT_IMAGE_BYTES_LIMIT`) and Gemini's image-
+EDITING path (the same model, called with an `inlineData` image part
+alongside the text part instead of text alone) turns it into ink-blot
+art. The prompt itself stays exactly as closed as `imagenProxy`'s --
+always `lib/imagen.js`'s own fixed `INKBLOT_PROMPT`, never anything the
+request body supplies -- so this can't be used to generate an arbitrary
+image from arbitrary text, only to restyle a photo the caller already
+provided. Unlike Beach Buddy's small (pose, sunny) cache, every photo is
+unique, so there's no cache here -- each call is a real, billed Gemini
+request. `design/index.html`'s Photo tool sends the already-downscaled
+(`MAX_WORKING_DIMENSION`, 500px) working canvas, then runs the result
+through the exact same Atkinson dithering (`stageDither`) the "Normal
+Photo" style already uses -- the AI step happens BEFORE the 1-bit-display
+processing, not instead of it.
+
 **Not live-tested against a real Vertex AI project from this
 development sandbox** (no GCP credentials for the `waveclock` project
 are available here) -- but it HAS been live-tested by the project owner

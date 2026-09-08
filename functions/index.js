@@ -22,7 +22,7 @@ const admin = require("firebase-admin");
 const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, espnTeamUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
 const { fetchTideCardData, fetchTideTimelineData } = require("./lib/astro");
 const { isTeamsnapIcsUrl, fetchIcsSchedule } = require("./lib/teamsnap");
-const { generateBeachBuddyArt, IMAGEN_SCENE_HINTS, PROMPT_VERSION, cacheKeyForMood } = require("./lib/imagen");
+const { generateBeachBuddyArt, IMAGEN_SCENE_HINTS, PROMPT_VERSION, cacheKeyForMood, generateInkBlotArt } = require("./lib/imagen");
 const { fetchBeachFlagCardData } = require("./lib/beachflag");
 const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
@@ -706,6 +706,66 @@ async function imagenProxyHandler(req, res, getArtImpl) {
 
 exports.imagenProxy = onRequest({ cors: true, region: "us-central1" }, imagenProxyHandler);
 
+// ================= Ink Blot photo filter proxy =================
+// design's Photo tool's "AI Ink Blot" style needs to run a user's own
+// uploaded photo through Gemini's image-EDITING path before the app
+// dithers it for the display -- same CORS/billing-surface reasoning as
+// imagenProxy above (a script-initiated fetch() from the browser
+// straight to Vertex AI needs CORS headers it doesn't send, and billing
+// per call means this can't be an open passthrough).
+//
+// Unlike imagenProxy's fixed pose-name list, the INPUT here is a user's
+// own photo, so it can't be restricted to a small fixed set the way a
+// text prompt can -- but the PROMPT itself is exactly as closed as
+// imagenProxy's: always lib/imagen.js's own fixed INKBLOT_PROMPT, never
+// anything the request body supplies, so this can't be used to generate
+// an arbitrary image from arbitrary text. INKBLOT_IMAGE_BYTES_LIMIT caps
+// the upload itself -- design/index.html already downscales to
+// MAX_WORKING_DIMENSION (500px) before sending, so a real request from
+// the app is always far under this; a direct API call submitting
+// something huge is rejected outright instead of quietly billed for.
+const INKBLOT_ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const INKBLOT_IMAGE_BYTES_LIMIT = 4 * 1024 * 1024; // 4MB decoded -- generous for a <=500px photo
+
+// `getArtImpl`, when given, replaces the real generateInkBlotArt call --
+// same injectable-dependency convention as imagenProxyHandler's
+// `getArtImpl` above, used only by tests.
+async function inkBlotProxyHandler(req, res, getArtImpl) {
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "POST only" });
+    return;
+  }
+  const { image, mimeType } = req.body || {};
+  if (typeof image !== "string" || !image) {
+    res.status(400).json({ error: "image (base64) is required" });
+    return;
+  }
+  if (typeof mimeType !== "string" || !INKBLOT_ALLOWED_MIME_TYPES.includes(mimeType)) {
+    res.status(400).json({ error: "mimeType must be one of: " + INKBLOT_ALLOWED_MIME_TYPES.join(", ") });
+    return;
+  }
+  const imageBuffer = Buffer.from(image, "base64");
+  if (imageBuffer.length === 0 || imageBuffer.length > INKBLOT_IMAGE_BYTES_LIMIT) {
+    res.status(400).json({ error: "image must be a non-empty photo under " + Math.round(INKBLOT_IMAGE_BYTES_LIMIT / 1024 / 1024) + "MB" });
+    return;
+  }
+
+  try {
+    const getArt = getArtImpl || ((buf, mt) => generateInkBlotArt(buf, mt, {
+      project: process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT,
+      location: "us-central1"
+    }));
+    const buf = await getArt(imageBuffer, mimeType);
+    res.set("Content-Type", "image/png");
+    res.status(200).send(buf);
+  } catch (err) {
+    logger.error("Ink Blot proxy request failed:", err);
+    res.status(502).json({ error: "Couldn't generate ink blot art right now" });
+  }
+}
+
+exports.inkBlotProxy = onRequest({ cors: true, region: "us-central1" }, inkBlotProxyHandler);
+
 // ================= TeamSnap proxy =================
 // team-schedule.html needs to fetch a team's exported .ics feed from the
 // visitor's browser. Same problem as espnProxy/newsProxy above:
@@ -739,4 +799,4 @@ exports.teamsnapProxy = onRequest({ cors: true, region: "us-central1" }, teamsna
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, imagenProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
