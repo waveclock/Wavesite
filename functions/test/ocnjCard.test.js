@@ -10,7 +10,7 @@
 
 const assert = require("assert");
 const { createCanvas } = require("canvas");
-const { OCNJ_EVENTS_PUBLIC_URL, fetchOcnjEventsCardData, drawOcnjEventsCard } = require("../lib/ocnjCard");
+const { OCNJ_EVENTS_PUBLIC_URL, formatEventDateLabel, fetchOcnjEventsCardData, drawOcnjEventsCard } = require("../lib/ocnjCard");
 const dynamic = require("../lib/dynamic");
 dynamic.ensureFontsRegistered();
 
@@ -67,16 +67,53 @@ const SAMPLE_PAYLOAD = {
 const NOW = new Date("2026-07-08T18:00:00Z"); // 2:00 PM Eastern -- same calendar day either side
 
 (async () => {
-  await test("fetches today's slice from the published JSON", async () => {
+  await test("fetches today's slice from the published JSON, tagging each event with its own date", async () => {
     const data = await fetchOcnjEventsCardData(mockFetch(SAMPLE_PAYLOAD), NOW);
     assert.strictEqual(data.date, "2026-07-08");
     assert.strictEqual(data.events.length, 1);
     assert.strictEqual(data.events[0].title, "Farmers Market");
+    assert.strictEqual(data.events[0].date, "2026-07-08");
   });
 
-  await test("a date with no matching entry in days[] is a real 'no events' day, not an error", async () => {
+  await test("no events today or in any future day is a real 'no upcoming events' state, not an error", async () => {
     const data = await fetchOcnjEventsCardData(mockFetch(SAMPLE_PAYLOAD), new Date("2026-08-01T18:00:00Z"));
     assert.deepStrictEqual(data.events, []);
+  });
+
+  await test("spans forward across multiple days to fill up to MAX_ROWS, in date order, skipping any day that's already passed", async () => {
+    const payload = {
+      generated_at: new Date().toISOString(),
+      days: [
+        { date: "2026-07-07", events: [{ title: "Already Passed", time: "9:00 AM", location: "Somewhere" }] }, // must never appear
+        { date: "2026-07-08", events: [{ title: "Farmers Market", time: "8:00 AM", location: "Tabernacle" }] },
+        { date: "2026-07-09", events: [
+          { title: "Fireworks", time: "9:00 PM", location: "Music Pier" },
+          { title: "Sunrise Yoga", time: "6:30 AM", location: "Beach" }
+        ] },
+        { date: "2026-07-10", events: [
+          { title: "Concert A", time: "7:00 PM", location: "Boardwalk" },
+          { title: "Concert B", time: "8:00 PM", location: "Boardwalk" },
+          { title: "Concert C", time: "9:00 PM", location: "Boardwalk" }
+        ] }
+      ]
+    };
+    const data = await fetchOcnjEventsCardData(mockFetch(payload), NOW);
+    assert.strictEqual(data.events.length, 6, "should fill up to MAX_ROWS across days, not stop at today's single event");
+    assert.deepStrictEqual(data.events.map((e) => e.title), ["Farmers Market", "Fireworks", "Sunrise Yoga", "Concert A", "Concert B", "Concert C"]);
+    assert.deepStrictEqual(data.events.map((e) => e.date), ["2026-07-08", "2026-07-09", "2026-07-09", "2026-07-10", "2026-07-10", "2026-07-10"]);
+    assert.ok(!data.events.some((e) => e.title === "Already Passed"), "a day before today must never appear, even if present in days[]");
+  });
+
+  await test("handles days[] arriving out of order (no sort guarantee from the AI curation path)", async () => {
+    const payload = {
+      generated_at: new Date().toISOString(),
+      days: [
+        { date: "2026-07-10", events: [{ title: "Later Event", time: null, location: null }] },
+        { date: "2026-07-08", events: [{ title: "Earlier Event", time: null, location: null }] }
+      ]
+    };
+    const data = await fetchOcnjEventsCardData(mockFetch(payload), NOW);
+    assert.deepStrictEqual(data.events.map((e) => e.title), ["Earlier Event", "Later Event"]);
   });
 
   await test("a non-ok response throws -- never silently publish blank content on a real failure", async () => {
@@ -108,10 +145,10 @@ const NOW = new Date("2026-07-08T18:00:00Z"); // 2:00 PM Eastern -- same calenda
 
   await test("drawOcnjEventsCard draws the banner and each event row without throwing", () => {
     const c = whiteCanvas(792, 272);
-    drawOcnjEventsCard(c.getContext("2d"), { date: "2026-07-08", events: [{ title: "Farmers Market", time: "8:00 AM", location: "Ocean City Tabernacle" }], generatedAtLabel: "2:00 PM", stale: false });
+    drawOcnjEventsCard(c.getContext("2d"), { date: "2026-07-08", events: [{ date: "2026-07-08", title: "Farmers Market", time: "8:00 AM", location: "Ocean City Tabernacle" }], generatedAtLabel: "2:00 PM", stale: false });
   });
 
-  await test("zero events falls back to a plain 'no events' message instead of a blank body", () => {
+  await test("zero events falls back to a plain 'no upcoming events' message instead of a blank body", () => {
     const c = whiteCanvas(792, 272);
     drawOcnjEventsCard(c.getContext("2d"), { date: "2026-07-08", events: [], generatedAtLabel: "2:00 PM", stale: false });
     assert.ok(hasInkInRegion(c, 0, 100, 792, 60), "expected the empty-state message to draw some ink in the body region");
@@ -120,6 +157,7 @@ const NOW = new Date("2026-07-08T18:00:00Z"); // 2:00 PM Eastern -- same calenda
   await test("all 6 rows fit without throwing and a long title is truncated, not drawn past the card's edge", () => {
     const c = whiteCanvas(792, 272);
     const events = Array.from({ length: 6 }, (_, i) => ({
+      date: "2026-07-" + String(8 + i).padStart(2, "0"),
       title: i === 2 ? "Direct from Sweden: The Music of ABBA Performing with the OC POPs Orchestra" : "Event " + i,
       time: "1" + i + ":00 AM",
       location: "Some Venue"
@@ -133,11 +171,34 @@ const NOW = new Date("2026-07-08T18:00:00Z"); // 2:00 PM Eastern -- same calenda
     assert.ok(!hasInkInRegion(c, 772, 48, 20, 190), "expected row text to stop short of the card's right edge");
   });
 
+  await test("a combined date+time label (e.g. a December event) still fits inside its column without throwing", () => {
+    const c = whiteCanvas(792, 272);
+    const events = [{ date: "2026-12-25", title: "Holiday Parade", time: "11:00 AM", location: "Boardwalk" }];
+    drawOcnjEventsCard(c.getContext("2d"), { date: "2026-12-20", events, generatedAtLabel: "2:00 PM", stale: false });
+    // The detail column starts right after the (widened) date+time column
+    // -- no ink should bleed left of it, confirming the longer combined
+    // label didn't push into or past where the title/location text starts.
+    assert.ok(hasInkInRegion(c, 40, 48, 190, 40), "expected the date+time label itself to draw");
+  });
+
   await test("a stale reading appends a '(may be delayed)' hint next to the timestamp", () => {
     const c = whiteCanvas(792, 272);
     // Just confirm it doesn't throw with stale: true -- the visible text
     // itself is exercised end-to-end by the fetch-level stale test above.
     drawOcnjEventsCard(c.getContext("2d"), { date: "2026-07-08", events: [], generatedAtLabel: "2:00 PM", stale: true });
+  });
+
+  await test("formatEventDateLabel converts YYYY-MM-DD to M/D with no leading zeros", () => {
+    assert.strictEqual(formatEventDateLabel("2026-09-16"), "9/16");
+    assert.strictEqual(formatEventDateLabel("2026-12-01"), "12/1");
+    assert.strictEqual(formatEventDateLabel("2026-01-09"), "1/9");
+  });
+
+  await test("formatEventDateLabel returns null for missing/malformed input instead of throwing", () => {
+    assert.strictEqual(formatEventDateLabel(null), null);
+    assert.strictEqual(formatEventDateLabel(undefined), null);
+    assert.strictEqual(formatEventDateLabel(""), null);
+    assert.strictEqual(formatEventDateLabel("not-a-date"), null);
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);
