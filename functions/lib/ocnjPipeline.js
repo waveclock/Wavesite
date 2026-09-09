@@ -27,7 +27,7 @@ const logger = require("firebase-functions/logger");
 const { parseCalendar } = require("./ocnjCalendar");
 const { fetchRange } = require("./ocnjIcs");
 const { mergeSources } = require("./ocnjMerge");
-const { curate } = require("./ocnjCurate");
+const { curate, MAX_PER_DAY } = require("./ocnjCurate");
 
 const ICS_WEEKS_AHEAD = 4; // how far out to pull from the Chamber's weekly ICS feed
 const OUTPUT_PATH = "data/ocnj-events.json";
@@ -55,6 +55,37 @@ async function fetchPdfText(url, fetchImpl) {
   return text;
 }
 
+// Free, no-API-key alternative to curate() (lib/ocnjCurate.js) -- the
+// default, since ANTHROPIC_API_KEY costs real money per call and this
+// project doesn't always have that configured. Doesn't reconstruct
+// messy titles or judge "most interesting," but the merge step
+// (ocnjMerge.js) has already done most of the real work: any event also
+// listed on the Chamber's calendar (seenInSources.length > 1) already
+// has a clean title/time/location, since the ICS record always wins on
+// a match. Only town-PDF-exclusive events (no Chamber match) keep their
+// rougher regex-extracted title and a null time/location -- sorting
+// both-source and has-a-time events first means those are the ones
+// dropped first on a day with more than MAX_PER_DAY events, not kept at
+// a clean event's expense.
+function curateWithoutAI(merged) {
+  const byDate = new Map();
+  for (const e of merged) {
+    if (!byDate.has(e.date)) byDate.set(e.date, []);
+    byDate.get(e.date).push(e);
+  }
+  const days = [...byDate.keys()].sort().map((date) => {
+    const ranked = byDate.get(date).slice().sort((a, b) => {
+      const score = (e) => (e.seenInSources.length > 1 ? 2 : 0) + (e.time ? 1 : 0);
+      return score(b) - score(a);
+    });
+    return {
+      date,
+      events: ranked.slice(0, MAX_PER_DAY).map((e) => ({ title: e.title, time: e.time, location: e.location }))
+    };
+  });
+  return { days };
+}
+
 async function loadJsonFile(file) {
   try {
     const [buf] = await file.download();
@@ -77,7 +108,10 @@ async function saveJsonFile(file, data) {
 // extraction and Anthropic API calls respectively -- same injectable-impl
 // convention as imagen.js's generateImpl, since neither pdf-parse's binary
 // decode nor a real LLM call is something a unit test should depend on.
-async function runOcnjEventsPipeline({ bucket, fetchImpl, apiKey, now, fetchPdfTextImpl, curateCallImpl }) {
+// useAI: false by default -- see curateWithoutAI's own comment. Pass true
+// (with a real apiKey) to opt into Claude's title cleanup/"most
+// interesting" picks once ANTHROPIC_API_KEY is actually configured.
+async function runOcnjEventsPipeline({ bucket, fetchImpl, apiKey, now, fetchPdfTextImpl, curateCallImpl, useAI = false }) {
   const outputFile = bucket.file(OUTPUT_PATH);
   const cacheFile = bucket.file(CACHE_PATH);
   const year = (now || new Date()).getFullYear();
@@ -125,10 +159,14 @@ async function runOcnjEventsPipeline({ bucket, fetchImpl, apiKey, now, fetchPdfT
   }
 
   let curated;
-  try {
-    curated = await curate(merged, apiKey, curateCallImpl);
-  } catch (err) {
-    return failWithFallback("LLM curation failed: " + err.message, cacheFile, outputFile);
+  if (useAI) {
+    try {
+      curated = await curate(merged, apiKey, curateCallImpl);
+    } catch (err) {
+      return failWithFallback("LLM curation failed: " + err.message, cacheFile, outputFile);
+    }
+  } else {
+    curated = curateWithoutAI(merged);
   }
 
   const output = {
@@ -142,7 +180,7 @@ async function runOcnjEventsPipeline({ bucket, fetchImpl, apiKey, now, fetchPdfT
   await saveJsonFile(outputFile, output);
   await saveJsonFile(cacheFile, output); // this run becomes tomorrow's fallback
 
-  logger.info("ocnj-events: " + sourceNotes.join("; ") + "; " + merged.length + " merged, curated");
+  logger.info("ocnj-events: " + sourceNotes.join("; ") + "; " + merged.length + " merged, " + (useAI ? "curated" : "published without AI curation"));
   return { status: "ok", output };
 }
 
@@ -159,6 +197,7 @@ async function failWithFallback(reason, cacheFile, outputFile) {
 
 module.exports = {
   runOcnjEventsPipeline,
+  curateWithoutAI,
   pdfSourceUrl,
   fetchPdfText,
   OUTPUT_PATH,

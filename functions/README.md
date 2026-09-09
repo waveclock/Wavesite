@@ -1267,7 +1267,8 @@ the same single build/test/deploy pipeline as everything else here.
   named a model id (`claude-sonnet-4-6`) that doesn't match any Claude
   model actually available at deploy time; this port uses the current
   Sonnet instead -- check `CURATION_MODEL` is still current before
-  assuming a curation failure is something else.
+  assuming a curation failure is something else. **This is opt-in, not
+  the default** -- see `useAI` below.
 - `lib/ocnjPipeline.js` orchestrates all of the above with the same
   per-source error isolation as the original: either source failing (site
   down, layout changed) is tolerated and logged, not fatal, as long as
@@ -1276,18 +1277,38 @@ the same single build/test/deploy pipeline as everything else here.
   are effectively down, or badly broken -- does it fall back to serving
   the last known-good cached output (`data/ocnj-events-cache.json`)
   instead of publishing a suspiciously-thin result; a malformed LLM
-  response triggers the same fallback. If there's no cache to fall back
-  to either (e.g. the very first run), it logs the failure and leaves
-  `data/ocnj-events.json` untouched rather than publishing something
-  broken.
+  response (`useAI: true` only) triggers the same fallback. If there's no
+  cache to fall back to either (e.g. the very first run), it logs the
+  failure and leaves `data/ocnj-events.json` untouched rather than
+  publishing something broken.
+
+**`useAI` (default `false`) -- Claude curation costs real money per call,
+and this project doesn't always have `ANTHROPIC_API_KEY` configured, so
+`runOcnjEventsPipeline`'s default skips `curate()` entirely in favor of
+`curateWithoutAI()` (also in `lib/ocnjPipeline.js`), a free, no-API-key
+rule-based alternative.** It doesn't reconstruct messy titles or judge
+"most interesting" the way Claude does, but `ocnjMerge.js` has already
+done most of the real work by the time curation would run: any event
+also listed on the Chamber's calendar feed (`seenInSources.length > 1`)
+already has a clean title/time/location, since the ICS record always
+wins on a merge match -- only town-PDF-exclusive events (no Chamber
+match) keep their rougher regex-extracted title and a null time/
+location. `curateWithoutAI()` sorts both-source and has-a-time events
+first within each day, so on a day with more than `MAX_PER_DAY` events
+it's the PDF-only, least-complete records that get dropped, not the
+clean ones. `generateOcnjEventsJson` (`index.js`) currently calls
+`runOcnjEventsPipeline` with no `useAI`/`apiKey` at all, and binds no
+secret -- see "Secret" below for how to switch a deployment back to AI
+curation later.
 
 **Output**: `data/ocnj-events.json` in the `waveclock.firebasestorage.app`
 Storage bucket, matching the output contract in the original handoff doc
 (`generated_at`, `sources`, `source_last_updated`, `merged_event_count`,
-`days[].events[]` capped at 6 and already curated/ranked). `curate()`
-hard-caps `events` at 6 itself even if the model doesn't obey the prompt's
-own limit, since that cap is part of the contract any consumer of this
-file gets to rely on.
+`days[].events[]` capped at 6). Both `curate()` and `curateWithoutAI()`
+hard-cap `events` at 6 themselves (the former even if the model doesn't
+obey the prompt's own limit), since that cap is part of the contract any
+consumer of this file gets to rely on regardless of which curation path
+produced it.
 
 **Public URL -- needs a one-time Storage Rules check**: this repo has no
 `storage.rules` file, so whatever currently makes `designs/{id}.bin`
@@ -1305,14 +1326,16 @@ feature that can't be verified or fixed from code -- check the URL
 returns JSON (not a Storage "permission denied" response) after first
 deploy.
 
-**Secret**: `ANTHROPIC_API_KEY`, granted to `generateOcnjEventsJson` via
-Secret Manager (Cloud Functions v2's `secrets:` option), never hardcoded.
-One-time setup, done by a human with project access:
-```
-firebase functions:secrets:set ANTHROPIC_API_KEY
-```
-(prompts for the key value, stores it in Secret Manager, and grants the
-function's service account access automatically on next deploy).
+**Secret (opt-in -- only needed to switch to AI curation)**: with the
+default `useAI: false`, `generateOcnjEventsJson` needs no secret and no
+Anthropic API key at all. To opt back into Claude curation on a real
+deployment:
+1. `firebase functions:secrets:set ANTHROPIC_API_KEY` (prompts for the
+   key value, stores it in Secret Manager).
+2. In `index.js`, re-add `const { defineSecret } = require("firebase-functions/params");` and `const ANTHROPIC_API_KEY = defineSecret("ANTHROPIC_API_KEY");`, add `secrets: [ANTHROPIC_API_KEY]` to `generateOcnjEventsJson`'s options, and change its call to
+   `runOcnjEventsPipeline({ bucket, useAI: true, apiKey: ANTHROPIC_API_KEY.value() })`.
+3. Redeploy -- Firebase grants the function's runtime service account
+   read access to the secret automatically as part of that deploy.
 
 **Pipeline refresh schedule**: `generateOcnjEventsJson`, once a day at
 08:00 UTC (03:00-04:00 Eastern depending on DST) -- early morning,
