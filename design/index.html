@@ -4164,17 +4164,28 @@
 
   // ================= OCNJ Events (Local Info: ocnjEvents) =================
   // Mirrors drawOcnjEventsCard/fetchOcnjEventsCardData in
-  // functions/lib/ocnjCard.js exactly -- see that file's own header
-  // comment for why this reads the daily pipeline's own published
-  // data/ocnj-events.json through ocnjEventsProxy rather than re-running
-  // the fetch/merge/curate pipeline itself. If one changes, the other
-  // must too, or what a customer previews here won't match what the
-  // board shows once the scheduled job redraws it. Row geometry mirrors
-  // Live Music's above (same ROW_START_Y/ROW_LAST_Y/ROW_STEP shape), but
-  // there's no "+N more" footer line -- the published data is already
-  // capped at 6 events for any one date.
+  // functions/lib/ocnjCard.js exactly -- see design/local-info-gallery.html's
+  // own copy of this same pair too. If one changes, all three must, or
+  // what a customer previews here won't match what the board shows once
+  // the scheduled job redraws it. Row geometry mirrors Live Music's above
+  // (same ROW_START_Y/ROW_LAST_Y/ROW_STEP shape), but there's no "+N
+  // more" footer line -- fetchOcnjEventsCardData (server) already walks
+  // forward across days to fill exactly up to 6 real events.
   const OCNJ_MAX_ROWS = 6;
   const OCNJ_ROW_START_Y = BANNER_HEIGHT + 28;
+
+  // Mirrors formatEventDateLabel in functions/lib/ocnjCard.js exactly --
+  // see that file's own comment for why this is a plain string split
+  // rather than a Date/Intl round-trip.
+  function formatEventDateLabelClient(dateStr) {
+    if (!dateStr) return null;
+    const parts = dateStr.split("-");
+    if (parts.length !== 3) return null;
+    const month = parseInt(parts[1], 10);
+    const day = parseInt(parts[2], 10);
+    if (!month || !day) return null;
+    return month + "/" + day;
+  }
 
   function drawOcnjEventsCardClient(ctx, data) {
     const w = baseCanvas.width, h = baseCanvas.height;
@@ -4186,7 +4197,7 @@
     ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
-    const bannerTitle = "TODAY IN OCEAN CITY";
+    const bannerTitle = "EVENTS IN OCEAN CITY, NJ";
     const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 30, 20);
     ctx.font = bannerSize + "px 'Bungee', sans-serif";
     ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.30));
@@ -4195,10 +4206,12 @@
       ctx.textAlign = "center";
       ctx.fillStyle = "#000";
       ctx.font = "26px Georgia, serif";
-      ctx.fillText("No events scheduled today", w / 2, BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2 + 8);
+      ctx.fillText("No upcoming events found", w / 2, BANNER_HEIGHT + (h - BANNER_HEIGHT) / 2 + 8);
     } else {
       const leftX = 40;
-      const timeColWidth = 168;
+      // Wide enough for "12/25  11:00 AM" (the longest realistic date+time
+      // pairing) at this row's font/size without needing its own truncation.
+      const timeColWidth = 200;
       const detailX = leftX + timeColWidth;
       const detailMaxWidth = w - detailX - 32;
 
@@ -4207,7 +4220,10 @@
         ctx.textAlign = "left";
         ctx.fillStyle = "#000";
         ctx.font = "600 22px Georgia, serif";
-        if (event.time) ctx.fillText(event.time, leftX, y);
+        // Date always shows (this card now spans several upcoming days, not
+        // just today) -- time joins it when known, e.g. "9/16  6:00 PM".
+        const dateTimeParts = [formatEventDateLabelClient(event.date), event.time].filter(Boolean);
+        if (dateTimeParts.length) ctx.fillText(dateTimeParts.join("  "), leftX, y);
 
         const detailParts = [];
         if (event.title) detailParts.push(event.title);

@@ -24,10 +24,12 @@ const FONT_BLOCK = "WC Countdown Block";
 const FONT_SERIF = "WC Countdown Serif";
 const EVENT_TIME_ZONE = "America/New_York";
 
-// Same 6-per-day cap the pipeline's own curate() step already enforces
-// (see lib/ocnjCurate.js's MAX_PER_DAY) -- this card never needs a "+N
-// more" overflow line the way Live Music does, since the published JSON
-// is guaranteed to already have at most 6 events for any one date.
+// How many upcoming events this card shows, total -- NOT per day. The
+// pipeline's own curate()/curateWithoutAI() step already caps any one
+// date at 6 (see lib/ocnjCurate.js's MAX_PER_DAY), but this card walks
+// FORWARD across multiple days to fill its row budget (see
+// fetchOcnjEventsCardData below), so MAX_ROWS is doing its own real
+// truncation here too, not just relying on the upstream per-day cap.
 const MAX_ROWS = 6;
 
 // A run's generated_at older than this is the same "treat as stale, might
@@ -74,12 +76,33 @@ function formatGeneratedAtLabel(iso) {
   return new Intl.DateTimeFormat("en-US", { timeZone: EVENT_TIME_ZONE, hour: "numeric", minute: "2-digit", hour12: true }).format(d);
 }
 
-// A day with no curated events at all is a real, ordinary state (a slow
-// news week, or today just falling outside both sources' covered range)
-// -- not an error, same contract as Live Music's empty `events` array.
-// This DOES throw on an actual fetch/parse failure (non-2xx, unreachable,
-// or a response missing the `days` array this card depends on), so the
-// scheduled job retries instead of publishing stale-looking blank content.
+// "2026-09-16" -> "9/16" -- each event's own date, since this card can
+// now show events from several different upcoming days at once (see
+// fetchOcnjEventsCardData below), not just today's. Plain string split
+// rather than a Date/Intl round-trip: `dateStr` is already a plain
+// YYYY-MM-DD calendar date with no time-of-day or timezone to get wrong,
+// so parsing it as one avoids the DST-adjacent off-by-one-day bugs that
+// exact kind of round-trip has caused elsewhere in this codebase.
+function formatEventDateLabel(dateStr) {
+  if (!dateStr) return null;
+  const parts = dateStr.split("-");
+  if (parts.length !== 3) return null;
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+  if (!month || !day) return null;
+  return month + "/" + day;
+}
+
+// Walks forward across data.days (today included) collecting events in
+// date order until MAX_ROWS are gathered, tagging each with its own
+// `date` -- "the next 6 events," not "up to 6 events today." A day with
+// no curated events at all (or no days left before the published range
+// ends) is a real, ordinary state (a slow news week, the range running
+// out) -- not an error, same contract as Live Music's empty `events`
+// array. This DOES throw on an actual fetch/parse failure (non-2xx,
+// unreachable, or a response missing the `days` array this card depends
+// on), so the scheduled job retries instead of publishing stale-looking
+// blank content.
 async function fetchOcnjEventsCardData(fetchImpl, now) {
   const doFetch = fetchImpl || fetch;
   const resp = await doFetch(OCNJ_EVENTS_PUBLIC_URL);
@@ -88,8 +111,20 @@ async function fetchOcnjEventsCardData(fetchImpl, now) {
   if (!data || !Array.isArray(data.days)) throw new Error("Unexpected OCNJ events response shape (no days[] array)");
 
   const today = todayInOceanCity(now);
-  const todayEntry = data.days.find((d) => d.date === today);
-  const events = (todayEntry && Array.isArray(todayEntry.events) ? todayEntry.events : []).slice(0, MAX_ROWS);
+  // Defensive sort -- curateWithoutAI() already emits days in date order,
+  // but curate()'s Claude output has no such guarantee (the system prompt
+  // asks for correct per-date content, not a sorted days[] array).
+  const sortedDays = data.days.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  const events = [];
+  for (const day of sortedDays) {
+    if (day.date < today) continue; // never show a day that's already passed
+    for (const e of (Array.isArray(day.events) ? day.events : [])) {
+      events.push({ date: day.date, title: e.title || null, time: e.time || null, location: e.location || null });
+      if (events.length >= MAX_ROWS) break;
+    }
+    if (events.length >= MAX_ROWS) break;
+  }
 
   const generatedAtMs = data.generated_at ? new Date(data.generated_at).getTime() : NaN;
   const nowMs = (now || new Date()).getTime();
@@ -97,7 +132,7 @@ async function fetchOcnjEventsCardData(fetchImpl, now) {
 
   return {
     date: today,
-    events: events.map((e) => ({ title: e.title || null, time: e.time || null, location: e.location || null })),
+    events,
     generatedAtLabel: formatGeneratedAtLabel(data.generated_at),
     stale
   };
@@ -106,9 +141,10 @@ async function fetchOcnjEventsCardData(fetchImpl, now) {
 // Row geometry mirrors lib/liveMusic.js's MAX_ROWS/ROW_START_Y/ROW_LAST_Y/
 // ROW_STEP exactly (same card size, same "last row ends at h-24" baseline)
 // -- see that file's own comment for why. No footer overflow line here,
-// though: unlike Live Music, the published data is already capped at 6
-// events for any date, so the full row budget is always real events, and
-// the footer row is only ever the "Updated ..." timestamp.
+// though: unlike Live Music, fetchOcnjEventsCardData above already walks
+// forward across days to fill exactly up to MAX_ROWS real events (never
+// more), so the footer row is only ever the "Updated ..." timestamp, not
+// a "+N more" count.
 const ROW_START_Y = BANNER_HEIGHT + 28;
 const ROW_LAST_Y = CANVAS_HEIGHT - 24;
 const ROW_STEP = Math.round((ROW_LAST_Y - ROW_START_Y) / (MAX_ROWS - 1));
@@ -120,7 +156,7 @@ function drawOcnjEventsCard(ctx, data) {
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
-  const bannerTitle = "TODAY IN OCEAN CITY";
+  const bannerTitle = "EVENTS IN OCEAN CITY, NJ";
   const bannerSize = fitFontSize(ctx, bannerTitle, CANVAS_WIDTH - 40, FONT_BLOCK, 30, 20);
   ctx.font = bannerSize + "px \"" + FONT_BLOCK + "\"";
   ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.30));
@@ -129,10 +165,12 @@ function drawOcnjEventsCard(ctx, data) {
     ctx.textAlign = "center";
     ctx.fillStyle = "#000";
     ctx.font = "26px \"" + FONT_SERIF + "\"";
-    ctx.fillText("No events scheduled today", CANVAS_WIDTH / 2, BANNER_HEIGHT + (CANVAS_HEIGHT - BANNER_HEIGHT) / 2 + 8);
+    ctx.fillText("No upcoming events found", CANVAS_WIDTH / 2, BANNER_HEIGHT + (CANVAS_HEIGHT - BANNER_HEIGHT) / 2 + 8);
   } else {
     const leftX = 40;
-    const timeColWidth = 168;
+    // Wide enough for "12/25  11:00 AM" (the longest realistic date+time
+    // pairing) at this row's font/size without needing its own truncation.
+    const timeColWidth = 200;
     const detailX = leftX + timeColWidth;
     const detailMaxWidth = CANVAS_WIDTH - detailX - 32;
 
@@ -141,7 +179,10 @@ function drawOcnjEventsCard(ctx, data) {
       ctx.textAlign = "left";
       ctx.fillStyle = "#000";
       ctx.font = "600 22px \"" + FONT_SERIF + "\"";
-      if (event.time) ctx.fillText(event.time, leftX, y);
+      // Date always shows (this card now spans several upcoming days, not
+      // just today) -- time joins it when known, e.g. "9/16  6:00 PM".
+      const dateTimeParts = [formatEventDateLabel(event.date), event.time].filter(Boolean);
+      if (dateTimeParts.length) ctx.fillText(dateTimeParts.join("  "), leftX, y);
 
       const detailParts = [];
       if (event.title) detailParts.push(event.title);
@@ -167,6 +208,7 @@ function drawOcnjEventsCard(ctx, data) {
 module.exports = {
   OCNJ_EVENTS_PUBLIC_URL,
   MAX_ROWS,
+  formatEventDateLabel,
   fetchOcnjEventsCardData,
   drawOcnjEventsCard
 };
