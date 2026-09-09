@@ -16,7 +16,6 @@
 
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onRequest } = require("firebase-functions/v2/https");
-const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, espnTeamUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
@@ -29,12 +28,6 @@ const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
-
-// The OCNJ Events pipeline's only secret -- granted to
-// generateOcnjEventsJson below via its `secrets:` option, never
-// hardcoded. Set with:
-//   firebase functions:secrets:set ANTHROPIC_API_KEY
-const ANTHROPIC_API_KEY = defineSecret("ANTHROPIC_API_KEY");
 
 const DESIGNS_PREFIX = "designs/";
 const DYNAMIC_SUFFIX = "-dynamic.json";
@@ -296,16 +289,26 @@ exports.regenerateLiveMusicDesigns = onSchedule(
 // this is a single shared file, not a per-device render like the
 // scheduled functions above.
 //
-// See lib/ocnjPipeline.js for the full fetch -> merge -> curate ->
-// publish flow (ported from the customer's parse_calendar.py /
-// source_oceancityvacation.py / merge_sources.py / curate_with_llm.py /
-// run_pipeline.py handoff, 2 Sep 2026) and its own comment for why the
-// output lands in Storage instead of on local disk.
+// See lib/ocnjPipeline.js for the full fetch -> merge -> publish flow
+// (ported from the customer's parse_calendar.py / source_oceancityvacation.py
+// / merge_sources.py / curate_with_llm.py / run_pipeline.py handoff, 2 Sep
+// 2026) and its own comment for why the output lands in Storage instead of
+// on local disk.
+//
+// useAI defaults to false in runOcnjEventsPipeline -- no ANTHROPIC_API_KEY
+// secret is bound here, so this runs on the free rule-based curation
+// (curateWithoutAI in lib/ocnjPipeline.js) rather than billing a Claude call
+// every day. See that function's own comment for what it trades off. To
+// switch this device back to AI curation later: run
+// `firebase functions:secrets:set ANTHROPIC_API_KEY` with a real key, add
+// `secrets: [ANTHROPIC_API_KEY]` back to this function's options (import via
+// `defineSecret` from "firebase-functions/params" the same way as before),
+// and pass `useAI: true, apiKey: ANTHROPIC_API_KEY.value()` below.
 exports.generateOcnjEventsJson = onSchedule(
-  { schedule: "0 8 * * *", timeZone: "Etc/UTC", retryCount: 1, timeoutSeconds: 300, memory: "512MiB", secrets: [ANTHROPIC_API_KEY] },
+  { schedule: "0 8 * * *", timeZone: "Etc/UTC", retryCount: 1, timeoutSeconds: 300, memory: "512MiB" },
   async () => {
     const bucket = admin.storage().bucket();
-    const result = await runOcnjEventsPipeline({ bucket, apiKey: ANTHROPIC_API_KEY.value() });
+    const result = await runOcnjEventsPipeline({ bucket });
     if (result.status === "error") {
       throw new Error("ocnj-events pipeline failed with no fallback available: " + result.reason);
     }
