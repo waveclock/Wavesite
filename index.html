@@ -187,64 +187,6 @@
   .btn-aqua:hover { box-shadow: 5px 5px 0 rgba(0,0,0,0.3); }
   .btn-ghost:hover { background: rgba(20,48,45,0.06); }
 
-  /* ---------- Live-cycling device mockup (the signature element) ---------- */
-  .device-stage {
-    display: flex;
-    justify-content: center;
-  }
-
-  .device-frame {
-    width: 100%;
-    max-width: 420px;
-    background: #fff;
-    border: 3px solid var(--ink);
-    border-radius: 6px;
-    box-shadow: 8px 8px 0 var(--driftwood);
-    padding: 14px;
-    transform: rotate(1.2deg);
-  }
-
-  .device-label {
-    font-family: var(--body);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--driftwood);
-    margin-bottom: 8px;
-    display: flex;
-    justify-content: space-between;
-  }
-
-  .device-screen {
-    position: relative;
-    aspect-ratio: 792 / 272;
-    background: #FBFAF6;
-    border: 1px solid var(--line);
-    overflow: hidden;
-  }
-
-  .slide {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    transition: opacity 0.6s ease;
-  }
-  .slide.active { opacity: 1; }
-
-  .slide img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .dots { display: flex; gap: 7px; justify-content: center; margin-top: 12px; }
-  .dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: var(--line);
-    transition: background 0.3s ease, transform 0.3s ease;
-  }
-  .dot.active { background: var(--navy); transform: scale(1.3); }
-
   /* ---------- Wave divider ---------- */
   .wave-divider {
     display: block;
@@ -709,44 +651,9 @@
         <p class="sub">One classic-style display, customized for your shore town &mdash; it tells you today's tide, this week's ocean and weather conditions, and the exact minute the sun sets over the bay.</p>
       </div>
 
-      <div class="device-stage">
-        <div class="device-frame">
-          <div class="device-label"><span>WAVE CLOCK</span><span>LIVE VIEW</span></div>
-          <div class="device-screen" id="deviceScreen">
-
-            <!-- Slide 1: Tide -->
-            <div class="slide active" data-slide="0">
-              <img src="screen_tide.jpg" alt="Wave Clock tide and conditions screen">
-            </div>
-
-            <!-- Slide 2: Wave Forecast -->
-            <div class="slide" data-slide="1">
-              <img src="screen_wave_forecast.jpg" alt="Wave Clock 5-day wave forecast screen">
-            </div>
-
-            <!-- Slide 3: Weather -->
-            <div class="slide" data-slide="2">
-              <img src="screen_weather.jpg" alt="Wave Clock 5-day weather forecast screen">
-            </div>
-
-            <!-- Slide 4: Beach Day -->
-            <div class="slide" data-slide="3">
-              <img src="screen_beach_day.jpg" alt="Wave Clock Beach Day screen showing rip risk, high tide, wave and water conditions, wind, UV, humidity, and fly risk">
-            </div>
-
-            <!-- Slide 5: Sunset -->
-            <div class="slide" data-slide="4">
-              <img src="screen_sunset.jpg" alt="Wave Clock sunset countdown screen for your location">
-            </div>
-
-          </div>
-          <div class="dots">
-            <div class="dot active" data-dot="0"></div>
-            <div class="dot" data-dot="1"></div>
-            <div class="dot" data-dot="2"></div>
-            <div class="dot" data-dot="3"></div>
-            <div class="dot" data-dot="4"></div>
-          </div>
+      <div style="display:flex; justify-content:center;">
+        <div class="sketch-frame" style="max-width: 480px; width:100%;">
+          <img src="hero_device_photo.jpg" alt="Wave Clock on its wooden stand, branded WaveClock.net, showing today's water, air, and high temps, wind, and sky on the left, and the wave forecast for Ventnor, NJ on the right" style="width:100%; display:block; border-radius: 2px;">
         </div>
       </div>
     </div>
@@ -941,34 +848,6 @@
     <p><a href="https://www.facebook.com/share/1DAkabBYXD/?mibextid=wwXIfr" target="_blank" rel="noopener">Follow along on Facebook &rarr;</a></p>
   </div>
 </footer>
-
-<script>
-  (function () {
-    var slides = document.querySelectorAll('.slide');
-    var dots = document.querySelectorAll('.dot');
-    var current = 0;
-    var total = slides.length;
-    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-    function show(i) {
-      slides.forEach(function (s) { s.classList.remove('active'); });
-      dots.forEach(function (d) { d.classList.remove('active'); });
-      slides[i].classList.add('active');
-      dots[i].classList.add('active');
-      current = i;
-    }
-
-    if (!reduceMotion) {
-      setInterval(function () {
-        show((current + 1) % total);
-      }, 3200);
-    }
-
-    dots.forEach(function (dot, i) {
-      dot.addEventListener('click', function () { show(i); });
-    });
-  })();
-</script>
 
 <script>
   (function () {
