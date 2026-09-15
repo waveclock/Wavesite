@@ -1458,6 +1458,20 @@
   // day one) still just draws the plain formatTeamText line; the daily
   // Cloud Function is what draws the real bordered card with dithered
   // logos, starting from its first run after publish.
+  // Mirrors readFinalScore in functions/lib/dynamic.js exactly -- see
+  // that file's own comment for the ESPN field shape this leans on (not
+  // live-verified from that dev sandbox either; same caveat applies
+  // here).
+  function readFinalScore(comp, me, opp) {
+    const completed = !!(comp && comp.status && comp.status.type && comp.status.type.completed);
+    if (!completed) return null;
+    const myScore = me && me.score != null ? parseInt(me.score, 10) : NaN;
+    const oppScore = opp && opp.score != null ? parseInt(opp.score, 10) : NaN;
+    if (isNaN(myScore) || isNaN(oppScore)) return null;
+    const outcome = myScore > oppScore ? "WIN" : myScore < oppScore ? "LOSS" : "TIE";
+    return { outcome, myScore, oppScore };
+  }
+
   function findNextGame(events, teamId) {
     const now = new Date();
     const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1494,7 +1508,8 @@
           opponentLogo: extractLogoUrl(opp.team),
           opponentTeamId: opp.team.id != null ? String(opp.team.id) : null,
           venue: extractVenueName(comp),
-          gameDateISO: ev.date
+          gameDateISO: ev.date,
+          finalScore: readFinalScore(comp, me, opp)
         };
       }
     }
@@ -1505,7 +1520,8 @@
       opponentTeamId: best.opponentTeamId,
       venue: best.venue,
       gameDateISO: best.gameDateISO,
-      daysLeft: Math.round((best.dayUTC - todayUTC) / 86400000)
+      daysLeft: Math.round((best.dayUTC - todayUTC) / 86400000),
+      finalScore: best.finalScore
     } : null;
     return { nextGame, myAbbrev, myLogo };
   }
@@ -1753,6 +1769,25 @@
     ctx.textAlign = prevAlign;
   }
 
+  // Same row drawGameLine's date/venue/time normally occupies, but for a
+  // completed today's game (see readFinalScore) -- e.g. "EAGLES 24  ·
+  // COMMANDERS 17". Mirrors functions/lib/dynamic.js's drawScoreLine
+  // exactly.
+  function drawScoreLine(ctx, w, finalScore, maxWidth, y) {
+    const family = "Georgia, serif";
+    const text = finalScore.myAbbrev + " " + finalScore.myScore + "  ·  " + finalScore.oppAbbrev + " " + finalScore.oppScore;
+    let size = 24;
+    for (; size > MIN_DATE_SIZE; size--) {
+      ctx.font = "bold " + size + "px " + family;
+      if (ctx.measureText(text).width <= maxWidth) break;
+    }
+    ctx.font = "bold " + size + "px " + family;
+    const prevAlign = ctx.textAlign;
+    ctx.textAlign = "center";
+    ctx.fillText(text, w / 2, y);
+    ctx.textAlign = prevAlign;
+  }
+
   // Mirrors functions/lib/dynamic.js's record-placement helpers exactly
   // -- see the "Game Day card: record placement" comment there for the
   // full reasoning (over-the-logo when there's genuine room, else folded
@@ -1860,7 +1895,14 @@
     }
 
     const daysMaxWidth = w - 2 * (LOGO_MARGIN + LOGO_SIZE) - 20;
-    if (card.daysLeft <= 0) {
+    if (card.finalScore) {
+      // Same big-block treatment as "TODAY!" below, just a different word
+      // -- ESPN reports today's game as completed (see readFinalScore),
+      // so the countdown itself no longer means anything.
+      const text = card.finalScore.outcome; // "WIN" | "LOSS" | "TIE"
+      const size = fitBannerFontSize(ctx, text, daysMaxWidth, "'Bungee', sans-serif", 56, 26);
+      ctx.fillText(text, w / 2, bodyMidY - 6 + Math.round(size * 0.35));
+    } else if (card.daysLeft <= 0) {
       const size = fitBannerFontSize(ctx, "TODAY!", daysMaxWidth, "'Bungee', sans-serif", 56, 26);
       ctx.fillText("TODAY!", w / 2, bodyMidY - 6 + Math.round(size * 0.35));
     } else {
@@ -1888,7 +1930,10 @@
       ctx.fillText(unitText, w / 2, numBottom + GAP + unitMetrics.actualBoundingBoxAscent);
     }
 
-    if (card.dateLabel && card.timeLabel) {
+    if (card.finalScore) {
+      ctx.fillStyle = "#000";
+      drawScoreLine(ctx, w, card.finalScore, w - 48, h - 14);
+    } else if (card.dateLabel && card.timeLabel) {
       ctx.fillStyle = "#000";
       drawGameLine(ctx, w, card.dateLabel, card.venue, card.timeLabel, w - 48, h - 14);
     }
@@ -5773,6 +5818,12 @@
 
       const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
       const dateTimeParts = formatGameDateTimeParts(nextGame.gameDateISO);
+      // Mirrors renderDynamicDesign's server-side team branch exactly --
+      // only trust a final score once the countdown itself has reached
+      // today (see readFinalScore's own comment on the ESPN field shape).
+      const finalScore = nextGame.daysLeft <= 0 && nextGame.finalScore
+        ? Object.assign({ myAbbrev: myAbbrev || "", oppAbbrev: nextGame.opponentAbbrev }, nextGame.finalScore)
+        : null;
       layer.card = {
         bannerTitle: gameDayBannerTitle(sport, league),
         headline: (myAbbrev || "") + " " + vsOrAt + " " + nextGame.opponentAbbrev,
@@ -5784,7 +5835,8 @@
         myLogo: myLogoCanvas,
         oppLogo: oppLogoCanvas,
         myRecord,
-        oppRecord
+        oppRecord,
+        finalScore
       };
       teamStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
       renderLayers();
