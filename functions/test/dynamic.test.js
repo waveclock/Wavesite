@@ -10,6 +10,8 @@ const {
   findNextGame,
   fetchNextGame,
   fetchTeamRecord,
+  fetchWinProbability,
+  extractWinProbabilityPct,
   extractLogoUrl,
   extractVenueName,
   extractRecordSummary,
@@ -462,6 +464,45 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(networkDown, null);
   });
 
+  console.log("extractWinProbabilityPct / fetchWinProbability (Game Day card win probability)");
+  await test("extractWinProbabilityPct reads the home side's gameProjection when homeAway is \"home\"", () => {
+    const predictor = { homeTeam: { gameProjection: "62.7" }, awayTeam: { gameProjection: "37.3" } };
+    assert.strictEqual(extractWinProbabilityPct(predictor, "home"), 63);
+  });
+  await test("extractWinProbabilityPct reads the away side's gameProjection when homeAway is \"away\"", () => {
+    const predictor = { homeTeam: { gameProjection: "62.7" }, awayTeam: { gameProjection: "37.3" } };
+    assert.strictEqual(extractWinProbabilityPct(predictor, "away"), 37);
+  });
+  await test("extractWinProbabilityPct returns null for a missing/empty/malformed predictor shape, never throws", () => {
+    assert.strictEqual(extractWinProbabilityPct(null, "home"), null);
+    assert.strictEqual(extractWinProbabilityPct({}, "home"), null);
+    assert.strictEqual(extractWinProbabilityPct({ homeTeam: {} }, "home"), null);
+    assert.strictEqual(extractWinProbabilityPct({ homeTeam: { gameProjection: "not a number" } }, "home"), null);
+  });
+  await test("fetchWinProbability returns null without fetching when eventId is missing", async () => {
+    let called = false;
+    const fetchImpl = async () => { called = true; return { ok: true, async json() { return {}; } }; };
+    const pct = await fetchWinProbability("football", "nfl", null, "home", fetchImpl);
+    assert.strictEqual(pct, null);
+    assert.strictEqual(called, false);
+  });
+  await test("fetchWinProbability parses a real (shaped) response into a rounded whole-percent number", async () => {
+    const fetchImpl = async () => ({
+      ok: true,
+      async json() { return { predictor: { homeTeam: { gameProjection: "89.6" }, awayTeam: { gameProjection: "10.4" } } }; }
+    });
+    const pct = await fetchWinProbability("football", "nfl", "401547417", "home", fetchImpl);
+    assert.strictEqual(pct, 90);
+  });
+  await test("fetchWinProbability degrades to null on a non-ok response, a missing predictor (e.g. game already started), or a network error -- never throws", async () => {
+    const notOk = await fetchWinProbability("football", "nfl", "401547417", "home", async () => ({ ok: false, status: 500 }));
+    assert.strictEqual(notOk, null);
+    const noPredictor = await fetchWinProbability("football", "nfl", "401547417", "home", async () => ({ ok: true, async json() { return {}; } }));
+    assert.strictEqual(noPredictor, null);
+    const networkDown = await fetchWinProbability("football", "nfl", "401547417", "home", async () => { throw new Error("network down"); });
+    assert.strictEqual(networkDown, null);
+  });
+
   console.log("dithering (toGrayscale / ditherAtkinson / ditheredLogoCanvas / fetchDitheredLogo)");
   await test("toGrayscale collapses RGB to luminance, ignoring alpha", () => {
     const imgData = new Uint8ClampedArray([0, 0, 0, 255, 255, 255, 255, 128]);
@@ -693,6 +734,41 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     });
   });
 
+  console.log("drawGameDayCard with a win probability");
+  await test("draws 'XX%WP' in the same slot 'IN' normally occupies when winProbabilityPct is provided, without throwing", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawGameDayCard(ctx, {
+        bannerTitle: "NFL GAME DAY",
+        headline: "EAGLES VS COMMANDERS", daysLeft: 3, daysUnit: "DAYS",
+        venue: "Lincoln Financial Field", dateLabel: "SUN SEP 20", timeLabel: "1:00 PM ET",
+        myLogo: null, oppLogo: null, winProbabilityPct: 90
+      });
+    });
+  });
+  await test("renders pixel-identical output whether winProbabilityPct is omitted or explicitly null -- no regression for a card without one", () => {
+    const cardWithout = { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft: 3, daysUnit: "DAYS", venue: null, dateLabel: null, timeLabel: null, myLogo: null, oppLogo: null };
+    const c1 = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawGameDayCard(c1.getContext("2d"), cardWithout);
+    const c2 = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawGameDayCard(c2.getContext("2d"), Object.assign({}, cardWithout, { winProbabilityPct: null }));
+    assert.deepStrictEqual(
+      c1.getContext("2d").getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data,
+      c2.getContext("2d").getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data
+    );
+  });
+  await test("draws no 'XX%WP'/'IN' label at all on TODAY's card -- win probability only applies to the counting-down state", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawGameDayCard(ctx, {
+        bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft: 0, daysUnit: "DAYS",
+        venue: null, dateLabel: null, timeLabel: null, myLogo: null, oppLogo: null, winProbabilityPct: 90
+      });
+    });
+  });
+
   console.log("fitRecordOverLogo / buildPaddedRecordHeadline (Game Day card win-loss record placement)");
   await test("fitRecordOverLogo finds a fitting size in a generous gap", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -836,6 +912,48 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const result = await renderDynamicDesign(base, meta, now, fetchImpl);
     assert.strictEqual(result.myRecord, "10-1");
     assert.strictEqual(result.oppRecord, "6-5");
+  });
+  await test("fetches and includes the win probability, keyed off the schedule's own event id and this team's homeAway", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date(Date.UTC(2026, 8, 1));
+    const schedule = {
+      events: [{
+        id: "401547417",
+        date: "2026-09-08T17:00Z",
+        competitions: [{
+          competitors: [
+            { homeAway: "home", team: { id: "21", abbreviation: "ME" } },
+            { homeAway: "away", team: { id: "99", abbreviation: "OPP" } }
+          ]
+        }]
+      }]
+    };
+    const meta = { type: "team", sport: "football", league: "nfl", teamId: "21", x: 396, y: 136, size: 48, fontKey: "block", outline: true, inverted: false };
+    const fetchImpl = async (url) => {
+      const s = String(url);
+      if (s.includes("/schedule")) return { ok: true, async json() { return schedule; } };
+      if (s.includes("/summary")) {
+        assert.ok(s.endsWith("event=401547417"), "expected this game's own event id in the summary URL: " + s);
+        return { ok: true, async json() { return { predictor: { homeTeam: { gameProjection: "72.4" }, awayTeam: { gameProjection: "27.6" } } }; } };
+      }
+      throw new Error("unexpected fetch: " + s);
+    };
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.strictEqual(result.winProbabilityPct, 72);
+  });
+  await test("a game with no predictor data (e.g. an unsupported league) renders fine with winProbabilityPct null", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date(Date.UTC(2026, 8, 1));
+    const schedule = espnSchedule("21", [{ date: "2026-09-08T17:00Z", homeAway: "home", opponentAbbrev: "COWBOYS" }]);
+    const meta = { type: "team", sport: "football", league: "nfl", teamId: "21", x: 396, y: 136, size: 48, fontKey: "block", outline: true, inverted: false };
+    const fetchImpl = async (url) => {
+      const s = String(url);
+      if (s.includes("/summary")) return { ok: true, async json() { return {}; } };
+      return fakeFetchJson(schedule)(url);
+    };
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.strictEqual(result.winProbabilityPct, null);
+    assert.ok(result.binBuffer.some((b) => b !== 0));
   });
   await test("renders the long 'COLLEGE FOOTBALL GAME DAY' banner title without throwing", async () => {
     const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");

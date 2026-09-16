@@ -18,7 +18,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onRequest } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
-const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, espnTeamUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
+const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, espnTeamUrl, espnSummaryUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
 const { fetchTideCardData, fetchTideTimelineData } = require("./lib/astro");
 const { isTeamsnapIcsUrl, fetchIcsSchedule } = require("./lib/teamsnap");
 const { generateBeachBuddyArt, IMAGEN_SCENE_HINTS, PROMPT_VERSION, cacheKeyForMood, generateInkBlotArt } = require("./lib/imagen");
@@ -421,8 +421,15 @@ async function espnProxyHandler(req, res) {
       return;
     }
     url = espnTeamUrl(sport, league, teamId);
+  } else if (kind === "predictor") {
+    const eventId = req.query.eventId;
+    if (typeof eventId !== "string" || !eventId) {
+      res.status(400).json({ error: "Missing eventId" });
+      return;
+    }
+    url = espnSummaryUrl(sport, league, eventId);
   } else {
-    res.status(400).json({ error: "kind must be \"teams\", \"schedule\", \"record\", or \"logo\"" });
+    res.status(400).json({ error: "kind must be \"teams\", \"schedule\", \"record\", \"predictor\", or \"logo\"" });
     return;
   }
 

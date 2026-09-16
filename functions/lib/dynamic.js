@@ -135,6 +135,18 @@ function espnTeamUrl(sport, league, teamId) {
   return ESPN_BASE + "/" + sport + "/" + league + "/teams/" + teamId;
 }
 
+// The per-event "summary" endpoint -- distinct from the three above (none
+// of which carry a probability). Same unverified-shape caveat as
+// espnTeamUrl: the community-documented predictor.homeTeam/awayTeam.
+// gameProjection fields below are NOT confirmed against a live response
+// yet. ESPN reportedly stops returning a predictor block once a game has
+// started/finished (a pregame model has nothing left to project), which
+// extractWinProbabilityPct's null-on-missing-field handling already
+// covers without any special-casing here.
+function espnSummaryUrl(sport, league, eventId) {
+  return ESPN_BASE + "/" + sport + "/" + league + "/summary?event=" + eventId;
+}
+
 // Same sport/league pairs design's League dropdown offers (and
 // ALLOWED_LEAGUES in index.js whitelists) -- used only for the Game Day
 // card's banner title ("COLLEGE FOOTBALL GAME DAY" reads as a real
@@ -236,7 +248,8 @@ async function findNextGame(events, teamId, now) {
         opponentLogo: extractLogoUrl(opp.team),
         opponentTeamId: opp.team.id != null ? String(opp.team.id) : null,
         venue: extractVenueName(comp),
-        gameDateISO: ev.date
+        gameDateISO: ev.date,
+        eventId: ev.id != null ? String(ev.id) : null
       };
     }
   }
@@ -274,6 +287,39 @@ async function fetchTeamRecord(sport, league, teamId, fetchImpl) {
     if (!resp.ok) return null;
     const data = await resp.json();
     return extractRecordSummary(data && data.team);
+  } catch (err) {
+    return null;
+  }
+}
+
+// Unverified field names (see espnSummaryUrl's comment): the community-
+// documented predictor shape is { homeTeam: { gameProjection: "62.7" },
+// awayTeam: { gameProjection: "37.3" } }, a percentage as a numeric
+// string. Picks the side matching homeAway (the calling team's own side),
+// rounds to a whole percent for card display. Returns null on a missing
+// predictor block (pregame model not available for this league, or the
+// game's already started/finished), a missing side, or a non-numeric
+// value -- never a guessed/bogus number.
+function extractWinProbabilityPct(predictor, homeAway) {
+  const side = predictor && (homeAway === "home" ? predictor.homeTeam : predictor.awayTeam);
+  const raw = side && side.gameProjection;
+  if (raw == null) return null;
+  const pct = parseFloat(raw);
+  return isNaN(pct) ? null : Math.round(pct);
+}
+
+// A pregame win probability is a nice-to-have, not load-bearing -- same
+// degrade-to-null-on-any-failure contract as fetchTeamRecord, never
+// throws. No eventId (shouldn't happen once a next game's been found, but
+// defensive regardless) just skips the fetch entirely.
+async function fetchWinProbability(sport, league, eventId, homeAway, fetchImpl) {
+  if (!eventId) return null;
+  try {
+    const doFetch = fetchImpl || fetch;
+    const resp = await doFetch(espnSummaryUrl(sport, league, eventId));
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return extractWinProbabilityPct(data && data.predictor, homeAway);
   } catch (err) {
     return null;
   }
@@ -987,9 +1033,15 @@ function drawGameDayCard(ctx, card) {
     const numBottom = numBaseline + numMetrics.actualBoundingBoxDescent;
     ctx.fillText(numberText, CANVAS_WIDTH / 2, numBaseline);
 
+    // Same slot/size "IN" normally occupies -- when a win probability is
+    // available, it replaces "IN" outright rather than adding a new line,
+    // so a card without one (off in the future, an unsupported league, or
+    // ESPN just not returning a predictor for this game) renders byte-
+    // for-byte identical to before this existed.
     ctx.font = "bold 20px \"" + FONT_FAMILY.serif + "\"";
-    const inMetrics = ctx.measureText("IN");
-    ctx.fillText("IN", CANVAS_WIDTH / 2, numTop - GAP - inMetrics.actualBoundingBoxDescent);
+    const topLabel = card.winProbabilityPct != null ? card.winProbabilityPct + "%WP" : "IN";
+    const topLabelMetrics = ctx.measureText(topLabel);
+    ctx.fillText(topLabel, CANVAS_WIDTH / 2, numTop - GAP - topLabelMetrics.actualBoundingBoxDescent);
 
     const unitText = card.daysUnit || "DAYS";
     const unitMetrics = ctx.measureText(unitText);
@@ -2558,11 +2610,12 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
     const daysLeft = Math.round((rawNextGame.dayUTC - todayUTC) / 86400000);
     const vsOrAt = rawNextGame.homeAway === "home" ? "VS" : "@";
 
-    const [myLogoCanvas, oppLogoCanvas, myRecord, oppRecord] = await Promise.all([
+    const [myLogoCanvas, oppLogoCanvas, myRecord, oppRecord, winProbabilityPct] = await Promise.all([
       fetchDitheredLogo(myLogoUrl, LOGO_SIZE, fetchImpl),
       fetchDitheredLogo(rawNextGame.opponentLogo, LOGO_SIZE, fetchImpl),
       fetchTeamRecord(meta.sport, meta.league, meta.teamId, fetchImpl),
-      fetchTeamRecord(meta.sport, meta.league, rawNextGame.opponentTeamId, fetchImpl)
+      fetchTeamRecord(meta.sport, meta.league, rawNextGame.opponentTeamId, fetchImpl),
+      fetchWinProbability(meta.sport, meta.league, rawNextGame.eventId, rawNextGame.homeAway, fetchImpl)
     ]);
 
     const headline = (myAbbrev || "") + " " + vsOrAt + " " + rawNextGame.opponentAbbrev;
@@ -2584,7 +2637,8 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
       myLogo: myLogoCanvas,
       oppLogo: oppLogoCanvas,
       myRecord,
-      oppRecord
+      oppRecord,
+      winProbabilityPct
     };
 
     const result = await compositeAndPack(basePngBuffer, (ctx) => drawGameDayCard(ctx, card), meta);
@@ -2593,7 +2647,7 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
       nextGame, myAbbrev,
       content: headline + " " + daysLabel,
       hasMyLogo: !!myLogoCanvas, hasOppLogo: !!oppLogoCanvas,
-      myRecord, oppRecord
+      myRecord, oppRecord, winProbabilityPct
     });
   }
 
@@ -2724,9 +2778,12 @@ module.exports = {
   findNextGame,
   fetchNextGame,
   fetchTeamRecord,
+  fetchWinProbability,
+  extractWinProbabilityPct,
   espnScheduleUrl,
   espnTeamsUrl,
   espnTeamUrl,
+  espnSummaryUrl,
   gameDayBannerTitle,
   extractLogoUrl,
   extractVenueName,
