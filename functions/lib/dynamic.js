@@ -1010,7 +1010,23 @@ function drawGameDayCard(ctx, card) {
   const daysMaxWidth = CANVAS_WIDTH - 2 * (LOGO_MARGIN + LOGO_SIZE) - 20;
   if (card.daysLeft <= 0) {
     const size = fitBannerFontSize(ctx, "TODAY!", daysMaxWidth, FONT_FAMILY.block, 56, 26);
-    ctx.fillText("TODAY!", CANVAS_WIDTH / 2, bodyMidY - 6 + Math.round(size * 0.35));
+    ctx.font = size + "px \"" + FONT_FAMILY.block + "\"";
+    const todayMetrics = ctx.measureText("TODAY!");
+    const todayBaseline = bodyMidY - 6 + Math.round(size * 0.35);
+    ctx.fillText("TODAY!", CANVAS_WIDTH / 2, todayBaseline);
+
+    // Same fixed-gap-off-the-actual-glyph-box technique as the "IN"/
+    // "DAY(S)" labels below hang off the big number -- just one label,
+    // above "TODAY!" instead of below it (there's no natural "DAY(S)"-
+    // equivalent second label to pair it with here).
+    if (card.winProbabilityPct != null) {
+      const GAP = 10;
+      const todayTop = todayBaseline - todayMetrics.actualBoundingBoxAscent;
+      ctx.font = "bold 20px \"" + FONT_FAMILY.serif + "\"";
+      const wpText = card.winProbabilityPct + "%WP";
+      const wpMetrics = ctx.measureText(wpText);
+      ctx.fillText(wpText, CANVAS_WIDTH / 2, todayTop - GAP - wpMetrics.actualBoundingBoxDescent);
+    }
   } else {
     // "IN" and "DAY(S)" need the SAME gap to the big number on both
     // sides -- a fixed pixel offset from bodyMidY for each (the earlier
