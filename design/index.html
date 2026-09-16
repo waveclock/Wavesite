@@ -1889,7 +1889,22 @@
     const daysMaxWidth = w - 2 * (LOGO_MARGIN + LOGO_SIZE) - 20;
     if (card.daysLeft <= 0) {
       const size = fitBannerFontSize(ctx, "TODAY!", daysMaxWidth, "'Bungee', sans-serif", 56, 26);
-      ctx.fillText("TODAY!", w / 2, bodyMidY - 6 + Math.round(size * 0.35));
+      ctx.font = size + "px 'Bungee', sans-serif";
+      const todayMetrics = ctx.measureText("TODAY!");
+      const todayBaseline = bodyMidY - 6 + Math.round(size * 0.35);
+      ctx.fillText("TODAY!", w / 2, todayBaseline);
+
+      // Same fixed-gap-off-the-actual-glyph-box technique as the "IN"/
+      // "DAY(S)" labels below hang off the big number. Mirrors
+      // functions/lib/dynamic.js's drawGameDayCard exactly.
+      if (card.winProbabilityPct != null) {
+        const GAP = 10;
+        const todayTop = todayBaseline - todayMetrics.actualBoundingBoxAscent;
+        ctx.font = "bold 20px Georgia, serif";
+        const wpText = card.winProbabilityPct + "%WP";
+        const wpMetrics = ctx.measureText(wpText);
+        ctx.fillText(wpText, w / 2, todayTop - GAP - wpMetrics.actualBoundingBoxDescent);
+      }
     } else {
       // Mirrors functions/lib/dynamic.js's equal-gap approach exactly:
       // hang "IN"/"DAY(S)" off the number's own actual glyph box (not an
