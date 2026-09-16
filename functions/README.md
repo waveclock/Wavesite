@@ -152,29 +152,6 @@ max font size, or anything else already on the card:
    allowed to shrink below that ceiling (down to the usual 16px floor).
    Losing some whitespace is free; losing readable text size isn't.
 
-### Final score, on game day
-
-Once ESPN reports today's game as completed, the card swaps its "TODAY!"
-big-block text for "WIN"/"LOSS"/"TIE" and its date/venue/time footer line
-for the final score (e.g. "EAGLES 24  ·  COMMANDERS 17") -- see
-`readFinalScore` and `drawScoreLine` in `lib/dynamic.js`. This only
-applies to TODAY's game (`daysLeft <= 0`); an upcoming game's card is
-untouched. `readFinalScore` reads `competition.status.type.completed`
-(boolean) and each competitor's `score` field -- same unverified-field-
-name caveat as the rest of this API (not confirmed against a live
-response from this codebase's own dev environment either), and degrades
-to `null` (falls back to the normal countdown/"TODAY!" card) on any
-missing/malformed field rather than showing a wrong or partial score.
-
-**Refresh schedule**: a once-a-day pass can't show a same-day final
-score -- by the time `regenerateCountdownDesigns` runs again tomorrow
-morning, the day has already rolled over and the result no longer
-belongs on today's card. So `"team"` is excluded from
-`DAILY_REGEN_TYPES` and gets its own hourly `regenerateGameDayDesigns`
-job instead (same cadence and same blind-full-redraw approach as
-`regenerateBeachBuddyDesigns` -- see that function's own comment), which
-is what actually catches the game finishing and swaps the card over.
-
 ## The News card
 
 Unlike Countdown (any date works) or Team (ESPN's API covers every team),

@@ -21,8 +21,6 @@ const {
   invertedCopy,
   drawGameDayCard,
   drawGameLine,
-  drawScoreLine,
-  readFinalScore,
   toGrayscale,
   ditherAtkinson,
   ditheredLogoCanvas,
@@ -89,10 +87,9 @@ function espnSchedule(myTeamId, games) {
       id: "evt" + i,
       date: g.date,
       competitions: [{
-        status: g.completed != null ? { type: { completed: g.completed } } : undefined,
         competitors: [
-          { homeAway: g.homeAway, team: { id: myTeamId, abbreviation: "ME" }, score: g.myScore != null ? String(g.myScore) : undefined },
-          { homeAway: g.homeAway === "home" ? "away" : "home", team: { id: "opp" + i, abbreviation: g.opponentAbbrev }, score: g.oppScore != null ? String(g.oppScore) : undefined }
+          { homeAway: g.homeAway, team: { id: myTeamId, abbreviation: "ME" } },
+          { homeAway: g.homeAway === "home" ? "away" : "home", team: { id: "opp" + i, abbreviation: g.opponentAbbrev } }
         ]
       }]
     }))
@@ -191,46 +188,6 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const { nextGame } = await findNextGame(schedule.events, "5", now);
     assert.ok(nextGame);
     assert.strictEqual(nextGame.opponentAbbrev, "TON");
-  });
-
-  console.log("readFinalScore / findNextGame (Game Day card final score)");
-  await test("readFinalScore returns null for a game ESPN hasn't marked completed yet", () => {
-    const comp = { status: { type: { completed: false } } };
-    const me = { score: "24" }, opp = { score: "17" };
-    assert.strictEqual(readFinalScore(comp, me, opp), null);
-  });
-  await test("readFinalScore returns null when status is missing entirely (a future game, or a malformed response)", () => {
-    assert.strictEqual(readFinalScore({}, { score: "24" }, { score: "17" }), null);
-    assert.strictEqual(readFinalScore(null, { score: "24" }, { score: "17" }), null);
-  });
-  await test("readFinalScore returns WIN/LOSS/TIE by comparing the two parsed scores", () => {
-    const completed = { status: { type: { completed: true } } };
-    assert.deepStrictEqual(readFinalScore(completed, { score: "24" }, { score: "17" }), { outcome: "WIN", myScore: 24, oppScore: 17 });
-    assert.deepStrictEqual(readFinalScore(completed, { score: "17" }, { score: "24" }), { outcome: "LOSS", myScore: 17, oppScore: 24 });
-    assert.deepStrictEqual(readFinalScore(completed, { score: "20" }, { score: "20" }), { outcome: "TIE", myScore: 20, oppScore: 20 });
-  });
-  await test("readFinalScore returns null (never throws) when completed but a score is missing or unparsable", () => {
-    const completed = { status: { type: { completed: true } } };
-    assert.strictEqual(readFinalScore(completed, { score: null }, { score: "17" }), null);
-    assert.strictEqual(readFinalScore(completed, {}, { score: "17" }), null);
-    assert.strictEqual(readFinalScore(completed, { score: "not a number" }, { score: "17" }), null);
-  });
-  await test("findNextGame captures today's final score onto nextGame.finalScore", async () => {
-    const now = new Date(Date.UTC(2026, 8, 1, 20, 0, 0));
-    const schedule = espnSchedule("5", [
-      { date: "2026-09-01T17:00Z", homeAway: "home", opponentAbbrev: "OPP", completed: true, myScore: 24, oppScore: 17 }
-    ]);
-    const { nextGame } = await findNextGame(schedule.events, "5", now);
-    assert.ok(nextGame);
-    assert.deepStrictEqual(nextGame.finalScore, { outcome: "WIN", myScore: 24, oppScore: 17 });
-  });
-  await test("findNextGame leaves finalScore null for a game that hasn't been played yet", async () => {
-    const now = new Date(Date.UTC(2026, 8, 1));
-    const schedule = espnSchedule("5", [
-      { date: "2026-09-07T17:00Z", homeAway: "home", opponentAbbrev: "OPP" }
-    ]);
-    const { nextGame } = await findNextGame(schedule.events, "5", now);
-    assert.strictEqual(nextGame.finalScore, null);
   });
   await test("myAbbrev is null when the team never appears in the schedule at all", async () => {
     const now = new Date(Date.UTC(2026, 8, 1));
@@ -649,42 +606,6 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     });
   });
 
-  console.log("drawScoreLine (final score footer: e.g. EAGLES 24 · COMMANDERS 17)");
-  await test("centers the assembled score line", () => {
-    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
-    const ctx = c.getContext("2d");
-    drawScoreLine(ctx, { myAbbrev: "EAGLES", myScore: 24, oppAbbrev: "COMMANDERS", oppScore: 17 }, CANVAS_WIDTH - 48, 150);
-    const d = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
-    let minX = CANVAS_WIDTH, maxX = 0;
-    for (let y = 0; y < CANVAS_HEIGHT; y++) {
-      for (let x = 0; x < CANVAS_WIDTH; x++) {
-        if (d[(y * CANVAS_WIDTH + x) * 4] < 250) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-        }
-      }
-    }
-    const center = (minX + maxX) / 2;
-    assert.ok(Math.abs(center - CANVAS_WIDTH / 2) < 3, "expected the whole line centered, got center=" + center);
-  });
-  await test("shrinks a too-long score line to fit maxWidth rather than overflowing it", () => {
-    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
-    const ctx = c.getContext("2d");
-    const maxWidth = 200;
-    drawScoreLine(ctx, { myAbbrev: "SOUTHERN MISSISSIPPI", myScore: 34, oppAbbrev: "MASSACHUSETTS MINUTEMEN", oppScore: 27 }, maxWidth, 150);
-    const d = ctx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
-    let minX = CANVAS_WIDTH, maxX = 0;
-    for (let y = 0; y < CANVAS_HEIGHT; y++) {
-      for (let x = 0; x < CANVAS_WIDTH; x++) {
-        if (d[(y * CANVAS_WIDTH + x) * 4] < 250) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-        }
-      }
-    }
-    assert.ok(maxX - minX <= maxWidth, "expected the shrunk line to fit within " + maxWidth + "px, got " + (maxX - minX) + "px");
-  });
-
   console.log("drawGameDayCard");
   await test("keeps an equal gap between the number and 'IN' above it vs 'DAY(S)' below it, regardless of digit count", () => {
     function blankGapsAroundNumber(daysLeft) {
@@ -744,44 +665,6 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const ctx = c.getContext("2d");
     assert.doesNotThrow(() => {
       drawGameDayCard(ctx, { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft: 0, daysUnit: "DAYS", venue: null, dateLabel: null, timeLabel: null, myLogo: null, oppLogo: null });
-    });
-  });
-  await test("a completed today's game draws WIN/LOSS/TIE in place of TODAY!, and the score in place of the date/venue/time footer", () => {
-    for (const outcome of ["WIN", "LOSS", "TIE"]) {
-      const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
-      const ctx = c.getContext("2d");
-      assert.doesNotThrow(() => {
-        drawGameDayCard(ctx, {
-          bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft: 0, daysUnit: "DAYS",
-          venue: null, dateLabel: null, timeLabel: null, myLogo: null, oppLogo: null,
-          finalScore: { outcome, myAbbrev: "EAGLES", myScore: 24, oppAbbrev: "COMMANDERS", oppScore: 17 }
-        });
-      }, outcome + " should not throw");
-      // Same region the day-count block normally occupies -- WIN/LOSS/TIE
-      // should have left real ink there, same as TODAY!/the day count do.
-      const bigBlock = ctx.getImageData(0, 85, CANVAS_WIDTH, 150).data;
-      let hasInk = false;
-      for (let i = 0; i < bigBlock.length; i += 4) { if (bigBlock[i] < 250) { hasInk = true; break; } }
-      assert.ok(hasInk, outcome + ": expected ink in the big WIN/LOSS/TIE block");
-      // The score line sits where drawGameLine's date/venue/time footer
-      // normally would -- confirms drawScoreLine actually drew something
-      // there instead of leaving it blank.
-      const footer = ctx.getImageData(0, CANVAS_HEIGHT - 30, CANVAS_WIDTH, 26).data;
-      let footerHasInk = false;
-      for (let i = 0; i < footer.length; i += 4) { if (footer[i] < 250) { footerHasInk = true; break; } }
-      assert.ok(footerHasInk, outcome + ": expected the score line to draw ink in the footer region");
-    }
-  });
-  await test("a finalScore takes precedence over dateLabel/timeLabel when both are somehow present", () => {
-    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
-    const ctx = c.getContext("2d");
-    assert.doesNotThrow(() => {
-      drawGameDayCard(ctx, {
-        bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft: 0, daysUnit: "DAYS",
-        venue: "Lincoln Financial Field", dateLabel: "SUN SEP 13", timeLabel: "4:25 PM ET",
-        myLogo: null, oppLogo: null,
-        finalScore: { outcome: "WIN", myAbbrev: "EAGLES", myScore: 24, oppAbbrev: "COMMANDERS", oppScore: 17 }
-      });
     });
   });
   await test("draws the one-line date/venue/time footer (venue larger, mid-line) when provided, without throwing", () => {
@@ -973,30 +856,6 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(result.hasMyLogo, false);
     assert.strictEqual(result.hasOppLogo, false);
     assert.strictEqual(result.nextGame.venue, null);
-  });
-  await test("a today's game ESPN reports as completed flows through to a WIN/LOSS content summary and nextGame.finalScore", async () => {
-    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
-    const now = new Date(Date.UTC(2026, 8, 1, 20, 0, 0)); // afternoon of game day
-    const schedule = espnSchedule("21", [
-      { date: "2026-09-01T17:00Z", homeAway: "home", opponentAbbrev: "COMMANDERS", completed: true, myScore: 24, oppScore: 17 }
-    ]);
-    const meta = { type: "team", sport: "football", league: "nfl", teamId: "21", x: 396, y: 136, size: 48, fontKey: "block", outline: true, inverted: false };
-    const result = await renderDynamicDesign(base, meta, now, fakeFetchJson(schedule));
-    assert.ok(result);
-    assert.strictEqual(result.content, "ME VS COMMANDERS WIN 24-17");
-    assert.deepStrictEqual(result.nextGame.finalScore, { outcome: "WIN", myScore: 24, oppScore: 17 });
-    assert.ok(result.binBuffer.some((b) => b !== 0));
-  });
-  await test("a today's game NOT YET completed still shows the normal TODAY! content, not a score", async () => {
-    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
-    const now = new Date(Date.UTC(2026, 8, 1, 12, 0, 0)); // before kickoff
-    const schedule = espnSchedule("21", [
-      { date: "2026-09-01T17:00Z", homeAway: "home", opponentAbbrev: "COMMANDERS" }
-    ]);
-    const meta = { type: "team", sport: "football", league: "nfl", teamId: "21", x: 396, y: 136, size: 48, fontKey: "block", outline: true, inverted: false };
-    const result = await renderDynamicDesign(base, meta, now, fakeFetchJson(schedule));
-    assert.strictEqual(result.content, "ME VS COMMANDERS TODAY!");
-    assert.strictEqual(result.nextGame.finalScore, null);
   });
 
   console.log("isPrivateOrLinkLocalHostname / isSafeFetchUrl (SSRF guard)");
