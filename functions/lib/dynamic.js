@@ -2647,7 +2647,7 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
       nextGame, myAbbrev,
       content: headline + " " + daysLabel,
       hasMyLogo: !!myLogoCanvas, hasOppLogo: !!oppLogoCanvas,
-      myRecord, oppRecord
+      myRecord, oppRecord, winProbabilityPct
     });
   }
 

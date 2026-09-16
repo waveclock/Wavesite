@@ -171,6 +171,32 @@ async function test(name, fn) {
     assert.deepStrictEqual(res.body, { team: { record: { items: [{ type: "total", summary: "10-1" }] } } });
   });
 
+  await test("predictor: requires an eventId", async () => {
+    const req = fakeReq({ sport: "football", league: "nfl", kind: "predictor" });
+    const res = fakeRes();
+    await espnProxyHandler(req, res);
+    assert.strictEqual(res.statusCode, 400);
+  });
+
+  await test("predictor: forwards to ESPN's per-event summary URL (not schedule/teams/record) with the right eventId", async () => {
+    const req = fakeReq({ sport: "football", league: "nfl", kind: "predictor", eventId: "401547417" });
+    const res = fakeRes();
+    let requestedUrl = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      requestedUrl = url;
+      return { status: 200, async json() { return { predictor: { homeTeam: { gameProjection: "62.7" }, awayTeam: { gameProjection: "37.3" } } }; } };
+    };
+    try {
+      await espnProxyHandler(req, res);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    assert.ok(requestedUrl.endsWith("/football/nfl/summary?event=401547417"), "got: " + requestedUrl);
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { predictor: { homeTeam: { gameProjection: "62.7" }, awayTeam: { gameProjection: "37.3" } } });
+  });
+
   await test("rejects an unknown kind", async () => {
     const req = fakeReq({ sport: "football", league: "nfl", kind: "standings" });
     const res = fakeRes();

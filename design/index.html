@@ -1494,7 +1494,8 @@
           opponentLogo: extractLogoUrl(opp.team),
           opponentTeamId: opp.team.id != null ? String(opp.team.id) : null,
           venue: extractVenueName(comp),
-          gameDateISO: ev.date
+          gameDateISO: ev.date,
+          eventId: ev.id != null ? String(ev.id) : null
         };
       }
     }
@@ -1505,6 +1506,7 @@
       opponentTeamId: best.opponentTeamId,
       venue: best.venue,
       gameDateISO: best.gameDateISO,
+      eventId: best.eventId,
       daysLeft: Math.round((best.dayUTC - todayUTC) / 86400000)
     } : null;
     return { nextGame, myAbbrev, myLogo };
@@ -1537,6 +1539,31 @@
       if (!resp.ok) return null;
       const data = await resp.json();
       return extractRecordSummary(data && data.team);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // Mirrors extractWinProbabilityPct in functions/lib/dynamic.js exactly
+  // -- see that file's own comment for the predictor field shape this
+  // leans on (not live-verified from that dev sandbox either).
+  function extractWinProbabilityPct(predictor, homeAway) {
+    const side = predictor && (homeAway === "home" ? predictor.homeTeam : predictor.awayTeam);
+    const raw = side && side.gameProjection;
+    if (raw == null) return null;
+    const pct = parseFloat(raw);
+    return isNaN(pct) ? null : Math.round(pct);
+  }
+
+  // A pregame win probability is a nice-to-have, not load-bearing -- same
+  // degrade-to-null contract as fetchTeamRecord above, never throws.
+  async function fetchWinProbability(sport, league, eventId, homeAway) {
+    if (!eventId) return null;
+    try {
+      const resp = await fetch(ESPN_PROXY_BASE + "?kind=predictor&sport=" + encodeURIComponent(sport) + "&league=" + encodeURIComponent(league) + "&eventId=" + encodeURIComponent(eventId));
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      return extractWinProbabilityPct(data && data.predictor, homeAway);
     } catch (err) {
       return null;
     }
@@ -1879,9 +1906,13 @@
       const numBottom = numBaseline + numMetrics.actualBoundingBoxDescent;
       ctx.fillText(numberText, w / 2, numBaseline);
 
+      // Same slot/size "IN" normally occupies -- when a win probability is
+      // available, it replaces "IN" outright rather than adding a new
+      // line. Mirrors functions/lib/dynamic.js's drawGameDayCard exactly.
       ctx.font = "bold 20px Georgia, serif";
-      const inMetrics = ctx.measureText("IN");
-      ctx.fillText("IN", w / 2, numTop - GAP - inMetrics.actualBoundingBoxDescent);
+      const topLabel = card.winProbabilityPct != null ? card.winProbabilityPct + "%WP" : "IN";
+      const topLabelMetrics = ctx.measureText(topLabel);
+      ctx.fillText(topLabel, w / 2, numTop - GAP - topLabelMetrics.actualBoundingBoxDescent);
 
       const unitText = card.daysUnit || "DAYS";
       const unitMetrics = ctx.measureText(unitText);
@@ -5763,11 +5794,12 @@
       teamStatus.textContent = "Loading the Game Day card…";
       renderLayers();
 
-      const [myLogoCanvas, oppLogoCanvas, myRecord, oppRecord] = await Promise.all([
+      const [myLogoCanvas, oppLogoCanvas, myRecord, oppRecord, winProbabilityPct] = await Promise.all([
         fetchDitheredLogoClient(myLogo, LOGO_SIZE),
         fetchDitheredLogoClient(nextGame.opponentLogo, LOGO_SIZE),
         fetchTeamRecord(sport, league, teamId),
-        fetchTeamRecord(sport, league, nextGame.opponentTeamId)
+        fetchTeamRecord(sport, league, nextGame.opponentTeamId),
+        fetchWinProbability(sport, league, nextGame.eventId, nextGame.homeAway)
       ]);
       if (token !== teamFetchToken || layer.teamId !== teamId) return; // superseded while logos were loading
 
@@ -5784,7 +5816,8 @@
         myLogo: myLogoCanvas,
         oppLogo: oppLogoCanvas,
         myRecord,
-        oppRecord
+        oppRecord,
+        winProbabilityPct
       };
       teamStatus.textContent = "This is the real card — it updates itself once a day after you publish.";
       renderLayers();
