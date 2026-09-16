@@ -136,12 +136,11 @@ function espnTeamUrl(sport, league, teamId) {
 }
 
 // The per-event "summary" endpoint -- distinct from the three above (none
-// of which carry a probability). Same unverified-shape caveat as
-// espnTeamUrl: the community-documented predictor.homeTeam/awayTeam.
-// gameProjection fields below are NOT confirmed against a live response
-// yet. ESPN reportedly stops returning a predictor block once a game has
-// started/finished (a pregame model has nothing left to project), which
-// extractWinProbabilityPct's null-on-missing-field handling already
+// of which carry a probability). Confirmed live: the community-documented
+// predictor.homeTeam/awayTeam.gameProjection fields below DO match a real
+// response. ESPN reportedly stops returning a predictor block once a game
+// has started/finished (a pregame model has nothing left to project),
+// which extractWinProbabilityPct's null-on-missing-field handling already
 // covers without any special-casing here.
 function espnSummaryUrl(sport, league, eventId) {
   return ESPN_BASE + "/" + sport + "/" + league + "/summary?event=" + eventId;
@@ -292,10 +291,10 @@ async function fetchTeamRecord(sport, league, teamId, fetchImpl) {
   }
 }
 
-// Unverified field names (see espnSummaryUrl's comment): the community-
-// documented predictor shape is { homeTeam: { gameProjection: "62.7" },
-// awayTeam: { gameProjection: "37.3" } }, a percentage as a numeric
-// string. Picks the side matching homeAway (the calling team's own side),
+// Confirmed live (see espnSummaryUrl's comment): the predictor shape is
+// { homeTeam: { gameProjection: "62.7" }, awayTeam: { gameProjection:
+// "37.3" } }, a percentage as a numeric string. Picks the side matching
+// homeAway (the calling team's own side),
 // rounds to a whole percent for card display. Returns null on a missing
 // predictor block (pregame model not available for this league, or the
 // game's already started/finished), a missing side, or a non-numeric

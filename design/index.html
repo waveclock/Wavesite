@@ -1546,7 +1546,7 @@
 
   // Mirrors extractWinProbabilityPct in functions/lib/dynamic.js exactly
   // -- see that file's own comment for the predictor field shape this
-  // leans on (not live-verified from that dev sandbox either).
+  // leans on (confirmed live).
   function extractWinProbabilityPct(predictor, homeAway) {
     const side = predictor && (homeAway === "home" ? predictor.homeTeam : predictor.awayTeam);
     const raw = side && side.gameProjection;
