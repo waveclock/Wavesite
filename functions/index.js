@@ -110,12 +110,8 @@ async function processDevice(bucket, deviceId, now, fetchImpl, options) {
 // (data/ocnj-events.json) only refreshes once a day itself
 // (generateOcnjEventsJson, 08:00 UTC, an hour before this job runs), so
 // there's no reason for the card to redraw any more often than this
-// daily pass already does. "team" (the Game Day card) is excluded for the
-// opposite reason from all of the above -- see regenerateGameDayDesigns
-// below: a once-a-day pass can't show a final score on the same day the
-// game finishes, since by the time this runs again tomorrow the day has
-// already rolled over and the win/loss no longer belongs on today's card.
-const DAILY_REGEN_TYPES = (type) => type !== "beachBuddy" && type !== "beachFlag" && type !== "liveMusic" && type !== "liveMusicMore" && type !== "team";
+// daily pass already does.
+const DAILY_REGEN_TYPES = (type) => type !== "beachBuddy" && type !== "beachFlag" && type !== "liveMusic" && type !== "liveMusicMore";
 
 exports.regenerateCountdownDesigns = onSchedule(
   { schedule: "0 9 * * *", timeZone: "Etc/UTC", retryCount: 1 },
@@ -282,42 +278,6 @@ exports.regenerateLiveMusicDesigns = onSchedule(
       }
     }
     logger.info("Live Music refresh done. updated=" + updated + " skipped(not liveMusic)=" + skipped + " failed=" + failed);
-  }
-);
-
-// Hourly, like Beach Buddy and Live Music -- unlike a plain upcoming-game
-// countdown (which only needs to tick over once a day, at midnight), a
-// TODAY game's final score can land at any point in the afternoon or
-// evening, and DAILY_REGEN_TYPES above deliberately excludes "team" so
-// this is the only thing keeping that card current on game day. Same
-// blind full-redraw approach as Beach Buddy's hourly job (see its own
-// comment) rather than tracking "did the game just end" -- ESPN's
-// schedule fetch and a canvas redraw are both cheap, so there's no real
-// cost to just asking again every hour.
-exports.regenerateGameDayDesigns = onSchedule(
-  { schedule: "0 * * * *", timeZone: "Etc/UTC", retryCount: 1 },
-  async () => {
-    const bucket = admin.storage().bucket();
-    const [files] = await bucket.getFiles({ prefix: DESIGNS_PREFIX });
-    const deviceIds = files
-      .map((f) => deviceIdFromDynamicPath(f.name))
-      .filter(Boolean);
-
-    const now = new Date();
-    let updated = 0, skipped = 0, failed = 0;
-    for (const deviceId of deviceIds) {
-      try {
-        const outcome = await processDevice(bucket, deviceId, now, undefined, {
-          typeFilter: (type) => type === "team"
-        });
-        if (outcome === "updated") updated++;
-        else if (outcome === "skipped") skipped++;
-      } catch (err) {
-        failed++;
-        logger.error("Failed to refresh Game Day layer for " + deviceId + ":", err);
-      }
-    }
-    logger.info("Game Day hourly refresh done. updated=" + updated + " skipped(not team)=" + skipped + " failed=" + failed);
   }
 );
 

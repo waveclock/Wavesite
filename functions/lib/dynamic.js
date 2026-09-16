@@ -188,28 +188,6 @@ function extractRecordSummary(team) {
   return (chosen && typeof chosen.summary === "string" && chosen.summary) || null;
 }
 
-// Reads a completed game's final score off ESPN's own competitor/status
-// shape -- `competitor.score` (a numeric string) and
-// `competition.status.type.completed` (boolean), the same "site.api"
-// endpoint family already used throughout this file. NOT live-verified
-// against a real response from this development sandbox (ESPN isn't
-// reachable from here -- see the README's "ESPN's API is unofficial"
-// section) -- built on the same widely-documented community shape
-// fetchTeamRecord's own comment already leans on, with the same
-// "confirm live once deployed" caveat. Returns null on anything
-// missing/malformed rather than throwing -- a final score is a bonus on
-// top of the countdown card, never something that should break it (same
-// contract as myRecord/oppRecord degrading to null on a bad response).
-function readFinalScore(comp, me, opp) {
-  const completed = !!(comp && comp.status && comp.status.type && comp.status.type.completed);
-  if (!completed) return null;
-  const myScore = me && me.score != null ? parseInt(me.score, 10) : NaN;
-  const oppScore = opp && opp.score != null ? parseInt(opp.score, 10) : NaN;
-  if (isNaN(myScore) || isNaN(oppScore)) return null;
-  const outcome = myScore > oppScore ? "WIN" : myScore < oppScore ? "LOSS" : "TIE";
-  return { outcome, myScore, oppScore };
-}
-
 // Finds the earliest event whose calendar date is today-or-later. Returns
 // { nextGame: {...} | null, myAbbrev, myLogo }. myAbbrev/myLogo are
 // captured from ANY event that includes this team -- even a past one --
@@ -258,12 +236,7 @@ async function findNextGame(events, teamId, now) {
         opponentLogo: extractLogoUrl(opp.team),
         opponentTeamId: opp.team.id != null ? String(opp.team.id) : null,
         venue: extractVenueName(comp),
-        gameDateISO: ev.date,
-        // Only meaningful for TODAY's game (evDayUTC === todayUTC) --
-        // still computed for a future game too, but readFinalScore
-        // always returns null there since ESPN reports those as not
-        // completed.
-        finalScore: readFinalScore(comp, me, opp)
+        gameDateISO: ev.date
       };
     }
   }
@@ -827,27 +800,6 @@ function drawGameLine(ctx, dateLabel, venue, timeLabel, maxWidth, y) {
   ctx.textAlign = prevAlign;
 }
 
-// Same row (position, weight, family) drawGameLine's date/venue/time
-// normally occupies, but for a completed today's game (see
-// readFinalScore) -- e.g. "EAGLES 24  ·  COMMANDERS 17". A single
-// shrink-to-fit string rather than drawGameLine's multi-segment layout,
-// since there's no separate venue/date/time to juggle here, just two
-// name+score pairs.
-function drawScoreLine(ctx, finalScore, maxWidth, y) {
-  const family = FONT_FAMILY.serif;
-  const text = finalScore.myAbbrev + " " + finalScore.myScore + "  ·  " + finalScore.oppAbbrev + " " + finalScore.oppScore;
-  let size = 24;
-  for (; size > MIN_DATE_SIZE; size--) {
-    ctx.font = "bold " + size + "px \"" + family + "\"";
-    if (ctx.measureText(text).width <= maxWidth) break;
-  }
-  ctx.font = "bold " + size + "px \"" + family + "\"";
-  const prevAlign = ctx.textAlign;
-  ctx.textAlign = "center";
-  ctx.fillText(text, CANVAS_WIDTH / 2, y);
-  ctx.textAlign = prevAlign;
-}
-
 // ================= Game Day card: record placement =================
 // A team's win-loss record is optional (see fetchTeamRecord) and there's
 // no space reserved for it anywhere on this already-fully-packed card --
@@ -1011,14 +963,7 @@ function drawGameDayCard(ctx, card) {
   // unlike the headline/gameLine bands above/below, this (and the venue
   // line below it) needs to stay clear of the logos on either side.
   const daysMaxWidth = CANVAS_WIDTH - 2 * (LOGO_MARGIN + LOGO_SIZE) - 20;
-  if (card.finalScore) {
-    // Same big-block treatment as "TODAY!" below, just a different word
-    // -- ESPN reports today's game as completed (see readFinalScore),
-    // so the countdown itself no longer means anything.
-    const text = card.finalScore.outcome; // "WIN" | "LOSS" | "TIE"
-    const size = fitBannerFontSize(ctx, text, daysMaxWidth, FONT_FAMILY.block, 56, 26);
-    ctx.fillText(text, CANVAS_WIDTH / 2, bodyMidY - 6 + Math.round(size * 0.35));
-  } else if (card.daysLeft <= 0) {
+  if (card.daysLeft <= 0) {
     const size = fitBannerFontSize(ctx, "TODAY!", daysMaxWidth, FONT_FAMILY.block, 56, 26);
     ctx.fillText("TODAY!", CANVAS_WIDTH / 2, bodyMidY - 6 + Math.round(size * 0.35));
   } else {
@@ -1051,10 +996,7 @@ function drawGameDayCard(ctx, card) {
     ctx.fillText(unitText, CANVAS_WIDTH / 2, numBottom + GAP + unitMetrics.actualBoundingBoxAscent);
   }
 
-  if (card.finalScore) {
-    ctx.fillStyle = "#000";
-    drawScoreLine(ctx, card.finalScore, CANVAS_WIDTH - 48, CANVAS_HEIGHT - 14);
-  } else if (card.dateLabel && card.timeLabel) {
+  if (card.dateLabel && card.timeLabel) {
     ctx.fillStyle = "#000";
     drawGameLine(ctx, card.dateLabel, card.venue, card.timeLabel, CANVAS_WIDTH - 48, CANVAS_HEIGHT - 14);
   }
@@ -2625,20 +2567,11 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
 
     const headline = (myAbbrev || "") + " " + vsOrAt + " " + rawNextGame.opponentAbbrev;
     const daysUnit = daysLeft === 1 ? "DAY" : "DAYS";
-    // Only for TODAY's game once ESPN marks it completed (see
-    // readFinalScore's own comment) -- gated on daysLeft<=0 here too,
-    // defensively, so a final score can only ever show on game day
-    // itself, never lingering into the next day's card by accident.
-    const finalScore = daysLeft <= 0 && rawNextGame.finalScore
-      ? Object.assign({ myAbbrev: myAbbrev || "", oppAbbrev: rawNextGame.opponentAbbrev }, rawNextGame.finalScore)
-      : null;
     // Kept as one string purely for the log-friendly `content` field
-    // below -- drawGameDayCard takes daysLeft/daysUnit/finalScore
-    // directly instead of a pre-formatted label, since it renders them
-    // as separate lines now, not one.
-    const daysLabel = finalScore
-      ? finalScore.outcome + " " + finalScore.myScore + "-" + finalScore.oppScore
-      : (daysLeft <= 0 ? "TODAY!" : "IN " + daysLeft + " " + daysUnit);
+    // below -- drawGameDayCard takes daysLeft/daysUnit directly instead
+    // of a pre-formatted label, since it renders them as 3 separate lines
+    // now, not one.
+    const daysLabel = daysLeft <= 0 ? "TODAY!" : "IN " + daysLeft + " " + daysUnit;
     const dateTimeParts = formatGameDateTimeParts(rawNextGame.gameDateISO);
     const card = {
       bannerTitle: gameDayBannerTitle(meta.sport, meta.league),
@@ -2651,8 +2584,7 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
       myLogo: myLogoCanvas,
       oppLogo: oppLogoCanvas,
       myRecord,
-      oppRecord,
-      finalScore
+      oppRecord
     };
 
     const result = await compositeAndPack(basePngBuffer, (ctx) => drawGameDayCard(ctx, card), meta);
@@ -2789,8 +2721,6 @@ module.exports = {
   formatTeamText,
   formatGameDateTimeParts,
   drawGameLine,
-  drawScoreLine,
-  readFinalScore,
   findNextGame,
   fetchNextGame,
   fetchTeamRecord,
