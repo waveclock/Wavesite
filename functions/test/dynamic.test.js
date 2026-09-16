@@ -758,15 +758,34 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       c2.getContext("2d").getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data
     );
   });
-  await test("draws no 'XX%WP'/'IN' label at all on TODAY's card -- win probability only applies to the counting-down state", () => {
+  await test("draws 'XX%WP' above 'TODAY!' when winProbabilityPct is provided on game day, without throwing", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = c.getContext("2d");
     assert.doesNotThrow(() => {
       drawGameDayCard(ctx, {
-        bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft: 0, daysUnit: "DAYS",
-        venue: null, dateLabel: null, timeLabel: null, myLogo: null, oppLogo: null, winProbabilityPct: 90
+        bannerTitle: "MLB GAME DAY", headline: "PHILLIES VS METS", daysLeft: 0, daysUnit: "DAYS",
+        venue: "Citizens Bank Park", dateLabel: "TUE SEP 16", timeLabel: "7:05 PM ET",
+        myLogo: null, oppLogo: null, winProbabilityPct: 70
       });
     });
+    // The label sits in the otherwise-blank band directly above "TODAY!"'s
+    // own glyph box -- confirms real ink landed there, not just "didn't
+    // throw."
+    const data = ctx.getImageData(CANVAS_WIDTH / 2 - 40, 96, 80, 20).data;
+    let hasInk = false;
+    for (let i = 0; i < data.length; i += 4) { if (data[i] < 200) { hasInk = true; break; } }
+    assert.ok(hasInk, "expected '70%WP' to have drawn ink above TODAY!");
+  });
+  await test("renders pixel-identical TODAY! card whether winProbabilityPct is omitted or explicitly null -- no regression for a card without one", () => {
+    const cardWithout = { bannerTitle: "NFL GAME DAY", headline: "ME VS OPP", daysLeft: 0, daysUnit: "DAYS", venue: null, dateLabel: null, timeLabel: null, myLogo: null, oppLogo: null };
+    const c1 = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawGameDayCard(c1.getContext("2d"), cardWithout);
+    const c2 = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    drawGameDayCard(c2.getContext("2d"), Object.assign({}, cardWithout, { winProbabilityPct: null }));
+    assert.deepStrictEqual(
+      c1.getContext("2d").getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data,
+      c2.getContext("2d").getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data
+    );
   });
 
   console.log("fitRecordOverLogo / buildPaddedRecordHeadline (Game Day card win-loss record placement)");
