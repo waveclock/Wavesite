@@ -152,6 +152,44 @@ max font size, or anything else already on the card:
    allowed to shrink below that ceiling (down to the usual 16px floor).
    Losing some whitespace is free; losing readable text size isn't.
 
+### Win probability
+
+Every day counting down to a game (not just game day), the card shows a
+pregame win probability -- e.g. "90%WP" -- in the same slot the "IN"
+label normally occupies, replacing it outright rather than adding a new
+line. A card with no probability available (off-season, an unsupported
+league, or ESPN not returning a predictor for this particular game)
+renders byte-for-byte identical to before this existed.
+
+Comes from a FOURTH ESPN endpoint, distinct from the three already in
+use: the per-event `summary?event={id}` endpoint (`espnSummaryUrl`),
+keyed off the event id ESPN's schedule response already carries per game
+(`eventId` on `findNextGame`'s return, alongside the existing
+`opponentAbbrev`/`venue`/etc). `extractWinProbabilityPct` reads
+`predictor.homeTeam.gameProjection` / `predictor.awayTeam.gameProjection`
+(a percentage as a numeric string) for whichever side matches the
+device's own team, and rounds to a whole percent. **Confirmed live** as
+of this feature shipping. Degrades to `null` on any failure (missing
+predictor block, missing side, non-numeric value, network error) rather
+than throwing -- same nice-to-have contract as the win-loss record above.
+
+**Refresh schedule**: unlike the win-loss record (which rides the daily
+job) there was a real temptation to want this fresher -- but a pregame
+number only needs to be as current as "once a day," same as the
+countdown itself, so this rides the existing daily
+`regenerateCountdownDesigns` pass. No new Cloud Scheduler job. (An
+earlier same-day final-score attempt for this same card *did* need its
+own hourly job and was reverted after its deploy coincided with the
+design page's Team dropdown breaking -- see this file's git history on
+this section for that timeline. This feature was deliberately built to
+avoid that shape of risk: no new schedule, no new hourly ESPN traffic.)
+
+The live preview reaches this endpoint through `espnProxy`'s new
+`kind=predictor` mode (takes `eventId` instead of `teamId`), same CORS
+reasoning as `kind=schedule`/`kind=record`. The daily job calls
+`fetchWinProbability` directly (server-to-server), same as
+`fetchTeamRecord`.
+
 ## The News card
 
 Unlike Countdown (any date works) or Team (ESPN's API covers every team),
