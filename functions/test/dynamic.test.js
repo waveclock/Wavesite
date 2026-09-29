@@ -7,6 +7,7 @@ const {
   formatCountdownText,
   formatTeamText,
   formatGameDateTimeParts,
+  easternDayIndex,
   findNextGame,
   fetchNextGame,
   fetchTeamRecord,
@@ -157,6 +158,27 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   });
   await test("format: today, with label", () => {
     assert.strictEqual(formatCountdownText(0, "launch"), "LAUNCH TODAY!");
+  });
+
+  console.log("easternDayIndex (Game Day card day-count bug fix)");
+  await test("a night game's UTC timestamp doesn't roll the day index forward -- 8:15 PM EDT Monday stays Monday, not the UTC Tuesday it's stored as", () => {
+    const mondayNightKickoff = new Date("2026-09-29T00:15:00Z"); // 8:15 PM EDT Mon Sep 28
+    const mondayNoonUTC = new Date(Date.UTC(2026, 8, 28, 16, 0, 0)); // noon EDT Mon Sep 28
+    assert.strictEqual(easternDayIndex(mondayNightKickoff), easternDayIndex(mondayNoonUTC));
+  });
+  await test("UTC midnight is still the previous Eastern calendar day (EDT is UTC-4)", () => {
+    const utcMidnightSep1 = new Date(Date.UTC(2026, 8, 1, 0, 0, 0));
+    const aug31NoonUTC = new Date(Date.UTC(2026, 7, 31, 16, 0, 0)); // noon EDT Aug 31
+    assert.strictEqual(easternDayIndex(utcMidnightSep1), easternDayIndex(aug31NoonUTC));
+  });
+  await test("the exact reported bug: an 8:15 PM ET Monday game rendered the morning of that Monday no longer shows 1 day away", async () => {
+    // Daily job running ~5am ET (09:00 UTC) on the Monday of the game.
+    const renderTime = new Date("2026-09-28T09:00:00Z");
+    const schedule = espnSchedule("21", [{ date: "2026-09-29T00:15:00Z", homeAway: "away", opponentAbbrev: "BEARS" }]);
+    const { nextGame } = await findNextGame(schedule.events, "21", renderTime);
+    const todayIndex = easternDayIndex(renderTime);
+    const daysLeft = Math.round((nextGame.dayIndex - todayIndex) / 86400000);
+    assert.strictEqual(daysLeft, 0, "the game is TODAY in Eastern time, not 1 day away");
   });
 
   console.log("findNextGame / formatTeamText");
@@ -319,7 +341,10 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   console.log("renderDynamicDesign (type: team)");
   await test("renders the next game using an injected fetch (never touches the real network)", async () => {
     const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
-    const now = new Date(Date.UTC(2026, 8, 1));
+    // Noon UTC, not midnight -- midnight UTC on Sep 1 is still Aug 31
+    // evening in US Eastern time (see easternDayIndex's own comment), so
+    // it would make this "today" a day earlier than the test intends.
+    const now = new Date(Date.UTC(2026, 8, 1, 12, 0, 0));
     const schedule = espnSchedule("21", [{ date: "2026-09-08T17:00Z", homeAway: "home", opponentAbbrev: "COWBOYS" }]);
     const meta = { type: "team", sport: "football", league: "nfl", teamId: "21", x: 396, y: 136, size: 48, fontKey: "block", outline: true, inverted: false };
     const result = await renderDynamicDesign(base, meta, now, fakeFetchJson(schedule));
