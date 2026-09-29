@@ -199,6 +199,27 @@ function extractRecordSummary(team) {
   return (chosen && typeof chosen.summary === "string" && chosen.summary) || null;
 }
 
+// Returns an integer "day index" for d's calendar date in America/New_York
+// -- Date.UTC here is just a convenient way to get a single comparable
+// integer per Eastern calendar day, NOT a real UTC instant. Exists
+// because a night game's raw UTC timestamp routinely lands on the NEXT
+// UTC calendar day (8:15 PM EDT Monday is 00:15 UTC Tuesday), which used
+// to make daysLeft compare UTC calendar dates while
+// formatGameDateTimeParts's date LABEL showed the Eastern one -- the two
+// could disagree by a day for any game late enough to cross that UTC
+// midnight boundary (confirmed live: an 8:15 PM ET Monday game showed
+// "1 DAY" while its own label already read "MON"). Every "how many days
+// away" comparison below now goes through this so the countdown can
+// never disagree with the label again.
+function easternDayIndex(d) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(d);
+  const get = (type) => Number((parts.find((p) => p.type === type) || {}).value);
+  return Date.UTC(get("year"), get("month") - 1, get("day"));
+}
+
 // Finds the earliest event whose calendar date is today-or-later. Returns
 // { nextGame: {...} | null, myAbbrev, myLogo }. myAbbrev/myLogo are
 // captured from ANY event that includes this team -- even a past one --
@@ -210,7 +231,7 @@ function extractRecordSummary(team) {
 // should treat as "try again next run," not "the season is over."
 async function findNextGame(events, teamId, now) {
   const at = now || new Date();
-  const todayUTC = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate());
+  const todayIndex = easternDayIndex(at);
   let best = null;
   let myAbbrev = null;
   let myLogo = null;
@@ -234,14 +255,14 @@ async function findNextGame(events, teamId, now) {
     if (!ev.date) continue;
     const evDate = new Date(ev.date);
     if (isNaN(evDate.getTime())) continue;
-    const evDayUTC = Date.UTC(evDate.getUTCFullYear(), evDate.getUTCMonth(), evDate.getUTCDate());
-    if (evDayUTC < todayUTC) continue; // already happened
+    const evDayIndex = easternDayIndex(evDate);
+    if (evDayIndex < todayIndex) continue; // already happened
     const opp = competitors.find((c) => c && c.team && String(c.team.id) !== String(teamId));
     if (!opp) continue;
 
-    if (!best || evDayUTC < best.dayUTC) {
+    if (!best || evDayIndex < best.dayIndex) {
       best = {
-        dayUTC: evDayUTC,
+        dayIndex: evDayIndex,
         homeAway: me.homeAway,
         opponentAbbrev: (opp.team.shortDisplayName || opp.team.abbreviation || opp.team.displayName || "TBD").toUpperCase(),
         opponentLogo: extractLogoUrl(opp.team),
@@ -2621,8 +2642,8 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
     }
 
     const at = now || new Date();
-    const todayUTC = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate());
-    const daysLeft = Math.round((rawNextGame.dayUTC - todayUTC) / 86400000);
+    const todayIndex = easternDayIndex(at);
+    const daysLeft = Math.round((rawNextGame.dayIndex - todayIndex) / 86400000);
     const vsOrAt = rawNextGame.homeAway === "home" ? "VS" : "@";
 
     const [myLogoCanvas, oppLogoCanvas, myRecord, oppRecord, winProbabilityPct] = await Promise.all([
@@ -2791,6 +2812,7 @@ module.exports = {
   formatGameDateTimeParts,
   drawGameLine,
   findNextGame,
+  easternDayIndex,
   fetchNextGame,
   fetchTeamRecord,
   fetchWinProbability,
