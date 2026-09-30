@@ -413,7 +413,12 @@ async function espnProxyHandler(req, res) {
       res.status(400).json({ error: "Missing teamId" });
       return;
     }
-    url = espnScheduleUrl(sport, league, teamId);
+    // seasonType lets the live preview mirror fetchNextGame's own
+    // regular-season-then-postseason fallback (see espnScheduleUrl's
+    // comment) -- anything other than the literal "3" stays on the
+    // regular-season default rather than trusting an arbitrary value.
+    const seasonType = req.query.seasonType === "3" ? 3 : 2;
+    url = espnScheduleUrl(sport, league, teamId, seasonType);
   } else if (kind === "record") {
     const teamId = req.query.teamId;
     if (typeof teamId !== "string" || !teamId) {
