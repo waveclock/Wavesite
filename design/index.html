@@ -1532,11 +1532,32 @@
     return { nextGame, myAbbrev, myLogo };
   }
 
+  // Mirrors functions/lib/dynamic.js's fetchNextGame exactly, including
+  // the regular-season-then-postseason fallback -- see espnScheduleUrl's
+  // comment there for why. A failure on the postseason fallback call
+  // degrades to the regular-season result rather than throwing; a
+  // failure on the regular-season call itself still throws, same as
+  // before.
   async function fetchNextGame(sport, league, teamId) {
     const resp = await fetch(ESPN_PROXY_BASE + "?kind=schedule&sport=" + encodeURIComponent(sport) + "&league=" + encodeURIComponent(league) + "&teamId=" + encodeURIComponent(teamId));
     if (!resp.ok) throw new Error("ESPN schedule fetch failed: " + resp.status);
     const data = await resp.json();
-    return findNextGame(data.events, teamId);
+    const regularSeason = findNextGame(data.events, teamId);
+    if (regularSeason.nextGame) return regularSeason;
+
+    try {
+      const postResp = await fetch(ESPN_PROXY_BASE + "?kind=schedule&seasonType=3&sport=" + encodeURIComponent(sport) + "&league=" + encodeURIComponent(league) + "&teamId=" + encodeURIComponent(teamId));
+      if (!postResp.ok) return regularSeason;
+      const postData = await postResp.json();
+      const postseason = findNextGame(postData.events, teamId);
+      return {
+        nextGame: postseason.nextGame,
+        myAbbrev: regularSeason.myAbbrev || postseason.myAbbrev,
+        myLogo: regularSeason.myLogo || postseason.myLogo
+      };
+    } catch (err) {
+      return regularSeason;
+    }
   }
 
   // Mirrors functions/lib/dynamic.js's extractRecordSummary/fetchTeamRecord

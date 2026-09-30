@@ -112,12 +112,14 @@ const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
 // has real preseason games), but college football doesn't play a
 // preseason at all, so that bucket is just empty (events: []), which
 // read as "no upcoming games" even mid-season. seasontype=2 (Regular
-// Season) is what a "next game" lookup actually wants across every sport
-// here. Known gap: this won't surface playoff/bowl games once a team's
-// regular season has ended (those are seasontype=3) -- acceptable for
-// now, not worth a second request just for that edge case yet.
-function espnScheduleUrl(sport, league, teamId) {
-  return ESPN_BASE + "/" + sport + "/" + league + "/teams/" + teamId + "/schedule?seasontype=2";
+// Season) is what a "next game" lookup wants for most of the season.
+// seasontype=3 (Postseason) is a separate bucket -- fetchNextGame below
+// only asks for it as a fallback once seasontype=2 comes up with no
+// upcoming games, confirmed live: a team's regular-season schedule goes
+// fully empty once that season concludes, which used to just show "NO
+// UPCOMING GAMES" straight through a team's playoff run.
+function espnScheduleUrl(sport, league, teamId, seasonType) {
+  return ESPN_BASE + "/" + sport + "/" + league + "/teams/" + teamId + "/schedule?seasontype=" + (seasonType || 2);
 }
 
 function espnTeamsUrl(sport, league) {
@@ -290,7 +292,30 @@ async function fetchNextGame(sport, league, teamId, now, fetchImpl) {
   const resp = await doFetch(espnScheduleUrl(sport, league, teamId));
   if (!resp.ok) throw new Error("ESPN schedule fetch failed: " + resp.status);
   const data = await resp.json();
-  return findNextGame(data.events, teamId, now);
+  const regularSeason = await findNextGame(data.events, teamId, now);
+  if (regularSeason.nextGame) return regularSeason;
+
+  // No more regular-season games -- either a real off-season, or the
+  // team's in the middle of a postseason run ESPN files under a separate
+  // season type (see espnScheduleUrl's comment). One extra request, only
+  // when the first one came up empty, keeps the common mid-season case at
+  // a single fetch. A failure on THIS request degrades to the regular-
+  // season result (still "no upcoming games") rather than throwing -- the
+  // postseason check is a nice-to-have layered on top of the real fetch
+  // above, which still throws on its own failure same as before.
+  try {
+    const postResp = await doFetch(espnScheduleUrl(sport, league, teamId, 3));
+    if (!postResp.ok) return regularSeason;
+    const postData = await postResp.json();
+    const postseason = await findNextGame(postData.events, teamId, now);
+    return {
+      nextGame: postseason.nextGame,
+      myAbbrev: regularSeason.myAbbrev || postseason.myAbbrev,
+      myLogo: regularSeason.myLogo || postseason.myLogo
+    };
+  } catch (err) {
+    return regularSeason;
+  }
 }
 
 // A team's win-loss record is a nice-to-have on the Game Day card, not

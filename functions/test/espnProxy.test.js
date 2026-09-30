@@ -145,6 +145,40 @@ async function test(name, fn) {
     assert.ok(requestedUrl.includes("seasontype=2"), "got: " + requestedUrl);
   });
 
+  await test("schedule: seasonType=3 requests the postseason instead -- mirrors fetchNextGame's own regular-season-then-postseason fallback for the live preview", async () => {
+    const req = fakeReq({ sport: "baseball", league: "mlb", kind: "schedule", teamId: "22", seasonType: "3" });
+    const res = fakeRes();
+    let requestedUrl = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      requestedUrl = url;
+      return { status: 200, async json() { return { events: [] }; } };
+    };
+    try {
+      await espnProxyHandler(req, res);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    assert.ok(requestedUrl.includes("seasontype=3"), "got: " + requestedUrl);
+  });
+
+  await test("schedule: an untrusted seasonType value falls back to the regular-season default rather than being passed through", async () => {
+    const req = fakeReq({ sport: "baseball", league: "mlb", kind: "schedule", teamId: "22", seasonType: "99" });
+    const res = fakeRes();
+    let requestedUrl = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      requestedUrl = url;
+      return { status: 200, async json() { return { events: [] }; } };
+    };
+    try {
+      await espnProxyHandler(req, res);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    assert.ok(requestedUrl.includes("seasontype=2"), "got: " + requestedUrl);
+  });
+
   await test("record: requires a teamId", async () => {
     const req = fakeReq({ sport: "football", league: "nfl", kind: "record" });
     const res = fakeRes();

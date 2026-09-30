@@ -251,6 +251,63 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     assert.strictEqual(capturedOptions, undefined);
   });
 
+  console.log("fetchNextGame postseason fallback (Game Day card during the playoffs)");
+  await test("does NOT fetch the postseason when the regular season already has an upcoming game -- keeps the common case at one request", async () => {
+    const now = new Date(Date.UTC(2026, 8, 1, 12, 0, 0));
+    const schedule = espnSchedule("22", [{ date: "2026-09-08T17:00Z", homeAway: "home", opponentAbbrev: "METS" }]);
+    let calls = 0;
+    const fetchImpl = async (url) => { calls++; return fakeFetchJson(schedule)(url); };
+    const { nextGame } = await fetchNextGame("baseball", "mlb", "22", now, fetchImpl);
+    assert.strictEqual(calls, 1);
+    assert.ok(nextGame);
+    assert.strictEqual(nextGame.opponentAbbrev, "METS");
+  });
+  await test("falls back to the postseason schedule when the regular season is empty, and finds a real playoff game there", async () => {
+    const now = new Date(Date.UTC(2026, 9, 5, 12, 0, 0)); // 2026-10-05
+    const requestedUrls = [];
+    const fetchImpl = async (url) => {
+      requestedUrls.push(String(url));
+      if (String(url).includes("seasontype=2")) return { ok: true, async json() { return { events: [] }; } };
+      return {
+        ok: true,
+        async json() {
+          return espnSchedule("22", [{ date: "2026-10-08T23:08Z", homeAway: "home", opponentAbbrev: "METS" }]);
+        }
+      };
+    };
+    const { nextGame, myAbbrev } = await fetchNextGame("baseball", "mlb", "22", now, fetchImpl);
+    assert.strictEqual(requestedUrls.length, 2, "expected exactly one fallback request, not more");
+    assert.ok(requestedUrls[0].includes("seasontype=2"), "first request should be the regular season");
+    assert.ok(requestedUrls[1].includes("seasontype=3"), "fallback request should ask for the postseason");
+    assert.ok(nextGame);
+    assert.strictEqual(nextGame.opponentAbbrev, "METS");
+    assert.strictEqual(myAbbrev, "ME");
+  });
+  await test("both the regular season AND postseason coming back empty is a real off-season -- nextGame is null, not an error", async () => {
+    const now = new Date(Date.UTC(2026, 10, 1, 12, 0, 0));
+    const fetchImpl = async () => ({ ok: true, async json() { return { events: [] }; } });
+    const { nextGame } = await fetchNextGame("baseball", "mlb", "22", now, fetchImpl);
+    assert.strictEqual(nextGame, null);
+  });
+  await test("a failed postseason fallback request degrades to the regular-season result (still 'no upcoming games') rather than throwing", async () => {
+    const now = new Date(Date.UTC(2026, 9, 5, 12, 0, 0));
+    const fetchImpl = async (url) => {
+      if (String(url).includes("seasontype=2")) return { ok: true, async json() { return { events: [] }; } };
+      return { ok: false, status: 500 };
+    };
+    const { nextGame } = await fetchNextGame("baseball", "mlb", "22", now, fetchImpl);
+    assert.strictEqual(nextGame, null);
+  });
+  await test("a network error on the postseason fallback also degrades gracefully instead of throwing", async () => {
+    const now = new Date(Date.UTC(2026, 9, 5, 12, 0, 0));
+    const fetchImpl = async (url) => {
+      if (String(url).includes("seasontype=2")) return { ok: true, async json() { return { events: [] }; } };
+      throw new Error("network down");
+    };
+    const { nextGame } = await fetchNextGame("baseball", "mlb", "22", now, fetchImpl);
+    assert.strictEqual(nextGame, null);
+  });
+
   console.log("packTo1Bit");
   await test("packs a fully-black canvas to all-1 bits", () => {
     const c = createCanvas(16, 8);
