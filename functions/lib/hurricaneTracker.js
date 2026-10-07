@@ -127,6 +127,21 @@ function categoryFromWindKt(kt) {
   return "CAT 1";
 }
 
+// The banner's title only ever shows the storm's NAME -- this spells out
+// its current type in front of it ("HURRICANE ISAIAS," not just
+// "ISAIAS"), derived from classificationNow's own abbreviated label
+// (CAT n / TROP. STORM / TROP. DEPRESSION) rather than a second NHC
+// field, since that's already exactly this information. Omits the word
+// entirely for anything that doesn't map cleanly (e.g. "UNKNOWN," or a
+// raw post-tropical/subtropical code like "EX") rather than guessing.
+function stormTypeWord(classificationNow) {
+  if (!classificationNow) return "";
+  if (classificationNow.indexOf("CAT") === 0) return "HURRICANE";
+  if (classificationNow === "TROP. STORM") return "TROPICAL STORM";
+  if (classificationNow === "TROP. DEPRESSION") return "TROPICAL DEPRESSION";
+  return "";
+}
+
 function ktToMph(kt) {
   const n = Number(kt);
   return isNaN(n) ? null : Math.round(n * 1.15078);
@@ -377,7 +392,7 @@ function drawBanner(ctx, text) {
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
-  const size = fitFontSize(ctx, text, CANVAS_WIDTH - 30, FONT_BLOCK, 24, 14);
+  const size = fitFontSize(ctx, text, CANVAS_WIDTH - 30, FONT_BLOCK, 30, 16);
   ctx.font = size + "px \"" + FONT_BLOCK + "\"";
   const m = ctx.measureText(text);
   const textH = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
@@ -531,7 +546,8 @@ function drawHurricaneTrackerCard(ctx, data) {
     return;
   }
 
-  const bannerText = data.stormName.toUpperCase() + (data.townName ? " — " + data.townName.toUpperCase() : "");
+  const typeWord = stormTypeWord(data.classificationNow);
+  const bannerText = (typeWord ? typeWord + " " : "") + data.stormName.toUpperCase() + (data.townName ? " — " + data.townName.toUpperCase() : "");
   drawBanner(ctx, bannerText);
 
   const bodyTop = BANNER_HEIGHT + PANEL_GAP, bodyBottom = CANVAS_HEIGHT - PANEL_GAP;
@@ -579,6 +595,7 @@ module.exports = {
   bearingCompass,
   classificationLabel,
   categoryFromWindKt,
+  stormTypeWord,
   ktToMph,
   fetchActiveStorms,
   findNearestStorm,
