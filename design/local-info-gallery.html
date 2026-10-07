@@ -763,21 +763,63 @@
     ctx.fillText(text, w / 2, baseline);
   }
 
+  // Strictly increasing in x on purpose -- see the same comment on the
+  // server's COASTLINE_TEMPLATES (functions/lib/hurricaneTracker.js) for
+  // why: hurricaneDrawMapPanel fills down to the panel's bottom edge as a
+  // solid landmass, and a non-monotonic curve makes that fill self-
+  // intersect into a broken-looking shape.
   const HURRICANE_COASTLINE_TEMPLATES = {
     midAtlantic: {
-      coast: [[44, -4], [50, 14], [54, 34], [16, 48], [56, 60], [88, 70], [46, 76], [40, 86]],
-      town: [50, 14]
+      coast: [[2, -10], [18, 6], [32, 16], [42, 11], [56, 30], [70, 50], [85, 66], [100, 94]],
+      town: [32, 16]
     },
     gulf: {
-      coast: [[2, 10], [16, 18], [30, 24], [44, 30], [60, 36], [76, 42], [84, 50], [78, 58], [88, 66], [100, 70]],
-      delta: [18, 20],
-      town: [78, 56]
+      coast: [[0, 34], [16, 26], [30, 19], [44, 23], [58, 11], [72, 20], [86, 32], [100, 28]],
+      delta: [58, 11],
+      town: [30, 19]
     }
   };
 
   function hurricanePickCoastlineTemplate(lat, lon) {
     if (typeof lon === "number" && lon <= -85 && lat < 31) return HURRICANE_COASTLINE_TEMPLATES.gulf;
     return HURRICANE_COASTLINE_TEMPLATES.midAtlantic;
+  }
+
+  // Filled landmass (land = below/right of the curve, closed to the
+  // panel's own bottom+right edges), not just a stroked outline -- reads
+  // as land-vs-water at a glance. Mirrors the server's drawLandmass.
+  function hurricaneDrawLandmass(ctx, mapPanel, coast) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(mapPanel.x, mapPanel.y, mapPanel.w, mapPanel.h);
+    ctx.clip();
+
+    ctx.fillStyle = "#dcdcdc";
+    ctx.beginPath();
+    ctx.moveTo(coast[0].x, coast[0].y);
+    for (let i = 1; i < coast.length - 1; i++) {
+      const cur = coast[i], next = coast[i + 1];
+      ctx.quadraticCurveTo(cur.x, cur.y, (cur.x + next.x) / 2, (cur.y + next.y) / 2);
+    }
+    ctx.lineTo(coast[coast.length - 1].x, coast[coast.length - 1].y);
+    ctx.lineTo(mapPanel.x + mapPanel.w, mapPanel.y + mapPanel.h);
+    ctx.lineTo(mapPanel.x, mapPanel.y + mapPanel.h);
+    ctx.closePath();
+    ctx.fill("evenodd");
+
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "#000";
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(coast[0].x, coast[0].y);
+    for (let i = 1; i < coast.length - 1; i++) {
+      const cur = coast[i], next = coast[i + 1];
+      ctx.quadraticCurveTo(cur.x, cur.y, (cur.x + next.x) / 2, (cur.y + next.y) / 2);
+    }
+    ctx.lineTo(coast[coast.length - 1].x, coast[coast.length - 1].y);
+    ctx.stroke();
+    ctx.restore();
   }
 
   function hurricaneDrawMapPanel(ctx, mapPanel, data) {
@@ -787,60 +829,30 @@
     const MP = (x, y) => ({ x: mox + x * msx, y: moy + y * msy });
 
     const coast = template.coast.map(([x, y]) => MP(x, y));
-    ctx.save();
-    ctx.lineWidth = 2.2;
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(coast[0].x, coast[0].y);
-    for (let i = 1; i < coast.length - 1; i++) {
-      const cur = coast[i], next = coast[i + 1];
-      const midX = (cur.x + next.x) / 2, midY = (cur.y + next.y) / 2;
-      ctx.quadraticCurveTo(cur.x, cur.y, midX, midY);
-    }
-    ctx.lineTo(coast[coast.length - 1].x, coast[coast.length - 1].y);
-    ctx.stroke();
-    ctx.restore();
-
-    if (template.delta) {
-      const base = MP(template.delta[0], template.delta[1]);
-      ctx.save();
-      ctx.lineWidth = 1.8;
-      [[6, 26], [0, 30], [-7, 25]].forEach(([dx, dy]) => {
-        ctx.beginPath();
-        ctx.moveTo(base.x, base.y);
-        ctx.lineTo(base.x + dx * msx * 0.5, base.y + dy * msy * 0.5);
-        ctx.stroke();
-      });
-      ctx.restore();
-    }
-
-    ctx.save();
-    ctx.lineWidth = 1;
-    for (let i = 1; i < coast.length - 1; i++) {
-      const cur = coast[i];
-      ctx.beginPath();
-      ctx.moveTo(cur.x - 2, cur.y - 12);
-      ctx.lineTo(cur.x - 9, cur.y - 7);
-      ctx.stroke();
-    }
-    ctx.restore();
+    hurricaneDrawLandmass(ctx, mapPanel, coast);
 
     const town = MP(template.town[0], template.town[1]);
     ctx.fillStyle = "#fff";
-    ctx.beginPath(); ctx.arc(town.x, town.y + 13, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(town.x, town.y + 13, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.arc(town.x, town.y + 13, 9, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = "#000";
-    hurricaneDrawStar(ctx, town.x, town.y + 13, 6.5);
+    hurricaneDrawStar(ctx, town.x, town.y + 13, 7.5);
 
     const track = (data.track || []).slice(0, 4);
     if (track.length === 0) return;
-    const trackOx = mapPanel.x + mapPanel.w - 58, trackOy = mapPanel.y + mapPanel.h - 38;
-    const offsets = [[-16, 0], [-2, -28], [14, -60], [24, -98]];
+
+    // Spread wide (66px/step) so this font size's labels never collide
+    // with a neighboring circle or label. See the same comment on the
+    // server's drawMapPanel for why.
+    const trackOx = mapPanel.x + mapPanel.w - 240, trackOy = mapPanel.y + mapPanel.h - 26;
+    const offsets = [[0, 0], [66, -18], [132, -32], [198, -44]];
     const positions = track.map((p, i) => ({ x: trackOx + offsets[i][0], y: trackOy + offsets[i][1], label: p.label }));
 
     ctx.save();
-    ctx.setLineDash([3.5, 3]);
-    ctx.lineWidth = 1.3;
+    ctx.setLineDash([4.5, 4]);
+    ctx.lineWidth = 2;
     ctx.beginPath();
     positions.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
     ctx.stroke();
@@ -848,17 +860,18 @@
 
     positions.forEach((p, i) => {
       ctx.fillStyle = "#fff";
-      ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = "#000";
-      ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = "#000";
-      ctx.font = "bold 11px Georgia, serif";
+      ctx.font = "bold 16px Georgia, serif";
       ctx.textAlign = "center";
-      ctx.fillText(String(i + 1), p.x, p.y + 4);
-      ctx.font = "8px Georgia, serif";
-      ctx.fillText(p.label.day, p.x, p.y - 13);
-      ctx.fillText(p.label.time, p.x, p.y + 20);
+      ctx.fillText(String(i + 1), p.x, p.y + 5.5);
+
+      const above = i % 2 === 0;
+      ctx.font = "bold 13px Georgia, serif";
+      ctx.fillText(p.label.day + " " + p.label.time, p.x, above ? p.y - 20 : p.y + 30);
     });
   }
 
