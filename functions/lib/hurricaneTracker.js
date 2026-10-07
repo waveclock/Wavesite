@@ -279,18 +279,31 @@ async function fetchHurricaneTrackerCardData({ lat, lon, townName }, now, fetchI
 // README's Hurricane Tracker section for the plan to replace these with
 // real simplified coastline data later -- a one-time, static fetch
 // (coastlines don't move), not something this card needs to do live.
+//
+// `coast` points are strictly increasing in x on purpose: drawMapPanel
+// fills the region from this curve down to the panel's bottom edge as a
+// solid landmass (not just a stroked outline), and a non-monotonic curve
+// (looping back on itself in x) makes that fill self-intersect into a
+// broken-looking shape. A real coastline obviously loops in both axes --
+// this is a deliberate simplification to keep the fill a simple polygon,
+// same tradeoff as the rest of this template being hand-approximated.
 const COASTLINE_TEMPLATES = {
-  // Mid-Atlantic: NJ shore, Chesapeake Bay mouth, Outer Banks hook.
+  // Mid-Atlantic: a NJ-shore-style diagonal with one notch standing in
+  // for the Chesapeake Bay / Delaware Bay style inlets along this coast.
   midAtlantic: {
-    coast: [[44, -4], [50, 14], [54, 34], [16, 48], [56, 60], [88, 70], [46, 76], [40, 86]],
-    town: [50, 14]
+    coast: [[2, -10], [18, 6], [32, 16], [42, 11], [56, 30], [70, 50], [85, 66], [100, 94]],
+    town: [32, 16]
   },
-  // Gulf Coast: Mississippi River delta "bird's foot," LA/MS/AL coast,
-  // Mobile Bay, into the Florida Panhandle.
+  // Gulf Coast: a shallower, more horizontal shoreline with one outward
+  // bump standing in for the Mississippi River delta's "bird's foot" --
+  // the bump itself carries that feature now (small branching spur lines
+  // drawn off it read as a glitch at this card's scale, not a delta, so
+  // this card no longer draws them). `delta` is just a marker distinguishing
+  // this template from Mid-Atlantic (see pickCoastlineTemplate's own test).
   gulf: {
-    coast: [[2, 10], [16, 18], [30, 24], [44, 30], [60, 36], [76, 42], [84, 50], [78, 58], [88, 66], [100, 70]],
-    delta: [18, 20],
-    town: [78, 56]
+    coast: [[0, 34], [16, 26], [30, 19], [44, 23], [58, 11], [72, 20], [86, 32], [100, 28]],
+    delta: [58, 11],
+    town: [30, 19]
   }
 };
 
@@ -364,6 +377,47 @@ function drawBanner(ctx, text) {
   ctx.fillText(text, CANVAS_WIDTH / 2, baseline);
 }
 
+// Draws the coastline as a FILLED landmass (land is the region below/
+// right of the curve, closed off along the panel's own bottom+right
+// edges), not just a stroked outline -- reads as land-vs-water at a
+// glance, unlike the old thin-line-plus-hatch-marks approach it
+// replaces. Relies on COASTLINE_TEMPLATES' `coast` arrays being
+// strictly increasing in x (see that constant's own comment) to stay a
+// simple, non-self-intersecting polygon.
+function drawLandmass(ctx, mapPanel, coast) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(mapPanel.x, mapPanel.y, mapPanel.w, mapPanel.h);
+  ctx.clip();
+
+  ctx.fillStyle = "#dcdcdc";
+  ctx.beginPath();
+  ctx.moveTo(coast[0].x, coast[0].y);
+  for (let i = 1; i < coast.length - 1; i++) {
+    const cur = coast[i], next = coast[i + 1];
+    ctx.quadraticCurveTo(cur.x, cur.y, (cur.x + next.x) / 2, (cur.y + next.y) / 2);
+  }
+  ctx.lineTo(coast[coast.length - 1].x, coast[coast.length - 1].y);
+  ctx.lineTo(mapPanel.x + mapPanel.w, mapPanel.y + mapPanel.h);
+  ctx.lineTo(mapPanel.x, mapPanel.y + mapPanel.h);
+  ctx.closePath();
+  ctx.fill("evenodd");
+
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = "#000";
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(coast[0].x, coast[0].y);
+  for (let i = 1; i < coast.length - 1; i++) {
+    const cur = coast[i], next = coast[i + 1];
+    ctx.quadraticCurveTo(cur.x, cur.y, (cur.x + next.x) / 2, (cur.y + next.y) / 2);
+  }
+  ctx.lineTo(coast[coast.length - 1].x, coast[coast.length - 1].y);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawMapPanel(ctx, mapPanel, data) {
   const template = pickCoastlineTemplate(data.townLat, data.townLon);
   const mox = mapPanel.x + 14, moy = mapPanel.y + 16;
@@ -371,63 +425,38 @@ function drawMapPanel(ctx, mapPanel, data) {
   const MP = (x, y) => ({ x: mox + x * msx, y: moy + y * msy });
 
   const coast = template.coast.map(([x, y]) => MP(x, y));
-  ctx.save();
-  ctx.lineWidth = 2.2;
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(coast[0].x, coast[0].y);
-  for (let i = 1; i < coast.length - 1; i++) {
-    const cur = coast[i], next = coast[i + 1];
-    const midX = (cur.x + next.x) / 2, midY = (cur.y + next.y) / 2;
-    ctx.quadraticCurveTo(cur.x, cur.y, midX, midY);
-  }
-  ctx.lineTo(coast[coast.length - 1].x, coast[coast.length - 1].y);
-  ctx.stroke();
-  ctx.restore();
-
-  if (template.delta) {
-    const base = MP(template.delta[0], template.delta[1]);
-    ctx.save();
-    ctx.lineWidth = 1.8;
-    [[6, 26], [0, 30], [-7, 25]].forEach(([dx, dy]) => {
-      ctx.beginPath();
-      ctx.moveTo(base.x, base.y);
-      ctx.lineTo(base.x + dx * msx * 0.5, base.y + dy * msy * 0.5);
-      ctx.stroke();
-    });
-    ctx.restore();
-  }
-
-  ctx.save();
-  ctx.lineWidth = 1;
-  for (let i = 1; i < coast.length - 1; i++) {
-    const cur = coast[i];
-    ctx.beginPath();
-    ctx.moveTo(cur.x - 2, cur.y - 12);
-    ctx.lineTo(cur.x - 9, cur.y - 7);
-    ctx.stroke();
-  }
-  ctx.restore();
+  drawLandmass(ctx, mapPanel, coast);
 
   const town = MP(template.town[0], template.town[1]);
   ctx.fillStyle = "#fff";
-  ctx.beginPath(); ctx.arc(town.x, town.y + 13, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(town.x, town.y + 13, 9, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 1.8;
+  ctx.beginPath(); ctx.arc(town.x, town.y + 13, 9, 0, Math.PI * 2); ctx.stroke();
   ctx.fillStyle = "#000";
-  drawStar(ctx, town.x, town.y + 13, 6.5);
+  drawStar(ctx, town.x, town.y + 13, 7.5);
 
   const track = (data.track || []).slice(0, 4);
   if (track.length === 0) return;
-  const trackOx = mapPanel.x + mapPanel.w - 58, trackOy = mapPanel.y + mapPanel.h - 38;
+
+  // Spread wide (66px/step) so this font size's labels (see below) never
+  // collide with a neighboring circle or label -- a tighter, steeper
+  // layout tried earlier cross-overlapped both the day/time text and the
+  // circles themselves once sized large enough to read from across a
+  // room. Anchored to the panel's bottom-right regardless of template,
+  // since both templates keep their town marker in the upper-left,
+  // leaving this area open water either way.
+  const trackOx = mapPanel.x + mapPanel.w - 240, trackOy = mapPanel.y + mapPanel.h - 26;
+  const offsets = [[0, 0], [66, -18], [132, -32], [198, -44]];
   const positions = track.map((p, i) => ({
-    x: trackOx + [-16, -2, 14, 24][i],
-    y: trackOy + [0, -28, -60, -98][i],
+    x: trackOx + offsets[i][0],
+    y: trackOy + offsets[i][1],
     label: p.label
   }));
 
   ctx.save();
-  ctx.setLineDash([3.5, 3]);
-  ctx.lineWidth = 1.3;
+  ctx.setLineDash([4.5, 4]);
+  ctx.lineWidth = 2;
   ctx.beginPath();
   positions.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
   ctx.stroke();
@@ -435,17 +464,20 @@ function drawMapPanel(ctx, mapPanel, data) {
 
   positions.forEach((p, i) => {
     ctx.fillStyle = "#fff";
-    ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = "#000";
-    ctx.lineWidth = 1.6;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = "#000";
-    ctx.font = "bold 11px \"" + FONT_SERIF + "\"";
+    ctx.font = "bold 16px \"" + FONT_SERIF + "\"";
     ctx.textAlign = "center";
-    ctx.fillText(String(i + 1), p.x, p.y + 4);
-    ctx.font = "8px \"" + FONT_SERIF + "\"";
-    ctx.fillText(p.label.day, p.x, p.y - 13);
-    ctx.fillText(p.label.time, p.x, p.y + 20);
+    ctx.fillText(String(i + 1), p.x, p.y + 5.5);
+
+    // Alternates above/below so same-side labels (1&3, 2&4) are a full
+    // 2-step (132px) apart -- comfortably wider than this label's text.
+    const above = i % 2 === 0;
+    ctx.font = "bold 13px \"" + FONT_SERIF + "\"";
+    ctx.fillText(p.label.day + " " + p.label.time, p.x, above ? p.y - 20 : p.y + 30);
   });
 }
 
