@@ -1435,6 +1435,78 @@ preview (and, after the next daily regen, the real device card) render
 correctly end to end. Ships hidden alongside Beach Flags/Live Music,
 same toolbar button, until confirmed against production.
 
+### Hurricane Tracker
+
+The fourth Local Info option (`meta.type: "hurricaneTracker"`,
+`lib/hurricaneTracker.js`), built for beach towns that sit under a real
+hurricane threat for part of the year -- shows the nearest active storm
+relative to the device's saved location: distance, direction, current
+strength, and how close it's forecast to get at closest approach, plus a
+small map with the coastline and the real forecast track points. Shows
+a plain "no active storms nearby" card the rest of the time, which is
+most of the year for most customers.
+
+**Data source**: `https://www.nhc.noaa.gov/CurrentStorms.json`, the
+National Hurricane Center's own free, no-key, machine-readable feed of
+every currently active Atlantic/Pacific storm (`activeStorms[]`, each
+with its classification, intensity, current position, and a
+`forecastAdvisory.url` pointing at that storm's latest plain-text
+Forecast/Advisory product). `findNearestStorm` skips this card entirely
+(never shows a storm) once nothing is within `MAX_RELEVANT_MILES`
+(1200) of the device's saved town.
+
+**The forecast track is real NHC data, not a computed guess**: NHC's
+JSON feed only carries each storm's CURRENT position -- the future track
+shown on the map is parsed out of that storm's own Forecast/Advisory
+text product (`FORECAST VALID 11/0600Z 22.7N 62.7W ... MAX WIND 120
+KT...`, one line per forecast point) via `parseForecastTrack`, not a
+locally-extrapolated straight line from current heading and speed. A
+storm's real path curves, speeds up, and slows down in ways a simple
+projection can't capture, and this is a safety-relevant feature --
+showing a confidently-drawn guessed path as if it were an official
+forecast would be actively misleading. If the forecast text can't be
+fetched or parsed, `fetchForecastTrack` degrades to an empty track
+(the card still shows the storm's current distance/direction/strength,
+just without a "closest approach" line) rather than ever fabricating
+points. There's also no separate "expected landfall town" lookup for
+the same reason -- NHC doesn't publish that as a structured field, and
+guessing one from the forecast text would carry the same risk.
+
+**Coastline on the map panel is hand-approximated, not real GIS
+data**: `COASTLINE_TEMPLATES` (`midAtlantic` / `gulf`) are simplified
+shapes sized to roughly resemble the NJ shore/Chesapeake/Outer Banks and
+the Gulf coast/Mississippi delta respectively, picked by a simple
+longitude/latitude bucket (`pickCoastlineTemplate`) -- this development
+sandbox's network access doesn't reach any public GIS/coastline data
+source either (same `EGRESS_BLOCKED` class of failure as `nhc.noaa.gov`
+itself), so there was nothing real to trace against. Worth replacing
+with an actual simplified coastline (baked in statically -- this doesn't
+need to be a live fetch) once there's real network access to go get
+one; until then this is a recognizable approximation, not a navigation
+aid.
+
+**Refresh schedule**: `regenerateHurricaneTrackerDesigns`, hourly (same
+cadence as Beach Buddy/Live Music) -- a storm's position, strength, and
+forecast all meaningfully change over the course of a day, unlike the
+flag color's twice-a-day cadence.
+
+**Not yet verified against the live feed**: same situation as every
+other external source in this app -- this development sandbox can't
+reach `nhc.noaa.gov` (confirmed via repeated `EGRESS_BLOCKED` errors).
+Built and tested (`test/hurricaneTracker.test.js`,
+`test/hurricaneTrackerProxy.test.js`, plus the `dynamic.test.js` cases
+for `meta.type: "hurricaneTracker"`) against a `CurrentStorms.json`
+shape and forecast-advisory text format reconstructed from public
+documentation and a real open-source project parsing the same feed
+(OCHA-DAP/ds-nhc-forecast), not a live response. After first deploy:
+publish a "Hurricane Tracker" layer from a device with a saved coastal
+location, confirm the live preview matches a real NHC advisory for any
+storm active at the time (or shows "no active storms nearby" correctly
+when none are), and keep an eye on `regenerateHurricaneTrackerDesigns`'s
+logs the first time a real storm comes within range. Ships hidden
+alongside the other Local Info options, same toolbar button, until
+confirmed against production.
+
 ## Known tradeoffs
 
 **At most one dynamic layer per screen, enforced client-side, not server-side**:

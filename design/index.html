@@ -2063,7 +2063,10 @@
       // reads obj.cardData.page to pick the right banner/empty-state text.
       if (obj.cardData) {
         const isMusic = obj.subType === "liveMusic" || obj.subType === "liveMusicMore";
-        const drawFn = isMusic ? drawMusicCardClient : obj.subType === "ocnjEvents" ? drawOcnjEventsCardClient : drawBeachFlagCardClient;
+        const drawFn = isMusic ? drawMusicCardClient
+          : obj.subType === "ocnjEvents" ? drawOcnjEventsCardClient
+          : obj.subType === "hurricaneTracker" ? drawHurricaneTrackerCardClient
+          : drawBeachFlagCardClient;
         drawFn(ctx, obj.cardData);
       } else {
         drawText(ctx, obj.previewContent || "LOADING…", obj);
@@ -2110,7 +2113,11 @@
     if (obj.kind === "news") return "News: " + (obj.feedUrl || obj.location || "(add a location)");
     if (obj.kind === "beachBuddy") return "Beach Buddy" + (obj.mood ? ": " + obj.mood.headline : " (loading…)");
     if (obj.kind === "localInfo") {
-      const subTypeLabel = obj.subType === "liveMusicMore" ? "More Live Music" : obj.subType === "liveMusic" ? "Live Music" : obj.subType === "ocnjEvents" ? "OCNJ Events" : "Beach Flags";
+      const subTypeLabel = obj.subType === "liveMusicMore" ? "More Live Music"
+        : obj.subType === "liveMusic" ? "Live Music"
+        : obj.subType === "ocnjEvents" ? "OCNJ Events"
+        : obj.subType === "hurricaneTracker" ? "Hurricane Tracker"
+        : "Beach Flags";
       return "Local Info: " + subTypeLabel + (obj.cardData ? "" : " (loading…)");
     }
     if (obj.kind === "icon") return "Sticker: " + obj.name.charAt(0).toUpperCase() + obj.name.slice(1);
@@ -4342,6 +4349,235 @@
     return data;
   }
 
+  // ================= Hurricane Tracker (live preview) =================
+  // Mirrors functions/lib/hurricaneTracker.js's drawHurricaneTrackerCard/
+  // fetchHurricaneTrackerCardData exactly -- see that file's own header
+  // comment for the NHC data source and the coastline-approximation
+  // caveat (not traced from real GIS data).
+  const HURRICANE_TRACKER_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/hurricaneTrackerProxy";
+  const HURRICANE_PANEL_GAP = 8;
+  const HURRICANE_PANEL_RADIUS = 18;
+  const HURRICANE_BANNER_HEIGHT = 40;
+
+  async function fetchHurricaneTrackerCardDataClient(lat, lon, townName) {
+    const url = HURRICANE_TRACKER_PROXY_BASE + "?lat=" + encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lon)
+      + (townName ? "&townName=" + encodeURIComponent(townName) : "");
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("Hurricane tracker fetch failed: " + resp.status));
+    return data;
+  }
+
+  function hurricaneDrawStar(ctx, cx, cy, r) {
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const rad = i % 2 === 0 ? r : r * 0.45;
+      const ang = -Math.PI / 2 + (i * Math.PI) / 5;
+      const x = cx + rad * Math.cos(ang), y = cy + rad * Math.sin(ang);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function hurricanePanel(ctx, x, y, w, h) {
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, HURRICANE_PANEL_RADIUS);
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "#000";
+    ctx.stroke();
+  }
+
+  function hurricaneEvenlySpacedRows(ctx, panelBox, rows) {
+    const cx = panelBox.x + panelBox.w / 2;
+    ctx.textAlign = "center";
+    const metrics = rows.map((row) => {
+      ctx.font = row.font;
+      const m = ctx.measureText(row.text);
+      return { ascent: m.actualBoundingBoxAscent, h: m.actualBoundingBoxAscent + m.actualBoundingBoxDescent };
+    });
+    const totalTextH = metrics.reduce((s, m) => s + m.h, 0);
+    const gap = Math.max(4, (panelBox.h - totalTextH) / (rows.length + 1));
+    let y = panelBox.y + gap;
+    rows.forEach((row, i) => {
+      ctx.font = row.font;
+      ctx.fillStyle = row.color || "#000";
+      ctx.fillText(row.text, cx, y + metrics[i].ascent);
+      y += metrics[i].h + gap;
+    });
+  }
+
+  function hurricaneDrawBanner(ctx, w, text) {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, HURRICANE_BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    const size = fitBannerFontSize(ctx, text, w - 30, "'Bungee', sans-serif", 24, 14);
+    ctx.font = size + "px 'Bungee', sans-serif";
+    const m = ctx.measureText(text);
+    const textH = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+    const baseline = (HURRICANE_BANNER_HEIGHT - textH) / 2 + m.actualBoundingBoxAscent;
+    ctx.fillText(text, w / 2, baseline);
+  }
+
+  const HURRICANE_COASTLINE_TEMPLATES = {
+    midAtlantic: {
+      coast: [[44, -4], [50, 14], [54, 34], [16, 48], [56, 60], [88, 70], [46, 76], [40, 86]],
+      town: [50, 14]
+    },
+    gulf: {
+      coast: [[2, 10], [16, 18], [30, 24], [44, 30], [60, 36], [76, 42], [84, 50], [78, 58], [88, 66], [100, 70]],
+      delta: [18, 20],
+      town: [78, 56]
+    }
+  };
+
+  function hurricanePickCoastlineTemplate(lat, lon) {
+    if (typeof lon === "number" && lon <= -85 && lat < 31) return HURRICANE_COASTLINE_TEMPLATES.gulf;
+    return HURRICANE_COASTLINE_TEMPLATES.midAtlantic;
+  }
+
+  function hurricaneDrawMapPanel(ctx, mapPanel, data) {
+    const template = hurricanePickCoastlineTemplate(data.townLat, data.townLon);
+    const mox = mapPanel.x + 14, moy = mapPanel.y + 16;
+    const msx = (mapPanel.w - 70) / 100, msy = (mapPanel.h - 32) / 80;
+    const MP = (x, y) => ({ x: mox + x * msx, y: moy + y * msy });
+
+    const coast = template.coast.map(([x, y]) => MP(x, y));
+    ctx.save();
+    ctx.lineWidth = 2.2;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(coast[0].x, coast[0].y);
+    for (let i = 1; i < coast.length - 1; i++) {
+      const cur = coast[i], next = coast[i + 1];
+      const midX = (cur.x + next.x) / 2, midY = (cur.y + next.y) / 2;
+      ctx.quadraticCurveTo(cur.x, cur.y, midX, midY);
+    }
+    ctx.lineTo(coast[coast.length - 1].x, coast[coast.length - 1].y);
+    ctx.stroke();
+    ctx.restore();
+
+    if (template.delta) {
+      const base = MP(template.delta[0], template.delta[1]);
+      ctx.save();
+      ctx.lineWidth = 1.8;
+      [[6, 26], [0, 30], [-7, 25]].forEach(([dx, dy]) => {
+        ctx.beginPath();
+        ctx.moveTo(base.x, base.y);
+        ctx.lineTo(base.x + dx * msx * 0.5, base.y + dy * msy * 0.5);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.lineWidth = 1;
+    for (let i = 1; i < coast.length - 1; i++) {
+      const cur = coast[i];
+      ctx.beginPath();
+      ctx.moveTo(cur.x - 2, cur.y - 12);
+      ctx.lineTo(cur.x - 9, cur.y - 7);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    const town = MP(template.town[0], template.town[1]);
+    ctx.fillStyle = "#fff";
+    ctx.beginPath(); ctx.arc(town.x, town.y + 13, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#000";
+    hurricaneDrawStar(ctx, town.x, town.y + 13, 6.5);
+
+    const track = (data.track || []).slice(0, 4);
+    if (track.length === 0) return;
+    const trackOx = mapPanel.x + mapPanel.w - 58, trackOy = mapPanel.y + mapPanel.h - 38;
+    const offsets = [[-16, 0], [-2, -28], [14, -60], [24, -98]];
+    const positions = track.map((p, i) => ({ x: trackOx + offsets[i][0], y: trackOy + offsets[i][1], label: p.label }));
+
+    ctx.save();
+    ctx.setLineDash([3.5, 3]);
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    positions.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+    ctx.stroke();
+    ctx.restore();
+
+    positions.forEach((p, i) => {
+      ctx.fillStyle = "#fff";
+      ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "#000";
+      ctx.font = "bold 11px Georgia, serif";
+      ctx.textAlign = "center";
+      ctx.fillText(String(i + 1), p.x, p.y + 4);
+      ctx.font = "8px Georgia, serif";
+      ctx.fillText(p.label.day, p.x, p.y - 13);
+      ctx.fillText(p.label.time, p.x, p.y + 20);
+    });
+  }
+
+  function drawHurricaneTrackerCardClient(ctx, data) {
+    const w = baseCanvas.width, h = baseCanvas.height;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, h);
+
+    if (data.noActiveStorm) {
+      hurricaneDrawBanner(ctx, w, "HURRICANE TRACKER" + (data.townName ? " — " + data.townName.toUpperCase() : ""));
+      const body = { x: HURRICANE_PANEL_GAP, y: HURRICANE_BANNER_HEIGHT + HURRICANE_PANEL_GAP, w: w - HURRICANE_PANEL_GAP * 2, h: h - HURRICANE_BANNER_HEIGHT - HURRICANE_PANEL_GAP * 2 };
+      hurricanePanel(ctx, body.x, body.y, body.w, body.h);
+      hurricaneEvenlySpacedRows(ctx, body, [
+        { text: "NO ACTIVE STORMS NEARBY", font: "44px 'Bungee', sans-serif" },
+        { text: "Checked again automatically every hour", font: "bold 18px Georgia, serif", color: "#555" }
+      ]);
+      return;
+    }
+
+    const bannerText = data.stormName.toUpperCase() + (data.townName ? " — " + data.townName.toUpperCase() : "");
+    hurricaneDrawBanner(ctx, w, bannerText);
+
+    const bodyTop = HURRICANE_BANNER_HEIGHT + HURRICANE_PANEL_GAP, bodyBottom = h - HURRICANE_PANEL_GAP;
+    const bodyLeft = HURRICANE_PANEL_GAP, bodyRight = w - HURRICANE_PANEL_GAP;
+    const mapW = 270;
+    const leftW = bodyRight - HURRICANE_PANEL_GAP - mapW - bodyLeft;
+    const halfH = (bodyBottom - bodyTop - HURRICANE_PANEL_GAP) / 2;
+
+    const heroPanel = { x: bodyLeft, y: bodyTop, w: leftW, h: halfH };
+    const closestPanel = { x: bodyLeft, y: bodyTop + halfH + HURRICANE_PANEL_GAP, w: leftW, h: halfH };
+    const mapPanel = { x: bodyRight - mapW, y: bodyTop, w: mapW, h: bodyBottom - bodyTop };
+
+    hurricanePanel(ctx, heroPanel.x, heroPanel.y, heroPanel.w, heroPanel.h);
+    hurricanePanel(ctx, closestPanel.x, closestPanel.y, closestPanel.w, closestPanel.h);
+    hurricanePanel(ctx, mapPanel.x, mapPanel.y, mapPanel.w, mapPanel.h);
+
+    const windText = data.windMphNow != null ? data.windMphNow + " MPH" : "WIND N/A";
+    hurricaneEvenlySpacedRows(ctx, heroPanel, [
+      { text: data.miles + " MI " + data.direction, font: "62px 'Bungee', sans-serif" },
+      { text: "NOW · " + data.classificationNow + " · " + windText, font: "bold 18px Georgia, serif" }
+    ]);
+
+    if (data.closestApproach) {
+      const ca = data.closestApproach;
+      const caWind = ca.windMph != null ? ca.windMph + " MPH" : "WIND N/A";
+      hurricaneEvenlySpacedRows(ctx, closestPanel, [
+        { text: "CLOSEST: " + ca.miles + " MI · " + ca.classification, font: "bold 19px Georgia, serif" },
+        { text: caWind, font: "bold 18px Georgia, serif", color: "#333" },
+        { text: ca.label.day + " " + ca.label.time, font: "bold 18px Georgia, serif", color: "#333" }
+      ]);
+    } else {
+      hurricaneEvenlySpacedRows(ctx, closestPanel, [
+        { text: "FORECAST TRACK", font: "bold 19px Georgia, serif" },
+        { text: "NOT AVAILABLE RIGHT NOW", font: "bold 17px Georgia, serif", color: "#555" }
+      ]);
+    }
+
+    hurricaneDrawMapPanel(ctx, mapPanel, Object.assign({ townLat: data.townLat, townLon: data.townLon }, data));
+  }
+
   // One entry per Local Info gallery option -- adding a new one (see
   // local-info-gallery.html's OPTIONS array) means adding it here too,
   // nothing else in loadLocalInfoLayer below needs to change.
@@ -4400,6 +4636,30 @@
         const data = await fetchOcnjEventsCardDataClient();
         return { data, successText: "This is the real card — it updates itself daily after you publish." };
       }
+    },
+    // Unlike Beach Flag, there's no useful "no location" fallback here --
+    // without coordinates there's nothing to measure distance against, so
+    // this always needs a real device location.
+    hurricaneTracker: {
+      needsLocation: true,
+      loadingText: "Checking for nearby storms…",
+      errorLabel: "the hurricane tracker",
+      async fetchData(location) {
+        const hasLocation = location && typeof location.lat === "number" && typeof location.lon === "number";
+        if (!hasLocation) {
+          return {
+            data: { noActiveStorm: true, townName: null },
+            successText: "Set a device location (see Manage) so this card knows which town to track storms relative to."
+          };
+        }
+        const raw = await fetchHurricaneTrackerCardDataClient(location.lat, location.lon, location.name);
+        // townLat/townLon ride alongside the real storm data purely for
+        // drawHurricaneTrackerCardClient's own coastline-template pick --
+        // mirrors functions/lib/dynamic.js's renderDynamicDesign doing the
+        // same merge server-side before its own draw call.
+        const data = Object.assign({ townLat: location.lat, townLon: location.lon }, raw);
+        return { data, successText: "This is the real card — it updates itself hourly after you publish." };
+      }
     }
   };
 
@@ -4440,11 +4700,18 @@
     try {
       const location = config.needsLocation ? await resolveTideLocation().catch(() => null) : null;
       if (token !== localInfoFetchToken) return;
-      const hasLocation = location && typeof location.lat === "number" && typeof location.lon === "number" && location.stationId;
+      // Deliberately NOT requiring location.stationId here -- that's only
+      // meaningful for subtypes with a tide station of their own (Beach
+      // Flag's bonus surf/water stats), which already re-check it
+      // themselves inside their own fetchData. A subtype like Hurricane
+      // Tracker that only ever needs lat/lon would otherwise silently
+      // publish with no coordinates at all for a device whose saved
+      // location happens to lack a station.
+      const hasLocation = location && typeof location.lat === "number" && typeof location.lon === "number";
       if (hasLocation) {
         layer.lat = location.lat;
         layer.lon = location.lon;
-        layer.stationId = location.stationId;
+        layer.stationId = location.stationId || null;
         layer.townName = location.name || null;
       }
 

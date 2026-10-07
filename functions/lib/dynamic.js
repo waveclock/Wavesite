@@ -8,9 +8,10 @@
 // "news", "tide", "tideTimeline", "beachBuddy" (see the "Beach Buddy"
 // section below -- a single recurring character whose pose is driven by
 // real tide/weather data, illustrated by Imagen with a procedural
-// vector-line fallback), and the three Local Info subTypes, "beachFlag"
-// (lib/beachflag.js), "liveMusic"/"liveMusicMore" (lib/liveMusic.js), and
-// "ocnjEvents" (lib/ocnjCard.js).
+// vector-line fallback), and the four Local Info subTypes, "beachFlag"
+// (lib/beachflag.js), "liveMusic"/"liveMusicMore" (lib/liveMusic.js),
+// "ocnjEvents" (lib/ocnjCard.js), and "hurricaneTracker"
+// (lib/hurricaneTracker.js).
 //
 // IMPORTANT: daysUntil(), formatCountdownText(), formatTeamText(),
 // findNextGame(), the dithering functions, and drawGameDayCard() are
@@ -30,6 +31,7 @@ const { generateBeachBuddyArt } = require("./imagen");
 const { fetchBeachFlagCardData, drawBeachFlagCard } = require("./beachflag");
 const { fetchMusicEventsCardData, drawMusicCard } = require("./liveMusic");
 const { fetchOcnjEventsCardData, drawOcnjEventsCard } = require("./ocnjCard");
+const { fetchHurricaneTrackerCardData, drawHurricaneTrackerCard } = require("./hurricaneTracker");
 
 const CANVAS_WIDTH = 792;
 const CANVAS_HEIGHT = 272;
@@ -2820,6 +2822,20 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
       ? data.events.map((e) => e.title).join(", ")
       : "No OCNJ events today";
     return Object.assign(result, { ocnjEventsData: data, content });
+  }
+
+  if (meta.type === "hurricaneTracker") {
+    const data = await fetchHurricaneTrackerCardData({ lat: meta.lat, lon: meta.lon, townName: meta.townName }, now, fetchImpl);
+    // townLat/townLon ride separately from the rest of `data` (fetchHurricaneTrackerCardData's
+    // own return value) because they're only needed for drawHurricaneTrackerCard's
+    // own coastline-template pick (see pickCoastlineTemplate) -- not real
+    // storm data, so they don't belong on the data object itself.
+    const cardWithLocation = Object.assign({ townLat: meta.lat, townLon: meta.lon }, data);
+    const result = await compositeAndPack(basePngBuffer, (ctx) => drawHurricaneTrackerCard(ctx, cardWithLocation), meta);
+    const content = data.noActiveStorm
+      ? "No active storms nearby"
+      : data.stormName + " " + data.miles + " mi " + data.direction + " · " + data.classificationNow;
+    return Object.assign(result, { hurricaneData: data, content });
   }
 
   throw new Error("Unknown dynamic layer type: " + meta.type);

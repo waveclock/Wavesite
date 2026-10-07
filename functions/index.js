@@ -26,6 +26,7 @@ const { fetchBeachFlagCardData } = require("./lib/beachflag");
 const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
+const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -110,8 +111,12 @@ async function processDevice(bucket, deviceId, now, fetchImpl, options) {
 // (data/ocnj-events.json) only refreshes once a day itself
 // (generateOcnjEventsJson, 08:00 UTC, an hour before this job runs), so
 // there's no reason for the card to redraw any more often than this
-// daily pass already does.
-const DAILY_REGEN_TYPES = (type) => type !== "beachBuddy" && type !== "beachFlag" && type !== "liveMusic" && type !== "liveMusicMore";
+// daily pass already does. "hurricaneTracker" is excluded for the same
+// reason as beachFlag/liveMusic -- an active storm's position, forecast,
+// and distance to a given town can all meaningfully change within a
+// single day, so it rides its own hourly schedule
+// (regenerateHurricaneTrackerDesigns below) instead.
+const DAILY_REGEN_TYPES = (type) => type !== "beachBuddy" && type !== "beachFlag" && type !== "liveMusic" && type !== "liveMusicMore" && type !== "hurricaneTracker";
 
 exports.regenerateCountdownDesigns = onSchedule(
   { schedule: "0 9 * * *", timeZone: "Etc/UTC", retryCount: 1 },
@@ -278,6 +283,40 @@ exports.regenerateLiveMusicDesigns = onSchedule(
       }
     }
     logger.info("Live Music refresh done. updated=" + updated + " skipped(not liveMusic)=" + skipped + " failed=" + failed);
+  }
+);
+
+// Hourly, like Live Music and Beach Buddy -- an active storm's position
+// and forecast genuinely change within a day, and DAILY_REGEN_TYPES
+// above deliberately excludes "hurricaneTracker" so this is the only
+// thing keeping that card current. Same blind full-redraw approach as
+// the other hourly jobs: one NHC fetch (plus, when a storm's in range,
+// a second small text fetch for the forecast track) per device, cheap
+// either way.
+exports.regenerateHurricaneTrackerDesigns = onSchedule(
+  { schedule: "0 * * * *", timeZone: "Etc/UTC", retryCount: 1 },
+  async () => {
+    const bucket = admin.storage().bucket();
+    const [files] = await bucket.getFiles({ prefix: DESIGNS_PREFIX });
+    const deviceIds = files
+      .map((f) => deviceIdFromDynamicPath(f.name))
+      .filter(Boolean);
+
+    const now = new Date();
+    let updated = 0, skipped = 0, failed = 0;
+    for (const deviceId of deviceIds) {
+      try {
+        const outcome = await processDevice(bucket, deviceId, now, undefined, {
+          typeFilter: (type) => type === "hurricaneTracker"
+        });
+        if (outcome === "updated") updated++;
+        else if (outcome === "skipped") skipped++;
+      } catch (err) {
+        failed++;
+        logger.error("Failed to refresh Hurricane Tracker layer for " + deviceId + ":", err);
+      }
+    }
+    logger.info("Hurricane Tracker refresh done. updated=" + updated + " skipped(not hurricaneTracker)=" + skipped + " failed=" + failed);
   }
 );
 
@@ -660,6 +699,34 @@ async function ocnjEventsProxyHandler(req, res) {
 
 exports.ocnjEventsProxy = onRequest({ cors: true, region: "us-central1" }, ocnjEventsProxyHandler);
 
+// ================= Hurricane Tracker proxy =================
+// design's Hurricane Tracker tool live preview -- needs a lat/lon
+// (same required-coordinates validation beachFlagProxy uses) since
+// "nearest storm" and "closest approach" are both relative to a specific
+// town. Unlike beachFlagProxy's location params, there's no optional
+// no-location path here: without coordinates there's nothing to measure
+// against, so this always requires lat/lon rather than falling back to
+// a locationless card.
+async function hurricaneTrackerProxyHandler(req, res) {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+    res.status(400).json({ error: "lat/lon must be valid coordinates" });
+    return;
+  }
+  const townName = typeof req.query.townName === "string" ? req.query.townName.trim() : "";
+
+  try {
+    const data = await fetchHurricaneTrackerCardData({ lat, lon, townName: townName || null }, new Date());
+    res.status(200).json(data);
+  } catch (err) {
+    logger.error("Hurricane tracker proxy request failed:", err);
+    res.status(502).json({ error: "Couldn't reach the National Hurricane Center right now" });
+  }
+}
+
+exports.hurricaneTrackerProxy = onRequest({ cors: true, region: "us-central1" }, hurricaneTrackerProxyHandler);
+
 // ================= Imagen proxy (Beach Buddy) =================
 // design's Beach Buddy tool needs to show the REAL Imagen illustration
 // while previewing, not just the procedural fallback -- same CORS
@@ -814,4 +881,4 @@ exports.teamsnapProxy = onRequest({ cors: true, region: "us-central1" }, teamsna
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };

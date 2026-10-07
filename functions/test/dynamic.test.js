@@ -1753,6 +1753,52 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
   });
 
+  console.log("renderDynamicDesign (type: hurricaneTracker)");
+  const NHC_CURRENT_STORMS_URL = "https://www.nhc.noaa.gov/CurrentStorms.json";
+  const SAMPLE_HURRICANE_FORECAST_TEXT = "FORECAST VALID  08/0800Z 25.9N  91.8W\n MAX WIND  55 KT...GUSTS  70 KT";
+  const SAMPLE_HURRICANE_STORM = {
+    id: "al092026", name: "ISAIAS", classification: "TD", intensity: "35",
+    latitudeNumeric: 22.1, longitudeNumeric: -95.6,
+    forecastAdvisory: { advNum: "3", issuance: "2026-10-06T21:00:00.000Z", url: "https://www.nhc.noaa.gov/text/MIATCMAT4.shtml" }
+  };
+  function fakeHurricaneFetch(storms) {
+    return async (url) => {
+      const s = String(url);
+      if (s === NHC_CURRENT_STORMS_URL) return { ok: true, status: 200, async json() { return { activeStorms: storms }; } };
+      if (s.includes("MIATCMAT4")) return { ok: true, status: 200, async text() { return SAMPLE_HURRICANE_FORECAST_TEXT; } };
+      throw new Error("unexpected URL in test: " + s);
+    };
+  }
+  await test("renders the full card when a storm is within range, including a correctly-categorized closest approach", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-10-06T22:00:00Z");
+    const meta = { type: "hurricaneTracker", lat: 30.246, lon: -87.7008, townName: "Gulf Shores, AL" };
+    const result = await renderDynamicDesign(base, meta, now, fakeHurricaneFetch([SAMPLE_HURRICANE_STORM]));
+    assert.ok(result);
+    assert.strictEqual(result.hurricaneData.noActiveStorm, false);
+    assert.strictEqual(result.hurricaneData.stormName, "ISAIAS");
+    assert.ok(result.content.includes("ISAIAS"));
+    assert.ok(result.binBuffer.some((b) => b !== 0));
+    const decoded = await loadImage(result.pngBuffer);
+    assert.strictEqual(decoded.width, CANVAS_WIDTH);
+    assert.strictEqual(decoded.height, CANVAS_HEIGHT);
+  });
+  await test("no storm within range publishes a real 'no active storms' card, not a thrown error", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-10-06T22:00:00Z");
+    const meta = { type: "hurricaneTracker", lat: 39.2776, lon: -74.5746, townName: "Ocean City, NJ" };
+    const result = await renderDynamicDesign(base, meta, now, fakeHurricaneFetch([SAMPLE_HURRICANE_STORM]));
+    assert.strictEqual(result.hurricaneData.noActiveStorm, true);
+    assert.strictEqual(result.content, "No active storms nearby");
+  });
+  await test("NHC being unreachable throws, same as every other real data-fetch failure in this app", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-10-06T22:00:00Z");
+    const meta = { type: "hurricaneTracker", lat: 30.246, lon: -87.7008 };
+    const fetchImpl = async () => { throw new Error("network down"); };
+    await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
+  });
+
   console.log("drawTideTimelineCard (Sun/Moon/Tide Timeline card)");
   // x-positions below are derived from this card's own dayStart/dayEnd
   // (a 24h window) the same way drawTideTimelineCard computes them
