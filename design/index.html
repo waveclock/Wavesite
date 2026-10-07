@@ -202,6 +202,53 @@
   }
   .tool-guide-icon svg { width: 14px; height: 14px; }
 
+  /* ---------- Screen Gallery callout -- a direct, one-tap link to
+     local-info-gallery.html. Previously this link only lived inside the
+     Local Info tool panel (gated behind that tool's own toolbar button,
+     hidden) or buried at the bottom of the collapsed tool guide below --
+     this surfaces it where it's actually easy to find. ---------- */
+  .gallery-callout {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 10px auto 0;
+    max-width: 420px;
+    padding: 11px 14px;
+    background: #fff;
+    border: 1.5px solid var(--driftwood);
+    border-radius: 10px;
+    text-align: left;
+    text-decoration: none;
+  }
+  .gallery-callout:hover { background: var(--foam); }
+  .gallery-callout:active { background: var(--sand); }
+  .gallery-callout-icon {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--navy);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .gallery-callout-icon svg { width: 17px; height: 17px; color: #fff; }
+  .gallery-callout-text { flex: 1; min-width: 0; }
+  .gallery-callout-title {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 13.5px;
+    color: var(--navy);
+    text-decoration: underline;
+    margin: 0 0 2px;
+  }
+  .gallery-callout-desc {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: 0;
+    line-height: 1.35;
+  }
+
   .device-tag {
     display: block;
     margin: 14px 0 0;
@@ -789,6 +836,16 @@
         <p class="feature-callout-desc">Set it once and it keeps itself current &mdash; counting down the days, pulling your team's next game, showing today's sun, moon &amp; tide, or a daily beach character whose mood matches the real weather &mdash; every single day, automatically.</p>
       </div>
     </div>
+
+    <a class="gallery-callout" id="galleryCalloutLink" href="local-info-gallery.html">
+      <span class="gallery-callout-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M5 21V3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M5 4h13l-3 3.5L18 11H5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      </span>
+      <span class="gallery-callout-text">
+        <span class="gallery-callout-title">Browse the Screen Gallery &rarr;</span>
+        <span class="gallery-callout-desc">Hyper-regional data for your town &mdash; today's beach flag color, live music nearby, or a hurricane tracker &mdash; with a live preview before you pick one.</span>
+      </span>
+    </a>
 
     <details class="tool-guide">
       <summary>Tap to see what each tool does</summary>
@@ -3346,10 +3403,12 @@
   const localInfoStatus = document.getElementById("localInfoStatus");
   const localInfoBrowseLink = document.getElementById("localInfoBrowseLink");
   const seeScreenGalleryLink = document.getElementById("seeScreenGalleryLink");
+  const galleryCalloutLink = document.getElementById("galleryCalloutLink");
   if (deviceId) {
     const galleryHref = "local-info-gallery.html?id=" + encodeURIComponent(deviceId) + "&screen=" + screen;
     localInfoBrowseLink.href = galleryHref;
     seeScreenGalleryLink.href = galleryHref;
+    galleryCalloutLink.href = galleryHref;
   }
 
   const BUDDY_INK = "#000";
