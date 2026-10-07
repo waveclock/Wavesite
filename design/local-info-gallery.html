@@ -822,6 +822,22 @@
     ctx.restore();
   }
 
+  // The map panel only has room for ~4 plotted points, but NHC's real
+  // forecast advisories often carry more than that -- picking the first
+  // 4 chronologically can leave off the closest-approach point entirely
+  // if it falls later in the track. Mirrors the server's
+  // selectMapTrackPoints -- see that function's own comment for why.
+  function hurricaneSelectMapTrackPoints(track, closestApproachIndex) {
+    if (!track || track.length === 0) return [];
+    const hasClosest = typeof closestApproachIndex === "number" && closestApproachIndex >= 0 && closestApproachIndex < track.length;
+    const lastIdx = hasClosest ? closestApproachIndex : track.length - 1;
+    const span = lastIdx + 1;
+    const indices = span <= 4
+      ? Array.from({ length: span }, (_, i) => i)
+      : [...new Set([0, Math.round(lastIdx / 3), Math.round((2 * lastIdx) / 3), lastIdx])];
+    return indices.map((i) => ({ point: track[i], isClosest: hasClosest && i === closestApproachIndex }));
+  }
+
   function hurricaneDrawMapPanel(ctx, mapPanel, data) {
     const template = hurricanePickCoastlineTemplate(data.townLat, data.townLon);
     const mox = mapPanel.x + 14, moy = mapPanel.y + 16;
@@ -840,15 +856,15 @@
     ctx.fillStyle = "#000";
     hurricaneDrawStar(ctx, town.x, town.y + 13, 7.5);
 
-    const track = (data.track || []).slice(0, 4);
-    if (track.length === 0) return;
+    const points = hurricaneSelectMapTrackPoints(data.track, data.closestApproachIndex);
+    if (points.length === 0) return;
 
     // Spread wide (66px/step) so this font size's labels never collide
     // with a neighboring circle or label. See the same comment on the
     // server's drawMapPanel for why.
     const trackOx = mapPanel.x + mapPanel.w - 240, trackOy = mapPanel.y + mapPanel.h - 26;
     const offsets = [[0, 0], [66, -18], [132, -32], [198, -44]];
-    const positions = track.map((p, i) => ({ x: trackOx + offsets[i][0], y: trackOy + offsets[i][1], label: p.label }));
+    const positions = points.map((entry, i) => ({ x: trackOx + offsets[i][0], y: trackOy + offsets[i][1], label: entry.point.label, isClosest: entry.isClosest }));
 
     ctx.save();
     ctx.setLineDash([4.5, 4]);
@@ -859,17 +875,18 @@
     ctx.restore();
 
     positions.forEach((p, i) => {
-      ctx.fillStyle = "#fff";
+      ctx.fillStyle = p.isClosest ? "#000" : "#fff";
       ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = "#000";
       ctx.lineWidth = 2.2;
       ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = "#000";
+      ctx.fillStyle = p.isClosest ? "#fff" : "#000";
       ctx.font = "bold 16px Georgia, serif";
       ctx.textAlign = "center";
       ctx.fillText(String(i + 1), p.x, p.y + 5.5);
 
       const above = i % 2 === 0;
+      ctx.fillStyle = "#000";
       ctx.font = "bold 13px Georgia, serif";
       ctx.fillText(p.label.day + " " + p.label.time, p.x, above ? p.y - 20 : p.y + 30);
     });
@@ -910,7 +927,7 @@
 
     const windText = data.windMphNow != null ? data.windMphNow + " MPH" : "WIND N/A";
     hurricaneEvenlySpacedRows(ctx, heroPanel, [
-      { text: data.miles + " MI " + data.direction, font: "62px 'Bungee', sans-serif" },
+      { text: data.miles + " MI " + data.direction, font: "52px 'Bungee', sans-serif" },
       { text: "NOW · " + data.classificationNow + " · " + windText, font: "bold 18px Georgia, serif" }
     ]);
 

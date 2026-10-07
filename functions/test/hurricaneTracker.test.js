@@ -22,6 +22,7 @@ const {
   fetchForecastTrack,
   pickClosestApproach,
   pickCoastlineTemplate,
+  selectMapTrackPoints,
   fetchHurricaneTrackerCardData,
   drawHurricaneTrackerCard
 } = require("../lib/hurricaneTracker");
@@ -69,6 +70,30 @@ FORECAST VALID  08/2000Z 27.6N  89.9W
  MAX WIND  75 KT...GUSTS  90 KT
 FORECAST VALID  09/0800Z 29.3N  88.0W
  MAX WIND  85 KT...GUSTS 105 KT
+`;
+
+// 6 forecast points -- longer than the map panel's old hard-coded "first
+// 4" cutoff -- where the point nearest Gulf Shores, AL is the 5th one
+// (index 4), not the 4th. Reproduces a real published card where the
+// closest-approach point fell past what the map was slicing off.
+const LONG_FORECAST_TEXT = `
+ZCZC MIATCMAT5 ALL
+HURRICANE TEST FORECAST/ADVISORY NUMBER   7
+NWS NATIONAL HURRICANE CENTER MIAMI FL
+
+INIT  06/2100Z 22.1N  95.6W   30 KT
+FORECAST VALID  07/1600Z 23.4N  94.0W
+ MAX WIND  35 KT...GUSTS  45 KT
+FORECAST VALID  08/0200Z 25.9N  91.8W
+ MAX WIND  55 KT...GUSTS  70 KT
+FORECAST VALID  08/1400Z 27.6N  89.9W
+ MAX WIND  75 KT...GUSTS  90 KT
+FORECAST VALID  09/0200Z 28.5N  89.0W
+ MAX WIND  85 KT...GUSTS 100 KT
+FORECAST VALID  09/1400Z 29.8N  88.0W
+ MAX WIND  95 KT...GUSTS 115 KT
+FORECAST VALID  10/0200Z 31.5N  86.5W
+ MAX WIND  80 KT...GUSTS  95 KT
 `;
 
 const SAMPLE_STORM = {
@@ -239,6 +264,33 @@ function fetchImplFor(storms, forecastText, opts) {
     assert.ok(!t.delta, "expected the Mid-Atlantic template, which has no delta feature");
   });
 
+  console.log("selectMapTrackPoints");
+  await test("a track of 4 or fewer points is shown in full, in order", () => {
+    const track = [{ v: 0 }, { v: 1 }, { v: 2 }];
+    const result = selectMapTrackPoints(track, null);
+    assert.deepStrictEqual(result.map((r) => r.point.v), [0, 1, 2]);
+    assert.ok(result.every((r) => !r.isClosest), "no closestApproachIndex given -- nothing should be flagged");
+  });
+  await test("returns [] for an empty or missing track", () => {
+    assert.deepStrictEqual(selectMapTrackPoints([], 0), []);
+    assert.deepStrictEqual(selectMapTrackPoints(null, 0), []);
+  });
+  await test("a longer track always ends the plotted span AT the closest-approach index, not just the first 4 points", () => {
+    const track = [{ v: 0 }, { v: 1 }, { v: 2 }, { v: 3 }, { v: 4 }, { v: 5 }];
+    const result = selectMapTrackPoints(track, 4);
+    const last = result[result.length - 1];
+    assert.strictEqual(last.point.v, 4, "the closest-approach point (index 4) must be the last one plotted, not index 3");
+    assert.strictEqual(last.isClosest, true);
+    assert.ok(result.length <= 4, "still respects the panel's ~4-point budget");
+    assert.strictEqual(result[0].point.v, 0, "always starts from the current/first point");
+  });
+  await test("with no closest-approach data at all, falls back to the track's own last point", () => {
+    const track = [{ v: 0 }, { v: 1 }, { v: 2 }, { v: 3 }, { v: 4 }, { v: 5 }];
+    const result = selectMapTrackPoints(track, null);
+    assert.strictEqual(result[result.length - 1].point.v, 5);
+    assert.ok(result.every((r) => !r.isClosest));
+  });
+
   console.log("fetchHurricaneTrackerCardData (orchestration)");
   await test("no saved location at all skips the live fetch entirely and returns noActiveStorm", async () => {
     let called = false;
@@ -274,6 +326,20 @@ function fetchImplFor(storms, forecastText, opts) {
     // just because that's the storm's CURRENT classification.
     assert.strictEqual(data.closestApproach.classification, "CAT 2");
     assert.strictEqual(data.closestApproach.windMph, 98);
+    assert.strictEqual(data.closestApproachIndex, 3, "closest approach is this track's last (4th) point");
+  });
+  await test("closestApproachIndex points past the map panel's old 4-point cutoff when that's where closest approach falls", async () => {
+    const data = await fetchHurricaneTrackerCardData(
+      { lat: 30.246, lon: -87.7008, townName: "Gulf Shores, AL" },
+      new Date("2026-10-06T22:00:00Z"),
+      fetchImplFor([SAMPLE_STORM], LONG_FORECAST_TEXT)
+    );
+    assert.strictEqual(data.track.length, 6);
+    assert.strictEqual(data.closestApproachIndex, 4, "the nearest point is the 5th one, not one of the first 4");
+    const plotted = selectMapTrackPoints(data.track, data.closestApproachIndex);
+    const last = plotted[plotted.length - 1];
+    assert.strictEqual(last.isClosest, true);
+    assert.strictEqual(last.point.lat, data.track[4].lat, "the map must still plot the real closest-approach point, not stop at index 3");
   });
   await test("a failed forecast-track fetch still returns current position/intensity, with closestApproach null", async () => {
     const data = await fetchHurricaneTrackerCardData(

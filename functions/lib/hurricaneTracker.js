@@ -261,6 +261,14 @@ async function fetchHurricaneTrackerCardData({ lat, lon, townName }, now, fetchI
     classificationNow: classificationLabel(storm.classification, storm.intensity),
     windMphNow: ktToMph(storm.intensity),
     track: track.map((p) => ({ lat: p.lat, lon: p.lon, label: formatTrackLabel(p.validAt) })),
+    // Index into the `track` array above of the closest-approach point --
+    // NHC often publishes more forecast points than this card's map has
+    // room to plot (see selectMapTrackPoints), and closest approach is
+    // this card's stand-in for "landfall" (NHC doesn't publish that as
+    // its own structured field -- see pickClosestApproach's own comment),
+    // so the map needs to know exactly which point that is to make sure
+    // it's never left off.
+    closestApproachIndex: closest ? track.indexOf(closest.point) : null,
     closestApproach: closest ? {
       miles: Math.round(closest.miles),
       classification: categoryFromWindKt(closest.point.windKt),
@@ -418,6 +426,28 @@ function drawLandmass(ctx, mapPanel, coast) {
   ctx.restore();
 }
 
+// The map panel only has room for ~4 plotted points, but NHC's real
+// forecast advisories often carry more than that (5-7 points out to
+// 120 hours) -- picking the first 4 chronologically can leave off the
+// closest-approach point entirely if it falls later in the track (seen
+// on a real published card: a storm's closest approach was its 5th
+// forecast point, past the 4 shown). This always ends the plotted span
+// AT the closest-approach point (this card's stand-in for "landfall,"
+// per pickClosestApproach's own comment on why there's no separate
+// landfall lookup), sampling up to 4 points evenly between the current
+// position and it so it's never left off. Falls back to the track's
+// last point when there's no closest-approach data at all.
+function selectMapTrackPoints(track, closestApproachIndex) {
+  if (!track || track.length === 0) return [];
+  const hasClosest = typeof closestApproachIndex === "number" && closestApproachIndex >= 0 && closestApproachIndex < track.length;
+  const lastIdx = hasClosest ? closestApproachIndex : track.length - 1;
+  const span = lastIdx + 1;
+  const indices = span <= 4
+    ? Array.from({ length: span }, (_, i) => i)
+    : [...new Set([0, Math.round(lastIdx / 3), Math.round((2 * lastIdx) / 3), lastIdx])];
+  return indices.map((i) => ({ point: track[i], isClosest: hasClosest && i === closestApproachIndex }));
+}
+
 function drawMapPanel(ctx, mapPanel, data) {
   const template = pickCoastlineTemplate(data.townLat, data.townLon);
   const mox = mapPanel.x + 14, moy = mapPanel.y + 16;
@@ -436,8 +466,8 @@ function drawMapPanel(ctx, mapPanel, data) {
   ctx.fillStyle = "#000";
   drawStar(ctx, town.x, town.y + 13, 7.5);
 
-  const track = (data.track || []).slice(0, 4);
-  if (track.length === 0) return;
+  const points = selectMapTrackPoints(data.track, data.closestApproachIndex);
+  if (points.length === 0) return;
 
   // Spread wide (66px/step) so this font size's labels (see below) never
   // collide with a neighboring circle or label -- a tighter, steeper
@@ -448,10 +478,11 @@ function drawMapPanel(ctx, mapPanel, data) {
   // leaving this area open water either way.
   const trackOx = mapPanel.x + mapPanel.w - 240, trackOy = mapPanel.y + mapPanel.h - 26;
   const offsets = [[0, 0], [66, -18], [132, -32], [198, -44]];
-  const positions = track.map((p, i) => ({
+  const positions = points.map((entry, i) => ({
     x: trackOx + offsets[i][0],
     y: trackOy + offsets[i][1],
-    label: p.label
+    label: entry.point.label,
+    isClosest: entry.isClosest
   }));
 
   ctx.save();
@@ -463,12 +494,15 @@ function drawMapPanel(ctx, mapPanel, data) {
   ctx.restore();
 
   positions.forEach((p, i) => {
-    ctx.fillStyle = "#fff";
+    // The closest-approach point (this card's "landfall" stand-in) is
+    // filled black instead of white, so it reads as the one point on
+    // this map that matters most, not just another step in the track.
+    ctx.fillStyle = p.isClosest ? "#000" : "#fff";
     ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = "#000";
     ctx.lineWidth = 2.2;
     ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = "#000";
+    ctx.fillStyle = p.isClosest ? "#fff" : "#000";
     ctx.font = "bold 16px \"" + FONT_SERIF + "\"";
     ctx.textAlign = "center";
     ctx.fillText(String(i + 1), p.x, p.y + 5.5);
@@ -476,6 +510,7 @@ function drawMapPanel(ctx, mapPanel, data) {
     // Alternates above/below so same-side labels (1&3, 2&4) are a full
     // 2-step (132px) apart -- comfortably wider than this label's text.
     const above = i % 2 === 0;
+    ctx.fillStyle = "#000";
     ctx.font = "bold 13px \"" + FONT_SERIF + "\"";
     ctx.fillText(p.label.day + " " + p.label.time, p.x, above ? p.y - 20 : p.y + 30);
   });
@@ -515,7 +550,7 @@ function drawHurricaneTrackerCard(ctx, data) {
 
   const windText = data.windMphNow != null ? data.windMphNow + " MPH" : "WIND N/A";
   evenlySpacedRows(ctx, heroPanel, [
-    { text: data.miles + " MI " + data.direction, font: "62px \"" + FONT_BLOCK + "\"" },
+    { text: data.miles + " MI " + data.direction, font: "52px \"" + FONT_BLOCK + "\"" },
     { text: "NOW · " + data.classificationNow + " · " + windText, font: "bold 18px \"" + FONT_SERIF + "\"" }
   ]);
 
@@ -551,6 +586,7 @@ module.exports = {
   fetchForecastTrack,
   pickClosestApproach,
   pickCoastlineTemplate,
+  selectMapTrackPoints,
   fetchHurricaneTrackerCardData,
   drawHurricaneTrackerCard
 };
