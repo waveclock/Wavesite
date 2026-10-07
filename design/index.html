@@ -4414,7 +4414,7 @@
     ctx.fillRect(0, 0, w, HURRICANE_BANNER_HEIGHT);
     ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
-    const size = fitBannerFontSize(ctx, text, w - 30, "'Bungee', sans-serif", 24, 14);
+    const size = fitBannerFontSize(ctx, text, w - 30, "'Bungee', sans-serif", 30, 16);
     ctx.font = size + "px 'Bungee', sans-serif";
     const m = ctx.measureText(text);
     const textH = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
@@ -4551,6 +4551,17 @@
     });
   }
 
+    // Mirrors the server's stormTypeWord -- see that function's own
+  // comment for why this derives the word from classificationNow's
+  // already-computed label instead of a second NHC field.
+  function hurricaneStormTypeWord(classificationNow) {
+    if (!classificationNow) return "";
+    if (classificationNow.indexOf("CAT") === 0) return "HURRICANE";
+    if (classificationNow === "TROP. STORM") return "TROPICAL STORM";
+    if (classificationNow === "TROP. DEPRESSION") return "TROPICAL DEPRESSION";
+    return "";
+  }
+
   function drawHurricaneTrackerCardClient(ctx, data) {
     const w = baseCanvas.width, h = baseCanvas.height;
     ctx.fillStyle = "#000";
@@ -4567,7 +4578,8 @@
       return;
     }
 
-    const bannerText = data.stormName.toUpperCase() + (data.townName ? " — " + data.townName.toUpperCase() : "");
+    const typeWord = hurricaneStormTypeWord(data.classificationNow);
+    const bannerText = (typeWord ? typeWord + " " : "") + data.stormName.toUpperCase() + (data.townName ? " — " + data.townName.toUpperCase() : "");
     hurricaneDrawBanner(ctx, w, bannerText);
 
     const bodyTop = HURRICANE_BANNER_HEIGHT + HURRICANE_PANEL_GAP, bodyBottom = h - HURRICANE_PANEL_GAP;

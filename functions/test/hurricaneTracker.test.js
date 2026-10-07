@@ -15,6 +15,7 @@ const {
   bearingCompass,
   classificationLabel,
   categoryFromWindKt,
+  stormTypeWord,
   ktToMph,
   fetchActiveStorms,
   findNearestStorm,
@@ -164,6 +165,14 @@ function fetchImplFor(storms, forecastText, opts) {
   await test("ktToMph converts, and degrades to null on a non-numeric input", () => {
     assert.strictEqual(ktToMph(100), 115);
     assert.strictEqual(ktToMph("not a number"), null);
+  });
+  await test("stormTypeWord spells out the storm's type for the banner title", () => {
+    assert.strictEqual(stormTypeWord("CAT 1"), "HURRICANE");
+    assert.strictEqual(stormTypeWord("CAT 5"), "HURRICANE");
+    assert.strictEqual(stormTypeWord("TROP. STORM"), "TROPICAL STORM");
+    assert.strictEqual(stormTypeWord("TROP. DEPRESSION"), "TROPICAL DEPRESSION");
+    assert.strictEqual(stormTypeWord("UNKNOWN"), "", "omits the word rather than guessing on an unrecognized label");
+    assert.strictEqual(stormTypeWord(undefined), "");
   });
 
   console.log("fetchActiveStorms");
