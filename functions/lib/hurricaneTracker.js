@@ -456,18 +456,18 @@ function evenlySpacedRows(ctx, panelBox, rows) {
 // with the big-number/label rows split into two columns instead of one
 // -- gives both numbers in a panel the same visual weight instead of
 // burying the second one in a small subtitle line.
-// topLines is an array of strings, each its own stacked line (e.g.
-// ["NOW", "CAT 1"]), so a short status and its category/day read as two
-// clearly separate pieces of information instead of one run-on line.
-function drawTwoBigStats(ctx, panelBox, topLines, leftValue, leftLabel, rightValue, rightLabel) {
-  const topFont = "bold 22px \"" + FONT_SERIF + "\"";
+// topText is a single status line (e.g. "NOW · CAT 1") kept on one row
+// so it adds only one line of height above the numbers -- stacking it as
+// two separate rows pushed the numbers noticeably lower than the
+// closest-approach panel's, which has no top line at all.
+function drawTwoBigStats(ctx, panelBox, topText, leftValue, leftLabel, rightValue, rightLabel) {
+  const topFont = "bold 20px \"" + FONT_SERIF + "\"";
   const bigFont = "52px \"" + FONT_BLOCK + "\"";
   const labelFont = "bold 18px \"" + FONT_SERIF + "\"";
 
   ctx.font = topFont;
-  const topMetrics = topLines.map((t) => ctx.measureText(t));
-  const topHeights = topMetrics.map((m) => m.actualBoundingBoxAscent + m.actualBoundingBoxDescent);
-  const topTotalH = topHeights.reduce((s, h) => s + h, 0);
+  const topM = ctx.measureText(topText);
+  const topTotalH = topM.actualBoundingBoxAscent + topM.actualBoundingBoxDescent;
 
   ctx.font = bigFont;
   const leftBigM = ctx.measureText(leftValue);
@@ -480,7 +480,7 @@ function drawTwoBigStats(ctx, panelBox, topLines, leftValue, leftLabel, rightVal
   const labelH = labelM.actualBoundingBoxAscent + labelM.actualBoundingBoxDescent;
 
   const totalTextH = topTotalH + bigH + labelH;
-  const gap = Math.max(4, (panelBox.h - totalTextH) / (topLines.length + 3));
+  const gap = Math.max(4, (panelBox.h - totalTextH) / 4);
   const leftX = panelBox.x + panelBox.w * 0.27, rightX = panelBox.x + panelBox.w * 0.73;
 
   ctx.textAlign = "center";
@@ -488,10 +488,8 @@ function drawTwoBigStats(ctx, panelBox, topLines, leftValue, leftLabel, rightVal
 
   let y = panelBox.y + gap;
   ctx.font = topFont;
-  topLines.forEach((text, i) => {
-    ctx.fillText(text, panelBox.x + panelBox.w / 2, y + topMetrics[i].actualBoundingBoxAscent);
-    y += topHeights[i] + gap;
-  });
+  ctx.fillText(topText, panelBox.x + panelBox.w / 2, y + topM.actualBoundingBoxAscent);
+  y += topTotalH + gap;
 
   ctx.font = bigFont;
   ctx.fillText(leftValue, leftX, y + bigAscent);
@@ -900,7 +898,7 @@ function drawHurricaneTrackerCard(ctx, data) {
 
   const hasWind = data.windMphNow != null;
   drawTwoBigStats(
-    ctx, heroPanel, ["NOW", data.classificationNow],
+    ctx, heroPanel, "NOW · " + data.classificationNow,
     String(data.miles), "MI " + data.direction,
     hasWind ? String(data.windMphNow) : "N/A", "MPH"
   );
