@@ -4471,14 +4471,7 @@
   // Mirrors the server's drawHeroStats -- see that function's own
   // comment for why. Miles-away and current wind speed as two equally
   // big numbers side by side, each with its own small label underneath.
-  function hurricaneDrawHeroStats(ctx, panelBox, data) {
-    const topText = "NOW · " + data.classificationNow;
-    const milesText = String(data.miles);
-    const milesLabel = "MI " + data.direction;
-    const hasWind = data.windMphNow != null;
-    const mphText = hasWind ? String(data.windMphNow) : "N/A";
-    const mphLabel = "MPH";
-
+  function hurricaneDrawTwoBigStats(ctx, panelBox, topText, leftValue, leftLabel, rightValue, rightLabel) {
     const topFont = "bold 18px Georgia, serif";
     const bigFont = "52px 'Bungee', sans-serif";
     const labelFont = "bold 18px Georgia, serif";
@@ -4488,13 +4481,13 @@
     const topH = topM.actualBoundingBoxAscent + topM.actualBoundingBoxDescent;
 
     ctx.font = bigFont;
-    const milesBigM = ctx.measureText(milesText);
-    const mphBigM = ctx.measureText(mphText);
-    const bigAscent = Math.max(milesBigM.actualBoundingBoxAscent, mphBigM.actualBoundingBoxAscent);
-    const bigH = bigAscent + Math.max(milesBigM.actualBoundingBoxDescent, mphBigM.actualBoundingBoxDescent);
+    const leftBigM = ctx.measureText(leftValue);
+    const rightBigM = ctx.measureText(rightValue);
+    const bigAscent = Math.max(leftBigM.actualBoundingBoxAscent, rightBigM.actualBoundingBoxAscent);
+    const bigH = bigAscent + Math.max(leftBigM.actualBoundingBoxDescent, rightBigM.actualBoundingBoxDescent);
 
     ctx.font = labelFont;
-    const labelM = ctx.measureText(milesLabel);
+    const labelM = ctx.measureText(leftLabel.length >= rightLabel.length ? leftLabel : rightLabel);
     const labelH = labelM.actualBoundingBoxAscent + labelM.actualBoundingBoxDescent;
 
     const totalTextH = topH + bigH + labelH;
@@ -4510,13 +4503,13 @@
     y += topH + gap;
 
     ctx.font = bigFont;
-    ctx.fillText(milesText, leftX, y + bigAscent);
-    ctx.fillText(mphText, rightX, y + bigAscent);
+    ctx.fillText(leftValue, leftX, y + bigAscent);
+    ctx.fillText(rightValue, rightX, y + bigAscent);
     y += bigH + gap;
 
     ctx.font = labelFont;
-    ctx.fillText(milesLabel, leftX, y + labelM.actualBoundingBoxAscent);
-    ctx.fillText(mphLabel, rightX, y + labelM.actualBoundingBoxAscent);
+    ctx.fillText(leftLabel, leftX, y + labelM.actualBoundingBoxAscent);
+    ctx.fillText(rightLabel, rightX, y + labelM.actualBoundingBoxAscent);
   }
 
   function hurricaneDrawBanner(ctx, w, text) {
@@ -4706,16 +4699,21 @@
     hurricanePanel(ctx, closestPanel.x, closestPanel.y, closestPanel.w, closestPanel.h);
     hurricanePanel(ctx, mapPanel.x, mapPanel.y, mapPanel.w, mapPanel.h);
 
-    hurricaneDrawHeroStats(ctx, heroPanel, data);
+    const hasWind = data.windMphNow != null;
+    hurricaneDrawTwoBigStats(
+      ctx, heroPanel, "NOW · " + data.classificationNow,
+      String(data.miles), "MI " + data.direction,
+      hasWind ? String(data.windMphNow) : "N/A", "MPH"
+    );
 
     if (data.closestApproach) {
       const ca = data.closestApproach;
-      const caWind = ca.windMph != null ? ca.windMph + " MPH" : "WIND N/A";
-      hurricaneEvenlySpacedRows(ctx, closestPanel, [
-        { text: "CLOSEST: " + ca.miles + " MI · " + ca.classification, font: "bold 19px Georgia, serif" },
-        { text: caWind, font: "bold 18px Georgia, serif", color: "#333" },
-        { text: ca.label.day + " " + ca.label.time, font: "bold 18px Georgia, serif", color: "#333" }
-      ]);
+      const caHasWind = ca.windMph != null;
+      hurricaneDrawTwoBigStats(
+        ctx, closestPanel, "CLOSEST · " + ca.classification + " · " + ca.label.day + " " + ca.label.time,
+        String(ca.miles), "MILES",
+        caHasWind ? String(ca.windMph) : "N/A", "MPH"
+      );
     } else {
       hurricaneEvenlySpacedRows(ctx, closestPanel, [
         { text: "FORECAST TRACK", font: "bold 19px Georgia, serif" },
