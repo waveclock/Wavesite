@@ -24,6 +24,11 @@ const {
   pickClosestApproach,
   pickCoastlineTemplate,
   selectMapTrackPoints,
+  computeTrackScale,
+  projectTrackPoint,
+  enforceMinRadiusFromAnchor,
+  rectOverlapArea,
+  layoutTrackLabels,
   fetchHurricaneTrackerCardData,
   drawHurricaneTrackerCard
 } = require("../lib/hurricaneTracker");
@@ -298,6 +303,82 @@ function fetchImplFor(storms, forecastText, opts) {
     const result = selectMapTrackPoints(track, null);
     assert.strictEqual(result[result.length - 1].point.v, 5);
     assert.ok(result.every((r) => !r.isClosest));
+  });
+
+  console.log("projectTrackPoint / computeTrackScale (real track map projection)");
+  await test("a point due north of the anchor projects straight up (smaller y), not sideways", () => {
+    const anchor = { x: 100, y: 100 };
+    const p = projectTrackPoint(anchor, 30, -87, 31, -87, 1);
+    assert.ok(p.y < anchor.y, "north should move up the canvas");
+    assert.ok(Math.abs(p.x - anchor.x) < 0.01, "due north shouldn't shift x at all");
+  });
+  await test("a point due east of the anchor projects to a larger x, same y", () => {
+    const anchor = { x: 100, y: 100 };
+    const p = projectTrackPoint(anchor, 30, -87, 30, -86, 1);
+    assert.ok(p.x > anchor.x, "east should move right");
+    assert.ok(Math.abs(p.y - anchor.y) < 0.01, "due east shouldn't shift y at all");
+  });
+  await test("computeTrackScale shrinks to fit far points inside the given room, not just the max cap", () => {
+    const anchor = { x: 560, y: 70 };
+    const bounds = { x: 514, y: 48, w: 270, h: 216 };
+    const farPoint = { lat: 32, lon: -84 }; // several hundred miles from a Gulf anchor
+    const scale = computeTrackScale(anchor, 30.38, -86.86, [farPoint], bounds);
+    assert.ok(scale < 0.6, "a far point should force a smaller scale than the zoom cap");
+    assert.ok(scale > 0, "scale must stay positive");
+  });
+  await test("computeTrackScale stays at the zoom cap when every point is close", () => {
+    const anchor = { x: 560, y: 150 };
+    const bounds = { x: 514, y: 48, w: 270, h: 216 };
+    const nearPoint = { lat: 30.40, lon: -86.84 }; // a couple miles away
+    const scale = computeTrackScale(anchor, 30.38, -86.86, [nearPoint], bounds);
+    assert.strictEqual(scale, 0.6, "shouldn't zoom in tighter than the cap just because the point is close");
+  });
+
+  console.log("enforceMinRadiusFromAnchor (keeps the town star visible)");
+  await test("pushes a too-close point out to the minimum radius, preserving its direction", () => {
+    const anchor = { x: 100, y: 100 };
+    const tooClose = { x: 105, y: 100 }; // 5px east, inside a 26px floor
+    const result = enforceMinRadiusFromAnchor(tooClose, anchor, 26);
+    assert.ok(Math.abs(Math.hypot(result.x - anchor.x, result.y - anchor.y) - 26) < 0.01);
+    assert.ok(result.x > anchor.x, "stays on the same (east) side");
+    assert.strictEqual(result.y, anchor.y);
+  });
+  await test("leaves a point that's already far enough away untouched", () => {
+    const anchor = { x: 100, y: 100 };
+    const farEnough = { x: 160, y: 100 };
+    const result = enforceMinRadiusFromAnchor(farEnough, anchor, 26);
+    assert.deepStrictEqual(result, farEnough);
+  });
+
+  console.log("layoutTrackLabels (no label collisions, even for tightly clustered real points)");
+  await test("three nearly-collinear, closely-spaced points (confirmed to overlap with an above/below-only layout) get non-overlapping label boxes", () => {
+    const c = createCanvas(100, 100);
+    const ctx = c.getContext("2d");
+    const mapPanel = { x: 514, y: 48, w: 270, h: 216 };
+    // Mirrors the real Isaias/Navarre Beach case that exposed the bug:
+    // three points marching SSW-to-NNE along nearly the same bearing,
+    // close enough together that a plain above/below choice collided.
+    const positions = [
+      { x: 534.0, y: 232.0, label: { day: "THU", time: "8PM" }, isClosest: false },
+      { x: 559.6, y: 182.6, label: { day: "FRI", time: "8AM" }, isClosest: false },
+      { x: 579.5, y: 139.7, label: { day: "FRI", time: "8PM" }, isClosest: true }
+    ];
+    const townBox = { x1: 570, y1: 100, x2: 600, y2: 130 };
+    const layout = layoutTrackLabels(ctx, positions, mapPanel, [townBox]);
+    ctx.font = "bold 13px sans-serif";
+    const boxes = layout.map((l, i) => {
+      const w = ctx.measureText(positions[i].label.day + " " + positions[i].label.time).width;
+      const halfW = w / 2 + 3;
+      return l.align === "center"
+        ? { x1: l.labelX - halfW, x2: l.labelX + halfW, y1: l.labelY - 15, y2: l.labelY + 4 }
+        : { x1: Math.min(l.labelX, l.labelX + (l.align === "left" ? w : -w)), x2: Math.max(l.labelX, l.labelX + (l.align === "left" ? w : -w)), y1: l.labelY - 9, y2: l.labelY + 9 };
+    });
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        assert.strictEqual(rectOverlapArea(boxes[i], boxes[j]), 0, "labels " + i + " and " + j + " overlap");
+      }
+      assert.strictEqual(rectOverlapArea(boxes[i], townBox), 0, "label " + i + " overlaps the town marker");
+    }
   });
 
   console.log("fetchHurricaneTrackerCardData (orchestration)");

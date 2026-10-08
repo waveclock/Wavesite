@@ -882,6 +882,110 @@
     return indices.map((i) => ({ point: track[i], isClosest: hasClosest && i === closestApproachIndex }));
   }
 
+  // ================= Real track projection =================
+  // Mirrors the server's own "Real track projection" block in
+  // functions/lib/hurricaneTracker.js -- see that comment for the full
+  // rationale (why the old fixed-offset layout was misleading, and the
+  // honest limits of plotting real lat/lon onto a hand-approximated
+  // coastline).
+  const HURRICANE_MILES_PER_DEG_LAT = 69;
+  const HURRICANE_TRACK_MAX_PX_PER_MILE = 0.6;
+
+  function hurricaneMilesPerDegLon(lat) {
+    return HURRICANE_MILES_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180);
+  }
+
+  function hurricaneComputeTrackScale(anchorPx, anchorLat, anchorLon, points, bounds) {
+    const MARGIN = 20;
+    const rightRoom = bounds.x + bounds.w - MARGIN - anchorPx.x;
+    const leftRoom = anchorPx.x - bounds.x - MARGIN;
+    const belowRoom = bounds.y + bounds.h - MARGIN - anchorPx.y;
+    const aboveRoom = anchorPx.y - bounds.y - MARGIN;
+    const milesPerLon = hurricaneMilesPerDegLon(anchorLat);
+
+    let scale = HURRICANE_TRACK_MAX_PX_PER_MILE;
+    points.forEach((p) => {
+      const dxMiles = (p.lon - anchorLon) * milesPerLon;
+      const dyMilesNorth = (p.lat - anchorLat) * HURRICANE_MILES_PER_DEG_LAT;
+      if (dxMiles > 0 && rightRoom > 0) scale = Math.min(scale, rightRoom / dxMiles);
+      if (dxMiles < 0 && leftRoom > 0) scale = Math.min(scale, leftRoom / -dxMiles);
+      if (dyMilesNorth > 0 && aboveRoom > 0) scale = Math.min(scale, aboveRoom / dyMilesNorth);
+      if (dyMilesNorth < 0 && belowRoom > 0) scale = Math.min(scale, belowRoom / -dyMilesNorth);
+    });
+    return Math.max(scale, 0.02);
+  }
+
+  function hurricaneProjectTrackPoint(anchorPx, anchorLat, anchorLon, lat, lon, scale) {
+    const dxMiles = (lon - anchorLon) * hurricaneMilesPerDegLon(anchorLat);
+    const dyMilesNorth = (lat - anchorLat) * HURRICANE_MILES_PER_DEG_LAT;
+    return { x: anchorPx.x + dxMiles * scale, y: anchorPx.y - dyMilesNorth * scale };
+  }
+
+  function hurricaneEnforceMinRadiusFromAnchor(proj, anchorPx, minRadius) {
+    const dx = proj.x - anchorPx.x, dy = proj.y - anchorPx.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist >= minRadius || dist === 0) return proj;
+    const k = minRadius / dist;
+    return { x: anchorPx.x + dx * k, y: anchorPx.y + dy * k };
+  }
+
+  function hurricaneRectOverlapArea(a, b) {
+    const w = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
+    const h = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+    return w * h;
+  }
+
+  function hurricaneLayoutTrackLabels(ctx, positions, mapPanel, extraObstacles) {
+    const DOT_R = 13, DOT_PAD = 4, GAP = 7, LABEL_H = 15;
+    ctx.font = "bold 13px Georgia, serif";
+
+    const dotBoxes = positions.map((p) => ({
+      x1: p.x - DOT_R - DOT_PAD, x2: p.x + DOT_R + DOT_PAD,
+      y1: p.y - DOT_R - DOT_PAD, y2: p.y + DOT_R + DOT_PAD
+    })).concat(extraObstacles || []);
+
+    function clampBox(box, labelX, labelY) {
+      let dx = 0, dy = 0;
+      if (box.x1 + dx < mapPanel.x + 4) dx = mapPanel.x + 4 - box.x1;
+      if (box.x2 + dx > mapPanel.x + mapPanel.w - 4) dx = mapPanel.x + mapPanel.w - 4 - box.x2;
+      if (box.y1 + dy < mapPanel.y + 4) dy = mapPanel.y + 4 - box.y1;
+      if (box.y2 + dy > mapPanel.y + mapPanel.h - 4) dy = mapPanel.y + mapPanel.h - 4 - box.y2;
+      return {
+        box: { x1: box.x1 + dx, x2: box.x2 + dx, y1: box.y1 + dy, y2: box.y2 + dy },
+        labelX: labelX + dx, labelY: labelY + dy
+      };
+    }
+
+    const placedBoxes = [];
+    return positions.map((p, i) => {
+      const text = p.label.day + " " + p.label.time;
+      const halfW = ctx.measureText(text).width / 2 + 3;
+
+      const raw = [
+        { align: "center", labelX: p.x, labelY: p.y - 20, box: { x1: p.x - halfW, x2: p.x + halfW, y1: p.y - 20 - LABEL_H, y2: p.y - 20 + 4 } },
+        { align: "center", labelX: p.x, labelY: p.y + 30, box: { x1: p.x - halfW, x2: p.x + halfW, y1: p.y + 30 - LABEL_H, y2: p.y + 30 + 4 } },
+        { align: "left", labelX: p.x + DOT_R + GAP, labelY: p.y + 4, box: { x1: p.x + DOT_R + GAP, x2: p.x + DOT_R + GAP + halfW * 2, y1: p.y - 9, y2: p.y + 9 } },
+        { align: "right", labelX: p.x - DOT_R - GAP, labelY: p.y + 4, box: { x1: p.x - DOT_R - GAP - halfW * 2, x2: p.x - DOT_R - GAP, y1: p.y - 9, y2: p.y + 9 } }
+      ];
+
+      let best = null, bestOverlap = Infinity;
+      raw.forEach((candidate, ci) => {
+        const clamped = clampBox(candidate.box, candidate.labelX, candidate.labelY);
+        let overlap = 0;
+        dotBoxes.forEach((db, j) => { if (j !== i) overlap += hurricaneRectOverlapArea(clamped.box, db); });
+        placedBoxes.forEach((pb) => { overlap += hurricaneRectOverlapArea(clamped.box, pb); });
+        const score = overlap + ci * 0.01;
+        if (score < bestOverlap) {
+          bestOverlap = score;
+          best = { align: candidate.align, labelX: clamped.labelX, labelY: clamped.labelY, box: clamped.box };
+        }
+      });
+
+      placedBoxes.push(best.box);
+      return best;
+    });
+  }
+
   function hurricaneDrawMapPanel(ctx, mapPanel, data) {
     const template = hurricanePickCoastlineTemplate(data.townLat, data.townLon);
     const mox = mapPanel.x + 14, moy = mapPanel.y + 16;
@@ -903,12 +1007,15 @@
     const points = hurricaneSelectMapTrackPoints(data.track, data.closestApproachIndex);
     if (points.length === 0) return;
 
-    // Spread wide (66px/step) so this font size's labels never collide
-    // with a neighboring circle or label. See the same comment on the
-    // server's drawMapPanel for why.
-    const trackOx = mapPanel.x + mapPanel.w - 240, trackOy = mapPanel.y + mapPanel.h - 26;
-    const offsets = [[0, 0], [66, -18], [132, -32], [198, -44]];
-    const positions = points.map((entry, i) => ({ x: trackOx + offsets[i][0], y: trackOy + offsets[i][1], label: entry.point.label, isClosest: entry.isClosest }));
+    // Real lat/lon projection, anchored at the town marker's own pixel
+    // position -- see this file's "Real track projection" comment above.
+    const townAnchor = { x: town.x, y: town.y + 13 };
+    const scale = hurricaneComputeTrackScale(townAnchor, data.townLat, data.townLon, points.map((e) => e.point), mapPanel);
+    const positions = points.map((entry) => {
+      const rawProj = hurricaneProjectTrackPoint(townAnchor, data.townLat, data.townLon, entry.point.lat, entry.point.lon, scale);
+      const proj = hurricaneEnforceMinRadiusFromAnchor(rawProj, townAnchor, 26);
+      return { x: proj.x, y: proj.y, label: entry.point.label, isClosest: entry.isClosest };
+    });
 
     ctx.save();
     ctx.setLineDash([4.5, 4]);
@@ -917,6 +1024,9 @@
     positions.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
     ctx.stroke();
     ctx.restore();
+
+    const townBox = { x1: townAnchor.x - 15, x2: townAnchor.x + 15, y1: townAnchor.y - 15, y2: townAnchor.y + 15 };
+    const labelLayout = hurricaneLayoutTrackLabels(ctx, positions, mapPanel, [townBox]);
 
     positions.forEach((p, i) => {
       ctx.fillStyle = p.isClosest ? "#000" : "#fff";
@@ -929,14 +1039,15 @@
       ctx.textAlign = "center";
       ctx.fillText(String(i + 1), p.x, p.y + 5.5);
 
-      const above = i % 2 === 0;
+      const layout = labelLayout[i];
       ctx.fillStyle = "#000";
       ctx.font = "bold 13px Georgia, serif";
-      ctx.fillText(p.label.day + " " + p.label.time, p.x, above ? p.y - 20 : p.y + 30);
+      ctx.textAlign = layout.align;
+      ctx.fillText(p.label.day + " " + p.label.time, layout.labelX, layout.labelY);
     });
   }
 
-    // Mirrors the server's stormTypeWord -- see that function's own
+  // Mirrors the server's stormTypeWord -- see that function's own
   // comment for why this derives the word from classificationNow's
   // already-computed label instead of a second NHC field.
   function hurricaneStormTypeWord(classificationNow) {

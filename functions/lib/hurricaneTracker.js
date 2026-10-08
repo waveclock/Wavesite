@@ -511,6 +511,155 @@ function selectMapTrackPoints(track, closestApproachIndex) {
   return indices.map((i) => ({ point: track[i], isClosest: hasClosest && i === closestApproachIndex }));
 }
 
+// ================= Real track projection =================
+// The circled track points used to sit at a fixed decorative offset
+// pattern, unrelated to the storm's real bearing/distance -- it always
+// "walked" up and to the right regardless of which way the storm was
+// actually moving. Confirmed misleading on a real published card: a
+// storm 505 mi SSW of the town rendered a path that didn't reflect that
+// at all. These project each point's REAL lat/lon into the panel,
+// anchored at the town marker's own pixel position (not a separate,
+// unrelated grid) and auto-scaled to fit whatever room is available in
+// whichever direction the storm actually lies.
+//
+// The coastline underneath is still the hand-approximated template (see
+// COASTLINE_TEMPLATES' own comment) -- it is NOT on the same real
+// lat/lon grid, so a correctly-plotted storm dot can still land on the
+// illustrated "land" even when the real storm is over water. Only the
+// dot's position RELATIVE TO THE TOWN MARKER (true bearing and
+// distance) is accurate; its position relative to the drawn coastline
+// shape is not. Replacing the coastline with real geography is tracked
+// separately (see the README's Hurricane Tracker section) and needs
+// real network access this dev sandbox doesn't have.
+const MILES_PER_DEG_LAT = 69;
+// Never zoom in tighter than this, even for a very close storm -- a
+// closest approach of a few miles shouldn't visually stretch across the
+// whole panel as if it were hundreds of miles away.
+const TRACK_MAX_PX_PER_MILE = 0.6;
+
+function milesPerDegLon(lat) {
+  return MILES_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180);
+}
+
+// How many pixels each real mile should occupy, chosen so every given
+// point fits inside the room actually available around the anchor in
+// whichever compass direction it falls, capped at TRACK_MAX_PX_PER_MILE
+// so close points aren't exaggerated. Margin only needs to clear the dot
+// itself (radius + stroke) -- label TEXT is clamped separately at draw
+// time (see drawMapPanel) rather than reserved for here, since the town
+// marker sits close to this template's left edge and a generous margin
+// on every side left almost no room for a westward-trending storm.
+function computeTrackScale(anchorPx, anchorLat, anchorLon, points, bounds) {
+  const MARGIN = 20;
+  const rightRoom = bounds.x + bounds.w - MARGIN - anchorPx.x;
+  const leftRoom = anchorPx.x - bounds.x - MARGIN;
+  const belowRoom = bounds.y + bounds.h - MARGIN - anchorPx.y;
+  const aboveRoom = anchorPx.y - bounds.y - MARGIN;
+  const milesPerLon = milesPerDegLon(anchorLat);
+
+  let scale = TRACK_MAX_PX_PER_MILE;
+  points.forEach((p) => {
+    const dxMiles = (p.lon - anchorLon) * milesPerLon;
+    const dyMilesNorth = (p.lat - anchorLat) * MILES_PER_DEG_LAT;
+    if (dxMiles > 0 && rightRoom > 0) scale = Math.min(scale, rightRoom / dxMiles);
+    if (dxMiles < 0 && leftRoom > 0) scale = Math.min(scale, leftRoom / -dxMiles);
+    if (dyMilesNorth > 0 && aboveRoom > 0) scale = Math.min(scale, aboveRoom / dyMilesNorth);
+    if (dyMilesNorth < 0 && belowRoom > 0) scale = Math.min(scale, belowRoom / -dyMilesNorth);
+  });
+  return Math.max(scale, 0.02);
+}
+
+function projectTrackPoint(anchorPx, anchorLat, anchorLon, lat, lon, scale) {
+  const dxMiles = (lon - anchorLon) * milesPerDegLon(anchorLat);
+  const dyMilesNorth = (lat - anchorLat) * MILES_PER_DEG_LAT;
+  return { x: anchorPx.x + dxMiles * scale, y: anchorPx.y - dyMilesNorth * scale };
+}
+
+// A real close-approach distance (tens of miles, not unusual) can still
+// project to just a few pixels from the town marker once scaled to fit
+// the panel, visually burying the star under the dot. Pushes a too-close
+// point radially outward to a minimum on-screen distance from the
+// anchor, preserving its real bearing exactly -- this is a presentation
+// floor so the star stays visible, not a claim that the real distance
+// was any different (the panel's actual number for it is shown in the
+// closest-approach panel's own text, not read off this map).
+function enforceMinRadiusFromAnchor(proj, anchorPx, minRadius) {
+  const dx = proj.x - anchorPx.x, dy = proj.y - anchorPx.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist >= minRadius || dist === 0) return proj;
+  const k = minRadius / dist;
+  return { x: anchorPx.x + dx * k, y: anchorPx.y + dy * k };
+}
+
+function rectOverlapArea(a, b) {
+  const w = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
+  const h = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+  return w * h;
+}
+
+// Real points can land anywhere now, not the predictable fixed walk the
+// old decorative layout had -- points close together along a consistent
+// bearing (very possible in real forecast data, e.g. a slow-moving
+// storm) can put one point's label right on top of a neighboring dot or
+// label. An above/below-only choice still isn't enough once 3+ points
+// are roughly collinear and tightly spaced -- there's no slot left on
+// either side that clears everything. Tries 4 placements per label
+// (above/below/right/left of its dot), measures each one's REAL text
+// width so its bounding box is exact, and scores every candidate by how
+// much it overlaps every other dot and every label already placed
+// earlier in this same pass -- picking whichever has the least overlap
+// (usually none), not just "the side with more panel room."
+function layoutTrackLabels(ctx, positions, mapPanel, extraObstacles) {
+  const DOT_R = 13, DOT_PAD = 4, GAP = 7, LABEL_H = 15;
+  ctx.font = "bold 13px \"" + FONT_SERIF + "\"";
+
+  const dotBoxes = positions.map((p) => ({
+    x1: p.x - DOT_R - DOT_PAD, x2: p.x + DOT_R + DOT_PAD,
+    y1: p.y - DOT_R - DOT_PAD, y2: p.y + DOT_R + DOT_PAD
+  })).concat(extraObstacles || []);
+
+  function clampBox(box, labelX, labelY) {
+    let dx = 0, dy = 0;
+    if (box.x1 + dx < mapPanel.x + 4) dx = mapPanel.x + 4 - box.x1;
+    if (box.x2 + dx > mapPanel.x + mapPanel.w - 4) dx = mapPanel.x + mapPanel.w - 4 - box.x2;
+    if (box.y1 + dy < mapPanel.y + 4) dy = mapPanel.y + 4 - box.y1;
+    if (box.y2 + dy > mapPanel.y + mapPanel.h - 4) dy = mapPanel.y + mapPanel.h - 4 - box.y2;
+    return {
+      box: { x1: box.x1 + dx, x2: box.x2 + dx, y1: box.y1 + dy, y2: box.y2 + dy },
+      labelX: labelX + dx, labelY: labelY + dy
+    };
+  }
+
+  const placedBoxes = [];
+  return positions.map((p, i) => {
+    const text = p.label.day + " " + p.label.time;
+    const halfW = ctx.measureText(text).width / 2 + 3;
+
+    const raw = [
+      { align: "center", labelX: p.x, labelY: p.y - 20, box: { x1: p.x - halfW, x2: p.x + halfW, y1: p.y - 20 - LABEL_H, y2: p.y - 20 + 4 } },
+      { align: "center", labelX: p.x, labelY: p.y + 30, box: { x1: p.x - halfW, x2: p.x + halfW, y1: p.y + 30 - LABEL_H, y2: p.y + 30 + 4 } },
+      { align: "left", labelX: p.x + DOT_R + GAP, labelY: p.y + 4, box: { x1: p.x + DOT_R + GAP, x2: p.x + DOT_R + GAP + halfW * 2, y1: p.y - 9, y2: p.y + 9 } },
+      { align: "right", labelX: p.x - DOT_R - GAP, labelY: p.y + 4, box: { x1: p.x - DOT_R - GAP - halfW * 2, x2: p.x - DOT_R - GAP, y1: p.y - 9, y2: p.y + 9 } }
+    ];
+
+    let best = null, bestOverlap = Infinity;
+    raw.forEach((candidate, ci) => {
+      const clamped = clampBox(candidate.box, candidate.labelX, candidate.labelY);
+      let overlap = 0;
+      dotBoxes.forEach((db, j) => { if (j !== i) overlap += rectOverlapArea(clamped.box, db); });
+      placedBoxes.forEach((pb) => { overlap += rectOverlapArea(clamped.box, pb); });
+      const score = overlap + ci * 0.01; // tiny tie-break toward above/below/right/left in that order
+      if (score < bestOverlap) {
+        bestOverlap = score;
+        best = { align: candidate.align, labelX: clamped.labelX, labelY: clamped.labelY, box: clamped.box };
+      }
+    });
+
+    placedBoxes.push(best.box);
+    return best;
+  });
+}
+
 function drawMapPanel(ctx, mapPanel, data) {
   const template = pickCoastlineTemplate(data.townLat, data.townLon);
   const mox = mapPanel.x + 14, moy = mapPanel.y + 16;
@@ -532,21 +681,16 @@ function drawMapPanel(ctx, mapPanel, data) {
   const points = selectMapTrackPoints(data.track, data.closestApproachIndex);
   if (points.length === 0) return;
 
-  // Spread wide (66px/step) so this font size's labels (see below) never
-  // collide with a neighboring circle or label -- a tighter, steeper
-  // layout tried earlier cross-overlapped both the day/time text and the
-  // circles themselves once sized large enough to read from across a
-  // room. Anchored to the panel's bottom-right regardless of template,
-  // since both templates keep their town marker in the upper-left,
-  // leaving this area open water either way.
-  const trackOx = mapPanel.x + mapPanel.w - 240, trackOy = mapPanel.y + mapPanel.h - 26;
-  const offsets = [[0, 0], [66, -18], [132, -32], [198, -44]];
-  const positions = points.map((entry, i) => ({
-    x: trackOx + offsets[i][0],
-    y: trackOy + offsets[i][1],
-    label: entry.point.label,
-    isClosest: entry.isClosest
-  }));
+  // Real lat/lon projection, anchored at the town marker's own pixel
+  // position -- see this file's "Real track projection" comment above
+  // for why (and its honest limits).
+  const townAnchor = { x: town.x, y: town.y + 13 };
+  const scale = computeTrackScale(townAnchor, data.townLat, data.townLon, points.map((e) => e.point), mapPanel);
+  const positions = points.map((entry) => {
+    const rawProj = projectTrackPoint(townAnchor, data.townLat, data.townLon, entry.point.lat, entry.point.lon, scale);
+    const proj = enforceMinRadiusFromAnchor(rawProj, townAnchor, 26);
+    return { x: proj.x, y: proj.y, label: entry.point.label, isClosest: entry.isClosest };
+  });
 
   ctx.save();
   ctx.setLineDash([4.5, 4]);
@@ -555,6 +699,9 @@ function drawMapPanel(ctx, mapPanel, data) {
   positions.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
   ctx.stroke();
   ctx.restore();
+
+  const townBox = { x1: townAnchor.x - 15, x2: townAnchor.x + 15, y1: townAnchor.y - 15, y2: townAnchor.y + 15 };
+  const labelLayout = layoutTrackLabels(ctx, positions, mapPanel, [townBox]);
 
   positions.forEach((p, i) => {
     // The closest-approach point (this card's "landfall" stand-in) is
@@ -570,12 +717,11 @@ function drawMapPanel(ctx, mapPanel, data) {
     ctx.textAlign = "center";
     ctx.fillText(String(i + 1), p.x, p.y + 5.5);
 
-    // Alternates above/below so same-side labels (1&3, 2&4) are a full
-    // 2-step (132px) apart -- comfortably wider than this label's text.
-    const above = i % 2 === 0;
+    const layout = labelLayout[i];
     ctx.fillStyle = "#000";
     ctx.font = "bold 13px \"" + FONT_SERIF + "\"";
-    ctx.fillText(p.label.day + " " + p.label.time, p.x, above ? p.y - 20 : p.y + 30);
+    ctx.textAlign = layout.align;
+    ctx.fillText(p.label.day + " " + p.label.time, layout.labelX, layout.labelY);
   });
 }
 
@@ -653,6 +799,11 @@ module.exports = {
   pickClosestApproach,
   pickCoastlineTemplate,
   selectMapTrackPoints,
+  computeTrackScale,
+  projectTrackPoint,
+  enforceMinRadiusFromAnchor,
+  rectOverlapArea,
+  layoutTrackLabels,
   fetchHurricaneTrackerCardData,
   drawHurricaneTrackerCard
 };
