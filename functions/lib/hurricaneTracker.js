@@ -445,7 +445,7 @@ function drawTwoBigStats(ctx, panelBox, topText, leftValue, leftLabel, rightValu
 function drawClosestApproachStats(ctx, panelBox, leftValue, leftLabel, rightValue, rightLabel, midTop, midBottom) {
   const bigFont = "52px \"" + FONT_BLOCK + "\"";
   const labelFont = "bold 18px \"" + FONT_SERIF + "\"";
-  const midFont = "bold 15px \"" + FONT_SERIF + "\"";
+  const midFont = "bold 18px \"" + FONT_SERIF + "\"";
 
   ctx.font = bigFont;
   const leftBigM = ctx.measureText(leftValue);
