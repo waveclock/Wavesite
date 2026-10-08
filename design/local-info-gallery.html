@@ -753,17 +753,17 @@
   // Mirrors the server's drawHeroStats -- see that function's own
   // comment for why. Miles-away and current wind speed as two equally
   // big numbers side by side, each with its own small label underneath.
-  // topLines is an array of strings, each its own stacked line (e.g.
-  // ["NOW", "CAT 1"]). Mirrors the server's drawTwoBigStats.
-  function hurricaneDrawTwoBigStats(ctx, panelBox, topLines, leftValue, leftLabel, rightValue, rightLabel) {
-    const topFont = "bold 22px Georgia, serif";
+  // topText is a single status line (e.g. "NOW \u00b7 CAT 1") kept on one
+  // row so it adds only one line of height above the numbers. Mirrors the
+  // server's drawTwoBigStats.
+  function hurricaneDrawTwoBigStats(ctx, panelBox, topText, leftValue, leftLabel, rightValue, rightLabel) {
+    const topFont = "bold 20px Georgia, serif";
     const bigFont = "52px 'Bungee', sans-serif";
     const labelFont = "bold 18px Georgia, serif";
 
     ctx.font = topFont;
-    const topMetrics = topLines.map((t) => ctx.measureText(t));
-    const topHeights = topMetrics.map((m) => m.actualBoundingBoxAscent + m.actualBoundingBoxDescent);
-    const topTotalH = topHeights.reduce((s, h) => s + h, 0);
+    const topM = ctx.measureText(topText);
+    const topTotalH = topM.actualBoundingBoxAscent + topM.actualBoundingBoxDescent;
 
     ctx.font = bigFont;
     const leftBigM = ctx.measureText(leftValue);
@@ -776,7 +776,7 @@
     const labelH = labelM.actualBoundingBoxAscent + labelM.actualBoundingBoxDescent;
 
     const totalTextH = topTotalH + bigH + labelH;
-    const gap = Math.max(4, (panelBox.h - totalTextH) / (topLines.length + 3));
+    const gap = Math.max(4, (panelBox.h - totalTextH) / 4);
     const leftX = panelBox.x + panelBox.w * 0.27, rightX = panelBox.x + panelBox.w * 0.73;
 
     ctx.textAlign = "center";
@@ -784,10 +784,8 @@
 
     let y = panelBox.y + gap;
     ctx.font = topFont;
-    topLines.forEach((text, i) => {
-      ctx.fillText(text, panelBox.x + panelBox.w / 2, y + topMetrics[i].actualBoundingBoxAscent);
-      y += topHeights[i] + gap;
-    });
+    ctx.fillText(topText, panelBox.x + panelBox.w / 2, y + topM.actualBoundingBoxAscent);
+    y += topTotalH + gap;
 
     ctx.font = bigFont;
     ctx.fillText(leftValue, leftX, y + bigAscent);
@@ -1168,7 +1166,7 @@
 
     const hasWind = data.windMphNow != null;
     hurricaneDrawTwoBigStats(
-      ctx, heroPanel, ["NOW", data.classificationNow],
+      ctx, heroPanel, "NOW \u00b7 " + data.classificationNow,
       String(data.miles), "MI " + data.direction,
       hasWind ? String(data.windMphNow) : "N/A", "MPH"
     );
