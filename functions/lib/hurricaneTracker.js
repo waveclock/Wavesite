@@ -494,20 +494,34 @@ function drawLandmass(ctx, mapPanel, coast) {
 // 120 hours) -- picking the first 4 chronologically can leave off the
 // closest-approach point entirely if it falls later in the track (seen
 // on a real published card: a storm's closest approach was its 5th
-// forecast point, past the 4 shown). This always ends the plotted span
-// AT the closest-approach point (this card's stand-in for "landfall,"
-// per pickClosestApproach's own comment on why there's no separate
-// landfall lookup), sampling up to 4 points evenly between the current
-// position and it so it's never left off. Falls back to the track's
-// last point when there's no closest-approach data at all.
+// forecast point, past the 4 shown). This always INCLUDES the closest-
+// approach point (this card's stand-in for "landfall," per
+// pickClosestApproach's own comment on why there's no separate landfall
+// lookup), sampling evenly between the current position and it so it's
+// never left off.
+//
+// When the real track has a point AFTER closest approach, one slot is
+// reserved to show it too -- without it, the path always visually ends
+// mid-approach, looking like the storm is still closing in right up to
+// the edge of the panel with nothing confirming it then moves away
+// (confirmed confusing on a real published card: "it looks like it'll
+// be closer" was a fair read of a path that stopped exactly at its
+// closest point). Falls back to the track's last point when there's no
+// closest-approach data at all.
 function selectMapTrackPoints(track, closestApproachIndex) {
   if (!track || track.length === 0) return [];
   const hasClosest = typeof closestApproachIndex === "number" && closestApproachIndex >= 0 && closestApproachIndex < track.length;
   const lastIdx = hasClosest ? closestApproachIndex : track.length - 1;
+  const hasTrailingPoint = hasClosest && closestApproachIndex + 1 < track.length;
+  const trailingIdx = hasTrailingPoint ? closestApproachIndex + 1 : null;
+
+  const budget = hasTrailingPoint ? 3 : 4;
   const span = lastIdx + 1;
-  const indices = span <= 4
+  const leadIndices = span <= budget
     ? Array.from({ length: span }, (_, i) => i)
-    : [...new Set([0, Math.round(lastIdx / 3), Math.round((2 * lastIdx) / 3), lastIdx])];
+    : [...new Set(Array.from({ length: budget }, (_, i) => Math.round((i * lastIdx) / (budget - 1))))];
+
+  const indices = trailingIdx !== null ? [...leadIndices, trailingIdx] : leadIndices;
   return indices.map((i) => ({ point: track[i], isClosest: hasClosest && i === closestApproachIndex }));
 }
 
