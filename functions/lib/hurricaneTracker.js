@@ -435,6 +435,58 @@ function drawTwoBigStats(ctx, panelBox, topText, leftValue, leftLabel, rightValu
   ctx.fillText(rightLabel, rightX, y + labelM.actualBoundingBoxAscent);
 }
 
+// The closest-approach panel's own layout: the same two big numbers as
+// drawTwoBigStats, but no top status line -- instead a small two-line
+// block (day/time, then category) sits in the gap BETWEEN the two
+// numbers, vertically centered on the panel. Kept as its own function
+// rather than a drawTwoBigStats option since the middle block's
+// position (between, not above) and the narrower column widths it
+// needs are specific to this one panel.
+function drawClosestApproachStats(ctx, panelBox, leftValue, leftLabel, rightValue, rightLabel, midTop, midBottom) {
+  const bigFont = "52px \"" + FONT_BLOCK + "\"";
+  const labelFont = "bold 18px \"" + FONT_SERIF + "\"";
+  const midFont = "bold 15px \"" + FONT_SERIF + "\"";
+
+  ctx.font = bigFont;
+  const leftBigM = ctx.measureText(leftValue);
+  const rightBigM = ctx.measureText(rightValue);
+  const bigAscent = Math.max(leftBigM.actualBoundingBoxAscent, rightBigM.actualBoundingBoxAscent);
+  const bigH = bigAscent + Math.max(leftBigM.actualBoundingBoxDescent, rightBigM.actualBoundingBoxDescent);
+
+  ctx.font = labelFont;
+  const labelM = ctx.measureText(leftLabel.length >= rightLabel.length ? leftLabel : rightLabel);
+  const labelH = labelM.actualBoundingBoxAscent + labelM.actualBoundingBoxDescent;
+
+  const totalTextH = bigH + labelH;
+  const gap = Math.max(4, (panelBox.h - totalTextH) / 3);
+  const leftX = panelBox.x + panelBox.w * 0.2, rightX = panelBox.x + panelBox.w * 0.8;
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#000";
+
+  let y = panelBox.y + gap;
+  ctx.font = bigFont;
+  ctx.fillText(leftValue, leftX, y + bigAscent);
+  ctx.fillText(rightValue, rightX, y + bigAscent);
+  y += bigH + gap;
+
+  ctx.font = labelFont;
+  ctx.fillText(leftLabel, leftX, y + labelM.actualBoundingBoxAscent);
+  ctx.fillText(rightLabel, rightX, y + labelM.actualBoundingBoxAscent);
+
+  const midX = panelBox.x + panelBox.w * 0.5;
+  ctx.font = midFont;
+  const midTopM = ctx.measureText(midTop);
+  const midTopH = midTopM.actualBoundingBoxAscent + midTopM.actualBoundingBoxDescent;
+  const midBottomM = ctx.measureText(midBottom);
+  const midBottomH = midBottomM.actualBoundingBoxAscent + midBottomM.actualBoundingBoxDescent;
+  const midGap = 6;
+  let midY = panelBox.y + (panelBox.h - (midTopH + midGap + midBottomH)) / 2;
+  ctx.fillText(midTop, midX, midY + midTopM.actualBoundingBoxAscent);
+  midY += midTopH + midGap;
+  ctx.fillText(midBottom, midX, midY + midBottomM.actualBoundingBoxAscent);
+}
+
 function drawBanner(ctx, text) {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
@@ -729,7 +781,9 @@ function drawMapPanel(ctx, mapPanel, data) {
     ctx.fillStyle = p.isClosest ? "#fff" : "#000";
     ctx.font = "bold 16px \"" + FONT_SERIF + "\"";
     ctx.textAlign = "center";
-    ctx.fillText(String(i + 1), p.x, p.y + 5.5);
+    // Letters, not numbers -- a plain "1"/"2" inside a circle reads too
+    // easily as a hurricane category (CAT 1, CAT 2...) at a glance.
+    ctx.fillText(String.fromCharCode(65 + i), p.x, p.y + 5.5);
 
     const layout = labelLayout[i];
     ctx.fillStyle = "#000";
@@ -782,10 +836,11 @@ function drawHurricaneTrackerCard(ctx, data) {
   if (data.closestApproach) {
     const ca = data.closestApproach;
     const caHasWind = ca.windMph != null;
-    drawTwoBigStats(
-      ctx, closestPanel, "CLOSEST · " + ca.classification + " · " + ca.label.day + " " + ca.label.time,
+    drawClosestApproachStats(
+      ctx, closestPanel,
       String(ca.miles), "MILES",
-      caHasWind ? String(ca.windMph) : "N/A", "MPH"
+      caHasWind ? String(ca.windMph) : "N/A", "MPH",
+      ca.label.day + " " + ca.label.time, ca.classification
     );
   } else {
     evenlySpacedRows(ctx, closestPanel, [
