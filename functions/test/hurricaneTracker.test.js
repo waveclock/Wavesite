@@ -289,14 +289,29 @@ function fetchImplFor(storms, forecastText, opts) {
     assert.deepStrictEqual(selectMapTrackPoints([], 0), []);
     assert.deepStrictEqual(selectMapTrackPoints(null, 0), []);
   });
-  await test("a longer track always ends the plotted span AT the closest-approach index, not just the first 4 points", () => {
+  await test("a longer track always includes the closest-approach point, not just the first 4 points", () => {
+    const track = [{ v: 0 }, { v: 1 }, { v: 2 }, { v: 3 }, { v: 4 }, { v: 5 }];
+    const result = selectMapTrackPoints(track, 4);
+    const closestEntry = result.find((r) => r.isClosest);
+    assert.ok(closestEntry, "the closest-approach point (index 4) must be included");
+    assert.strictEqual(closestEntry.point.v, 4);
+    assert.ok(result.length <= 4, "still respects the panel's ~4-point budget");
+    assert.strictEqual(result[0].point.v, 0, "always starts from the current/first point");
+  });
+  await test("also shows one point AFTER closest approach when the real track has one, so the path visibly turns away", () => {
     const track = [{ v: 0 }, { v: 1 }, { v: 2 }, { v: 3 }, { v: 4 }, { v: 5 }];
     const result = selectMapTrackPoints(track, 4);
     const last = result[result.length - 1];
-    assert.strictEqual(last.point.v, 4, "the closest-approach point (index 4) must be the last one plotted, not index 3");
+    assert.strictEqual(last.point.v, 5, "the point after closest approach should be the last one plotted");
+    assert.strictEqual(last.isClosest, false);
+    assert.ok(result.length <= 4);
+  });
+  await test("no trailing point to show when closest approach IS the track's own last point", () => {
+    const track = [{ v: 0 }, { v: 1 }, { v: 2 }, { v: 3 }, { v: 4 }];
+    const result = selectMapTrackPoints(track, 4);
+    const last = result[result.length - 1];
+    assert.strictEqual(last.point.v, 4);
     assert.strictEqual(last.isClosest, true);
-    assert.ok(result.length <= 4, "still respects the panel's ~4-point budget");
-    assert.strictEqual(result[0].point.v, 0, "always starts from the current/first point");
   });
   await test("with no closest-approach data at all, falls back to the track's own last point", () => {
     const track = [{ v: 0 }, { v: 1 }, { v: 2 }, { v: 3 }, { v: 4 }, { v: 5 }];
@@ -427,9 +442,9 @@ function fetchImplFor(storms, forecastText, opts) {
     assert.strictEqual(data.track.length, 6);
     assert.strictEqual(data.closestApproachIndex, 4, "the nearest point is the 5th one, not one of the first 4");
     const plotted = selectMapTrackPoints(data.track, data.closestApproachIndex);
-    const last = plotted[plotted.length - 1];
-    assert.strictEqual(last.isClosest, true);
-    assert.strictEqual(last.point.lat, data.track[4].lat, "the map must still plot the real closest-approach point, not stop at index 3");
+    const closestEntry = plotted.find((p) => p.isClosest);
+    assert.ok(closestEntry, "the map must still plot the real closest-approach point, not stop at index 3");
+    assert.strictEqual(closestEntry.point.lat, data.track[4].lat);
   });
   await test("a failed forecast-track fetch still returns current position/intensity, with closestApproach null", async () => {
     const data = await fetchHurricaneTrackerCardData(

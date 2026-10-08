@@ -869,16 +869,25 @@
   // The map panel only has room for ~4 plotted points, but NHC's real
   // forecast advisories often carry more than that -- picking the first
   // 4 chronologically can leave off the closest-approach point entirely
-  // if it falls later in the track. Mirrors the server's
+  // if it falls later in the track. This always INCLUDES the closest-
+  // approach point, and reserves one slot for a point AFTER it when the
+  // real track has one, so the path visibly turns away rather than
+  // always ending mid-approach. Mirrors the server's
   // selectMapTrackPoints -- see that function's own comment for why.
   function hurricaneSelectMapTrackPoints(track, closestApproachIndex) {
     if (!track || track.length === 0) return [];
     const hasClosest = typeof closestApproachIndex === "number" && closestApproachIndex >= 0 && closestApproachIndex < track.length;
     const lastIdx = hasClosest ? closestApproachIndex : track.length - 1;
+    const hasTrailingPoint = hasClosest && closestApproachIndex + 1 < track.length;
+    const trailingIdx = hasTrailingPoint ? closestApproachIndex + 1 : null;
+
+    const budget = hasTrailingPoint ? 3 : 4;
     const span = lastIdx + 1;
-    const indices = span <= 4
+    const leadIndices = span <= budget
       ? Array.from({ length: span }, (_, i) => i)
-      : [...new Set([0, Math.round(lastIdx / 3), Math.round((2 * lastIdx) / 3), lastIdx])];
+      : [...new Set(Array.from({ length: budget }, (_, i) => Math.round((i * lastIdx) / (budget - 1))))];
+
+    const indices = trailingIdx !== null ? [...leadIndices, trailingIdx] : leadIndices;
     return indices.map((i) => ({ point: track[i], isClosest: hasClosest && i === closestApproachIndex }));
   }
 
