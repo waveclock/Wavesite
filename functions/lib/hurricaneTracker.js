@@ -113,7 +113,7 @@ function classificationLabel(classification, intensityKt) {
     return "CAT 1";
   }
   if (classification === "TS") return "TROP. STORM";
-  if (classification === "TD") return "TROP. DEPRESSION";
+  if (classification === "TD") return "TD";
   return classification || "UNKNOWN";
 }
 
@@ -127,7 +127,7 @@ function classificationLabel(classification, intensityKt) {
 function categoryFromWindKt(kt) {
   const n = Number(kt);
   if (isNaN(n)) return "UNKNOWN";
-  if (n < 34) return "TROP. DEPRESSION";
+  if (n < 34) return "TD";
   if (n < 64) return "TROP. STORM";
   if (n >= 137) return "CAT 5";
   if (n >= 113) return "CAT 4";
@@ -139,15 +139,15 @@ function categoryFromWindKt(kt) {
 // The banner's title only ever shows the storm's NAME -- this spells out
 // its current type in front of it ("HURRICANE ISAIAS," not just
 // "ISAIAS"), derived from classificationNow's own abbreviated label
-// (CAT n / TROP. STORM / TROP. DEPRESSION) rather than a second NHC
-// field, since that's already exactly this information. Omits the word
-// entirely for anything that doesn't map cleanly (e.g. "UNKNOWN," or a
-// raw post-tropical/subtropical code like "EX") rather than guessing.
+// (CAT n / TROP. STORM / TD) rather than a second NHC field, since
+// that's already exactly this information. Omits the word entirely for
+// anything that doesn't map cleanly (e.g. "UNKNOWN," or a raw post-
+// tropical/subtropical code like "EX") rather than guessing.
 function stormTypeWord(classificationNow) {
   if (!classificationNow) return "";
   if (classificationNow.indexOf("CAT") === 0) return "HURRICANE";
   if (classificationNow === "TROP. STORM") return "TROPICAL STORM";
-  if (classificationNow === "TROP. DEPRESSION") return "TROPICAL DEPRESSION";
+  if (classificationNow === "TD") return "TROPICAL DEPRESSION";
   return "";
 }
 
@@ -541,7 +541,7 @@ function drawClosestApproachStats(ctx, panelBox, leftValue, leftLabel, rightValu
   ctx.fillText(leftLabel, leftX, y + labelM.actualBoundingBoxAscent);
   ctx.fillText(rightLabel, rightX, y + labelM.actualBoundingBoxAscent);
 
-  // Long classifications ("TROP. DEPRESSION") can easily be wider than
+  // Long classifications ("TROP. STORM") can easily be wider than
   // the gap actually left between the two number columns at a fixed
   // size -- shrinks both lines together (one size for both, so they
   // read as one consistent block) to whatever fits the real available

@@ -4552,7 +4552,7 @@
     ctx.fillText(leftLabel, leftX, y + labelM.actualBoundingBoxAscent);
     ctx.fillText(rightLabel, rightX, y + labelM.actualBoundingBoxAscent);
 
-    // Long classifications ("TROP. DEPRESSION") can easily be wider than
+    // Long classifications ("TROP. STORM") can easily be wider than
     // the gap actually left between the two number columns at a fixed
     // size -- shrinks both lines together (one size for both) to
     // whatever fits the real available width, down to a legible floor,
@@ -4846,7 +4846,7 @@
     if (!classificationNow) return "";
     if (classificationNow.indexOf("CAT") === 0) return "HURRICANE";
     if (classificationNow === "TROP. STORM") return "TROPICAL STORM";
-    if (classificationNow === "TROP. DEPRESSION") return "TROPICAL DEPRESSION";
+    if (classificationNow === "TD") return "TROPICAL DEPRESSION";
     return "";
   }
 
