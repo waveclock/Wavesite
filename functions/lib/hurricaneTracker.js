@@ -75,6 +75,15 @@ function haversineMiles(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// A flat-earth approximation (good enough at the regional scale this
+// card ever deals with -- a few hundred miles at most, per
+// MAX_RELEVANT_MILES) used by both pickClosestApproach's segment
+// interpolation and the map's own real track projection.
+const MILES_PER_DEG_LAT = 69;
+function milesPerDegLon(lat) {
+  return MILES_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180);
+}
+
 const COMPASS_POINTS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
 
 // Compass direction FROM (lat1,lon1) TO (lat2,lon2) -- used as
@@ -224,18 +233,70 @@ async function fetchForecastTrack(forecastAdvisoryUrl, issuanceDate, fetchImpl) 
   }
 }
 
-// The track point nearest this town IS the "closest approach" -- no
-// separate landfall-town lookup (NHC doesn't publish that as structured
-// data; free-text-parsing a town name out of advisory prose would be
-// exactly the kind of unreliable guess this card is trying to avoid).
+// The nearest point along the forecast TRACK is this card's "closest
+// approach" -- no separate landfall-town lookup (NHC doesn't publish
+// that as structured data; free-text-parsing a town name out of
+// advisory prose would be exactly the kind of unreliable guess this
+// card is trying to avoid).
+//
+// NHC only publishes a position every ~12-24 hours -- the storm's real,
+// continuous path can swing closer to town BETWEEN two published points
+// than either one shows on its own. This checks every discrete point
+// first, same as before, then also checks the geometrically closest
+// point along the straight LINE SEGMENT connecting each pair of
+// consecutive real points (a standard "closest point of approach"
+// technique), picking whichever is nearest overall. This never invents
+// a new forecast position the storm wasn't already headed toward -- it
+// only finds where, along the line between two points NHC actually
+// published, the path comes nearest, and linearly interpolates that
+// segment's own time/wind at that spot. A straight line between two
+// points 12-24 hours apart is itself still an approximation (real
+// storms curve), so this refines the estimate, it doesn't perfect it.
+//
+// Returns { point, miles, index }, where `index` is which track[]
+// position the map should treat as "closest approach" for display
+// purposes -- the point immediately AFTER an interpolated minimum (the
+// segment's later endpoint), or the matching index directly when a
+// real discrete point is the actual minimum.
 function pickClosestApproach(trackPoints, lat, lon) {
-  let best = null, bestMiles = Infinity;
-  for (const p of trackPoints || []) {
+  const track = trackPoints || [];
+  if (track.length === 0) return null;
+
+  let bestMiles = Infinity, bestPoint = null, bestIndex = -1;
+
+  track.forEach((p, i) => {
     const miles = haversineMiles(lat, lon, p.lat, p.lon);
-    if (miles < bestMiles) { bestMiles = miles; best = p; }
+    if (miles < bestMiles) { bestMiles = miles; bestPoint = p; bestIndex = i; }
+  });
+
+  const milesPerLon = milesPerDegLon(lat);
+  for (let i = 0; i < track.length - 1; i++) {
+    const a = track[i], b = track[i + 1];
+    const ax = (a.lon - lon) * milesPerLon, ay = (a.lat - lat) * MILES_PER_DEG_LAT;
+    const bx = (b.lon - lon) * milesPerLon, by = (b.lat - lat) * MILES_PER_DEG_LAT;
+    const abx = bx - ax, aby = by - ay;
+    const lenSq = abx * abx + aby * aby;
+    if (lenSq === 0) continue;
+    const t = -(ax * abx + ay * aby) / lenSq;
+    if (t <= 0 || t >= 1) continue; // an endpoint is closest -- already covered above
+    const px = ax + t * abx, py = ay + t * aby;
+    const miles = Math.hypot(px, py);
+    if (miles >= bestMiles) continue;
+
+    bestMiles = miles;
+    bestIndex = i + 1;
+    const aWind = Number(a.windKt), bWind = Number(b.windKt);
+    bestPoint = {
+      lat: lat + py / MILES_PER_DEG_LAT,
+      lon: lon + px / milesPerLon,
+      windKt: isNaN(aWind) || isNaN(bWind) ? (isNaN(bWind) ? a.windKt : b.windKt) : aWind + t * (bWind - aWind),
+      validAt: new Date(a.validAt.getTime() + t * (b.validAt.getTime() - a.validAt.getTime())),
+      interpolated: true
+    };
   }
-  if (!best) return null;
-  return { point: best, miles: bestMiles };
+
+  if (!bestPoint) return null;
+  return { point: bestPoint, miles: bestMiles, index: bestIndex };
 }
 
 function formatTrackLabel(validAt) {
@@ -276,14 +337,15 @@ async function fetchHurricaneTrackerCardData({ lat, lon, townName }, now, fetchI
     classificationNow: classificationLabel(storm.classification, storm.intensity),
     windMphNow: ktToMph(storm.intensity),
     track: track.map((p) => ({ lat: p.lat, lon: p.lon, label: formatTrackLabel(p.validAt) })),
-    // Index into the `track` array above of the closest-approach point --
-    // NHC often publishes more forecast points than this card's map has
-    // room to plot (see selectMapTrackPoints), and closest approach is
-    // this card's stand-in for "landfall" (NHC doesn't publish that as
-    // its own structured field -- see pickClosestApproach's own comment),
-    // so the map needs to know exactly which point that is to make sure
-    // it's never left off.
-    closestApproachIndex: closest ? track.indexOf(closest.point) : null,
+    // Index into the `track` array above that the map should treat as
+    // "closest approach" -- not necessarily the exact point pinned down
+    // by pickClosestApproach's own segment interpolation (which can fall
+    // strictly between two real points), but the real forecast point the
+    // map brackets/plots around it (see that function's own comment for
+    // which one). NHC often publishes more forecast points than this
+    // card's map has room to plot (see selectMapTrackPoints) -- this is
+    // what makes sure that real point is never left off.
+    closestApproachIndex: closest ? closest.index : null,
     closestApproach: closest ? {
       miles: Math.round(closest.miles),
       classification: categoryFromWindKt(closest.point.windKt),
@@ -394,14 +456,18 @@ function evenlySpacedRows(ctx, panelBox, rows) {
 // with the big-number/label rows split into two columns instead of one
 // -- gives both numbers in a panel the same visual weight instead of
 // burying the second one in a small subtitle line.
-function drawTwoBigStats(ctx, panelBox, topText, leftValue, leftLabel, rightValue, rightLabel) {
-  const topFont = "bold 18px \"" + FONT_SERIF + "\"";
+// topLines is an array of strings, each its own stacked line (e.g.
+// ["NOW", "CAT 1"]), so a short status and its category/day read as two
+// clearly separate pieces of information instead of one run-on line.
+function drawTwoBigStats(ctx, panelBox, topLines, leftValue, leftLabel, rightValue, rightLabel) {
+  const topFont = "bold 22px \"" + FONT_SERIF + "\"";
   const bigFont = "52px \"" + FONT_BLOCK + "\"";
   const labelFont = "bold 18px \"" + FONT_SERIF + "\"";
 
   ctx.font = topFont;
-  const topM = ctx.measureText(topText);
-  const topH = topM.actualBoundingBoxAscent + topM.actualBoundingBoxDescent;
+  const topMetrics = topLines.map((t) => ctx.measureText(t));
+  const topHeights = topMetrics.map((m) => m.actualBoundingBoxAscent + m.actualBoundingBoxDescent);
+  const topTotalH = topHeights.reduce((s, h) => s + h, 0);
 
   ctx.font = bigFont;
   const leftBigM = ctx.measureText(leftValue);
@@ -413,8 +479,8 @@ function drawTwoBigStats(ctx, panelBox, topText, leftValue, leftLabel, rightValu
   const labelM = ctx.measureText(leftLabel.length >= rightLabel.length ? leftLabel : rightLabel);
   const labelH = labelM.actualBoundingBoxAscent + labelM.actualBoundingBoxDescent;
 
-  const totalTextH = topH + bigH + labelH;
-  const gap = Math.max(4, (panelBox.h - totalTextH) / 4);
+  const totalTextH = topTotalH + bigH + labelH;
+  const gap = Math.max(4, (panelBox.h - totalTextH) / (topLines.length + 3));
   const leftX = panelBox.x + panelBox.w * 0.27, rightX = panelBox.x + panelBox.w * 0.73;
 
   ctx.textAlign = "center";
@@ -422,8 +488,10 @@ function drawTwoBigStats(ctx, panelBox, topText, leftValue, leftLabel, rightValu
 
   let y = panelBox.y + gap;
   ctx.font = topFont;
-  ctx.fillText(topText, panelBox.x + panelBox.w / 2, y + topM.actualBoundingBoxAscent);
-  y += topH + gap;
+  topLines.forEach((text, i) => {
+    ctx.fillText(text, panelBox.x + panelBox.w / 2, y + topMetrics[i].actualBoundingBoxAscent);
+    y += topHeights[i] + gap;
+  });
 
   ctx.font = bigFont;
   ctx.fillText(leftValue, leftX, y + bigAscent);
@@ -445,7 +513,6 @@ function drawTwoBigStats(ctx, panelBox, topText, leftValue, leftLabel, rightValu
 function drawClosestApproachStats(ctx, panelBox, leftValue, leftLabel, rightValue, rightLabel, midTop, midBottom) {
   const bigFont = "52px \"" + FONT_BLOCK + "\"";
   const labelFont = "bold 18px \"" + FONT_SERIF + "\"";
-  const midFont = "bold 18px \"" + FONT_SERIF + "\"";
 
   ctx.font = bigFont;
   const leftBigM = ctx.measureText(leftValue);
@@ -474,7 +541,23 @@ function drawClosestApproachStats(ctx, panelBox, leftValue, leftLabel, rightValu
   ctx.fillText(leftLabel, leftX, y + labelM.actualBoundingBoxAscent);
   ctx.fillText(rightLabel, rightX, y + labelM.actualBoundingBoxAscent);
 
+  // Long classifications ("TROP. DEPRESSION") can easily be wider than
+  // the gap actually left between the two number columns at a fixed
+  // size -- shrinks both lines together (one size for both, so they
+  // read as one consistent block) to whatever fits the real available
+  // width, down to a legible floor, rather than overlapping the numbers.
   const midX = panelBox.x + panelBox.w * 0.5;
+  const midMaxWidth = Math.max(40, (rightX - rightBigM.width / 2) - (leftX + leftBigM.width / 2) - 16);
+  function fitMidSize(text) {
+    for (let size = 22; size > 11; size--) {
+      ctx.font = "bold " + size + "px \"" + FONT_SERIF + "\"";
+      if (ctx.measureText(text).width <= midMaxWidth) return size;
+    }
+    return 11;
+  }
+  const midSize = Math.min(fitMidSize(midTop), fitMidSize(midBottom));
+  const midFont = "bold " + midSize + "px \"" + FONT_SERIF + "\"";
+
   ctx.font = midFont;
   const midTopM = ctx.measureText(midTop);
   const midTopH = midTopM.actualBoundingBoxAscent + midTopM.actualBoundingBoxDescent;
@@ -597,15 +680,10 @@ function selectMapTrackPoints(track, closestApproachIndex) {
 // shape is not. Replacing the coastline with real geography is tracked
 // separately (see the README's Hurricane Tracker section) and needs
 // real network access this dev sandbox doesn't have.
-const MILES_PER_DEG_LAT = 69;
 // Never zoom in tighter than this, even for a very close storm -- a
 // closest approach of a few miles shouldn't visually stretch across the
 // whole panel as if it were hundreds of miles away.
 const TRACK_MAX_PX_PER_MILE = 0.6;
-
-function milesPerDegLon(lat) {
-  return MILES_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180);
-}
 
 // How many pixels each real mile should occupy, chosen so every given
 // point fits inside the room actually available around the anchor in
@@ -778,12 +856,6 @@ function drawMapPanel(ctx, mapPanel, data) {
     ctx.strokeStyle = "#000";
     ctx.lineWidth = 2.2;
     ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = p.isClosest ? "#fff" : "#000";
-    ctx.font = "bold 16px \"" + FONT_SERIF + "\"";
-    ctx.textAlign = "center";
-    // Letters, not numbers -- a plain "1"/"2" inside a circle reads too
-    // easily as a hurricane category (CAT 1, CAT 2...) at a glance.
-    ctx.fillText(String.fromCharCode(65 + i), p.x, p.y + 5.5);
 
     const layout = labelLayout[i];
     ctx.fillStyle = "#000";
@@ -828,7 +900,7 @@ function drawHurricaneTrackerCard(ctx, data) {
 
   const hasWind = data.windMphNow != null;
   drawTwoBigStats(
-    ctx, heroPanel, "NOW · " + data.classificationNow,
+    ctx, heroPanel, ["NOW", data.classificationNow],
     String(data.miles), "MI " + data.direction,
     hasWind ? String(data.windMphNow) : "N/A", "MPH"
   );
