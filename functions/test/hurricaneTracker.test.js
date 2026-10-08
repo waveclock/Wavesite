@@ -154,14 +154,14 @@ function fetchImplFor(storms, forecastText, opts) {
   });
   await test("classificationLabel: TS/TD map to plain labels, not a category number", () => {
     assert.strictEqual(classificationLabel("TS", 50), "TROP. STORM");
-    assert.strictEqual(classificationLabel("TD", 25), "TROP. DEPRESSION");
+    assert.strictEqual(classificationLabel("TD", 25), "TD");
   });
   await test("classificationLabel: unknown/missing classification degrades instead of guessing", () => {
     assert.strictEqual(classificationLabel(undefined, 50), "UNKNOWN");
     assert.strictEqual(classificationLabel("EX", 50), "EX");
   });
   await test("categoryFromWindKt derives a category from wind speed ALONE -- a forecast point has no classification string of its own", () => {
-    assert.strictEqual(categoryFromWindKt(25), "TROP. DEPRESSION");
+    assert.strictEqual(categoryFromWindKt(25), "TD");
     assert.strictEqual(categoryFromWindKt(50), "TROP. STORM");
     assert.strictEqual(categoryFromWindKt(85), "CAT 2");
     assert.strictEqual(categoryFromWindKt(140), "CAT 5");
@@ -175,7 +175,7 @@ function fetchImplFor(storms, forecastText, opts) {
     assert.strictEqual(stormTypeWord("CAT 1"), "HURRICANE");
     assert.strictEqual(stormTypeWord("CAT 5"), "HURRICANE");
     assert.strictEqual(stormTypeWord("TROP. STORM"), "TROPICAL STORM");
-    assert.strictEqual(stormTypeWord("TROP. DEPRESSION"), "TROPICAL DEPRESSION");
+    assert.strictEqual(stormTypeWord("TD"), "TROPICAL DEPRESSION");
     assert.strictEqual(stormTypeWord("UNKNOWN"), "", "omits the word rather than guessing on an unrecognized label");
     assert.strictEqual(stormTypeWord(undefined), "");
   });
@@ -455,11 +455,11 @@ function fetchImplFor(storms, forecastText, opts) {
     assert.strictEqual(data.stormName, "ISAIAS");
     assert.strictEqual(data.direction, "SW");
     assert.ok(Math.abs(data.miles - 746) < 2);
-    assert.strictEqual(data.classificationNow, "TROP. DEPRESSION");
+    assert.strictEqual(data.classificationNow, "TD");
     assert.ok(data.closestApproach);
     // The forecast strengthens this storm well past "depression" by its
-    // closest approach -- this must NOT still read "TROP. DEPRESSION"
-    // just because that's the storm's CURRENT classification.
+    // closest approach -- this must NOT still read "TD" just because
+    // that's the storm's CURRENT classification.
     assert.strictEqual(data.closestApproach.classification, "CAT 2");
     assert.strictEqual(data.closestApproach.windMph, 98);
     assert.strictEqual(data.closestApproachIndex, 3, "closest approach is this track's last (4th) point");
@@ -522,23 +522,23 @@ function fetchImplFor(storms, forecastText, opts) {
     assert.doesNotThrow(() => {
       drawHurricaneTrackerCard(c.getContext("2d"), {
         noActiveStorm: false, townName: "Gulf Shores, AL", stormName: "ISAIAS",
-        direction: "SW", miles: 746, classificationNow: "TROP. DEPRESSION", windMphNow: 40,
+        direction: "SW", miles: 746, classificationNow: "TD", windMphNow: 40,
         track: [], closestApproach: null, townLat: 30.246, townLon: -87.7008
       });
     });
   });
-  await test("a long classification (\"TROP. DEPRESSION\") in the closest-approach panel's middle block doesn't throw -- confirmed visually it no longer overlaps the numbers on either side", () => {
+  await test("a synthetic very-long classification string (a safety net -- real classifications are all short now that 'TD' replaced 'TROP. DEPRESSION') in the closest-approach panel's middle block doesn't throw, and still shrinks to fit rather than overlapping the numbers", () => {
     const c = whiteCanvas(792, 272);
     assert.doesNotThrow(() => {
       drawHurricaneTrackerCard(c.getContext("2d"), {
         noActiveStorm: false, townName: "Ocean City, NJ", stormName: "Nine",
-        direction: "SSE", miles: 920, classificationNow: "TROP. DEPRESSION", windMphNow: null,
+        direction: "SSE", miles: 920, classificationNow: "SOMETHING VERY LONG", windMphNow: null,
         track: [
           { lat: 36.0, lon: -71.0, label: { day: "WED", time: "8AM" } },
           { lat: 37.5, lon: -72.5, label: { day: "WED", time: "8PM" } }
         ],
         closestApproachIndex: 1,
-        closestApproach: { miles: 410, classification: "TROP. DEPRESSION", windMph: null, label: { day: "WED", time: "8PM" } },
+        closestApproach: { miles: 410, classification: "SOMETHING VERY LONG", windMph: null, label: { day: "WED", time: "8PM" } },
         townLat: 39.2776, townLon: -74.5746
       });
     });
