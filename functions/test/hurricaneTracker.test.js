@@ -267,6 +267,37 @@ function fetchImplFor(storms, forecastText, opts) {
   await test("returns null for an empty track", () => {
     assert.strictEqual(pickClosestApproach([], 30, -87), null);
   });
+  await test("finds a point BETWEEN two real forecast points that's closer than either one alone -- NHC only publishes a position every 12-24h, the real path can swing closer in between", () => {
+    // Town sits due north of the segment's midpoint -- the true closest
+    // point on the straight line between A and B is that midpoint, well
+    // inside the segment, not either endpoint.
+    const a = { lat: 30.0, lon: -88.0, windKt: 60, validAt: new Date("2026-09-01T00:00:00Z") };
+    const b = { lat: 30.0, lon: -86.0, windKt: 80, validAt: new Date("2026-09-01T12:00:00Z") };
+    const townLat = 30.5, townLon = -87.0;
+    const result = pickClosestApproach([a, b], townLat, townLon);
+    const discreteMinMiles = Math.min(haversineMiles(townLat, townLon, a.lat, a.lon), haversineMiles(townLat, townLon, b.lat, b.lon));
+    assert.ok(result.miles < discreteMinMiles, "interpolated distance (" + result.miles + ") should beat the nearest discrete point (" + discreteMinMiles + ")");
+    assert.strictEqual(result.index, 1, "brackets through the segment's later endpoint");
+    assert.ok(result.point.interpolated, "flagged as an interpolated point, not one of the two real ones");
+    assert.ok(Math.abs(result.point.lat - 30.0) < 0.01, "the interpolated point should sit right on the line between A and B");
+    assert.ok(result.point.windKt > 60 && result.point.windKt < 80, "wind speed interpolated between the two real readings");
+    assert.ok(result.point.validAt.getTime() > a.validAt.getTime() && result.point.validAt.getTime() < b.validAt.getTime());
+  });
+  await test("falls back to a real discrete point when no segment's interior comes closer (the storm keeps moving straight toward town)", () => {
+    const a = { lat: 25.0, lon: -90.0, windKt: 40, validAt: new Date("2026-09-01T00:00:00Z") };
+    const b = { lat: 29.0, lon: -88.0, windKt: 70, validAt: new Date("2026-09-01T12:00:00Z") }; // the nearest point to town below
+    const townLat = 29.0, townLon = -88.0;
+    const result = pickClosestApproach([a, b], townLat, townLon);
+    assert.ok(!result.point.interpolated, "point B itself is the true minimum -- no interior improvement");
+    assert.strictEqual(result.index, 1);
+    assert.ok(result.miles < 0.001);
+  });
+  await test("still works with only a single track point (no segment to check)", () => {
+    const a = { lat: 30.0, lon: -88.0, windKt: 60, validAt: new Date("2026-09-01T00:00:00Z") };
+    const result = pickClosestApproach([a], 30.5, -87.0);
+    assert.strictEqual(result.index, 0);
+    assert.ok(!result.point.interpolated);
+  });
 
   console.log("pickCoastlineTemplate");
   await test("a Gulf Coast town (west of ~85W, south of 31N) gets the Gulf template", () => {
@@ -433,18 +464,21 @@ function fetchImplFor(storms, forecastText, opts) {
     assert.strictEqual(data.closestApproach.windMph, 98);
     assert.strictEqual(data.closestApproachIndex, 3, "closest approach is this track's last (4th) point");
   });
-  await test("closestApproachIndex points past the map panel's old 4-point cutoff when that's where closest approach falls", async () => {
+  await test("closestApproachIndex points well past the map panel's old 4-point cutoff, and segment interpolation finds an even closer pass than any single discrete point", async () => {
     const data = await fetchHurricaneTrackerCardData(
       { lat: 30.246, lon: -87.7008, townName: "Gulf Shores, AL" },
       new Date("2026-10-06T22:00:00Z"),
       fetchImplFor([SAMPLE_STORM], LONG_FORECAST_TEXT)
     );
     assert.strictEqual(data.track.length, 6);
-    assert.strictEqual(data.closestApproachIndex, 4, "the nearest point is the 5th one, not one of the first 4");
+    assert.strictEqual(data.closestApproachIndex, 5, "the real forecast point bracketing the interpolated minimum is the 6th one");
+    // The nearest single discrete point (index 4) is ~36 mi away -- the
+    // true path between it and index 5 swings much closer than either
+    // endpoint on its own.
+    assert.ok(data.closestApproach.miles < 10, "segment interpolation should find a much closer pass than any single discrete point here, got " + data.closestApproach.miles);
     const plotted = selectMapTrackPoints(data.track, data.closestApproachIndex);
     const closestEntry = plotted.find((p) => p.isClosest);
-    assert.ok(closestEntry, "the map must still plot the real closest-approach point, not stop at index 3");
-    assert.strictEqual(closestEntry.point.lat, data.track[4].lat);
+    assert.ok(closestEntry, "the map must still plot a real bracketing point for the closest approach");
   });
   await test("a failed forecast-track fetch still returns current position/intensity, with closestApproach null", async () => {
     const data = await fetchHurricaneTrackerCardData(
@@ -490,6 +524,22 @@ function fetchImplFor(storms, forecastText, opts) {
         noActiveStorm: false, townName: "Gulf Shores, AL", stormName: "ISAIAS",
         direction: "SW", miles: 746, classificationNow: "TROP. DEPRESSION", windMphNow: 40,
         track: [], closestApproach: null, townLat: 30.246, townLon: -87.7008
+      });
+    });
+  });
+  await test("a long classification (\"TROP. DEPRESSION\") in the closest-approach panel's middle block doesn't throw -- confirmed visually it no longer overlaps the numbers on either side", () => {
+    const c = whiteCanvas(792, 272);
+    assert.doesNotThrow(() => {
+      drawHurricaneTrackerCard(c.getContext("2d"), {
+        noActiveStorm: false, townName: "Ocean City, NJ", stormName: "Nine",
+        direction: "SSE", miles: 920, classificationNow: "TROP. DEPRESSION", windMphNow: null,
+        track: [
+          { lat: 36.0, lon: -71.0, label: { day: "WED", time: "8AM" } },
+          { lat: 37.5, lon: -72.5, label: { day: "WED", time: "8PM" } }
+        ],
+        closestApproachIndex: 1,
+        closestApproach: { miles: 410, classification: "TROP. DEPRESSION", windMph: null, label: { day: "WED", time: "8PM" } },
+        townLat: 39.2776, townLon: -74.5746
       });
     });
   });
