@@ -387,6 +387,60 @@ function evenlySpacedRows(ctx, panelBox, rows) {
   });
 }
 
+// Hero panel layout: miles-away and current wind speed as two equally
+// big numbers side by side (miles on the left, speed on the right, per
+// the user's own ordering), each with its own small unit/direction label
+// underneath, plus a "NOW · CAT 2"-style status line on top. Same equal-
+// gap-by-measured-glyph-height technique as evenlySpacedRows, just with
+// the big-number/label rows split into two columns instead of one.
+function drawHeroStats(ctx, panelBox, data) {
+  const topText = "NOW · " + data.classificationNow;
+  const milesText = String(data.miles);
+  const milesLabel = "MI " + data.direction;
+  const hasWind = data.windMphNow != null;
+  const mphText = hasWind ? String(data.windMphNow) : "N/A";
+  const mphLabel = "MPH";
+
+  const topFont = "bold 18px \"" + FONT_SERIF + "\"";
+  const bigFont = "52px \"" + FONT_BLOCK + "\"";
+  const labelFont = "bold 18px \"" + FONT_SERIF + "\"";
+
+  ctx.font = topFont;
+  const topM = ctx.measureText(topText);
+  const topH = topM.actualBoundingBoxAscent + topM.actualBoundingBoxDescent;
+
+  ctx.font = bigFont;
+  const milesBigM = ctx.measureText(milesText);
+  const mphBigM = ctx.measureText(mphText);
+  const bigAscent = Math.max(milesBigM.actualBoundingBoxAscent, mphBigM.actualBoundingBoxAscent);
+  const bigH = bigAscent + Math.max(milesBigM.actualBoundingBoxDescent, mphBigM.actualBoundingBoxDescent);
+
+  ctx.font = labelFont;
+  const labelM = ctx.measureText(milesLabel);
+  const labelH = labelM.actualBoundingBoxAscent + labelM.actualBoundingBoxDescent;
+
+  const totalTextH = topH + bigH + labelH;
+  const gap = Math.max(4, (panelBox.h - totalTextH) / 4);
+  const leftX = panelBox.x + panelBox.w * 0.27, rightX = panelBox.x + panelBox.w * 0.73;
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#000";
+
+  let y = panelBox.y + gap;
+  ctx.font = topFont;
+  ctx.fillText(topText, panelBox.x + panelBox.w / 2, y + topM.actualBoundingBoxAscent);
+  y += topH + gap;
+
+  ctx.font = bigFont;
+  ctx.fillText(milesText, leftX, y + bigAscent);
+  ctx.fillText(mphText, rightX, y + bigAscent);
+  y += bigH + gap;
+
+  ctx.font = labelFont;
+  ctx.fillText(milesLabel, leftX, y + labelM.actualBoundingBoxAscent);
+  ctx.fillText(mphLabel, rightX, y + labelM.actualBoundingBoxAscent);
+}
+
 function drawBanner(ctx, text) {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
@@ -564,11 +618,7 @@ function drawHurricaneTrackerCard(ctx, data) {
   panel(ctx, closestPanel.x, closestPanel.y, closestPanel.w, closestPanel.h);
   panel(ctx, mapPanel.x, mapPanel.y, mapPanel.w, mapPanel.h);
 
-  const windText = data.windMphNow != null ? data.windMphNow + " MPH" : "WIND N/A";
-  evenlySpacedRows(ctx, heroPanel, [
-    { text: data.miles + " MI " + data.direction, font: "52px \"" + FONT_BLOCK + "\"" },
-    { text: "NOW · " + data.classificationNow + " · " + windText, font: "bold 18px \"" + FONT_SERIF + "\"" }
-  ]);
+  drawHeroStats(ctx, heroPanel, data);
 
   if (data.closestApproach) {
     const ca = data.closestApproach;
