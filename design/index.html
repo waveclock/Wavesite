@@ -4512,6 +4512,55 @@
     ctx.fillText(rightLabel, rightX, y + labelM.actualBoundingBoxAscent);
   }
 
+  // Mirrors the server's drawClosestApproachStats -- see that function's
+  // own comment for why this panel has its own layout (middle block
+  // between the numbers, no top status line) instead of reusing
+  // hurricaneDrawTwoBigStats.
+  function hurricaneDrawClosestApproachStats(ctx, panelBox, leftValue, leftLabel, rightValue, rightLabel, midTop, midBottom) {
+    const bigFont = "52px 'Bungee', sans-serif";
+    const labelFont = "bold 18px Georgia, serif";
+    const midFont = "bold 15px Georgia, serif";
+
+    ctx.font = bigFont;
+    const leftBigM = ctx.measureText(leftValue);
+    const rightBigM = ctx.measureText(rightValue);
+    const bigAscent = Math.max(leftBigM.actualBoundingBoxAscent, rightBigM.actualBoundingBoxAscent);
+    const bigH = bigAscent + Math.max(leftBigM.actualBoundingBoxDescent, rightBigM.actualBoundingBoxDescent);
+
+    ctx.font = labelFont;
+    const labelM = ctx.measureText(leftLabel.length >= rightLabel.length ? leftLabel : rightLabel);
+    const labelH = labelM.actualBoundingBoxAscent + labelM.actualBoundingBoxDescent;
+
+    const totalTextH = bigH + labelH;
+    const gap = Math.max(4, (panelBox.h - totalTextH) / 3);
+    const leftX = panelBox.x + panelBox.w * 0.2, rightX = panelBox.x + panelBox.w * 0.8;
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#000";
+
+    let y = panelBox.y + gap;
+    ctx.font = bigFont;
+    ctx.fillText(leftValue, leftX, y + bigAscent);
+    ctx.fillText(rightValue, rightX, y + bigAscent);
+    y += bigH + gap;
+
+    ctx.font = labelFont;
+    ctx.fillText(leftLabel, leftX, y + labelM.actualBoundingBoxAscent);
+    ctx.fillText(rightLabel, rightX, y + labelM.actualBoundingBoxAscent);
+
+    const midX = panelBox.x + panelBox.w * 0.5;
+    ctx.font = midFont;
+    const midTopM = ctx.measureText(midTop);
+    const midTopH = midTopM.actualBoundingBoxAscent + midTopM.actualBoundingBoxDescent;
+    const midBottomM = ctx.measureText(midBottom);
+    const midBottomH = midBottomM.actualBoundingBoxAscent + midBottomM.actualBoundingBoxDescent;
+    const midGap = 6;
+    let midY = panelBox.y + (panelBox.h - (midTopH + midGap + midBottomH)) / 2;
+    ctx.fillText(midTop, midX, midY + midTopM.actualBoundingBoxAscent);
+    midY += midTopH + midGap;
+    ctx.fillText(midBottom, midX, midY + midBottomM.actualBoundingBoxAscent);
+  }
+
   function hurricaneDrawBanner(ctx, w, text) {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, w, HURRICANE_BANNER_HEIGHT);
@@ -4764,7 +4813,9 @@
       ctx.fillStyle = p.isClosest ? "#fff" : "#000";
       ctx.font = "bold 16px Georgia, serif";
       ctx.textAlign = "center";
-      ctx.fillText(String(i + 1), p.x, p.y + 5.5);
+      // Letters, not numbers -- a plain "1"/"2" inside a circle reads too
+      // easily as a hurricane category (CAT 1, CAT 2...) at a glance.
+      ctx.fillText(String.fromCharCode(65 + i), p.x, p.y + 5.5);
 
       const layout = labelLayout[i];
       ctx.fillStyle = "#000";
@@ -4829,10 +4880,11 @@
     if (data.closestApproach) {
       const ca = data.closestApproach;
       const caHasWind = ca.windMph != null;
-      hurricaneDrawTwoBigStats(
-        ctx, closestPanel, "CLOSEST · " + ca.classification + " · " + ca.label.day + " " + ca.label.time,
+      hurricaneDrawClosestApproachStats(
+        ctx, closestPanel,
         String(ca.miles), "MILES",
-        caHasWind ? String(ca.windMph) : "N/A", "MPH"
+        caHasWind ? String(ca.windMph) : "N/A", "MPH",
+        ca.label.day + " " + ca.label.time, ca.classification
       );
     } else {
       hurricaneEvenlySpacedRows(ctx, closestPanel, [
