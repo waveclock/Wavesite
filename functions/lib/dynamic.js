@@ -1117,6 +1117,59 @@ function drawGameDayCard(ctx, card) {
   }
 }
 
+// The off-season/no-upcoming-games fallback for the Team tool -- used in
+// place of drawGameDayCard whenever findNextGame comes up empty (true
+// off-season, or ESPN just hasn't posted next season's schedule yet).
+// Used to fall back to the generic drawDynamicText with a free-text
+// string like "PHILLIES: NO UPCOMING GAMES" at whatever font size the
+// Countdown tool's slider happened to be set to -- fine for a short
+// countdown string, but with no shrink-to-fit it ran the team's own
+// name straight off both edges of the card for any team whose name
+// plus the message was wide (confirmed live). This instead reuses the
+// Game Day card's own banner + logo treatment: the team's name in the
+// banner (falling back to the league title when ESPN never returned a
+// name for this team), its real logo centered big below it, and the
+// message auto-shrunk to fit -- same "real team art over a bare string"
+// upgrade card.myLogo already gets whenever a game IS found.
+function drawTeamOffSeasonCard(ctx, card) {
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, BANNER_HEIGHT);
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  const bannerTitle = card.bannerTitle || "GAME DAY";
+  const bannerSize = fitBannerFontSize(ctx, bannerTitle, CANVAS_WIDTH - 40, FONT_FAMILY.block, 24, 14);
+  ctx.fillText(bannerTitle, CANVAS_WIDTH / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+  ctx.fillStyle = "#000";
+  const bodyTop = BANNER_HEIGHT, bodyH = CANVAS_HEIGHT - BANNER_HEIGHT;
+  const message = card.message || "NO UPCOMING GAMES";
+
+  if (card.myLogo) {
+    const logoSize = 140, gap = 18;
+    ctx.font = "bold 24px \"" + FONT_FAMILY.serif + "\"";
+    const msgSize = fitBannerFontSize(ctx, message, CANVAS_WIDTH - 60, FONT_FAMILY.serif, 24, 14);
+    ctx.font = "bold " + msgSize + "px \"" + FONT_FAMILY.serif + "\"";
+    const msgMetrics = ctx.measureText(message);
+    const msgH = msgMetrics.actualBoundingBoxAscent + msgMetrics.actualBoundingBoxDescent;
+
+    const totalH = logoSize + gap + msgH;
+    const topPad = Math.max(8, (bodyH - totalH) / 2);
+    const logoY = bodyTop + topPad;
+    ctx.drawImage(card.myLogo, CANVAS_WIDTH / 2 - logoSize / 2, logoY, logoSize, logoSize);
+
+    const msgBaseline = logoY + logoSize + gap + msgMetrics.actualBoundingBoxAscent;
+    ctx.fillText(message, CANVAS_WIDTH / 2, msgBaseline);
+  } else {
+    // No logo to anchor on (ESPN gave none, or the fetch failed) -- same
+    // centered-text fallback as before, just actually shrunk to fit.
+    ctx.textBaseline = "middle";
+    const msgSize = fitBannerFontSize(ctx, message, CANVAS_WIDTH - 60, FONT_FAMILY.serif, 32, 14);
+    ctx.font = "bold " + msgSize + "px \"" + FONT_FAMILY.serif + "\"";
+    ctx.fillText(message, CANVAS_WIDTH / 2, bodyTop + bodyH / 2);
+    ctx.textBaseline = "alphabetic";
+  }
+}
+
 // Silhouette of the moon's lit fraction -- black fill is the UNLIT
 // shadow (ink on the page), the blank/white area is what's lit, matching
 // this card's black-ink-on-white style everywhere else. Verified against
@@ -2661,11 +2714,19 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
     const { nextGame: rawNextGame, myAbbrev, myLogo: myLogoUrl } = await fetchNextGame(meta.sport, meta.league, meta.teamId, now, fetchImpl);
 
     if (!rawNextGame) {
-      // Off-season: no game to build a card around -- fall back to the
-      // simple centered message rather than an empty/broken-looking card.
+      // Off-season: no game to build a Game Day card around -- still show
+      // the team's own logo (same dithered-logo fetch drawGameDayCard
+      // uses below, not fabricated art) over a properly fit message,
+      // instead of the old bare, overflow-prone text line.
+      const myLogoCanvas = await fetchDitheredLogo(myLogoUrl, 140, fetchImpl);
       const content = formatTeamText(null, myAbbrev);
-      const result = await compositeAndPack(basePngBuffer, (ctx) => drawDynamicText(ctx, content, meta), meta);
-      return Object.assign(result, { nextGame: null, myAbbrev, content });
+      const card = {
+        bannerTitle: myAbbrev || gameDayBannerTitle(meta.sport, meta.league),
+        myLogo: myLogoCanvas,
+        message: "NO UPCOMING GAMES"
+      };
+      const result = await compositeAndPack(basePngBuffer, (ctx) => drawTeamOffSeasonCard(ctx, card), meta);
+      return Object.assign(result, { nextGame: null, myAbbrev, content, hasMyLogo: !!myLogoCanvas });
     }
 
     const at = now || new Date();
@@ -2872,6 +2933,7 @@ module.exports = {
   invertedCopy,
   drawDynamicText,
   drawGameDayCard,
+  drawTeamOffSeasonCard,
   toGrayscale,
   ditherAtkinson,
   ditheredLogoCanvas,
