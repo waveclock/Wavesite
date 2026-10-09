@@ -453,11 +453,22 @@ async function espnProxyHandler(req, res) {
       return;
     }
     // seasonType lets the live preview mirror fetchNextGame's own
-    // regular-season-then-postseason fallback (see espnScheduleUrl's
-    // comment) -- anything other than the literal "3" stays on the
-    // regular-season default rather than trusting an arbitrary value.
-    const seasonType = req.query.seasonType === "3" ? 3 : 2;
-    url = espnScheduleUrl(sport, league, teamId, seasonType);
+    // regular-season-then-postseason-then-next-season fallback (see
+    // espnScheduleUrl's comment) -- anything other than the literal "1"
+    // or "3" stays on the regular-season default rather than trusting an
+    // arbitrary value. season (year) is only meaningful alongside a
+    // future-season lookup (see fetchNextSeasonGame), so it's bounded to
+    // this year or next rather than passed through unchecked -- this is
+    // still a public proxy endpoint.
+    const seasonTypeParam = req.query.seasonType;
+    const seasonType = seasonTypeParam === "1" ? 1 : seasonTypeParam === "3" ? 3 : 2;
+    let seasonYear;
+    if (typeof req.query.season === "string" && /^\d{4}$/.test(req.query.season)) {
+      const y = Number(req.query.season);
+      const nowYear = new Date().getUTCFullYear();
+      if (y >= nowYear && y <= nowYear + 1) seasonYear = y;
+    }
+    url = espnScheduleUrl(sport, league, teamId, seasonType, seasonYear);
   } else if (kind === "record") {
     const teamId = req.query.teamId;
     if (typeof teamId !== "string" || !teamId) {

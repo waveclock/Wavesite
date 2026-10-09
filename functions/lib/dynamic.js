@@ -120,8 +120,17 @@ const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
 // upcoming games, confirmed live: a team's regular-season schedule goes
 // fully empty once that season concludes, which used to just show "NO
 // UPCOMING GAMES" straight through a team's playoff run.
-function espnScheduleUrl(sport, league, teamId, seasonType) {
-  return ESPN_BASE + "/" + sport + "/" + league + "/teams/" + teamId + "/schedule?seasontype=" + (seasonType || 2);
+// seasonYear is optional -- only needed to reach a FUTURE season's
+// schedule (see fetchNextSeasonGame below), since ESPN's default
+// (omitted) season is always "whichever one it currently considers
+// current." Appended as a plain &season=YYYY, the same community-
+// documented param shape the rest of this file's "unverified but
+// widely-documented, degrades gracefully if wrong" ESPN integration
+// already leans on elsewhere.
+function espnScheduleUrl(sport, league, teamId, seasonType, seasonYear) {
+  let url = ESPN_BASE + "/" + sport + "/" + league + "/teams/" + teamId + "/schedule?seasontype=" + (seasonType || 2);
+  if (seasonYear) url += "&season=" + seasonYear;
+  return url;
 }
 
 function espnTeamsUrl(sport, league) {
@@ -165,8 +174,16 @@ const LEAGUE_DISPLAY_NAME = {
   "hockey/nhl": "NHL"
 };
 
-function gameDayBannerTitle(sport, league) {
+// isPreseason distinguishes a real regular/postseason matchup from an
+// exhibition game found via fetchNextSeasonGame's preseason bucket --
+// MLB's own preseason IS Spring Training, so that case gets its own
+// recognizable label instead of implying a real "MLB GAME DAY" contest.
+// Every other league just gets "{LEAGUE} PRESEASON" -- still accurate,
+// still distinct from a real game day.
+function gameDayBannerTitle(sport, league, isPreseason) {
+  if (isPreseason && sport === "baseball" && league === "mlb") return "SPRING TRAINING";
   const name = LEAGUE_DISPLAY_NAME[sport + "/" + league];
+  if (isPreseason) return name ? name + " PRESEASON" : "PRESEASON";
   return name ? name + " GAME DAY" : "GAME DAY";
 }
 
@@ -289,6 +306,42 @@ async function findNextGame(events, teamId, now) {
 // off again, then it started working -- see the README timeline), so
 // leaving it alone rather than risking a currently-working path while
 // fixing a different, still-broken one (the RSS fetch below).
+// A game found here is many months out (ESPN's just-published next
+// season, or -- for MLB/NFL -- an even earlier preseason/Spring Training
+// slate) but still a REAL scheduled game, not a fabricated date -- same
+// "duplicate real data, never invent it" rule the rest of this file
+// follows. Tries the team's upcoming preseason (seasontype=1, what MLB
+// files Spring Training games under -- community-documented, same
+// confirmed-live-elsewhere-but-not-here standing as espnTeamUrl) and
+// regular season (seasontype=2), across both the current and next
+// calendar year (season labeling varies enough by league that trying
+// both is simpler and safer than guessing which one a given league
+// means), and returns the globally earliest game found across all of
+// them. Never throws -- a future season's schedule often genuinely
+// isn't published yet, which is a normal steady state (the real
+// off-season case fetchNextGame falls back to below), not an error.
+async function fetchNextSeasonGame(sport, league, teamId, now, fetchImpl) {
+  const doFetch = fetchImpl || fetch;
+  const thisYear = (now || new Date()).getUTCFullYear();
+  let best = null;
+  for (const year of [thisYear, thisYear + 1]) {
+    for (const seasonType of [1, 2]) {
+      try {
+        const resp = await doFetch(espnScheduleUrl(sport, league, teamId, seasonType, year));
+        if (!resp.ok) continue;
+        const data = await resp.json();
+        const found = await findNextGame(data.events, teamId, now);
+        if (found.nextGame && (!best || found.nextGame.dayIndex < best.nextGame.dayIndex)) {
+          best = Object.assign({}, found, { isPreseason: seasonType === 1 });
+        }
+      } catch (err) {
+        // keep trying the remaining year/seasonType combinations
+      }
+    }
+  }
+  return best;
+}
+
 async function fetchNextGame(sport, league, teamId, now, fetchImpl) {
   const doFetch = fetchImpl || fetch;
   const resp = await doFetch(espnScheduleUrl(sport, league, teamId));
@@ -297,27 +350,49 @@ async function fetchNextGame(sport, league, teamId, now, fetchImpl) {
   const regularSeason = await findNextGame(data.events, teamId, now);
   if (regularSeason.nextGame) return regularSeason;
 
+  let myAbbrev = regularSeason.myAbbrev;
+  let myLogo = regularSeason.myLogo;
+
   // No more regular-season games -- either a real off-season, or the
   // team's in the middle of a postseason run ESPN files under a separate
   // season type (see espnScheduleUrl's comment). One extra request, only
   // when the first one came up empty, keeps the common mid-season case at
-  // a single fetch. A failure on THIS request degrades to the regular-
-  // season result (still "no upcoming games") rather than throwing -- the
-  // postseason check is a nice-to-have layered on top of the real fetch
-  // above, which still throws on its own failure same as before.
+  // a single fetch. A failure on THIS request is a nice-to-have layered
+  // on top of the real fetch above (which still throws on its own
+  // failure same as before) -- it just falls through to the next-season
+  // check below, same as an empty postseason result would.
   try {
     const postResp = await doFetch(espnScheduleUrl(sport, league, teamId, 3));
-    if (!postResp.ok) return regularSeason;
-    const postData = await postResp.json();
-    const postseason = await findNextGame(postData.events, teamId, now);
-    return {
-      nextGame: postseason.nextGame,
-      myAbbrev: regularSeason.myAbbrev || postseason.myAbbrev,
-      myLogo: regularSeason.myLogo || postseason.myLogo
-    };
+    if (postResp.ok) {
+      const postData = await postResp.json();
+      const postseason = await findNextGame(postData.events, teamId, now);
+      myAbbrev = myAbbrev || postseason.myAbbrev;
+      myLogo = myLogo || postseason.myLogo;
+      if (postseason.nextGame) return { nextGame: postseason.nextGame, myAbbrev, myLogo };
+    }
   } catch (err) {
-    return regularSeason;
+    // same nice-to-have contract -- fall through to the next-season check.
   }
+
+  // Still nothing in the current season -- look for the earliest game of
+  // a FUTURE season ESPN has already published (see fetchNextSeasonGame
+  // above). Also a nice-to-have: any failure here degrades to the real
+  // off-season result below rather than throwing.
+  try {
+    const nextSeason = await fetchNextSeasonGame(sport, league, teamId, now, fetchImpl);
+    if (nextSeason && nextSeason.nextGame) {
+      return {
+        nextGame: nextSeason.nextGame,
+        myAbbrev: myAbbrev || nextSeason.myAbbrev,
+        myLogo: myLogo || nextSeason.myLogo,
+        isPreseason: nextSeason.isPreseason
+      };
+    }
+  } catch (err) {
+    // same nice-to-have contract.
+  }
+
+  return { nextGame: null, myAbbrev, myLogo };
 }
 
 // A team's win-loss record is a nice-to-have on the Game Day card, not
@@ -2711,7 +2786,7 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
   }
 
   if (meta.type === "team") {
-    const { nextGame: rawNextGame, myAbbrev, myLogo: myLogoUrl } = await fetchNextGame(meta.sport, meta.league, meta.teamId, now, fetchImpl);
+    const { nextGame: rawNextGame, myAbbrev, myLogo: myLogoUrl, isPreseason } = await fetchNextGame(meta.sport, meta.league, meta.teamId, now, fetchImpl);
 
     if (!rawNextGame) {
       // Off-season: no game to build a Game Day card around -- still show
@@ -2751,7 +2826,7 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
     const daysLabel = daysLeft <= 0 ? "TODAY!" : "IN " + daysLeft + " " + daysUnit;
     const dateTimeParts = formatGameDateTimeParts(rawNextGame.gameDateISO);
     const card = {
-      bannerTitle: gameDayBannerTitle(meta.sport, meta.league),
+      bannerTitle: gameDayBannerTitle(meta.sport, meta.league, isPreseason),
       headline,
       daysLeft,
       daysUnit,
@@ -2916,6 +2991,7 @@ module.exports = {
   findNextGame,
   easternDayIndex,
   fetchNextGame,
+  fetchNextSeasonGame,
   fetchTeamRecord,
   fetchWinProbability,
   extractWinProbabilityPct,

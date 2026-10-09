@@ -179,6 +179,76 @@ async function test(name, fn) {
     assert.ok(requestedUrl.includes("seasontype=2"), "got: " + requestedUrl);
   });
 
+  await test("schedule: seasonType=1 requests the preseason -- lets the live preview mirror fetchNextSeasonGame's Spring Training lookup", async () => {
+    const req = fakeReq({ sport: "baseball", league: "mlb", kind: "schedule", teamId: "22", seasonType: "1" });
+    const res = fakeRes();
+    let requestedUrl = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      requestedUrl = url;
+      return { status: 200, async json() { return { events: [] }; } };
+    };
+    try {
+      await espnProxyHandler(req, res);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    assert.ok(requestedUrl.includes("seasontype=1"), "got: " + requestedUrl);
+  });
+
+  await test("schedule: a season year within [this year, next year] is passed through as &season=YYYY", async () => {
+    const nowYear = new Date().getUTCFullYear();
+    const req = fakeReq({ sport: "baseball", league: "mlb", kind: "schedule", teamId: "22", seasonType: "1", season: String(nowYear + 1) });
+    const res = fakeRes();
+    let requestedUrl = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      requestedUrl = url;
+      return { status: 200, async json() { return { events: [] }; } };
+    };
+    try {
+      await espnProxyHandler(req, res);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    assert.ok(requestedUrl.includes("season=" + (nowYear + 1)), "got: " + requestedUrl);
+  });
+
+  await test("schedule: a season year outside [this year, next year] is dropped rather than passed through unchecked", async () => {
+    const req = fakeReq({ sport: "baseball", league: "mlb", kind: "schedule", teamId: "22", season: "2099" });
+    const res = fakeRes();
+    let requestedUrl = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      requestedUrl = url;
+      return { status: 200, async json() { return { events: [] }; } };
+    };
+    try {
+      await espnProxyHandler(req, res);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    assert.ok(!requestedUrl.includes("season=2099"), "got: " + requestedUrl);
+  });
+
+  await test("schedule: a non-numeric season value is dropped rather than passed through unchecked", async () => {
+    const req = fakeReq({ sport: "baseball", league: "mlb", kind: "schedule", teamId: "22", season: "2026; DROP TABLE" });
+    const res = fakeRes();
+    let requestedUrl = null;
+    const originalFetch = global.fetch;
+    global.fetch = async (url) => {
+      requestedUrl = url;
+      return { status: 200, async json() { return { events: [] }; } };
+    };
+    try {
+      await espnProxyHandler(req, res);
+    } finally {
+      global.fetch = originalFetch;
+    }
+    assert.ok(!requestedUrl.includes("season=2026; DROP TABLE"), "got: " + requestedUrl);
+    assert.ok(!requestedUrl.includes("&season="), "got: " + requestedUrl);
+  });
+
   await test("record: requires a teamId", async () => {
     const req = fakeReq({ sport: "football", league: "nfl", kind: "record" });
     const res = fakeRes();
