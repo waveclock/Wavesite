@@ -23,6 +23,7 @@ const {
   packTo1Bit,
   invertedCopy,
   drawGameDayCard,
+  drawTeamOffSeasonCard,
   drawGameLine,
   toGrayscale,
   ditherAtkinson,
@@ -868,6 +869,52 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
       c1.getContext("2d").getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data,
       c2.getContext("2d").getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data
     );
+  });
+
+  console.log("drawTeamOffSeasonCard (no-upcoming-games fallback)");
+  await test("with a logo: draws banner, logo, and message without throwing, with ink in the logo's own region", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    const darkSource = whiteCanvas(20, 20);
+    darkSource.getContext("2d").fillStyle = "#000";
+    darkSource.getContext("2d").fillRect(0, 0, 20, 20);
+    const logo = ditheredLogoCanvas(darkSource, 140);
+    assert.doesNotThrow(() => {
+      drawTeamOffSeasonCard(ctx, { bannerTitle: "PHILLIES", myLogo: logo, message: "NO UPCOMING GAMES" });
+    });
+    const data = ctx.getImageData(CANVAS_WIDTH / 2 - 60, 60, 120, 120).data;
+    let hasInk = false;
+    for (let i = 0; i < data.length; i += 4) { if (data[i] < 250) { hasInk = true; break; } }
+    assert.ok(hasInk, "expected the logo to have drawn ink in the upper-middle of the card");
+  });
+  await test("without a logo: falls back to centered text only, still without throwing", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => {
+      drawTeamOffSeasonCard(ctx, { bannerTitle: "PHILLIES", myLogo: null, message: "NO UPCOMING GAMES" });
+    });
+  });
+  await test("falls back to a bare 'GAME DAY' banner and default message when both are missing", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => { drawTeamOffSeasonCard(ctx, {}); });
+  });
+  await test("a long team name as the bannerTitle still fits within the banner (shrinks, never overflows) -- regression test for the old plain-text overflow bug", () => {
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    const logo = ditheredLogoCanvas(whiteCanvas(20, 20), 140);
+    assert.doesNotThrow(() => {
+      drawTeamOffSeasonCard(ctx, { bannerTitle: "PHILADELPHIA PHILLIES: NO UPCOMING GAMES RIGHT NOW", myLogo: logo, message: "NO UPCOMING GAMES" });
+    });
+    // The banner itself is solid black with white text -- no WHITE
+    // (letter) pixels should reach the far-left edge of the banner row
+    // once the title's shrunk to fit inside the CANVAS_WIDTH - 40 budget,
+    // unlike the old plain-text overflow bug, which ran letters straight
+    // off both edges for a string this long.
+    const data = ctx.getImageData(0, 10, 10, 20).data;
+    let hasWhiteLetterPixel = false;
+    for (let i = 0; i < data.length; i += 4) { if (data[i] > 200) { hasWhiteLetterPixel = true; break; } }
+    assert.ok(!hasWhiteLetterPixel, "expected the far-left edge of the banner to stay solid black (no letter) once the title shrinks to fit");
   });
 
   console.log("fitRecordOverLogo / buildPaddedRecordHeadline (Game Day card win-loss record placement)");

@@ -2038,6 +2038,48 @@
     }
   }
 
+  // Mirrors functions/lib/dynamic.js's drawTeamOffSeasonCard exactly --
+  // the off-season/no-upcoming-games fallback, now with the team's own
+  // logo instead of the old bare, overflow-prone "PHILLIES: NO UPCOMING
+  // GAMES" text line.
+  function drawTeamOffSeasonCardClient(ctx, card) {
+    const w = baseCanvas.width, h = baseCanvas.height;
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, BANNER_HEIGHT);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    const bannerTitle = card.bannerTitle || "GAME DAY";
+    const bannerSize = fitBannerFontSize(ctx, bannerTitle, w - 40, "'Bungee', sans-serif", 24, 14);
+    ctx.fillText(bannerTitle, w / 2, BANNER_HEIGHT / 2 + Math.round(bannerSize * 0.35));
+
+    ctx.fillStyle = "#000";
+    const bodyTop = BANNER_HEIGHT, bodyH = h - BANNER_HEIGHT;
+    const message = card.message || "NO UPCOMING GAMES";
+
+    if (card.myLogo) {
+      const logoSize = 140, gap = 18;
+      const msgSize = fitBannerFontSize(ctx, message, w - 60, "Georgia, serif", 24, 14);
+      ctx.font = "bold " + msgSize + "px Georgia, serif";
+      const msgMetrics = ctx.measureText(message);
+      const msgH = msgMetrics.actualBoundingBoxAscent + msgMetrics.actualBoundingBoxDescent;
+
+      const totalH = logoSize + gap + msgH;
+      const topPad = Math.max(8, (bodyH - totalH) / 2);
+      const logoY = bodyTop + topPad;
+      ctx.drawImage(card.myLogo, w / 2 - logoSize / 2, logoY, logoSize, logoSize);
+
+      const msgBaseline = logoY + logoSize + gap + msgMetrics.actualBoundingBoxAscent;
+      ctx.fillText(message, w / 2, msgBaseline);
+    } else {
+      ctx.textBaseline = "middle";
+      const msgSize = fitBannerFontSize(ctx, message, w - 60, "Georgia, serif", 32, 14);
+      ctx.font = "bold " + msgSize + "px Georgia, serif";
+      ctx.fillText(message, w / 2, bodyTop + bodyH / 2);
+      ctx.textBaseline = "alphabetic";
+    }
+  }
+
   function formatTeamText(nextGame, myAbbrev) {
     if (!nextGame) return myAbbrev ? myAbbrev + ": NO UPCOMING GAMES" : "NO UPCOMING GAMES";
     const prefix = myAbbrev ? myAbbrev + " " : "";
@@ -2082,6 +2124,8 @@
       // while that's loading, or if no game/logo could be found.
       if (obj.card) {
         drawGameDayCardClient(ctx, obj.card);
+      } else if (obj.offSeasonCard) {
+        drawTeamOffSeasonCardClient(ctx, obj.offSeasonCard);
       } else {
         drawText(ctx, obj.previewContent || "LOADING…", obj);
       }
@@ -6430,6 +6474,7 @@
     layer.teamName = teamName;
     layer.previewContent = null;
     layer.card = null;
+    layer.offSeasonCard = null;
     renderLayers();
 
     const token = ++teamFetchToken;
@@ -6439,10 +6484,18 @@
       if (token !== teamFetchToken || layer.teamId !== teamId) return; // superseded by a newer selection
       layer.previewContent = formatTeamText(nextGame, myAbbrev);
       if (!nextGame) {
+        const myLogoCanvas = await fetchDitheredLogoClient(myLogo, 140);
+        if (token !== teamFetchToken || layer.teamId !== teamId) return; // superseded while the logo was loading
+        layer.offSeasonCard = {
+          bannerTitle: myAbbrev || gameDayBannerTitle(sport, league),
+          myLogo: myLogoCanvas,
+          message: "NO UPCOMING GAMES"
+        };
         teamStatus.textContent = "Updates on its own once a day after you publish — no need to redesign it.";
         renderLayers();
         return;
       }
+      layer.offSeasonCard = null;
 
       teamStatus.textContent = "Loading the Game Day card…";
       renderLayers();
@@ -6479,6 +6532,7 @@
       if (token !== teamFetchToken) return;
       layer.previewContent = "COULDN'T LOAD SCHEDULE";
       layer.card = null;
+      layer.offSeasonCard = null;
       teamStatus.textContent = "Couldn't load the schedule right now — try picking the team again.";
       renderLayers();
     }
