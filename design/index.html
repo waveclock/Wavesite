@@ -1589,10 +1589,40 @@
     return { nextGame, myAbbrev, myLogo };
   }
 
+  // Mirrors functions/lib/dynamic.js's fetchNextSeasonGame exactly -- see
+  // that function's own comment for why a game found here (ESPN's
+  // just-published next season, or an earlier preseason/Spring Training
+  // slate) is still real, not fabricated. Never throws.
+  async function fetchNextSeasonGame(sport, league, teamId) {
+    const thisYear = new Date().getUTCFullYear();
+    let best = null;
+    for (const year of [thisYear, thisYear + 1]) {
+      for (const seasonType of [1, 2]) {
+        try {
+          const resp = await fetch(ESPN_PROXY_BASE + "?kind=schedule&seasonType=" + seasonType + "&season=" + year + "&sport=" + encodeURIComponent(sport) + "&league=" + encodeURIComponent(league) + "&teamId=" + encodeURIComponent(teamId));
+          if (!resp.ok) continue;
+          const data = await resp.json();
+          const found = findNextGame(data.events, teamId);
+          // Compares daysLeft, not dayIndex -- unlike the server's
+          // findNextGame, this client copy's nextGame object only ever
+          // carries daysLeft (see its own comment above), not the raw
+          // dayIndex it was computed from.
+          if (found.nextGame && (!best || found.nextGame.daysLeft < best.nextGame.daysLeft)) {
+            best = Object.assign({}, found, { isPreseason: seasonType === 1 });
+          }
+        } catch (err) {
+          // keep trying the remaining year/seasonType combinations
+        }
+      }
+    }
+    return best;
+  }
+
   // Mirrors functions/lib/dynamic.js's fetchNextGame exactly, including
-  // the regular-season-then-postseason fallback -- see espnScheduleUrl's
-  // comment there for why. A failure on the postseason fallback call
-  // degrades to the regular-season result rather than throwing; a
+  // the regular-season-then-postseason-then-next-season fallback -- see
+  // espnScheduleUrl's comment there for why. A failure on the postseason
+  // or next-season fallback calls degrades to the next step (or, if both
+  // come up empty, the real off-season result) rather than throwing; a
   // failure on the regular-season call itself still throws, same as
   // before.
   async function fetchNextGame(sport, league, teamId) {
@@ -1602,19 +1632,37 @@
     const regularSeason = findNextGame(data.events, teamId);
     if (regularSeason.nextGame) return regularSeason;
 
+    let myAbbrev = regularSeason.myAbbrev;
+    let myLogo = regularSeason.myLogo;
+
     try {
       const postResp = await fetch(ESPN_PROXY_BASE + "?kind=schedule&seasonType=3&sport=" + encodeURIComponent(sport) + "&league=" + encodeURIComponent(league) + "&teamId=" + encodeURIComponent(teamId));
-      if (!postResp.ok) return regularSeason;
-      const postData = await postResp.json();
-      const postseason = findNextGame(postData.events, teamId);
-      return {
-        nextGame: postseason.nextGame,
-        myAbbrev: regularSeason.myAbbrev || postseason.myAbbrev,
-        myLogo: regularSeason.myLogo || postseason.myLogo
-      };
+      if (postResp.ok) {
+        const postData = await postResp.json();
+        const postseason = findNextGame(postData.events, teamId);
+        myAbbrev = myAbbrev || postseason.myAbbrev;
+        myLogo = myLogo || postseason.myLogo;
+        if (postseason.nextGame) return { nextGame: postseason.nextGame, myAbbrev, myLogo };
+      }
     } catch (err) {
-      return regularSeason;
+      // nice-to-have -- falls through to the next-season check.
     }
+
+    try {
+      const nextSeason = await fetchNextSeasonGame(sport, league, teamId);
+      if (nextSeason && nextSeason.nextGame) {
+        return {
+          nextGame: nextSeason.nextGame,
+          myAbbrev: myAbbrev || nextSeason.myAbbrev,
+          myLogo: myLogo || nextSeason.myLogo,
+          isPreseason: nextSeason.isPreseason
+        };
+      }
+    } catch (err) {
+      // same nice-to-have contract.
+    }
+
+    return { nextGame: null, myAbbrev, myLogo };
   }
 
   // Mirrors functions/lib/dynamic.js's extractRecordSummary/fetchTeamRecord
@@ -1713,8 +1761,14 @@
     "hockey/nhl": "NHL"
   };
 
-  function gameDayBannerTitle(sport, league) {
+  // Mirrors functions/lib/dynamic.js's gameDayBannerTitle exactly --
+  // isPreseason distinguishes a real matchup from an exhibition game
+  // found via the next-season fallback (MLB's own preseason IS Spring
+  // Training).
+  function gameDayBannerTitle(sport, league, isPreseason) {
+    if (isPreseason && sport === "baseball" && league === "mlb") return "SPRING TRAINING";
     const name = LEAGUE_DISPLAY_NAME[sport + "/" + league];
+    if (isPreseason) return name ? name + " PRESEASON" : "PRESEASON";
     return name ? name + " GAME DAY" : "GAME DAY";
   }
 
@@ -6480,7 +6534,7 @@
     const token = ++teamFetchToken;
     teamStatus.textContent = "Loading " + teamName + "'s schedule…";
     try {
-      const { nextGame, myAbbrev, myLogo } = await fetchNextGame(sport, league, teamId);
+      const { nextGame, myAbbrev, myLogo, isPreseason } = await fetchNextGame(sport, league, teamId);
       if (token !== teamFetchToken || layer.teamId !== teamId) return; // superseded by a newer selection
       layer.previewContent = formatTeamText(nextGame, myAbbrev);
       if (!nextGame) {
@@ -6512,7 +6566,7 @@
       const vsOrAt = nextGame.homeAway === "home" ? "VS" : "@";
       const dateTimeParts = formatGameDateTimeParts(nextGame.gameDateISO);
       layer.card = {
-        bannerTitle: gameDayBannerTitle(sport, league),
+        bannerTitle: gameDayBannerTitle(sport, league, isPreseason),
         headline: (myAbbrev || "") + " " + vsOrAt + " " + nextGame.opponentAbbrev,
         daysLeft: nextGame.daysLeft,
         daysUnit: nextGame.daysLeft === 1 ? "DAY" : "DAYS",

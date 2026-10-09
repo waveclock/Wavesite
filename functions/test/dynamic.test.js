@@ -10,6 +10,7 @@ const {
   easternDayIndex,
   findNextGame,
   fetchNextGame,
+  fetchNextSeasonGame,
   fetchTeamRecord,
   fetchWinProbability,
   extractWinProbabilityPct,
@@ -307,6 +308,99 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     };
     const { nextGame } = await fetchNextGame("baseball", "mlb", "22", now, fetchImpl);
     assert.strictEqual(nextGame, null);
+  });
+
+  console.log("fetchNextSeasonGame / fetchNextGame next-season fallback (Spring Training-style countdown)");
+  await test("fetchNextSeasonGame picks the globally earliest game across every year/seasonType combination it tries", async () => {
+    const now = new Date(Date.UTC(2026, 10, 1, 12, 0, 0)); // 2026-11-01
+    const thisYear = 2026;
+    const nextYear = 2027;
+    const fetchImpl = async (url) => {
+      const s = String(url);
+      // Only the NEXT calendar year's preseason (Spring Training) bucket
+      // has a real game -- every other year/seasonType combination comes
+      // back empty, same as ESPN would before a given bucket is published.
+      if (s.includes("season=" + nextYear) && s.includes("seasontype=1")) {
+        return { ok: true, async json() { return espnSchedule("22", [{ date: "2027-02-20T17:00Z", homeAway: "home", opponentAbbrev: "YANKEES" }]); } };
+      }
+      return { ok: true, async json() { return { events: [] }; } };
+    };
+    const result = await fetchNextSeasonGame("baseball", "mlb", "22", now, fetchImpl);
+    assert.ok(result && result.nextGame, "expected the Spring Training game to be found");
+    assert.strictEqual(result.nextGame.opponentAbbrev, "YANKEES");
+    assert.strictEqual(result.isPreseason, true);
+  });
+  await test("fetchNextSeasonGame prefers the earlier of two found games (preseason beats a later regular-season opener)", async () => {
+    const now = new Date(Date.UTC(2026, 10, 1, 12, 0, 0));
+    const fetchImpl = async (url) => {
+      const s = String(url);
+      if (s.includes("seasontype=1")) {
+        return { ok: true, async json() { return espnSchedule("22", [{ date: "2027-02-20T17:00Z", homeAway: "home", opponentAbbrev: "SPRING" }]); } };
+      }
+      if (s.includes("seasontype=2")) {
+        return { ok: true, async json() { return espnSchedule("22", [{ date: "2027-03-28T17:00Z", homeAway: "home", opponentAbbrev: "OPENER" }]); } };
+      }
+      return { ok: true, async json() { return { events: [] }; } };
+    };
+    const result = await fetchNextSeasonGame("baseball", "mlb", "22", now, fetchImpl);
+    assert.strictEqual(result.nextGame.opponentAbbrev, "SPRING", "the earlier Spring Training game should win, not whichever request happened to run first");
+    assert.strictEqual(result.isPreseason, true);
+  });
+  await test("fetchNextSeasonGame returns null when nothing is published in any year/seasonType yet -- the real off-season case", async () => {
+    const now = new Date(Date.UTC(2026, 10, 1, 12, 0, 0));
+    const fetchImpl = async () => ({ ok: true, async json() { return { events: [] }; } });
+    const result = await fetchNextSeasonGame("baseball", "mlb", "22", now, fetchImpl);
+    assert.strictEqual(result, null);
+  });
+  await test("fetchNextSeasonGame degrades gracefully (keeps trying other combinations) when some requests fail or throw", async () => {
+    const now = new Date(Date.UTC(2026, 10, 1, 12, 0, 0));
+    const fetchImpl = async (url) => {
+      const s = String(url);
+      if (s.includes("seasontype=1") && s.includes("season=2027")) {
+        return { ok: true, async json() { return espnSchedule("22", [{ date: "2027-02-20T17:00Z", homeAway: "home", opponentAbbrev: "YANKEES" }]); } };
+      }
+      if (s.includes("season=2026")) throw new Error("network down");
+      return { ok: false, status: 500 };
+    };
+    const result = await fetchNextSeasonGame("baseball", "mlb", "22", now, fetchImpl);
+    assert.ok(result && result.nextGame);
+    assert.strictEqual(result.nextGame.opponentAbbrev, "YANKEES");
+  });
+
+  await test("fetchNextGame: both regular season AND postseason empty, but next season's Spring Training IS published -- returns it with isPreseason true", async () => {
+    const now = new Date(Date.UTC(2026, 10, 1, 12, 0, 0));
+    const fetchImpl = async (url) => {
+      const s = String(url);
+      if (s.includes("season=2027") && s.includes("seasontype=1")) {
+        return { ok: true, async json() { return espnSchedule("22", [{ date: "2027-02-20T17:00Z", homeAway: "home", opponentAbbrev: "YANKEES" }]); } };
+      }
+      return { ok: true, async json() { return { events: [] }; } };
+    };
+    const { nextGame, myAbbrev, isPreseason } = await fetchNextGame("baseball", "mlb", "22", now, fetchImpl);
+    assert.ok(nextGame);
+    assert.strictEqual(nextGame.opponentAbbrev, "YANKEES");
+    assert.strictEqual(isPreseason, true);
+    assert.strictEqual(myAbbrev, "ME");
+  });
+  await test("fetchNextGame: a found postseason game still wins over the next-season check (and the next-season check is never even called)", async () => {
+    const now = new Date(Date.UTC(2026, 9, 5, 12, 0, 0));
+    let nextSeasonRequested = false;
+    const fetchImpl = async (url) => {
+      const s = String(url);
+      if (s.includes("season=")) nextSeasonRequested = true;
+      if (s.includes("seasontype=2")) return { ok: true, async json() { return { events: [] }; } };
+      return { ok: true, async json() { return espnSchedule("22", [{ date: "2026-10-08T23:08Z", homeAway: "home", opponentAbbrev: "METS" }]); } };
+    };
+    const { nextGame } = await fetchNextGame("baseball", "mlb", "22", now, fetchImpl);
+    assert.strictEqual(nextGame.opponentAbbrev, "METS");
+    assert.strictEqual(nextSeasonRequested, false, "the postseason game should short-circuit before any next-season request is made");
+  });
+  await test("fetchNextGame: truly nothing published anywhere yet still returns null (the real off-season case, unchanged)", async () => {
+    const now = new Date(Date.UTC(2026, 10, 1, 12, 0, 0));
+    const fetchImpl = async () => ({ ok: true, async json() { return { events: [] }; } });
+    const { nextGame, isPreseason } = await fetchNextGame("baseball", "mlb", "22", now, fetchImpl);
+    assert.strictEqual(nextGame, null);
+    assert.strictEqual(isPreseason, undefined);
   });
 
   console.log("packTo1Bit");
@@ -663,6 +757,17 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   });
   await test("falls back to a bare 'GAME DAY' for an unmapped sport/league", () => {
     assert.strictEqual(gameDayBannerTitle("football", "xfl"), "GAME DAY");
+  });
+  await test("isPreseason: MLB gets 'SPRING TRAINING' instead of a generic preseason label", () => {
+    assert.strictEqual(gameDayBannerTitle("baseball", "mlb", true), "SPRING TRAINING");
+  });
+  await test("isPreseason: every other mapped league gets '{LEAGUE} PRESEASON'", () => {
+    assert.strictEqual(gameDayBannerTitle("football", "nfl", true), "NFL PRESEASON");
+    assert.strictEqual(gameDayBannerTitle("basketball", "nba", true), "NBA PRESEASON");
+    assert.strictEqual(gameDayBannerTitle("hockey", "nhl", true), "NHL PRESEASON");
+  });
+  await test("isPreseason with an unmapped sport/league falls back to a bare 'PRESEASON'", () => {
+    assert.strictEqual(gameDayBannerTitle("football", "xfl", true), "PRESEASON");
   });
   await test("fitBannerFontSize returns the max size when the text already fits", () => {
     const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
