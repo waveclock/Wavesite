@@ -101,6 +101,13 @@ async function test(name, fn) {
     await tideTagProxyHandler(req, res, bucket);
     assert.deepStrictEqual(res.body, { registered: true, stationId: "8534720", stationName: "Ventnor, NJ", townName: "Ocean City, NJ" });
   });
+  await test("includes coastFacingDirection/srfZone/marineZone when the stored record has them", async () => {
+    const req = fakeReq({ method: "GET", query: { tagId: "A7K2" } });
+    const res = fakeRes();
+    const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "8534720", stationName: "Ventnor, NJ", createdAt: "x", coastFacingDirection: "E", srfZone: "NJZ024", marineZone: "ANZ453" }) });
+    await tideTagProxyHandler(req, res, bucket);
+    assert.deepStrictEqual(res.body, { registered: true, stationId: "8534720", stationName: "Ventnor, NJ", coastFacingDirection: "E", srfZone: "NJZ024", marineZone: "ANZ453" });
+  });
   await test("rejects a missing tagId", async () => {
     const req = fakeReq({ method: "GET", query: {} });
     const res = fakeRes();
@@ -161,6 +168,23 @@ async function test(name, fn) {
     await tideTagProxyHandler(req, res, bucket);
     assert.strictEqual(res.statusCode, 201);
     assert.strictEqual("townName" in res.body, false);
+  });
+  await test("accepts and returns coastFacingDirection/srfZone/marineZone when given", async () => {
+    const bucket = makeFakeBucket({});
+    const req = fakeReq({ method: "POST", body: { tagId: "A7K2", stationId: "8534720", stationName: "Ventnor, NJ", lat: 39.355, lon: -74.4183, townName: "Ocean City, NJ", coastFacingDirection: "E", srfZone: "NJZ024", marineZone: "ANZ453" } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.deepStrictEqual(res.body, { registered: true, stationId: "8534720", stationName: "Ventnor, NJ", lat: 39.355, lon: -74.4183, townName: "Ocean City, NJ", coastFacingDirection: "E", srfZone: "NJZ024", marineZone: "ANZ453" });
+  });
+  await test("registering without coastFacingDirection/srfZone/marineZone still succeeds -- they're resolved best-effort, not required", async () => {
+    const bucket = makeFakeBucket({});
+    const req = fakeReq({ method: "POST", body: { tagId: "A7K2", stationId: "8536110", stationName: "Atlantic City, NJ" } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 201);
+    assert.strictEqual("coastFacingDirection" in res.body, false);
+    assert.strictEqual("srfZone" in res.body, false);
+    assert.strictEqual("marineZone" in res.body, false);
   });
   await test("refuses to re-register an already-registered tag -- 409, original untouched", async () => {
     const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "x" }) });
@@ -225,6 +249,13 @@ async function test(name, fn) {
     const res = fakeRes();
     await tideTagProxyHandler(req, res, bucket);
     assert.deepStrictEqual(res.body, { registered: true, stationId: "8534720", stationName: "Ventnor, NJ", lat: 39.355, lon: -74.4183, townName: "Ocean City, NJ" });
+  });
+  await test("accepts and returns the new coastFacingDirection/srfZone/marineZone on overwrite too", async () => {
+    const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "x", coastFacingDirection: "W", srfZone: "OLDZ001", marineZone: "OLDZ002" }) });
+    const req = fakeReq({ method: "PUT", body: { tagId: "A7K2", stationId: "8534720", stationName: "Ventnor, NJ", lat: 39.355, lon: -74.4183, townName: "Ocean City, NJ", coastFacingDirection: "E", srfZone: "NJZ024", marineZone: "ANZ453" } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.deepStrictEqual(res.body, { registered: true, stationId: "8534720", stationName: "Ventnor, NJ", lat: 39.355, lon: -74.4183, townName: "Ocean City, NJ", coastFacingDirection: "E", srfZone: "NJZ024", marineZone: "ANZ453" });
   });
   await test("also works to register a brand-new tag (never 409s, unlike POST)", async () => {
     const bucket = makeFakeBucket({});

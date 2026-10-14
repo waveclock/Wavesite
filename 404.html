@@ -226,6 +226,7 @@
   h1 { font-size: 34px; font-weight: 900; margin: 18px 0 6px; line-height: 1.1; }
   .sub { font-size: 18px; color: var(--soft); margin: 0 0 18px; }
   .bigbtn { width: 100%; display: block; background: var(--wave); color: #fff; border: 0; border-radius: 14px; padding: 18px; font-size: 21px; font-weight: 800; cursor: pointer; }
+  .bigbtn.ghost { background: none; color: var(--wave); border: 2px solid var(--wave); padding: 16px; }
   .search-row { position: relative; margin: 14px 0 6px; }
   .search-row svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--soft); pointer-events: none; }
   .search { width: 100%; padding: 16px 16px 16px 42px; font-size: 20px; border: 2px solid var(--line); border-radius: 14px; }
@@ -419,15 +420,26 @@
 
 <!-- ============ BEACH PICKER (first tap on an unregistered tag, or "Change beach") ============ -->
 <main id="picker" class="hidden">
-  <img class="brand-logo" src="/logo.png" alt="WaveClock.net" width="36" height="36">
+  <!-- Only shown when "Change beach" opened this (isChanging) -- same
+       .top/.station-names banner the tide screen itself uses, so the
+       beach you're ABOUT to possibly replace stays visible the whole
+       time you're picking a new one, styled identically either place. -->
+  <div class="top hidden" id="pickerBanner">
+    <img class="brand-logo" src="/logo.png" alt="WaveClock.net" width="36" height="36">
+    <div class="station-names">
+      <div class="station" id="pickerBannerName">—</div>
+      <div class="station-sub" id="pickerBannerSub"></div>
+    </div>
+  </div>
+  <img class="brand-logo" id="pickerLogo" src="/logo.png" alt="WaveClock.net" width="36" height="36">
   <h1>Pick your beach</h1>
   <p class="sub" id="pickerSub">This keychain will remember it from now on — every tap after this opens straight to your tide.</p>
-  <button class="bigbtn" id="locBtn" type="button">📍 Use my location</button>
+  <button class="bigbtn ghost hidden" id="keepBtn" type="button">Keep my current beach</button>
   <div class="search-row">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     <input class="search" id="search" type="search" placeholder="Town, city, or zip code…" autocomplete="off" enterkeyhint="search">
   </div>
-  <div class="hint" id="pickHint">Search for your town, or tap "Use my location."</div>
+  <div class="hint" id="pickHint">Search for your town, city, or zip code.</div>
   <div class="station-map" id="stationMap"></div>
   <ul class="results" id="results"></ul>
 </main>
@@ -444,7 +456,6 @@
   const API = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter';
   const STATIONS = 'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions';
   const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
-  const NOMINATIM_REVERSE = 'https://nominatim.openstreetmap.org/reverse';
   const TAG_PROXY = 'https://us-central1-waveclock.cloudfunctions.net/tideTagProxy';
   const $ = id => document.getElementById(id);
 
@@ -915,8 +926,8 @@
     '<path d="M12 2 L14.35 8.76 L21.51 8.91 L15.8 13.24 L17.88 20.09 L12 16 L6.12 20.09 L8.2 13.24 L2.49 8.91 L9.65 8.76 Z" ' +
     'fill="#1f5fd1" stroke="#0f1b3d" stroke-width="1.4" stroke-linejoin="round"/></svg>';
 
-  // The town the person actually searched for (or "Use my location"'d),
-  // set at the top of loadStationsNear below. Every station pick made
+  // The town the person actually searched for, set at the top of
+  // loadStationsNear below. Every station pick made
   // from that point on -- whether tapped in the list or clicked on the
   // map -- is registered under THIS town's name, not the NOAA station's
   // own name, since the nearest tide station is often a different town
@@ -1049,7 +1060,14 @@
     applyRegistration(st);
     const save = isChanging ? updateRegisteredTag(st) : registerTag(st);
     isChanging = false;
-    save.then(confirmed => applyRegistration(confirmed)).catch(() => {});
+    save.then(confirmed => {
+      applyRegistration(confirmed);
+      // Fire-and-forget: resolves and PUTs coastFacingDirection/srfZone/
+      // marineZone in the background, well after the tide is already
+      // showing -- see enrichRegistration's own comment for why this
+      // can't be allowed to block registration.
+      enrichRegistration(confirmed);
+    }).catch(() => {});
   }
 
   $('results').addEventListener('click', e => {
@@ -1066,48 +1084,44 @@
     clearTimeout(searchTimer);
     if (q.length < 3) {
       $('results').innerHTML = '';
-      $('pickHint').textContent = 'Search for your town, or tap "Use my location."';
+      $('pickHint').textContent = 'Search for your town, city, or zip code.';
       return;
     }
     searchTimer = setTimeout(() => runTownSearch(q), 350);
-  });
-  $('locBtn').addEventListener('click', () => {
-    if (!navigator.geolocation) { $('pickHint').textContent = 'Location isn’t available. Search instead.'; return; }
-    $('pickHint').textContent = 'Finding your location…';
-    navigator.geolocation.getCurrentPosition(async pos => {
-      const lat = pos.coords.latitude, lon = pos.coords.longitude;
-      // Reverse-geocode to a real town name ("Ocean City, NJ") for
-      // display -- a raw GPS fix has no name of its own, and "Your
-      // location" isn't something that should end up registered as the
-      // tag's permanent display name. Falls back to it only if the
-      // lookup itself fails; the pick still works either way.
-      let town = { name: 'Your location', state: '', lat, lon };
-      try {
-        const r = await fetch(NOMINATIM_REVERSE + '?format=jsonv2&addressdetails=1&lat=' + lat + '&lon=' + lon);
-        if (r.ok) {
-          const j = await r.json();
-          const label = buildTownLabel(j);
-          if (label.short) town = { name: label.short, state: label.state, lat, lon };
-        }
-      } catch (e) { /* keep the 'Your location' fallback */ }
-      loadStationsNear(town);
-    }, () => $('pickHint').textContent = 'No location permission. Search for your beach instead.', { timeout: 10000 });
   });
 
   function openPicker() {
     $('tide').classList.add('hidden'); $('picker').classList.remove('hidden');
     document.body.classList.remove('tide-active');
+    // The banner + "keep current beach" option only make sense when
+    // there's an existing registration to show/keep -- i.e. reached via
+    // "Change beach", never a tag's first-ever pick.
+    const hasExisting = isChanging && !!current;
+    $('pickerBanner').classList.toggle('hidden', !hasExisting);
+    $('pickerLogo').classList.toggle('hidden', hasExisting);
+    $('keepBtn').classList.toggle('hidden', !hasExisting);
+    if (hasExisting) {
+      $('pickerBannerName').textContent = current.name;
+      $('pickerBannerSub').textContent = (current.stationName && current.stationName !== current.name) ? ('Tide station: ' + current.stationName) : '';
+    }
     $('pickerSub').textContent = isChanging
       ? 'Pick a new beach for this keychain.'
       : 'This keychain will remember it from now on — every tap after this opens straight to your tide.';
     $('search').value = '';
     $('results').innerHTML = '';
-    $('pickHint').textContent = 'Search for your town, or tap "Use my location."';
+    $('pickHint').textContent = 'Search for your town, city, or zip code.';
     clearStationMap();
   }
   $('changeBtn').addEventListener('click', () => {
     isChanging = true;
     openPicker();
+  });
+  // Backs all the way out without touching the registration -- no
+  // network call, `current` stays exactly what it was. Only reachable
+  // when hasExisting showed this button in the first place.
+  $('keepBtn').addEventListener('click', () => {
+    $('picker').classList.add('hidden'); $('tide').classList.remove('hidden');
+    document.body.classList.add('tide-active');
   });
 
   // ================= wind & waves (second scroll-snap panel) =================
@@ -1247,6 +1261,88 @@
       throw lastError || new Error('no coastline found nearby');
     })();
     try { return await coastBearingInFlight; } finally { coastBearingInFlight = null; }
+  }
+  const COMPASS_DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  function bearingToCompass(bearing) { return COMPASS_DIRECTIONS[Math.round(bearing / 45) % 8]; }
+
+  // ================= NWS forecast zones (srfZone / marineZone) =================
+  // Ported from location/index.html's own setup wizard (same method,
+  // same NWS endpoints) -- only the single automated lookup is reused
+  // here (first successful hit, no candidate list or map picker UI),
+  // since this is a lightweight background enrichment for an NFC tag's
+  // registration, not an interactive confirm-your-zone step.
+  async function fetchZoneForPoint(lat, lon) {
+    const resp = await fetch('https://api.weather.gov/points/' + lat.toFixed(4) + ',' + lon.toFixed(4));
+    if (!resp.ok) throw new Error('NWS point lookup failed: ' + resp.status);
+    const data = await resp.json();
+    const zoneUrl = data.properties && data.properties.forecastZone;
+    if (!zoneUrl) throw new Error('No forecast zone in NWS response');
+    return zoneUrl.split('/').pop();
+  }
+  const MARINE_ZONE_ID_PATTERN = /^[A-Z]{2,3}Z\d{3}$/;
+  // Distances (km) to try at each compass bearing below.
+  const MARINE_ZONE_SEARCH_KM = [5, 15, 35];
+  // East first (fast path for today's actual NJ/DE/MD usage), then the
+  // other cardinal directions, then diagonals -- covers any coastline
+  // orientation without assuming one, same as location/index.html.
+  const MARINE_ZONE_SEARCH_BEARINGS = [90, 270, 0, 180, 45, 135, 225, 315];
+  function offsetLatLon(lat, lon, km, bearingDegrees) {
+    const R = 6371;
+    const bearing = bearingDegrees * Math.PI / 180;
+    const lat1 = lat * Math.PI / 180, lon1 = lon * Math.PI / 180;
+    const angularDist = km / R;
+    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(angularDist) + Math.cos(lat1) * Math.sin(angularDist) * Math.cos(bearing));
+    const lon2 = lon1 + Math.atan2(Math.sin(bearing) * Math.sin(angularDist) * Math.cos(lat1), Math.cos(angularDist) - Math.sin(lat1) * Math.sin(lat2));
+    return { lat: lat2 * 180 / Math.PI, lon: lon2 * 180 / Math.PI };
+  }
+  async function fetchMarineZoneIdAtPoint(lat, lon) {
+    const resp = await fetch('https://api.weather.gov/zones?type=marine&point=' + lat.toFixed(4) + ',' + lon.toFixed(4));
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const features = data.features || [];
+    const id = features[0] && features[0].properties && features[0].properties.id;
+    return id && MARINE_ZONE_ID_PATTERN.test(id) ? id : null;
+  }
+  // The town's own point is on land (no marine zone contains it), so this
+  // probes progressively farther offshore at a few compass bearings until
+  // one lands in a real marine zone polygon.
+  async function fetchMarineZoneIdWithRetries(lat, lon) {
+    for (const km of MARINE_ZONE_SEARCH_KM) {
+      for (const bearing of MARINE_ZONE_SEARCH_BEARINGS) {
+        const p = offsetLatLon(lat, lon, km, bearing);
+        try {
+          const id = await fetchMarineZoneIdAtPoint(p.lat, p.lon);
+          if (id) return id;
+        } catch (e) { /* try the next bearing/distance */ }
+      }
+    }
+    return null;
+  }
+  // Best-effort background enrichment -- resolves coastFacingDirection,
+  // srfZone, and marineZone AFTER the tide screen is already showing
+  // (never blocks registration on them: the marine zone search alone can
+  // take up to 24 sequential NWS requests in the worst case) and PUTs
+  // them once in hand. Same graceful-degrade convention as every other
+  // optional field here: a lookup that fails or times out just leaves
+  // this tag without that one field, not a broken registration -- a
+  // later "Change beach" (or a future tap, once this runs again) can
+  // always try again.
+  async function enrichRegistration(st) {
+    if (st.lat == null || st.lon == null) return;
+    const [bearing, srfZone, marineZone] = await Promise.all([
+      fetchCoastFacingBearing(st.lat, st.lon).catch(() => null),
+      fetchZoneForPoint(st.lat, st.lon).catch(() => null),
+      fetchMarineZoneIdWithRetries(st.lat, st.lon).catch(() => null)
+    ]);
+    const coastFacingDirection = bearing != null ? bearingToCompass(bearing) : null;
+    if (coastFacingDirection == null && srfZone == null && marineZone == null) return;
+    try {
+      await fetch(TAG_PROXY, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId, stationId: st.id, stationName: st.stationName, townName: st.name, lat: st.lat, lon: st.lon, coastFacingDirection, srfZone, marineZone })
+      });
+    } catch (e) { /* best-effort -- a later visit can try again */ }
   }
 
   // Simplified version of the real forecast call a surfer makes by eye:
