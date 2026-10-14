@@ -57,8 +57,9 @@
   .hidden { display: none !important; }
 
   /* header */
-  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   .station { font-size: 20px; font-weight: 700; line-height: 1.2; }
+  .brand-logo { width: 36px; height: 36px; flex-shrink: 0; }
 
   /* the big answer */
   .state { font-size: 26px; font-weight: 800; margin: 18px 0 2px; display: flex; align-items: center; gap: 10px; }
@@ -115,6 +116,7 @@
 <!-- ============ TIDE SCREEN ============ -->
 <main id="tide" class="hidden" aria-live="polite">
   <div class="top">
+    <img class="brand-logo" src="/logo.png" alt="WaveClock.net" width="36" height="36">
     <div class="station" id="stationName">—</div>
   </div>
 
@@ -134,7 +136,6 @@
   <div class="msg hidden" id="tideMsg"></div>
 
   <div class="foot">
-    Tide predictions from NOAA. Not for navigation.<br>
     <button type="button" class="linklike" id="changeBtn">Change beach</button><br>
     Want this on your wall? <a href="https://waveclock.net">Get a Wave Clock →</a>
   </div>
@@ -142,6 +143,7 @@
 
 <!-- ============ BEACH PICKER (first tap on an unregistered tag, or "Change beach") ============ -->
 <main id="picker" class="hidden">
+  <img class="brand-logo" src="/logo.png" alt="WaveClock.net" width="36" height="36">
   <h1>Pick your beach</h1>
   <p class="sub" id="pickerSub">This keychain will remember it from now on — every tap after this opens straight to your tide.</p>
   <button class="bigbtn" id="locBtn" type="button">📍 Use my location</button>
@@ -261,22 +263,29 @@
 
   // Small line-art stick figure riding a surfboard, replacing the old
   // plain dashed-line+dot "now" marker -- same idea (mark where "now"
-  // falls on today's curve) but on theme for a tide page. Drawn in a
-  // local -11..3-ish coordinate space with the board/feet at the
-  // origin, so translating to (cx, cy) plants the board exactly on the
-  // curve at that point, same as the dot used to sit there.
+  // falls on today's curve), but traced directly from the real
+  // WaveClock.net brand mark (logo.png) rather than a generic
+  // approximation, since this figure IS the brand's signature surfer.
+  // Coordinates were read off logo.png pixel-by-pixel (head, arms,
+  // legs, board) and re-anchored so local (0,0) is the front foot --
+  // where the board actually bears weight -- not the waist/hips, so
+  // translating to (cx, cy) plants the BOARD on the curve at that
+  // point, with the figure rising above it, instead of appearing to
+  // stand waist-deep in the line.
   function surferMarker(cx, cy) {
-    const s = 2.7;
-    return `<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) scale(${s})" stroke="#0f1b3d" stroke-width="0.9" fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="0" cy="-9.4" r="1.6" fill="#0f1b3d"/>
-      <line x1="0" y1="-7.8" x2="0.3" y2="-2.3"/>
-      <line x1="0.2" y1="-6.6" x2="-3.3" y2="-9.3"/>
-      <line x1="0.2" y1="-6.6" x2="3.1" y2="-9.7"/>
-      <line x1="0.3" y1="-2.3" x2="-2.3" y2="-0.3"/>
-      <line x1="-2.3" y1="-0.3" x2="-3.4" y2="2"/>
-      <line x1="0.3" y1="-2.3" x2="3.2" y2="-0.2"/>
-      <line x1="3.2" y1="-0.2" x2="4.2" y2="1.8"/>
-      <path d="M -6.5 2.1 Q -1 3.3 4 2.2 Q 6 1.8 7.2 0.2" stroke-width="1.1"/>
+    const s = 0.27;
+    return `<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) scale(${s})" stroke="#0f1b3d" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="-10" cy="-81" r="22"/>
+      <line x1="-11" y1="-59" x2="-13" y2="-55"/>
+      <line x1="-13" y1="-55" x2="22" y2="-53"/>
+      <line x1="-15" y1="-53" x2="-60" y2="-43"/>
+      <line x1="-13" y1="-55" x2="-10" y2="-25"/>
+      <line x1="-10" y1="-25" x2="-33" y2="-13"/>
+      <line x1="-33" y1="-13" x2="-50" y2="-1"/>
+      <line x1="-50" y1="-1" x2="-60" y2="7"/>
+      <line x1="-10" y1="-25" x2="12" y2="-15"/>
+      <line x1="12" y1="-15" x2="0" y2="0"/>
+      <line x1="-63" y1="12" x2="67" y2="-25"/>
     </g>`;
   }
 
@@ -303,9 +312,12 @@
     });
     const nv = levelAt(events, now);
     // Clamped so the figure's head/board never run past the chart's own
-    // top/bottom edges, same defensive clamping the H/L text labels
-    // above already use.
-    const marker = nv == null ? '' : surferMarker(X(now), Math.min(Math.max(Y(nv), padT + 31), H - padB - 5));
+    // edges, same defensive clamping the H/L text labels above already
+    // use.
+    const marker = nv == null ? '' : surferMarker(
+      Math.min(Math.max(X(now), 20), W - 20),
+      Math.min(Math.max(Y(nv), padT + 28), H - padB - 4)
+    );
     const hours = [6, 12, 18].map(h => `<text x="${W * h / 24}" y="${H - 6}" text-anchor="middle" font-size="12" fill="#4a5675">${h === 12 ? 'noon' : (h % 12) + (h < 12 ? 'am' : 'pm')}</text>`).join('');
     $('curve').innerHTML = `<path d="${area}" fill="#1f5fd1" opacity="0.25"/><path d="${d}" fill="none" stroke="#1f5fd1" stroke-width="3"/>${marks}${marker}${hours}`;
   }
