@@ -6,6 +6,22 @@
 <meta name="robots" content="noindex">
 <title>Wave Clock Tide</title>
 <meta name="description" content="Next high and low tide for your beach, in big easy-to-read print.">
+<!-- Open Graph / Twitter Card -- what iMessage, Slack, X, etc. actually
+     read to build a link-preview card when someone shares a /t/:id URL.
+     Crawlers for these don't run this page's JS (no per-tag server
+     render exists on static GitHub Pages anyway), so title/description
+     stay generic rather than the specific town -- same limitation the
+     static <title> above already has. An absolute URL for the image is
+     required; a relative one silently fails on most of these crawlers. -->
+<meta property="og:title" content="Wave Clock Tide">
+<meta property="og:description" content="Next high and low tide for your beach, in big easy-to-read print.">
+<meta property="og:image" content="https://waveclock.net/logo.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Wave Clock Tide">
+<meta name="twitter:description" content="Next high and low tide for your beach, in big easy-to-read print.">
+<meta name="twitter:image" content="https://waveclock.net/logo.png">
+<link rel="icon" href="/logo.png">
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Tide">
