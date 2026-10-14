@@ -27,6 +27,7 @@ const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
+const { isValidTagId, fetchTideTag, saveTideTag, deleteTideTag } = require("./lib/tideTag");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -889,7 +890,99 @@ async function teamsnapProxyHandler(req, res) {
 
 exports.teamsnapProxy = onRequest({ cors: true, region: "us-central1" }, teamsnapProxyHandler);
 
+// ================= Tide tag proxy =================
+// Backs the NFC keychain flow (see /404.html and /t/index.html): each
+// keychain's NFC tag opens https://waveclock.net/t/{tagId}, which calls
+// this to look up (GET), register (POST), or unlink (DELETE) which NOAA
+// tide station that specific tag points at. See lib/tideTag.js for the
+// storage scheme (Cloud Storage, not Firestore -- nothing else is
+// provisioned in this Firebase project) and the atomic-create-only
+// precondition that makes POST safe against a tag getting tapped twice
+// in a race.
+//
+// `bucketImpl`, when given, replaces admin.storage().bucket() -- same
+// injectable-dependency convention as imagenProxyHandler's getArtImpl,
+// used only by tests (a fully in-memory fake bucket, no live GCS call).
+const TAG_ID_HINT = "tagId must be 4-6 characters (A-Z, 2-9, excluding the easily-misread 0/O/1/I)";
+
+async function tideTagProxyHandler(req, res, bucketImpl) {
+  const bucket = bucketImpl || admin.storage().bucket();
+
+  if (req.method === "GET") {
+    const tagId = req.query.tagId;
+    if (typeof tagId !== "string" || !isValidTagId(tagId)) {
+      res.status(400).json({ error: TAG_ID_HINT });
+      return;
+    }
+    try {
+      const record = await fetchTideTag(bucket, tagId);
+      if (!record) {
+        res.status(200).json({ registered: false });
+        return;
+      }
+      res.status(200).json({ registered: true, stationId: record.stationId, stationName: record.stationName });
+    } catch (err) {
+      logger.error("Tide tag proxy GET failed for " + tagId + ":", err);
+      res.status(502).json({ error: "Couldn't reach tag storage right now" });
+    }
+    return;
+  }
+
+  if (req.method === "POST") {
+    const { tagId, stationId, stationName } = req.body || {};
+    if (typeof tagId !== "string" || !isValidTagId(tagId)) {
+      res.status(400).json({ error: TAG_ID_HINT });
+      return;
+    }
+    // Same NOAA-station-number shape beachFlagProxyHandler already
+    // validates stationId against.
+    if (typeof stationId !== "string" || !/^[0-9]{5,9}$/.test(stationId)) {
+      res.status(400).json({ error: "stationId must be a NOAA station number" });
+      return;
+    }
+    // Free-text, not format-validated -- it's only ever drawn as a label
+    // on the tide page, never interpreted, same as beachFlagProxyHandler's
+    // own townName.
+    if (typeof stationName !== "string" || !stationName.trim()) {
+      res.status(400).json({ error: "stationName is required" });
+      return;
+    }
+    try {
+      const result = await saveTideTag(bucket, tagId, stationId, stationName.trim());
+      if (result.status === "already-registered") {
+        res.status(409).json({ error: "This tag is already registered to a beach" });
+        return;
+      }
+      res.status(201).json({ registered: true, stationId: result.record.stationId, stationName: result.record.stationName });
+    } catch (err) {
+      logger.error("Tide tag proxy POST failed for " + tagId + ":", err);
+      res.status(502).json({ error: "Couldn't save that right now" });
+    }
+    return;
+  }
+
+  if (req.method === "DELETE") {
+    const tagId = req.query.tagId;
+    if (typeof tagId !== "string" || !isValidTagId(tagId)) {
+      res.status(400).json({ error: TAG_ID_HINT });
+      return;
+    }
+    try {
+      await deleteTideTag(bucket, tagId);
+      res.status(200).json({ unlinked: true });
+    } catch (err) {
+      logger.error("Tide tag proxy DELETE failed for " + tagId + ":", err);
+      res.status(502).json({ error: "Couldn't unlink that tag right now" });
+    }
+    return;
+  }
+
+  res.status(405).json({ error: "GET, POST, or DELETE only" });
+}
+
+exports.tideTagProxy = onRequest({ cors: true, region: "us-central1" }, tideTagProxyHandler);
+
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };

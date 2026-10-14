@@ -1507,6 +1507,72 @@ logs the first time a real storm comes within range. Ships hidden
 alongside the other Local Info options, same toolbar button, until
 confirmed against production.
 
+## NFC keychain tide tags
+
+A separate subsystem from everything above -- not a "dynamic layer" a
+device renders, but a tiny backend for the NFC keychain product: each
+physical Wave Clock keychain's NTAG215 tag is programmed with a URL like
+`https://waveclock.net/t/A7K2`. The first tap shows a beach picker and
+registers that tag's chosen NOAA tide station server-side; every tap
+after that (on any phone, even after Safari clears localStorage) goes
+straight to the tide.
+
+**Storage**: `lib/tideTag.js` keys one small JSON object per tag
+(`tide-tags/{tagId}.json`) in the SAME Cloud Storage bucket
+`index.js` already uses for device designs
+(`admin.storage().bucket()`) -- there's no Firestore (or any other
+database) provisioned in this Firebase project, and Storage's strong
+read-after-write consistency plus a generation-match precondition
+(`preconditionOpts.ifGenerationMatch: 0`, Cloud Storage's own atomic
+"create, don't overwrite") covers everything a tag registration needs:
+a get, a create-only write (never silently clobbers an existing
+registration, even under a race), and a delete (unlink, for a lost or
+gifted keychain). `tagId` is strictly re-validated server-side
+(`TAG_ID_PATTERN`) before ever touching a storage path, since it's
+user-supplied and gets interpolated straight into one.
+
+**`tideTagProxy`** (`index.js`): `GET ?tagId=` / `POST {tagId,
+stationId, stationName}` / `DELETE ?tagId=` -- CORS-enabled HTTP
+function the client pages below call directly from the browser.
+
+**Client pages** (plain static HTML, no build step, same duplication
+convention as everything else on this site):
+- `/404.html` -- the actual ID-aware tide app. GitHub Pages is pure
+  static hosting with no server-side routing, and tag IDs are minted in
+  a batch (not known at deploy time), so there's no real file at e.g.
+  `/t/A7K2` -- the request 404s, and GitHub Pages serves this file's
+  content for it while the browser's address bar keeps showing the real
+  `/t/A7K2` URL. The script reads `location.pathname`: a `/t/:id` match
+  runs the tide app (checks registration, shows the picker or the tide
+  accordingly); anything else shows a plain "page not found" message,
+  so this still works as a normal site-wide 404 page too.
+- `/t/index.html` -- a tiny stub for the rare bare `/t/` hit (no tag ID
+  in the path at all).
+- `tide.html` (repo root) is the separate, pre-existing flat page for a
+  fixed-beach link (`?s=STATION_ID&n=Name`) or a customer's own
+  localStorage pick -- unrelated to tag IDs, untouched by this feature.
+
+**Minting tags**: `scripts/generateTagIds.js` (repo root, not deployed)
+-- a local CLI run by hand before programming a new batch of physical
+keychains with NFC Tools: `node scripts/generateTagIds.js 50 >
+batch.csv`. Charset/length must match `TAG_ID_PATTERN` exactly (enforced
+by a cross-check in... well, by eye -- see that script's own comment).
+
+**Deferred** (per the original product handoff, not built yet): Wave
+Clock device linking (verify via order number + email against Stripe,
+later a firmware pairing-code flow), a self-service "change beach"
+button (V1 deliberately only allows registering an UNREGISTERED tag --
+changing one requires the DELETE/unlink endpoint, with no UI for it
+yet), and a web "clock view" mirroring a customer's e-paper screen live.
+
+**Not yet confirmed against a live NOAA response**: whether
+`api.tidesandcurrents.noaa.gov` sends CORS headers for a browser-origin
+`fetch()` from `waveclock.net` -- this sandbox can't reach NOAA to
+verify (egress policy). If it turns out NOAA blocks it, both `tide.html`
+and `/404.html`'s direct `fetch()` calls to NOAA would need to go
+through a proxy function the same way `tideTagProxy` already does for
+tag registration.
+
 ## Known tradeoffs
 
 **At most one dynamic layer per screen, enforced client-side, not server-side**:
