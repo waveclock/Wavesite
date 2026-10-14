@@ -66,7 +66,9 @@
 
   /* header */
   .top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .station-names { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
   .station { font-size: 20px; font-weight: 700; line-height: 1.2; }
+  .station-sub { font-size: 13px; font-weight: 500; color: var(--soft); line-height: 1.2; }
   .brand-logo { width: 36px; height: 36px; flex-shrink: 0; }
 
   /* the big answer */
@@ -129,7 +131,10 @@
 <main id="tide" class="hidden" aria-live="polite">
   <div class="top">
     <img class="brand-logo" src="/logo.png" alt="WaveClock.net" width="36" height="36">
-    <div class="station" id="stationName">—</div>
+    <div class="station-names">
+      <div class="station" id="stationName">—</div>
+      <div class="station-sub" id="stationSub"></div>
+    </div>
   </div>
 
   <div id="tideBody">
@@ -487,6 +492,11 @@
     current = st; events = null;
     $('picker').classList.add('hidden'); $('tide').classList.remove('hidden');
     $('stationName').textContent = st.name;
+    // Only shown when it's actually informative -- a legacy registration
+    // (before townName existed) has st.stationName === st.name already,
+    // and a town that happens to share its name with its own NOAA
+    // station shouldn't repeat itself underneath.
+    $('stationSub').textContent = (st.stationName && st.stationName !== st.name) ? ('Tide station: ' + st.stationName) : '';
     showMsg('Getting the tide…');
     try { events = await fetchTides(st.id); render(); }
     catch (e) { showMsg('Couldn’t reach the tide service. Check your signal and try again.'); }
