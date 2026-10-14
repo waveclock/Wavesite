@@ -8,7 +8,7 @@
 // that's the exact atomicity saveTideTag depends on.
 
 const assert = require("assert");
-const { TAG_ID_PATTERN, isValidTagId, fetchTideTag, saveTideTag, deleteTideTag } = require("../lib/tideTag");
+const { TAG_ID_PATTERN, isValidTagId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag } = require("../lib/tideTag");
 
 function makeFakeBucket(initialFiles) {
   const store = new Map(Object.entries(initialFiles || {})); // path -> string
@@ -141,6 +141,31 @@ async function test(name, fn) {
   await test("a genuine storage failure (not a 412) still throws", async () => {
     const bucket = { file: () => ({ async save() { const e = new Error("quota exceeded"); e.code = 500; throw e; } }) };
     await assert.rejects(() => saveTideTag(bucket, "A7K2", "8536110", "Somewhere"), /quota exceeded/);
+  });
+
+  console.log("updateTideTag (explicit user-initiated 'change beach', unlike saveTideTag's create-only guard)");
+  await test("overwrites an already-registered tag's station", async () => {
+    const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "2026-01-01T00:00:00.000Z" }) });
+    const record = await updateTideTag(bucket, "A7K2", "8536110", "Different Beach");
+    assert.strictEqual(record.stationId, "8536110");
+    assert.strictEqual(record.stationName, "Different Beach");
+    const saved = JSON.parse(bucket._store.get("tide-tags/A7K2.json"));
+    assert.strictEqual(saved.stationId, "8536110", "the overwrite must actually land, unlike saveTideTag's create-only guard");
+  });
+  await test("also works as a plain create for a tag that was never registered", async () => {
+    const bucket = makeFakeBucket({});
+    const record = await updateTideTag(bucket, "A7K2", "8536110", "Atlantic City, NJ");
+    assert.strictEqual(record.stationId, "8536110");
+    assert.ok(bucket._store.has("tide-tags/A7K2.json"));
+  });
+  await test("throws on an invalid tagId rather than ever writing to storage", async () => {
+    const bucket = makeFakeBucket({});
+    bucket.file = () => { throw new Error("should never be called for an invalid tagId"); };
+    await assert.rejects(() => updateTideTag(bucket, "bad id", "8536110", "Somewhere"), /invalid tagId/);
+  });
+  await test("a genuine storage failure still throws", async () => {
+    const bucket = { file: () => ({ async save() { const e = new Error("quota exceeded"); e.code = 500; throw e; } }) };
+    await assert.rejects(() => updateTideTag(bucket, "A7K2", "8536110", "Somewhere"), /quota exceeded/);
   });
 
   console.log("deleteTideTag");

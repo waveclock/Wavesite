@@ -73,6 +73,22 @@ async function saveTideTag(bucket, tagId, stationId, stationName) {
   }
 }
 
+// Overwrites a tag's station regardless of whether one's already set --
+// the deliberate counterpart to saveTideTag's atomic create-ONLY
+// contract. Used only for an explicit, user-initiated "change my beach"
+// action (see the tide page's own "Change beach" link), never for the
+// automatic first-tap registration, which must keep using saveTideTag
+// so two near-simultaneous first taps can't race each other into
+// silently overwriting one another's pick. No precondition, so this
+// always succeeds (short of a genuine storage failure) -- there's no
+// "already registered" case to report here, that's the whole point.
+async function updateTideTag(bucket, tagId, stationId, stationName) {
+  if (!isValidTagId(tagId)) throw new Error("invalid tagId");
+  const record = { stationId: String(stationId), stationName: String(stationName), createdAt: new Date().toISOString() };
+  await tagFile(bucket, tagId).save(JSON.stringify(record), { contentType: "application/json" });
+  return record;
+}
+
 // Unlinks a tag (lost/gifted keychain, or re-registering after a support
 // request clears it) -- best-effort delete, same "already gone isn't an
 // error" contract as index.js's own deleteIfExists.
@@ -86,4 +102,4 @@ async function deleteTideTag(bucket, tagId) {
   }
 }
 
-module.exports = { TAG_ID_PATTERN, isValidTagId, fetchTideTag, saveTideTag, deleteTideTag };
+module.exports = { TAG_ID_PATTERN, isValidTagId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag };
