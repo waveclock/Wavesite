@@ -45,26 +45,56 @@ async function fetchOverpassOnce(doFetch, url, query, timeoutMs) {
   }
 }
 
-// Tries each search radius (closer first), and at each radius every
-// mirror in turn, until one returns real coastline elements. Throws only
-// once every radius/mirror combination has been exhausted -- callers
-// (coastlineProxyHandler) turn that into a 502, same "best-effort
-// enrichment, not required" treatment the client already gives this
-// field (see 404.html's own graceful degrade when this is unavailable).
+async function fetchCoastlineWithElements(doFetch, url, query, timeoutMs) {
+  const data = await fetchOverpassOnce(doFetch, url, query, timeoutMs);
+  if (!(data && Array.isArray(data.elements) && data.elements.length)) {
+    throw new Error("no coastline elements in range");
+  }
+  return data;
+}
+
+// Tries the first (preferred) mirror alone -- identical latency to a
+// single request when it just works, the common case, and the polite
+// choice for a shared public resource (not hammering all three mirrors
+// on every lookup). Only once that one fails does it race the REMAINING
+// mirrors in parallel rather than trying them one at a time: an earlier
+// version tried all three sequentially, which meant a single radius
+// could take up to 3 * 8s before giving up -- too slow for the 15s
+// client-side budget 404.html gives this whole round trip, and a real
+// live report (gray bars / missing badges, worse on a weak mobile
+// connection) traced back to exactly that -- the client timing out
+// before this server-side retry chain even finished.
+async function fetchCoastlineAtRadius(doFetch, lat, lon, radiusKm) {
+  const query = buildCoastlineQuery(lat, lon, radiusKm);
+  const [first, ...rest] = OVERPASS_ENDPOINTS;
+  try {
+    return await fetchCoastlineWithElements(doFetch, first, query, 8000);
+  } catch (firstErr) {
+    if (!rest.length) throw firstErr;
+    try {
+      return await Promise.any(rest.map((url) => fetchCoastlineWithElements(doFetch, url, query, 8000)));
+    } catch (aggregateErr) {
+      throw (aggregateErr && aggregateErr.errors && aggregateErr.errors[0]) || firstErr;
+    }
+  }
+}
+
+// Tries each search radius (closer first) until one returns real
+// coastline elements -- see fetchCoastlineAtRadius for how each radius
+// itself now fails fast. Throws only once every radius has been
+// exhausted; callers (coastlineProxyHandler) turn that into a 502, same
+// "best-effort enrichment, not required" treatment the client already
+// gives this field (see 404.html's own graceful degrade when this is
+// unavailable).
 // fetchImpl: injected for tests; real callers omit it and get global fetch.
 async function fetchCoastlineNear(lat, lon, fetchImpl) {
   const doFetch = fetchImpl || fetch;
   let lastError = null;
   for (const radiusKm of COASTLINE_SEARCH_RADII_KM) {
-    const query = buildCoastlineQuery(lat, lon, radiusKm);
-    for (const url of OVERPASS_ENDPOINTS) {
-      try {
-        const data = await fetchOverpassOnce(doFetch, url, query, 8000);
-        if (data && Array.isArray(data.elements) && data.elements.length) return data;
-        lastError = new Error("no coastline elements in range");
-      } catch (err) {
-        lastError = err;
-      }
+    try {
+      return await fetchCoastlineAtRadius(doFetch, lat, lon, radiusKm);
+    } catch (err) {
+      lastError = err;
     }
   }
   throw lastError || new Error("all Overpass mirrors failed");
