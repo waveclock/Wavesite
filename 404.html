@@ -64,6 +64,36 @@
   button, input { font: inherit; color: inherit; }
   .hidden { display: none !important; }
 
+  /* reel-style scroll-snap: #tide becomes the scrollable/snapping
+     container (full viewport height, edge to edge) while each panel
+     inside it carries the readable-width padding body used to provide
+     on its own -- see the HTML comment above #tide for why it's
+     structured this way. body.tide-active (toggled in JS exactly where
+     #tide's own hidden class already is) hands that space over; the
+     picker/not-found screens are untouched, body keeps its normal
+     padding for them. */
+  body.tide-active { padding: 0; max-width: none; }
+  #tide.snap-scroll {
+    height: 100dvh; overflow-y: auto; scroll-snap-type: y mandatory;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  #tide.snap-scroll::-webkit-scrollbar { display: none; }
+  .snap-panel {
+    min-height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always;
+    box-sizing: border-box; display: flex; flex-direction: column;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+    max-width: 560px; margin: 0 auto;
+  }
+  .swipe-hint {
+    background: none; border: 0; padding: 0; color: var(--soft);
+    font-size: 14px; font-weight: 700; display: flex; align-items: center;
+    justify-content: center; gap: 2px; cursor: pointer;
+  }
+  .swipe-hint .chev { font-size: 20px; line-height: 1; animation: wc-bob 2s ease-in-out infinite; }
+  #swipeDownHint { margin: 22px auto 0; flex-direction: column; }
+  #swipeUpHint { margin: 0 auto 18px; flex-direction: column-reverse; }
+  @keyframes wc-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
+
   /* header */
   .top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   .station-names { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
@@ -100,6 +130,16 @@
   .linklike { background: none; border: 0; padding: 0; color: var(--wave); font-weight: 700; font-size: inherit; text-decoration: underline; cursor: pointer; }
   .msg { font-size: 22px; font-weight: 600; margin-top: 40px; text-align: center; line-height: 1.4; }
 
+  /* wind & waves screen */
+  .wind-title { font-size: clamp(30px, 9vw, 42px); font-weight: 900; letter-spacing: -0.01em; margin: 4px 0 18px; }
+  .stat-row { display: flex; gap: 14px; }
+  .stat-tile { flex: 1; min-width: 0; background: #fff; border: 2px solid var(--line); border-radius: 16px; padding: 16px 14px; }
+  .stat-label { font-size: 14px; font-weight: 700; color: var(--soft); text-transform: uppercase; letter-spacing: .03em; }
+  .stat-value { font-size: clamp(30px, 9.5vw, 42px); font-weight: 900; line-height: 1.1; margin-top: 4px; }
+  .stat-sub { font-size: 15px; font-weight: 600; color: var(--soft); margin-top: 4px; display: flex; align-items: center; gap: 4px; min-height: 19px; }
+  .wind-arrow { color: var(--wave); flex-shrink: 0; }
+  .mini-chart-cap { font-size: 14px; font-weight: 700; color: var(--soft); margin: 18px 0 6px; }
+
   /* picker */
   h1 { font-size: 34px; font-weight: 900; margin: 18px 0 6px; line-height: 1.1; }
   .sub { font-size: 18px; color: var(--soft); margin: 0 0 18px; }
@@ -128,34 +168,81 @@
 <body>
 
 <!-- ============ TIDE SCREEN ============ -->
-<main id="tide" class="hidden" aria-live="polite">
-  <div class="top">
-    <img class="brand-logo" src="/logo.png" alt="WaveClock.net" width="36" height="36">
-    <div class="station-names">
-      <div class="station" id="stationName">—</div>
-      <div class="station-sub" id="stationSub"></div>
+<!-- A vertical scroll-snap "reel" of two full-screen panels: today's
+     tide, then wind & waves. Swiping between them (not tapping a nav
+     tab) is deliberate -- the goal is for this to read as an app
+     screen, not a scrolling webpage. See the CSS block above (search
+     "snap-scroll") for how #tide itself becomes the scrollable/snapping
+     container while keeping its existing hidden-class toggle semantics
+     (#tide:not(.hidden) still just means "the tide experience is
+     showing," true for either panel), so nothing about the existing
+     open/close logic (or tests keyed off that selector) had to change. -->
+<main id="tide" class="hidden snap-scroll" aria-live="polite">
+  <section class="snap-panel" id="tidePanel">
+    <div class="top">
+      <img class="brand-logo" src="/logo.png" alt="WaveClock.net" width="36" height="36">
+      <div class="station-names">
+        <div class="station" id="stationName">—</div>
+        <div class="station-sub" id="stationSub"></div>
+      </div>
     </div>
-  </div>
 
-  <div id="tideBody">
-    <div class="state" id="state"><span class="arrow" id="arrow"></span><span id="stateText"></span></div>
-    <div class="next-label" id="nextLabel"></div>
-    <div class="next-in" id="nextIn"></div>
-    <div class="next-at" id="nextAt"></div>
+    <div id="tideBody">
+      <div class="state" id="state"><span class="arrow" id="arrow"></span><span id="stateText"></span></div>
+      <div class="next-label" id="nextLabel"></div>
+      <div class="next-in" id="nextIn"></div>
+      <div class="next-at" id="nextAt"></div>
 
-    <div class="curve" id="curveWrap">
-      <svg id="curve" viewBox="0 0 360 175" role="img" aria-label="Tide curve for today"></svg>
-      <div class="curve-cap">Today's tide · the surfer is now</div>
+      <div class="curve" id="curveWrap">
+        <svg id="curve" viewBox="0 0 360 175" role="img" aria-label="Tide curve for today"></svg>
+        <div class="curve-cap">Today's tide · the surfer is now</div>
+      </div>
+
+      <div class="list" id="list"></div>
+    </div>
+    <div class="msg hidden" id="tideMsg"></div>
+
+    <div class="foot">
+      <button type="button" class="linklike" id="changeBtn">Change beach</button><br>
+      Want this on your wall? <a href="https://waveclock.net">Get a Wave Clock →</a>
     </div>
 
-    <div class="list" id="list"></div>
-  </div>
-  <div class="msg hidden" id="tideMsg"></div>
+    <button type="button" class="swipe-hint" id="swipeDownHint">Wind &amp; waves<span class="chev" aria-hidden="true">⌄</span></button>
+  </section>
 
-  <div class="foot">
-    <button type="button" class="linklike" id="changeBtn">Change beach</button><br>
-    Want this on your wall? <a href="https://waveclock.net">Get a Wave Clock →</a>
-  </div>
+  <section class="snap-panel" id="windPanel">
+    <button type="button" class="swipe-hint swipe-hint-up" id="swipeUpHint"><span class="chev" aria-hidden="true">⌃</span>Tide</button>
+    <h1 class="wind-title">Wind &amp; Waves</h1>
+
+    <div class="stat-row" id="windStats">
+      <div class="stat-tile">
+        <div class="stat-label">Wind</div>
+        <div class="stat-value" id="windMph">—</div>
+        <div class="stat-sub" id="windDirRow">
+          <svg class="wind-arrow" id="windArrow" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2 L17.5 15 L12 11.8 L6.5 15 Z" fill="currentColor"/></svg>
+          <span id="windDirLabel"></span>
+        </div>
+      </div>
+      <div class="stat-tile">
+        <div class="stat-label">Waves</div>
+        <div class="stat-value" id="waveHeight">—</div>
+        <div class="stat-sub" id="wavePeriod"></div>
+      </div>
+    </div>
+
+    <div class="msg hidden" id="windMsg"></div>
+
+    <div id="windChartsWrap" class="hidden">
+      <div id="waveChartBlock">
+        <div class="mini-chart-cap">Wave height, next 24 hours</div>
+        <div class="curve"><svg id="waveChart" viewBox="0 0 360 110" role="img" aria-label="Wave height forecast"></svg></div>
+      </div>
+      <div class="mini-chart-cap">Wind speed, next 24 hours</div>
+      <div class="curve"><svg id="windChart" viewBox="0 0 360 90" role="img" aria-label="Wind speed forecast"></svg></div>
+    </div>
+
+    <div class="foot" style="margin-top:24px;">Wind &amp; wave forecast from Open-Meteo.</div>
+  </section>
 </main>
 
 <!-- ============ BEACH PICKER (first tap on an unregistered tag, or "Change beach") ============ -->
@@ -491,6 +578,8 @@
   async function openTide(st) {
     current = st; events = null;
     $('picker').classList.add('hidden'); $('tide').classList.remove('hidden');
+    document.body.classList.add('tide-active');
+    $('tide').scrollTo(0, 0); // always land back on the tide panel, not wherever the scroll-snap was left
     $('stationName').textContent = st.name;
     // Only shown when it's actually informative -- a legacy registration
     // (before townName existed) has st.stationName === st.name already,
@@ -500,6 +589,11 @@
     showMsg('Getting the tide…');
     try { events = await fetchTides(st.id); render(); }
     catch (e) { showMsg('Couldn’t reach the tide service. Check your signal and try again.'); }
+    // Independent of the tide fetch above -- a wind/wave outage (or a
+    // station with no lat/lon on record yet) should never block or blank
+    // out the tide screen itself, same "degrade the extra, not the core
+    // thing" principle as the night-shading bands.
+    renderWindWave(st);
   }
 
   // Caches the pick locally (so the NEXT tap is instant even if the
@@ -799,6 +893,7 @@
 
   function openPicker() {
     $('tide').classList.add('hidden'); $('picker').classList.remove('hidden');
+    document.body.classList.remove('tide-active');
     $('pickerSub').textContent = isChanging
       ? 'Pick a new beach for this keychain.'
       : 'This keychain will remember it from now on — every tap after this opens straight to your tide.';
@@ -811,6 +906,159 @@
     isChanging = true;
     openPicker();
   });
+
+  // ================= wind & waves (second scroll-snap panel) =================
+  // Open-Meteo's weather + marine APIs -- free, keyless, no backend round
+  // trip needed (same "self-contained page" convention as the NOAA/
+  // Nominatim calls above). This mirrors functions/lib/astro.js's own
+  // Open-Meteo integration (identical params/units: wind in mph, wave
+  // height/period in imperial units, hourly.time read explicitly as UTC)
+  // -- that's what already powers the physical Wave Clock's own wind/
+  // swell data, just called directly from the browser here instead of
+  // through astroProxy, since astroProxy's payload only carries "right
+  // now" plus one business-hours peak, not the fuller forecast series
+  // this screen wants.
+  const OPEN_METEO_WEATHER = 'https://api.open-meteo.com/v1/forecast';
+  const OPEN_METEO_MARINE = 'https://marine-api.open-meteo.com/v1/marine';
+  const WW_COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+  function degreesToCompass(deg) {
+    if (deg == null) return null;
+    const idx = Math.round(((((deg % 360) + 360) % 360) / 360) * 16) % 16;
+    return WW_COMPASS[idx];
+  }
+  function parseOpenMeteoTime(t) { return new Date(t + ':00Z'); }
+
+  async function fetchWindWave(lat, lon) {
+    const weatherParams = new URLSearchParams({
+      latitude: lat, longitude: lon, hourly: 'wind_speed_10m,wind_direction_10m',
+      wind_speed_unit: 'mph', timezone: 'UTC', forecast_hours: '48'
+    });
+    const marineParams = new URLSearchParams({
+      latitude: lat, longitude: lon, hourly: 'wave_height,wave_period',
+      length_unit: 'imperial', timezone: 'UTC', forecast_hours: '48'
+    });
+    const [weatherResult, marineResult] = await Promise.allSettled([
+      fetch(OPEN_METEO_WEATHER + '?' + weatherParams).then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status))),
+      fetch(OPEN_METEO_MARINE + '?' + marineParams).then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status)))
+    ]);
+    // Wind is the must-have here (same role NOAA's tide curve plays on
+    // the other panel) -- a weather-API failure fails the whole screen.
+    // The marine model doesn't cover every coordinate (inland water,
+    // some near-shore spots), so ITS failure just means no wave data,
+    // not a failed screen -- wind alone still renders.
+    if (weatherResult.status !== 'fulfilled') throw new Error('wind forecast unavailable');
+    const wh = weatherResult.value.hourly || {};
+    const times = wh.time || [];
+    const mh = marineResult.status === 'fulfilled' ? (marineResult.value.hourly || {}) : null;
+    const marineByTime = {};
+    if (mh) (mh.time || []).forEach((t, i) => {
+      marineByTime[t] = { waveHeightFt: mh.wave_height ? mh.wave_height[i] : null, wavePeriodS: mh.wave_period ? mh.wave_period[i] : null };
+    });
+    return times.map((t, i) => {
+      const mv = marineByTime[t] || {};
+      return {
+        t: parseOpenMeteoTime(t),
+        windMph: wh.wind_speed_10m ? wh.wind_speed_10m[i] : null,
+        windDir: wh.wind_direction_10m ? wh.wind_direction_10m[i] : null,
+        waveHeightFt: mv.waveHeightFt != null ? mv.waveHeightFt : null,
+        wavePeriodS: mv.wavePeriodS != null ? mv.wavePeriodS : null
+      };
+    });
+  }
+
+  function nearestWindWave(series, atMs) {
+    if (!series.length) return null;
+    let best = series[0], bestDiff = Math.abs(series[0].t.getTime() - atMs);
+    series.forEach(p => { const diff = Math.abs(p.t.getTime() - atMs); if (diff < bestDiff) { best = p; bestDiff = diff; } });
+    return best;
+  }
+
+  // A small line+area chart in the same visual language as the tide
+  // curve (blue line, pale fill, hour labels) but simpler -- no extrema
+  // marks, no day/night bands, no "now" marker, since this is a forecast
+  // TREND over the next day, not "where are we right now." Points with a
+  // null value are skipped rather than interpolated through, so a real
+  // data gap reads as a gap, not a smoothed guess.
+  function drawMiniChart(svgEl, series, valueKey, color) {
+    const W = 360, H = svgEl.viewBox.baseVal.height || 100, padT = 10, padB = 22;
+    const pts = series.filter(p => p[valueKey] != null);
+    if (pts.length < 2) { svgEl.innerHTML = ''; return; }
+    const start = series[0].t, end = series[series.length - 1].t;
+    const span2 = (end - start) || 1;
+    const vs = pts.map(p => p[valueKey]);
+    const lo = Math.min(0, Math.min(...vs)), hi = Math.max(...vs);
+    const span = (hi - lo) || 1;
+    const X = t => (t - start) / span2 * W;
+    const Y = v => padT + (1 - (v - lo) / span) * (H - padT - padB);
+    let d = 'M ' + X(pts[0].t).toFixed(1) + ' ' + Y(pts[0][valueKey]).toFixed(1);
+    pts.slice(1).forEach(p => { d += ' L ' + X(p.t).toFixed(1) + ' ' + Y(p[valueKey]).toFixed(1); });
+    const area = d + ' L ' + X(pts[pts.length - 1].t).toFixed(1) + ' ' + (H - padB) + ' L ' + X(pts[0].t).toFixed(1) + ' ' + (H - padB) + ' Z';
+    let hourLabels = '';
+    // +6h through +18h only -- a text-anchor="middle" label sitting
+    // exactly at either edge of the chart (x=0 "now", or x=W the chart's
+    // last plotted hour) gets half its glyphs clipped by the SVG's own
+    // viewBox boundary. "Now" is self-evident from the curve's own left
+    // edge anyway, so both edges are just left unlabeled.
+    for (let h = 6; h < 24; h += 6) {
+      const t = new Date(start.getTime() + h * 3600e3);
+      if (t > end) break;
+      hourLabels += '<text x="' + X(t).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="11" fill="#4a5675">' + fmtTime(t).replace(/:00/, '').replace(' ', '') + '</text>';
+    }
+    svgEl.innerHTML = '<path d="' + area + '" fill="' + color + '" opacity="0.2"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="3"/>' + hourLabels;
+  }
+
+  async function renderWindWave(st) {
+    const wrap = $('windChartsWrap');
+    if (!st || !Number.isFinite(st.lat) || !Number.isFinite(st.lon)) {
+      $('windMsg').textContent = "Wind & wave data needs this beach's location — tap Change beach and pick it again to turn this on.";
+      $('windMsg').classList.remove('hidden');
+      wrap.classList.add('hidden');
+      $('windMph').textContent = '—'; $('windDirLabel').textContent = ''; $('waveHeight').textContent = '—'; $('wavePeriod').textContent = '';
+      return;
+    }
+    $('windMsg').classList.add('hidden');
+    try {
+      const series = await fetchWindWave(st.lat, st.lon);
+      const now = nearestWindWave(series, Date.now());
+      if (now && now.windMph != null) {
+        $('windMph').textContent = Math.round(now.windMph) + ' mph';
+        const dir = degreesToCompass(now.windDir);
+        $('windDirLabel').textContent = dir || '';
+        // Rotated to point in the direction the wind is blowing TOWARD
+        // (downwind) -- the meteorological convention windDir itself
+        // encodes ("wind direction" means where it's blowing FROM)
+        // points the "wrong" way for an at-a-glance arrow.
+        $('windArrow').style.visibility = now.windDir != null ? 'visible' : 'hidden';
+        if (now.windDir != null) $('windArrow').style.transform = 'rotate(' + ((now.windDir + 180) % 360) + 'deg)';
+      } else {
+        $('windMph').textContent = '—'; $('windDirLabel').textContent = '';
+      }
+      if (now && now.waveHeightFt != null) {
+        $('waveHeight').textContent = (Math.round(now.waveHeightFt * 10) / 10) + ' ft';
+        $('wavePeriod').textContent = now.wavePeriodS != null ? ('@ ' + Math.round(now.wavePeriodS) + 's') : '';
+      } else {
+        $('waveHeight').textContent = '—'; $('wavePeriod').textContent = '';
+      }
+
+      // Capped to ~24h so the chart's own x-axis actually matches its
+      // "next 24 hours" caption -- fetchWindWave pulls 48h because
+      // that's the natural Open-Meteo request shape, not because this
+      // chart should plot all of it.
+      const future = series.filter(p => p.t.getTime() >= Date.now() - 3600e3).slice(0, 25);
+      const hasWave = future.some(p => p.waveHeightFt != null);
+      $('waveChartBlock').classList.toggle('hidden', !hasWave);
+      if (hasWave) drawMiniChart($('waveChart'), future, 'waveHeightFt', '#1f5fd1');
+      drawMiniChart($('windChart'), future, 'windMph', '#0f1b3d');
+      wrap.classList.remove('hidden');
+    } catch (e) {
+      $('windMsg').textContent = "Couldn't reach the wind & wave forecast. Check your signal and try again.";
+      $('windMsg').classList.remove('hidden');
+      wrap.classList.add('hidden');
+    }
+  }
+
+  $('swipeDownHint').addEventListener('click', () => $('windPanel').scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  $('swipeUpHint').addEventListener('click', () => $('tidePanel').scrollIntoView({ behavior: 'smooth', block: 'start' }));
 
   // ---------- keep it current ----------
   setInterval(render, 30e3);
