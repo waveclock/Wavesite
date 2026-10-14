@@ -831,7 +831,15 @@
     // A tag registered before townName existed has none, so this falls
     // back to the old behavior of showing the station's own name --
     // same graceful degrade as a missing lat/lon.
-    return j.registered ? { id: j.stationId, stationName: j.stationName, name: j.townName || j.stationName, lat: j.lat, lon: j.lon } : null;
+    //
+    // coastFacingDirection rides along too -- it's resolved once and
+    // stored by enrichRegistration (see its own comment) specifically so
+    // renderSurfQuality below doesn't have to re-run a live Overpass
+    // lookup on every single visit. A tag that doesn't have one yet
+    // (enrichment still in flight, or predates this field) just gets
+    // undefined here, and renderSurfQuality falls back to the live
+    // lookup exactly as it always has.
+    return j.registered ? { id: j.stationId, stationName: j.stationName, name: j.townName || j.stationName, lat: j.lat, lon: j.lon, coastFacingDirection: j.coastFacingDirection } : null;
   }
   // Registers st against this tag for the FIRST time. If another tap
   // already won the race (409), defers to whatever's actually
@@ -1271,6 +1279,7 @@
   }
   const COMPASS_DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   function bearingToCompass(bearing) { return COMPASS_DIRECTIONS[Math.round(bearing / 45) % 8]; }
+  function compassToBearing(dir) { const i = COMPASS_DIRECTIONS.indexOf(dir); return i === -1 ? null : i * 45; }
 
   // ================= NWS forecast zones (srfZone / marineZone) =================
   // Ported from location/index.html's own setup wizard (same method,
@@ -1827,9 +1836,20 @@
   // something either render has to wait on. One coastline lookup covers
   // both days' badges, evaluated at today's real "now" and tomorrow's
   // representative (noon) point respectively.
+  //
+  // st.coastFacingDirection -- resolved once at registration/"Change
+  // beach" time and stored server-side (see enrichRegistration) -- is
+  // used directly here when present, with NO network call at all: this
+  // is what makes every visit AFTER the first one for a given tag
+  // instant and failure-proof, instead of re-running a live Overpass
+  // lookup (with its own latency/flakiness, however much that's since
+  // been hardened) on every single page open. The live fetchCoastFacingBearing
+  // path below only runs as a fallback, for a tag whose enrichment
+  // hasn't landed yet (just registered, or predates this field).
   async function renderSurfQuality(st, now, todayPoints, dayWindow, tomorrowPoints, tomorrowWin) {
     try {
-      const coastBearing = await fetchCoastFacingBearing(st.lat, st.lon);
+      const storedBearing = st.coastFacingDirection ? compassToBearing(st.coastFacingDirection) : null;
+      const coastBearing = storedBearing != null ? storedBearing : await fetchCoastFacingBearing(st.lat, st.lon);
       setQualityBadges(now && now.windMph, now && now.windDir, coastBearing, 'waveHeaderBadge', 'windHeaderBadge');
       const tomorrowNow = representativePoint(tomorrowPoints, tomorrowWin);
       setQualityBadges(tomorrowNow && tomorrowNow.windMph, tomorrowNow && tomorrowNow.windDir, coastBearing, 'waveHeaderBadgeTomorrow', 'windHeaderBadgeTomorrow');
