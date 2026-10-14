@@ -917,6 +917,9 @@ function tagResponseBody(record) {
     body.lat = record.lat;
     body.lon = record.lon;
   }
+  if (record.townName != null) {
+    body.townName = record.townName;
+  }
   return body;
 }
 
@@ -944,7 +947,7 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
   }
 
   if (req.method === "POST") {
-    const { tagId, stationId, stationName, lat, lon } = req.body || {};
+    const { tagId, stationId, stationName, lat, lon, townName } = req.body || {};
     if (typeof tagId !== "string" || !isValidTagId(tagId)) {
       res.status(400).json({ error: TAG_ID_HINT });
       return;
@@ -966,7 +969,7 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
     // missing or malformed value just means no sunrise/sunset shading
     // for this tag later, not a rejected registration.
     try {
-      const result = await saveTideTag(bucket, tagId, stationId, stationName.trim(), lat, lon);
+      const result = await saveTideTag(bucket, tagId, stationId, stationName.trim(), lat, lon, townName);
       if (result.status === "already-registered") {
         res.status(409).json({ error: "This tag is already registered to a beach" });
         return;
@@ -984,7 +987,7 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
     // beach" link on an already-registered tag's tide page. Same
     // validation, but always succeeds (short of a real storage failure)
     // since there's no "already registered" case to guard against here.
-    const { tagId, stationId, stationName, lat, lon } = req.body || {};
+    const { tagId, stationId, stationName, lat, lon, townName } = req.body || {};
     if (typeof tagId !== "string" || !isValidTagId(tagId)) {
       res.status(400).json({ error: TAG_ID_HINT });
       return;
@@ -998,7 +1001,7 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
       return;
     }
     try {
-      const record = await updateTideTag(bucket, tagId, stationId, stationName.trim(), lat, lon);
+      const record = await updateTideTag(bucket, tagId, stationId, stationName.trim(), lat, lon, townName);
       res.status(200).json(tagResponseBody(record));
     } catch (err) {
       logger.error("Tide tag proxy PUT failed for " + tagId + ":", err);
