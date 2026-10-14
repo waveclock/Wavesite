@@ -169,19 +169,19 @@
 
   /* wind & waves screen */
   .wind-title { font-size: clamp(30px, 9vw, 42px); font-weight: 900; letter-spacing: -0.01em; margin: 4px 0 18px; }
-  .stat-row { display: flex; gap: 14px; }
-  .stat-tile { flex: 1; min-width: 0; background: #fff; border: 2px solid var(--line); border-radius: 16px; padding: 16px 14px; }
-  .stat-label { font-size: 14px; font-weight: 700; color: var(--soft); text-transform: uppercase; letter-spacing: .03em; }
-  .stat-value { font-size: clamp(30px, 9.5vw, 42px); font-weight: 900; line-height: 1.1; margin-top: 4px; }
-  .stat-sub { font-size: 15px; font-weight: 600; color: var(--soft); margin-top: 4px; display: flex; align-items: center; gap: 4px; min-height: 19px; }
   .wind-arrow { color: var(--wave); flex-shrink: 0; }
   .mini-chart-cap { font-size: 14px; font-weight: 700; color: var(--soft); margin: 18px 0 6px; }
-  .surf-badge { display: flex; align-items: center; gap: 10px; margin: 16px 0 2px; }
-  .surf-badge-pill { font-size: 13px; font-weight: 800; padding: 4px 13px; border-radius: 999px; color: #fff; }
-  .surf-badge-pill.clean { background: var(--rise); }
-  .surf-badge-pill.fair { background: var(--fair); }
-  .surf-badge-pill.choppy { background: var(--fall); }
-  .surf-badge-note { font-size: 13px; font-weight: 600; color: var(--soft); }
+  /* Per-chart header (today's pane only) -- replaces the old shared
+     stat tiles + single badge row above both charts with one compact
+     line per chart: a short title, the live stat, and a colored
+     Clean/Fair/Choppy-style badge. */
+  .chart-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 18px 0 6px; }
+  .chart-header-title { font-size: 14px; font-weight: 700; color: var(--soft); text-transform: uppercase; letter-spacing: .03em; }
+  .chart-header-stat { font-size: 16px; font-weight: 800; display: inline-flex; align-items: center; gap: 3px; }
+  .chart-header-badge { font-size: 12px; font-weight: 800; padding: 3px 11px; border-radius: 999px; color: #fff; }
+  .chart-header-badge.clean { background: var(--rise); }
+  .chart-header-badge.fair { background: var(--fair); }
+  .chart-header-badge.choppy { background: var(--fall); }
   .bar-legend { display: flex; gap: 16px; margin: 4px 0 0; font-size: 12px; font-weight: 600; color: var(--soft); }
   .bar-legend span { display: inline-flex; align-items: center; gap: 5px; }
   .bar-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
@@ -290,70 +290,70 @@
   </section>
 
   <section class="snap-panel" id="windPanel">
-    <h1 class="wind-title">Wind &amp; Waves</h1>
-
-    <div class="stat-row" id="windStats">
-      <div class="stat-tile">
-        <div class="stat-label">Wind</div>
-        <div class="stat-value" id="windMph">—</div>
-        <div class="stat-sub" id="windDirRow">
-          <svg class="wind-arrow" id="windArrow" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2 L17.5 15 L12 11.8 L6.5 15 Z" fill="currentColor"/></svg>
-          <span id="windDirLabel"></span>
-        </div>
-      </div>
-      <div class="stat-tile">
-        <div class="stat-label">Waves</div>
-        <div class="stat-value" id="waveHeight">—</div>
-        <div class="stat-sub" id="wavePeriod"></div>
-      </div>
-    </div>
-
-    <div class="surf-badge hidden" id="surfBadge">
-      <span class="surf-badge-pill" id="surfBadgePill"></span>
-      <span class="surf-badge-note" id="surfBadgeNote"></span>
-    </div>
+    <h1 class="wind-title">Waves &amp; Wind</h1>
 
     <div class="msg hidden" id="windMsg"></div>
 
-    <!-- Swipe right anywhere in here to see tomorrow -- wind and wave
+    <!-- Swipe left anywhere in here to see tomorrow -- wind and wave
          move together as one unit, then lock onto whichever day the
          drag commits to (see the touch handlers near dayPager in the
-         script). Tomorrow's pane sits BEFORE today's in source order
-         (not after) so dragging your finger right, which visually
-         slides the whole pager right, reveals it from the left edge --
-         exactly the physical "drag right to see what's to the right of
-         today" feel that was asked for, rather than the reversed
-         left-for-next convention most carousels use. Both panes' charts
-         are real, already-drawn SVGs from data already sitting in
-         memory (fetchWindWave pulls enough forecast_hours to cover
+         script). Today's pane comes first in source order, tomorrow's
+         second -- the standard carousel order -- so dragging your
+         finger left, which visually slides the whole pager left,
+         reveals tomorrow entering from the right edge. Both panes'
+         charts are real, already-drawn SVGs from data already sitting
+         in memory (fetchWindWave pulls enough forecast_hours to cover
          tomorrow too) -- swiping never triggers a new network request,
-         so there's no loading flash either direction. -->
+         so there's no loading flash either direction.
+
+         Each TODAY chart gets its own header instead of the old shared
+         stat tiles + single badge row above both charts: a short title,
+         the live stat (height+period, or speed+direction), and a
+         colored Clean/Fair/Choppy-style badge -- the wave header shows
+         the quality itself ("Clean"), the wind header shows the
+         direction call that quality was based on ("Offshore") in the
+         SAME color, since both come from one classification run.
+         TOMORROW's headers stay plain captions -- there's no "live" stat
+         or badge for a forecast day, same reasoning as tomorrow's bar
+         chart never showing a "Now" callout. -->
     <div id="windChartsWrap" class="hidden">
       <div id="dayPagerViewport">
         <div id="dayPager">
-          <div class="day-page" data-day="tomorrow">
-            <div id="waveChartBlockTomorrow">
-              <div class="mini-chart-cap">Wave height, tomorrow</div>
-              <div class="curve"><svg id="waveChartTomorrow" viewBox="0 0 360 110" role="img" aria-label="Tomorrow's wave height forecast, bars colored by predicted surf quality"></svg></div>
-              <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
-            </div>
-            <div class="mini-chart-cap">Wind speed, tomorrow</div>
-            <div class="curve"><svg id="windChartTomorrow" viewBox="0 0 360 90" role="img" aria-label="Tomorrow's wind speed forecast"></svg></div>
-          </div>
           <div class="day-page" data-day="today">
             <div id="waveChartBlock">
-              <div class="mini-chart-cap">Wave height, today</div>
+              <div class="chart-header">
+                <span class="chart-header-title">Waves</span>
+                <span class="chart-header-stat"><span id="waveHeight">—</span> <span id="wavePeriod"></span></span>
+                <span class="chart-header-badge hidden" id="waveHeaderBadge"></span>
+              </div>
               <div class="curve"><svg id="waveChart" viewBox="0 0 360 110" role="img" aria-label="Wave height forecast, bars colored by predicted surf quality"></svg></div>
               <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
             </div>
-            <div class="mini-chart-cap">Wind speed, today</div>
+            <div class="chart-header">
+              <span class="chart-header-title">Wind</span>
+              <span class="chart-header-stat">
+                <span id="windMph">—</span>
+                <svg class="wind-arrow" id="windArrow" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 2 L17.5 15 L12 11.8 L6.5 15 Z" fill="currentColor"/></svg>
+                <span id="windDirLabel"></span>
+              </span>
+              <span class="chart-header-badge hidden" id="windHeaderBadge"></span>
+            </div>
             <div class="curve"><svg id="windChart" viewBox="0 0 360 90" role="img" aria-label="Wind speed forecast"></svg></div>
+          </div>
+          <div class="day-page" data-day="tomorrow">
+            <div id="waveChartBlockTomorrow">
+              <div class="mini-chart-cap">Waves, tomorrow</div>
+              <div class="curve"><svg id="waveChartTomorrow" viewBox="0 0 360 110" role="img" aria-label="Tomorrow's wave height forecast, bars colored by predicted surf quality"></svg></div>
+              <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
+            </div>
+            <div class="mini-chart-cap">Wind, tomorrow</div>
+            <div class="curve"><svg id="windChartTomorrow" viewBox="0 0 360 90" role="img" aria-label="Tomorrow's wind speed forecast"></svg></div>
           </div>
         </div>
       </div>
       <div class="day-dots" id="dayDots">
-        <span class="day-dot" data-day="tomorrow"></span>
         <span class="day-dot active" data-day="today"></span>
+        <span class="day-dot" data-day="tomorrow"></span>
       </div>
     </div>
 
@@ -1416,16 +1416,15 @@
   }
 
   // ---------- the today/tomorrow swipe pager ----------
-  // #dayPager holds both day-pages side by side (tomorrow first in
-  // source order, today second -- see the HTML comment above #tide's
-  // windChartsWrap for why) and is the element that actually translates,
-  // whether by live touch-drag or by the commit animation afterward.
-  // Both panes' charts are already real, fully-drawn SVGs by the time
-  // anyone can swipe (renderWindWave draws both every time it runs), so
-  // dragging between them is pure CSS transform -- no redraw, no
-  // network, nothing to wait on.
-  const DAY_POSITIONS = ['tomorrow', 'today'];
-  let activeDayPos = 1; // starts on "today"
+  // #dayPager holds both day-pages side by side (today first in source
+  // order, tomorrow second -- the standard carousel order) and is the
+  // element that actually translates, whether by live touch-drag or by
+  // the commit animation afterward. Both panes' charts are already real,
+  // fully-drawn SVGs by the time anyone can swipe (renderWindWave draws
+  // both every time it runs), so dragging between them is pure CSS
+  // transform -- no redraw, no network, nothing to wait on.
+  const DAY_POSITIONS = ['today', 'tomorrow'];
+  let activeDayPos = 0; // starts on "today"
   const dayPager = $('dayPager');
   const dayPagerViewport = $('dayPagerViewport');
 
@@ -1448,7 +1447,7 @@
   // finishes a fresh fetch (a new beach, the periodic 3-hourly refresh),
   // so nobody's left stranded on yesterday's "tomorrow" after the day
   // rolls over, or on a different beach's forecast after "Change beach."
-  function resetDayPager() { snapToPos(1, false); }
+  function resetDayPager() { snapToPos(0, false); }
 
   let touchStartX = null, touchStartY = null, touchDx = 0, touchAxis = null;
   dayPagerViewport.addEventListener('touchstart', e => {
@@ -1482,11 +1481,11 @@
     if (touchStartX == null) return;
     if (touchAxis === 'x') {
       const threshold = Math.max(44, dayPagerViewport.getBoundingClientRect().width * 0.18);
-      // Dragging RIGHT (positive dx) moves toward position 0 ("tomorrow")
-      // -- the pane sitting to the LEFT in source order slides into view
-      // as the whole pager follows your finger rightward.
-      if (touchDx > threshold) snapToPos(activeDayPos - 1, true);
-      else if (touchDx < -threshold) snapToPos(activeDayPos + 1, true);
+      // Dragging LEFT (negative dx) moves toward position 1 ("tomorrow")
+      // -- the pane sitting to the RIGHT in source order slides into
+      // view as the whole pager follows your finger leftward.
+      if (touchDx < -threshold) snapToPos(activeDayPos + 1, true);
+      else if (touchDx > threshold) snapToPos(activeDayPos - 1, true);
       else snapToPos(activeDayPos, true);
     }
     touchStartX = null; touchAxis = null;
@@ -1495,28 +1494,36 @@
   dayPagerViewport.addEventListener('touchcancel', endDayDrag);
   window.addEventListener('resize', () => snapToPos(activeDayPos, false));
 
-  function hideSurfBadge() { $('surfBadge').classList.add('hidden'); }
+  function hideSurfBadge() {
+    $('waveHeaderBadge').classList.add('hidden');
+    $('windHeaderBadge').classList.add('hidden');
+  }
 
   // Independent of (and never blocking) the rest of this screen -- same
   // "degrade the extra, not the core thing" principle as the charts
   // themselves not blocking the tide fetch. A coastline lookup failure
-  // (or simply not having one cached/reachable yet) just means no badge
+  // (or simply not having one cached/reachable yet) just means no badges
   // and plain neutral-colored bars, not an error shown anywhere. Both
   // wave bar charts (today AND tomorrow) are drawn once immediately
   // (uncolored) by the caller below, then redrawn here, in place, once
   // (if) the real classification resolves -- a progressive upgrade, not
   // something either render has to wait on. One coastline lookup covers
-  // both days (the coastline's shape doesn't change tomorrow).
+  // both days (the coastline's shape doesn't change tomorrow) and both
+  // header badges (the wave header shows the quality itself, the wind
+  // header shows the direction call it was based on, in the same color).
   async function renderSurfQuality(st, now, todayPoints, dayWindow, tomorrowPoints, tomorrowWin) {
     if (!now || now.windMph == null || now.windDir == null) { hideSurfBadge(); return; }
     try {
       const coastBearing = await fetchCoastFacingBearing(st.lat, st.lon);
       const result = classifySurfQuality(now.windMph, now.windDir, coastBearing);
       if (result) {
-        $('surfBadgePill').textContent = result.quality;
-        $('surfBadgePill').className = 'surf-badge-pill ' + result.quality.toLowerCase();
-        $('surfBadgeNote').textContent = result.note;
-        $('surfBadge').classList.remove('hidden');
+        const tierClass = result.quality.toLowerCase();
+        const waveBadge = $('waveHeaderBadge');
+        waveBadge.textContent = result.quality;
+        waveBadge.className = 'chart-header-badge ' + tierClass;
+        const windBadge = $('windHeaderBadge');
+        windBadge.textContent = result.note.replace(/ wind$/, ''); // "Offshore wind" -> "Offshore", "Calm wind" -> "Calm"
+        windBadge.className = 'chart-header-badge ' + tierClass;
       } else {
         hideSurfBadge();
       }
