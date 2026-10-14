@@ -70,7 +70,9 @@
   .next-at { font-size: clamp(26px, 8vw, 36px); font-weight: 600; color: var(--soft); margin-top: 6px; }
 
   /* curve */
-  .curve { margin: 22px 0 6px; background: var(--wave-pale); border-radius: 16px; padding: 10px 6px 4px; }
+  /* White by day, the pale blue by night -- toggled in JS (isDaytime). */
+  .curve { margin: 22px 0 6px; background: #fff; border: 2px solid var(--line); border-radius: 16px; padding: 10px 6px 4px; }
+  .curve.is-night { background: var(--wave-pale); border-color: var(--wave-pale); }
   .curve svg { display: block; width: 100%; height: auto; }
   .curve-cap { font-size: 15px; color: var(--soft); text-align: center; margin-bottom: 6px; }
 
@@ -126,7 +128,7 @@
     <div class="next-in" id="nextIn"></div>
     <div class="next-at" id="nextAt"></div>
 
-    <div class="curve">
+    <div class="curve" id="curveWrap">
       <svg id="curve" viewBox="0 0 360 175" role="img" aria-label="Tide curve for today"></svg>
       <div class="curve-cap">Today's tide · the surfer is now</div>
     </div>
@@ -239,6 +241,16 @@
   // it never lingers into a later, unrelated pick.
   let isChanging = false;
 
+  // Simple local-clock day/night split (not real sunrise/sunset -- this
+  // is a decorative background cue, not a tide calculation) -- 6am to
+  // 7pm reads as "day" across most of the year without needing any
+  // extra astronomy data on a page that otherwise only ever talks to
+  // NOAA/Nominatim.
+  function isDaytime(d) {
+    const h = d.getHours();
+    return h >= 6 && h < 19;
+  }
+
   function render() {
     if (!events) return;
     const now = new Date();
@@ -257,6 +269,7 @@
       `<div class="row"><b>${e.hi ? 'High' : 'Low'}</b><span>${fmtTime(e.t)}<small>${dayWord(e.t)}</small></span></div>`).join('');
     $('list').innerHTML = rows;
 
+    $('curveWrap').classList.toggle('is-night', !isDaytime(now));
     drawCurve(now);
     $('tideBody').classList.remove('hidden'); $('tideMsg').classList.add('hidden');
   }
@@ -309,19 +322,46 @@
     let d = `M ${X(pts[0][0]).toFixed(1)} ${Y(pts[0][1]).toFixed(1)}`;
     pts.slice(1).forEach(p => d += ` L ${X(p[0]).toFixed(1)} ${Y(p[1]).toFixed(1)}`);
     const area = d + ` L ${X(pts[pts.length - 1][0]).toFixed(1)} ${H - padB} L ${X(pts[0][0]).toFixed(1)} ${H - padB} Z`;
-    let marks = '';
-    events.filter(e => e.t >= start && e.t <= end).forEach(e => {
-      const x = X(e.t), y = Y(e.v);
-      marks += `<text x="${Math.min(Math.max(x, 26), W - 26)}" y="${e.hi ? Math.max(y - 8, 14) : Math.min(y + 18, H - padB + 18)}" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1b3d">${e.hi ? 'H' : 'L'} ${fmtTime(e.t).replace(' ', '')}</text>`;
-    });
     const nv = levelAt(events, now);
     // Clamped so the figure's head/board never run past the chart's own
-    // edges, same defensive clamping the H/L text labels above already
-    // use.
-    const marker = nv == null ? '' : surferMarker(
-      Math.min(Math.max(X(now), 24), W - 16),
-      Math.min(Math.max(Y(nv), padT + 27), H - padB - 11)
-    );
+    // edges, same defensive clamping the H/L text labels below already
+    // use. Computed BEFORE the H/L labels so a label landing right on
+    // top of "now" (a real case -- "now" is often close to the very
+    // high/low tide it's about to reach) can be pushed clear of it; see
+    // surferBox below.
+    const surferCx = Math.min(Math.max(X(now), 24), W - 16);
+    const surferCy = Math.min(Math.max(Y(nv), padT + 27), H - padB - 11);
+    const marker = nv == null ? '' : surferMarker(surferCx, surferCy);
+    // Approximate footprint of the surfer artwork around its anchor
+    // (the front foot) -- measured off the source SVG's own bounding
+    // box at this draw's scale, padded a few px. Only used for the
+    // collision check right below, never for layout math elsewhere.
+    const surferBox = nv == null ? null : { x0: surferCx - 25, x1: surferCx + 19, y0: surferCy - 29, y1: surferCy + 12 };
+
+    let marks = '';
+    events.filter(e => e.t >= start && e.t <= end).forEach(e => {
+      const x = Math.min(Math.max(X(e.t), 26), W - 26);
+      let y = e.hi ? Math.max(Y(e.v) - 8, 14) : Math.min(Y(e.v) + 18, H - padB + 18);
+      const label = (e.hi ? 'H ' : 'L ') + fmtTime(e.t).replace(' ', '');
+      if (surferBox) {
+        // Rough text bbox: bold 12px, ~7.5px/char wide, baseline with a
+        // ~11px ascent/3px descent -- good enough to catch the real
+        // overlap case (the label landing on "now"'s own position),
+        // not meant to be pixel-exact.
+        const halfW = label.length * 3.8 + 3;
+        const boxX0 = x - halfW, boxX1 = x + halfW, boxY0 = y - 11, boxY1 = y + 3;
+        const overlaps = boxX0 < surferBox.x1 && boxX1 > surferBox.x0 && boxY0 < surferBox.y1 && boxY1 > surferBox.y0;
+        if (overlaps) {
+          // Push the label further in the SAME direction it already
+          // leans (above the curve for a high, below for a low) until
+          // it clears the surfer's own footprint, re-clamping so it
+          // never runs off the chart's own top/bottom edge either.
+          y = e.hi ? Math.max(14, surferBox.y0 - 6) : Math.min(H - padB + 18, surferBox.y1 + 6);
+        }
+      }
+      marks += `<text x="${x}" y="${y}" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1b3d">${label}</text>`;
+    });
+
     const hours = [6, 12, 18].map(h => `<text x="${W * h / 24}" y="${H - 6}" text-anchor="middle" font-size="12" fill="#4a5675">${h === 12 ? 'noon' : (h % 12) + (h < 12 ? 'am' : 'pm')}</text>`).join('');
     $('curve').innerHTML = `<path d="${area}" fill="#1f5fd1" opacity="0.25"/><path d="${d}" fill="none" stroke="#1f5fd1" stroke-width="3"/>${marks}${marker}${hours}`;
   }
