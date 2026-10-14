@@ -263,30 +263,34 @@
 
   // Small line-art stick figure riding a surfboard, replacing the old
   // plain dashed-line+dot "now" marker -- same idea (mark where "now"
-  // falls on today's curve), but traced directly from the real
-  // WaveClock.net brand mark (logo.png) rather than a generic
-  // approximation, since this figure IS the brand's signature surfer.
-  // Coordinates were read off logo.png pixel-by-pixel (head, arms,
-  // legs, board) and re-anchored so local (0,0) is the front foot --
-  // where the board actually bears weight -- not the waist/hips, so
-  // translating to (cx, cy) plants the BOARD on the curve at that
-  // point, with the figure rising above it, instead of appearing to
-  // stand waist-deep in the line.
+  // falls on today's curve), using the exact brand-supplied artwork
+  // (filled vector paths, not a hand trace) for the signature surfer.
+  // SURFER_PATHS is the brand SVG's own <path> data, completely
+  // unmodified -- positioning happens entirely through the transform
+  // below, never by editing these coordinates, so there's no risk of a
+  // transcription error drifting from the source art.
+  //
+  // The outer translate(-308,-314.5) shifts the brand art's own
+  // coordinate space so local (0,0) lands exactly on the front foot --
+  // where the board actually bears weight, confirmed against the
+  // source art's own board-top curve at that x -- not the waist/hips.
+  // translate(cx,cy) scale(s) then plants that point (and so the
+  // BOARD) on the curve, with the figure rising above it, instead of
+  // appearing to stand waist-deep in the line.
+  const SURFER_PATHS = [
+    "M 236 41 C 254.2 41 269 55.8 269 74 C 269 92.2 254.2 107 236 107 C 217.8 107 203 92.2 203 74 C 203 55.8 217.8 41 236 41 Z M 236 55 C 225.5 55 217 63.5 217 74 C 217 84.5 225.5 93 236 93 C 246.5 93 255 84.5 255 74 C 255 63.5 246.5 55 236 55 Z",
+    "M 242 110 L 221 213 L 207 210 L 228 107 Z",
+    "M 232 125 L 153 156 L 120 191 L 110 181 L 147 144 L 228 113 Z",
+    "M 228 125 L 283 156 L 342 156 L 342 170 L 280 170 L 222 137 Z",
+    "M 221 213 L 234 271 L 192 345 L 179 337 L 220 265 L 207 210 Z",
+    "M 221 213 L 297 235 L 315 313 L 301 316 L 283 241 L 207 210 Z",
+    "M 68 385 C 140 370 240 338 465 258 C 320 305 180 355 68 385 Z",
+    "M 75 385 C 95 380 120 380 115 413 C 105 418 100 400 75 385 Z"
+  ];
   function surferMarker(cx, cy) {
-    const s = 0.27;
-    return `<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) scale(${s})" stroke="#0f1b3d" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="-10" cy="-81" r="22"/>
-      <line x1="-11" y1="-59" x2="-13" y2="-55"/>
-      <line x1="-13" y1="-55" x2="22" y2="-53"/>
-      <line x1="-15" y1="-53" x2="-60" y2="-43"/>
-      <line x1="-13" y1="-55" x2="-10" y2="-25"/>
-      <line x1="-10" y1="-25" x2="-33" y2="-13"/>
-      <line x1="-33" y1="-13" x2="-50" y2="-1"/>
-      <line x1="-50" y1="-1" x2="-60" y2="7"/>
-      <line x1="-10" y1="-25" x2="12" y2="-15"/>
-      <line x1="12" y1="-15" x2="0" y2="0"/>
-      <line x1="-63" y1="12" x2="67" y2="-25"/>
-    </g>`;
+    const s = 0.095;
+    const paths = SURFER_PATHS.map((d) => `<path d="${d}"/>`).join("");
+    return `<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) scale(${s}) translate(-308,-314.5)" fill="#0f1b3d" stroke="none">${paths}</g>`;
   }
 
   function drawCurve(now) {
@@ -315,8 +319,8 @@
     // edges, same defensive clamping the H/L text labels above already
     // use.
     const marker = nv == null ? '' : surferMarker(
-      Math.min(Math.max(X(now), 20), W - 20),
-      Math.min(Math.max(Y(nv), padT + 28), H - padB - 4)
+      Math.min(Math.max(X(now), 24), W - 16),
+      Math.min(Math.max(Y(nv), padT + 27), H - padB - 11)
     );
     const hours = [6, 12, 18].map(h => `<text x="${W * h / 24}" y="${H - 6}" text-anchor="middle" font-size="12" fill="#4a5675">${h === 12 ? 'noon' : (h % 12) + (h < 12 ? 'am' : 'pm')}</text>`).join('');
     $('curve').innerHTML = `<path d="${area}" fill="#1f5fd1" opacity="0.25"/><path d="${d}" fill="none" stroke="#1f5fd1" stroke-width="3"/>${marks}${marker}${hours}`;
