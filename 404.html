@@ -1253,15 +1253,24 @@
   // single transient hiccup (exactly the kind a weak mobile connection
   // produces) a second shot before settling for "unavailable this visit."
   const COAST_BEARING_RETRY_DELAY_MS = 2500;
-  let coastBearingInFlight = null;
+  // Keyed by cacheKey (lat/lon), NOT a single flat variable -- a single
+  // shared in-flight flag here was a real bug: switching beaches (e.g.
+  // via "Change beach") while a PREVIOUS location's lookup was still
+  // running (its own retries can legitimately take up to ~1 minute) meant
+  // the NEW location's render silently got de-duped onto the OLD
+  // location's still-pending -- or already-failing -- promise instead of
+  // running its own independent lookup, leaving the new beach stuck gray
+  // no matter how long it was left open, since it was never actually
+  // waiting on ITS OWN request at all.
+  const coastBearingInFlightByKey = new Map();
   async function fetchCoastFacingBearing(lat, lon) {
     const cacheKey = coastBearingCacheKey(lat, lon);
     try {
       const cached = localStorage.getItem(cacheKey);
       if (cached != null) return parseFloat(cached);
     } catch (e) { /* localStorage unavailable -- just skip caching */ }
-    if (coastBearingInFlight) return coastBearingInFlight;
-    coastBearingInFlight = (async () => {
+    if (coastBearingInFlightByKey.has(cacheKey)) return coastBearingInFlightByKey.get(cacheKey);
+    const inFlight = (async () => {
       let lastError = null;
       for (let attempt = 0; attempt < 2; attempt++) {
         if (attempt > 0) await sleep(COAST_BEARING_RETRY_DELAY_MS);
@@ -1275,7 +1284,8 @@
       }
       throw lastError;
     })();
-    try { return await coastBearingInFlight; } finally { coastBearingInFlight = null; }
+    coastBearingInFlightByKey.set(cacheKey, inFlight);
+    try { return await inFlight; } finally { coastBearingInFlightByKey.delete(cacheKey); }
   }
   const COMPASS_DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   function bearingToCompass(bearing) { return COMPASS_DIRECTIONS[Math.round(bearing / 45) % 8]; }
