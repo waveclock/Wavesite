@@ -8,7 +8,7 @@
 // that's the exact atomicity saveTideTag depends on.
 
 const assert = require("assert");
-const { TAG_ID_PATTERN, isValidTagId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag } = require("../lib/tideTag");
+const { TAG_ID_PATTERN, isValidTagId, sanitizeCoords, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag } = require("../lib/tideTag");
 
 function makeFakeBucket(initialFiles) {
   const store = new Map(Object.entries(initialFiles || {})); // path -> string
@@ -113,6 +113,25 @@ async function test(name, fn) {
     await assert.rejects(() => fetchTideTag(bucket, "A7K2"), /network down/);
   });
 
+  console.log("sanitizeCoords (lat/lon for the sunrise/sunset day-night background)");
+  await test("accepts valid in-range coordinates", () => {
+    assert.deepStrictEqual(sanitizeCoords(39.355, -74.4183), { lat: 39.355, lon: -74.4183 });
+  });
+  await test("accepts numeric strings (as a POST body's JSON would send them)", () => {
+    assert.deepStrictEqual(sanitizeCoords("39.355", "-74.4183"), { lat: 39.355, lon: -74.4183 });
+  });
+  await test("returns null for out-of-range lat/lon", () => {
+    assert.strictEqual(sanitizeCoords(91, 0), null);
+    assert.strictEqual(sanitizeCoords(-91, 0), null);
+    assert.strictEqual(sanitizeCoords(0, 181), null);
+    assert.strictEqual(sanitizeCoords(0, -181), null);
+  });
+  await test("returns null for missing/non-numeric input, rather than throwing", () => {
+    assert.strictEqual(sanitizeCoords(undefined, undefined), null);
+    assert.strictEqual(sanitizeCoords("not a number", 0), null);
+    assert.strictEqual(sanitizeCoords(null, null), null);
+  });
+
   console.log("saveTideTag");
   await test("creates a new tag registration and returns the saved record", async () => {
     const bucket = makeFakeBucket({});
@@ -123,6 +142,17 @@ async function test(name, fn) {
     assert.ok(result.record.createdAt);
     const saved = JSON.parse(bucket._store.get("tide-tags/A7K2.json"));
     assert.strictEqual(saved.stationId, "8536110");
+  });
+  await test("stores lat/lon when given valid coordinates", async () => {
+    const bucket = makeFakeBucket({});
+    const result = await saveTideTag(bucket, "A7K2", "8536110", "Atlantic City, NJ", 39.355, -74.4183);
+    assert.deepStrictEqual({ lat: result.record.lat, lon: result.record.lon }, { lat: 39.355, lon: -74.4183 });
+  });
+  await test("omits lat/lon entirely when not given or invalid, rather than storing nulls", async () => {
+    const bucket = makeFakeBucket({});
+    const result = await saveTideTag(bucket, "A7K2", "8536110", "Atlantic City, NJ");
+    assert.strictEqual("lat" in result.record, false);
+    assert.strictEqual("lon" in result.record, false);
   });
   await test("refuses to overwrite an already-registered tag -- status 'already-registered', original record untouched", async () => {
     const bucket = makeFakeBucket({
@@ -151,6 +181,11 @@ async function test(name, fn) {
     assert.strictEqual(record.stationName, "Different Beach");
     const saved = JSON.parse(bucket._store.get("tide-tags/A7K2.json"));
     assert.strictEqual(saved.stationId, "8536110", "the overwrite must actually land, unlike saveTideTag's create-only guard");
+  });
+  await test("stores the new lat/lon on overwrite too, dropping the old ones", async () => {
+    const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "x", lat: 10, lon: 20 }) });
+    const record = await updateTideTag(bucket, "A7K2", "8536110", "Different Beach", 39.355, -74.4183);
+    assert.deepStrictEqual({ lat: record.lat, lon: record.lon }, { lat: 39.355, lon: -74.4183 });
   });
   await test("also works as a plain create for a tag that was never registered", async () => {
     const bucket = makeFakeBucket({});

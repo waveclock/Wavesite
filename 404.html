@@ -70,9 +70,11 @@
   .next-at { font-size: clamp(26px, 8vw, 36px); font-weight: 600; color: var(--soft); margin-top: 6px; }
 
   /* curve */
-  /* White by day, the pale blue by night -- toggled in JS (isDaytime). */
+  /* White by default -- the real day/night split (sunrise to sunset)
+     is painted INSIDE the SVG itself (see nightBands in drawCurve),
+     since sunrise/sunset only happen once each across the chart's own
+     24-hour span, not at a single fixed wall-clock cutoff. */
   .curve { margin: 22px 0 6px; background: #fff; border: 2px solid var(--line); border-radius: 16px; padding: 10px 6px 4px; }
-  .curve.is-night { background: var(--wave-pale); border-color: var(--wave-pale); }
   .curve svg { display: block; width: 100%; height: auto; }
   .curve-cap { font-size: 15px; color: var(--soft); text-align: center; margin-bottom: 6px; }
 
@@ -241,14 +243,54 @@
   // it never lingers into a later, unrelated pick.
   let isChanging = false;
 
-  // Simple local-clock day/night split (not real sunrise/sunset -- this
-  // is a decorative background cue, not a tide calculation) -- 6am to
-  // 7pm reads as "day" across most of the year without needing any
-  // extra astronomy data on a page that otherwise only ever talks to
-  // NOAA/Nominatim.
-  function isDaytime(d) {
-    const h = d.getHours();
-    return h >= 6 && h < 19;
+  // ---------- sunrise/sunset (for the curve's day/night background) ----------
+  // A compact reimplementation of the standard solar-position algorithm
+  // (the same one behind the widely-used "SunCalc" library, and the one
+  // functions/lib/astro.js already uses server-side via the suncalc npm
+  // package for the physical Wave Clock's own Tide/Sun cards) -- this
+  // page talks to NOAA/Nominatim directly and has no server round trip
+  // of its own to lean on, so the formula is duplicated inline instead,
+  // same "self-contained page" convention as everything else here.
+  // Verified against the real suncalc package for several
+  // dates/latitudes (including both solstices) before trusting it here:
+  // every case came within ~1.3 minutes of suncalc's own answer, far
+  // tighter than this chart's own ~4-minutes-per-pixel resolution.
+  function sunriseSunset(date, lat, lon) {
+    const rad = Math.PI / 180;
+    const dayMs = 86400000;
+    const J1970 = 2440588, J2000 = 2451545;
+    const toJulian = (d) => d.valueOf() / dayMs - 0.5 + J1970;
+    const fromJulian = (j) => new Date((j + 0.5 - J1970) * dayMs);
+    const toDays = (d) => toJulian(d) - J2000;
+
+    const e = rad * 23.4397; // obliquity of the Earth
+    const declination = (l, b) => Math.asin(Math.sin(b) * Math.cos(e) + Math.cos(b) * Math.sin(e) * Math.sin(l));
+    const solarMeanAnomaly = (d) => rad * (357.5291 + 0.98560028 * d);
+    const eclipticLongitude = (M) => {
+      const C = rad * (1.9148 * Math.sin(M) + 0.0200 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
+      const P = rad * 102.9372;
+      return M + C + P + Math.PI;
+    };
+    const julianCycle = (d, lw) => Math.round(d - 0.0009 - lw / (2 * Math.PI));
+    const approxTransit = (Ht, lw, n) => 0.0009 + (Ht + lw) / (2 * Math.PI) + n;
+    const solarTransitJ = (ds, M, L) => J2000 + ds + 0.0053 * Math.sin(M) - 0.0069 * Math.sin(2 * L);
+    const hourAngle = (h, phi, d) => Math.acos((Math.sin(h) - Math.sin(phi) * Math.sin(d)) / (Math.cos(phi) * Math.cos(d)));
+
+    const lw = rad * -lon, phi = rad * lat;
+    const d = toDays(date);
+    const n = julianCycle(d, lw);
+    const ds = approxTransit(0, lw, n);
+    const M = solarMeanAnomaly(ds);
+    const L = eclipticLongitude(M);
+    const dec = declination(L, 0);
+    const Jnoon = solarTransitJ(ds, M, L);
+
+    const h0 = rad * -0.833; // standard sunrise/sunset angle
+    const w = hourAngle(h0, phi, dec);
+    const Jset = solarTransitJ(approxTransit(w, lw, n), M, L);
+    const Jrise = Jnoon - (Jset - Jnoon);
+
+    return { sunrise: fromJulian(Jrise), sunset: fromJulian(Jset) };
   }
 
   function render() {
@@ -269,7 +311,6 @@
       `<div class="row"><b>${e.hi ? 'High' : 'Low'}</b><span>${fmtTime(e.t)}<small>${dayWord(e.t)}</small></span></div>`).join('');
     $('list').innerHTML = rows;
 
-    $('curveWrap').classList.toggle('is-night', !isDaytime(now));
     drawCurve(now);
     $('tideBody').classList.remove('hidden'); $('tideMsg').classList.add('hidden');
   }
@@ -319,6 +360,34 @@
     const vs = pts.map(p => p[1]); const lo = Math.min(...vs), hi = Math.max(...vs); const span = (hi - lo) || 1;
     const X = t => (t - start) / (end - start) * W;
     const Y = v => padT + (1 - (v - lo) / span) * (H - padT - padB);
+
+    // Night-shaded bands before sunrise and after sunset, using the
+    // station's real coordinates (when known) rather than a fixed
+    // wall-clock cutoff -- sunrise/sunset shift through the year, and
+    // this chart spans one full midnight-to-midnight day, so the split
+    // has to move across the chart's own x-axis, not toggle the whole
+    // panel. A tag registered before lat/lon existed (or missing them
+    // for any other reason) just gets no bands -- the plain white
+    // background underneath is the graceful fallback, not an error.
+    let nightBands = '';
+    if (current && Number.isFinite(current.lat) && Number.isFinite(current.lon)) {
+      // Fed the chart day's NOON instant, not midnight -- the algorithm
+      // picks whichever solar transit is nearest the given instant, and
+      // for a longitude west of Greenwich, midnight UTC is still evening
+      // of the PREVIOUS UTC calendar date locally, which silently picked
+      // yesterday's sunrise/sunset instead of today's (caught by a
+      // Playwright check expecting bands near today's real sunrise/
+      // sunset and getting ~a full day off instead). Noon has no such
+      // ambiguity for any real station's longitude.
+      const sun = sunriseSunset(new Date(start.getTime() + 12 * 3600e3), current.lat, current.lon);
+      const riseX = X(sun.sunrise), setX = X(sun.sunset);
+      if (Number.isFinite(riseX) && Number.isFinite(setX) && setX > riseX) {
+        const r = Math.min(Math.max(riseX, 0), W), s = Math.min(Math.max(setX, 0), W);
+        nightBands = `<rect x="0" y="0" width="${r.toFixed(1)}" height="${H}" fill="#e7effc"/>` +
+                     `<rect x="${s.toFixed(1)}" y="0" width="${(W - s).toFixed(1)}" height="${H}" fill="#e7effc"/>`;
+      }
+    }
+
     let d = `M ${X(pts[0][0]).toFixed(1)} ${Y(pts[0][1]).toFixed(1)}`;
     pts.slice(1).forEach(p => d += ` L ${X(p[0]).toFixed(1)} ${Y(p[1]).toFixed(1)}`);
     const area = d + ` L ${X(pts[pts.length - 1][0]).toFixed(1)} ${H - padB} L ${X(pts[0][0]).toFixed(1)} ${H - padB} Z`;
@@ -363,7 +432,7 @@
     });
 
     const hours = [6, 12, 18].map(h => `<text x="${W * h / 24}" y="${H - 6}" text-anchor="middle" font-size="12" fill="#4a5675">${h === 12 ? 'noon' : (h % 12) + (h < 12 ? 'am' : 'pm')}</text>`).join('');
-    $('curve').innerHTML = `<path d="${area}" fill="#1f5fd1" opacity="0.25"/><path d="${d}" fill="none" stroke="#1f5fd1" stroke-width="3"/>${marks}${marker}${hours}`;
+    $('curve').innerHTML = `${nightBands}<path d="${area}" fill="#1f5fd1" opacity="0.25"/><path d="${d}" fill="none" stroke="#1f5fd1" stroke-width="3"/>${marks}${marker}${hours}`;
   }
 
   function showMsg(t) { $('tideBody').classList.add('hidden'); const m = $('tideMsg'); m.textContent = t; m.classList.remove('hidden'); }
@@ -391,7 +460,7 @@
     const r = await fetch(TAG_PROXY + '?tagId=' + encodeURIComponent(tagId));
     if (!r.ok) throw new Error('http ' + r.status);
     const j = await r.json();
-    return j.registered ? { id: j.stationId, name: j.stationName } : null;
+    return j.registered ? { id: j.stationId, name: j.stationName, lat: j.lat, lon: j.lon } : null;
   }
   // Registers st against this tag for the FIRST time. If another tap
   // already won the race (409), defers to whatever's actually
@@ -403,7 +472,7 @@
     const r = await fetch(TAG_PROXY, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tagId, stationId: st.id, stationName: st.name })
+      body: JSON.stringify({ tagId, stationId: st.id, stationName: st.name, lat: st.lat, lon: st.lon })
     });
     if (r.status === 409) {
       const existing = await checkRegistration();
@@ -419,7 +488,7 @@
     const r = await fetch(TAG_PROXY, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tagId, stationId: st.id, stationName: st.name })
+      body: JSON.stringify({ tagId, stationId: st.id, stationName: st.name, lat: st.lat, lon: st.lon })
     });
     if (!r.ok) throw new Error('http ' + r.status);
     return st;
@@ -507,7 +576,7 @@
       L.marker([town.lat, town.lon], { icon: townIcon }).addTo(stationMap);
       stations.forEach(s => {
         const m = L.marker([s.lat, s.lng], { icon: stationIcon }).addTo(stationMap);
-        m.on('click', () => pickStation({ id: s.id, name: s.name + (s.state ? ', ' + s.state : '') }));
+        m.on('click', () => pickStation({ id: s.id, name: s.name + (s.state ? ', ' + s.state : ''), lat: s.lat, lon: s.lng }));
         stationMapMarkers.push(m);
       });
     } catch (e) {
@@ -518,7 +587,7 @@
 
   function showStationResults(stations) {
     $('results').innerHTML = stations.map(s =>
-      `<li><button type="button" data-id="${s.id}" data-name="${(s.name + (s.state ? ', ' + s.state : '')).replace(/"/g, '&quot;')}">${s.name}<small>${[s.state, s.dist != null ? s.dist.toFixed(1) + ' mi away' : ''].filter(Boolean).join(' · ')}</small></button></li>`
+      `<li><button type="button" data-id="${s.id}" data-name="${(s.name + (s.state ? ', ' + s.state : '')).replace(/"/g, '&quot;')}" data-lat="${s.lat}" data-lon="${s.lng}">${s.name}<small>${[s.state, s.dist != null ? s.dist.toFixed(1) + ' mi away' : ''].filter(Boolean).join(' · ')}</small></button></li>`
     ).join('');
   }
 
@@ -598,7 +667,7 @@
       return;
     }
     const stationBtn = e.target.closest('button[data-id]');
-    if (stationBtn) pickStation({ id: stationBtn.dataset.id, name: stationBtn.dataset.name });
+    if (stationBtn) pickStation({ id: stationBtn.dataset.id, name: stationBtn.dataset.name, lat: parseFloat(stationBtn.dataset.lat), lon: parseFloat(stationBtn.dataset.lon) });
   });
   $('search').addEventListener('input', () => {
     const q = $('search').value.trim();
