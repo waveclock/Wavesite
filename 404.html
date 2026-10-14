@@ -180,7 +180,16 @@
   .chart-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 18px 0 6px; }
   .chart-header-title { font-size: 14px; font-weight: 700; color: var(--soft); text-transform: uppercase; letter-spacing: .03em; }
   .chart-header-stat { font-size: 20px; font-weight: 800; display: inline-flex; align-items: center; gap: 3px; }
-  .day-label { font-size: 20px; font-weight: 800; color: var(--soft); margin: 2px 0 10px; }
+  /* Positioned OVER the first chart-header's own top margin (18px, see
+     .chart-header above) instead of adding a new line above it -- a
+     normal-flow label here would push tomorrow's whole pane (charts
+     included) down relative to today's, which already doesn't have
+     this line at all. Absolute positioning gives it zero layout
+     footprint, so both panes' charts land at the exact same y position
+     whichever day is showing. ("Tomorrow" itself has no descenders, so
+     it comfortably clears that 18px without visually crowding the
+     title text directly below it.) */
+  .day-label { position: absolute; top: 0; left: 0; font-size: 14px; font-weight: 700; color: var(--soft); text-transform: uppercase; letter-spacing: .03em; }
   .chart-header-badge { font-size: 12px; font-weight: 800; padding: 3px 11px; border-radius: 999px; color: #fff; }
   .chart-header-badge.clean { background: var(--rise); }
   .chart-header-badge.fair { background: var(--fair); }
@@ -208,7 +217,7 @@
   #dayPager { display: flex; }
   #dayPager.dragging { transition: none; }
   #dayPager:not(.dragging) { transition: transform 280ms cubic-bezier(.22,.61,.36,1); }
-  .day-page { flex: 0 0 100%; min-width: 0; }
+  .day-page { position: relative; flex: 0 0 100%; min-width: 0; }
   .day-dots { display: flex; justify-content: center; gap: 8px; margin: 14px 0 2px; }
   .day-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--line); transition: background 200ms; }
   .day-dot.active { background: var(--wave); }
