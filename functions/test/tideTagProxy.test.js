@@ -159,6 +159,47 @@ async function test(name, fn) {
     assert.strictEqual(res.statusCode, 502);
   });
 
+  console.log("tideTagProxy: PUT (explicit 'Change beach' overwrite)");
+  await test("overwrites an already-registered tag's station and returns 200", async () => {
+    const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "x" }) });
+    const req = fakeReq({ method: "PUT", body: { tagId: "A7K2", stationId: "8536110", stationName: "Different Beach" } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { registered: true, stationId: "8536110", stationName: "Different Beach" });
+    assert.strictEqual(JSON.parse(bucket._store.get("tide-tags/A7K2.json")).stationId, "8536110");
+  });
+  await test("also works to register a brand-new tag (never 409s, unlike POST)", async () => {
+    const bucket = makeFakeBucket({});
+    const req = fakeReq({ method: "PUT", body: { tagId: "A7K2", stationId: "8536110", stationName: "Somewhere" } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+  });
+  await test("rejects a malformed tagId without ever writing to storage", async () => {
+    const bucket = makeFakeBucket({});
+    bucket.file = () => { throw new Error("must never reach storage with an invalid tagId"); };
+    const req = fakeReq({ method: "PUT", body: { tagId: "bad id", stationId: "8536110", stationName: "Somewhere" } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 400);
+  });
+  await test("rejects a non-NOAA-shaped stationId", async () => {
+    const bucket = makeFakeBucket({});
+    const req = fakeReq({ method: "PUT", body: { tagId: "A7K2", stationId: "nope", stationName: "Somewhere" } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(bucket._store.size, 0);
+  });
+  await test("a genuine storage failure returns 502, not a crash", async () => {
+    const bucket = { file: () => ({ async save() { const e = new Error("quota"); e.code = 500; throw e; } }) };
+    const req = fakeReq({ method: "PUT", body: { tagId: "A7K2", stationId: "8536110", stationName: "Somewhere" } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 502);
+  });
+
   console.log("tideTagProxy: DELETE");
   await test("unlinks a registered tag", async () => {
     const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "8536110", stationName: "X", createdAt: "x" }) });
@@ -186,7 +227,7 @@ async function test(name, fn) {
 
   console.log("tideTagProxy: method handling");
   await test("rejects any other HTTP method", async () => {
-    const req = fakeReq({ method: "PUT", query: { tagId: "A7K2" } });
+    const req = fakeReq({ method: "PATCH", query: { tagId: "A7K2" } });
     const res = fakeRes();
     await tideTagProxyHandler(req, res, makeFakeBucket({}));
     assert.strictEqual(res.statusCode, 405);

@@ -9,6 +9,8 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Tide">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   /*
     This file is GitHub Pages' site-wide 404 fallback -- but it's also
@@ -27,7 +29,11 @@
     each static page self-contained" convention already used everywhere
     else on this site (e.g. the Hurricane Tracker card's server + 2
     client copies). If tide.html's look changes, this needs the same
-    change by hand.
+    change by hand. The beach-picker's map+search (Leaflet + Nominatim
+    geocoding + NOAA nearby-station lookup) also duplicates the same
+    pattern already used in location/index.html's own tide-station step
+    -- same reasoning, a smaller self-contained copy rather than a
+    shared module.
   */
   :root {
     --ink: #0f1b3d;        /* deep navy text: readable in bright sun */
@@ -76,18 +82,27 @@
 
   .foot { margin-top: 26px; text-align: center; font-size: 15px; color: var(--soft); line-height: 1.5; }
   .foot a { color: var(--wave); font-weight: 700; text-decoration: none; }
+  .linklike { background: none; border: 0; padding: 0; color: var(--wave); font-weight: 700; font-size: inherit; text-decoration: underline; cursor: pointer; }
   .msg { font-size: 22px; font-weight: 600; margin-top: 40px; text-align: center; line-height: 1.4; }
 
   /* picker */
   h1 { font-size: 34px; font-weight: 900; margin: 18px 0 6px; line-height: 1.1; }
   .sub { font-size: 18px; color: var(--soft); margin: 0 0 18px; }
   .bigbtn { width: 100%; display: block; background: var(--wave); color: #fff; border: 0; border-radius: 14px; padding: 18px; font-size: 21px; font-weight: 800; cursor: pointer; }
-  .search { width: 100%; margin: 14px 0 6px; padding: 16px; font-size: 20px; border: 2px solid var(--line); border-radius: 14px; }
+  .search-row { position: relative; margin: 14px 0 6px; }
+  .search-row svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--soft); pointer-events: none; }
+  .search { width: 100%; padding: 16px 16px 16px 42px; font-size: 20px; border: 2px solid var(--line); border-radius: 14px; }
   .search:focus { outline: 3px solid var(--wave); border-color: transparent; }
   .results { list-style: none; margin: 8px 0 0; padding: 0; }
   .results li button { width: 100%; text-align: left; background: none; border: 0; border-bottom: 2px solid var(--line); padding: 16px 4px; font-size: 21px; font-weight: 700; cursor: pointer; }
   .results li button small { display: block; font-size: 15px; color: var(--soft); font-weight: 600; margin-top: 2px; }
   .hint { font-size: 15px; color: var(--soft); margin-top: 8px; }
+
+  /* station map (Leaflet) */
+  .station-map { display: none; height: 220px; border: 2px solid var(--line); border-radius: 14px; margin: 14px 0; overflow: hidden; background: var(--wave-pale); }
+  .town-marker svg { display: block; filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff); }
+  .station-marker span { display: block; width: 13px; height: 13px; border-radius: 50%; background: var(--wave); border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink); cursor: pointer; }
+  .leaflet-container { font-family: inherit; }
 
   /* genuine site 404 (anything NOT /t/:id) */
   .notfound { text-align: center; margin-top: 60px; }
@@ -111,7 +126,7 @@
 
     <div class="curve">
       <svg id="curve" viewBox="0 0 360 175" role="img" aria-label="Tide curve for today"></svg>
-      <div class="curve-cap">Today's tide · the dot is now</div>
+      <div class="curve-cap">Today's tide · the surfer is now</div>
     </div>
 
     <div class="list" id="list"></div>
@@ -120,17 +135,22 @@
 
   <div class="foot">
     Tide predictions from NOAA. Not for navigation.<br>
+    <button type="button" class="linklike" id="changeBtn">Change beach</button><br>
     Want this on your wall? <a href="https://waveclock.net">Get a Wave Clock →</a>
   </div>
 </main>
 
-<!-- ============ BEACH PICKER (first tap on an unregistered tag) ============ -->
+<!-- ============ BEACH PICKER (first tap on an unregistered tag, or "Change beach") ============ -->
 <main id="picker" class="hidden">
   <h1>Pick your beach</h1>
-  <p class="sub">This keychain will remember it from now on — every tap after this opens straight to your tide.</p>
+  <p class="sub" id="pickerSub">This keychain will remember it from now on — every tap after this opens straight to your tide.</p>
   <button class="bigbtn" id="locBtn" type="button">📍 Use my location</button>
-  <input class="search" id="search" type="search" placeholder="Or search: Ocean City, Cape May…" autocomplete="off" enterkeyhint="search">
-  <div class="hint" id="pickHint">Loading beaches…</div>
+  <div class="search-row">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input class="search" id="search" type="search" placeholder="Town, city, or zip code…" autocomplete="off" enterkeyhint="search">
+  </div>
+  <div class="hint" id="pickHint">Search for your town, or tap "Use my location."</div>
+  <div class="station-map" id="stationMap"></div>
   <ul class="results" id="results"></ul>
 </main>
 
@@ -145,6 +165,7 @@
 (() => {
   const API = 'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter';
   const STATIONS = 'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions';
+  const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
   const TAG_PROXY = 'https://us-central1-waveclock.cloudfunctions.net/tideTagProxy';
   const $ = id => document.getElementById(id);
 
@@ -210,6 +231,11 @@
   }
 
   let events = null, current = null;
+  // Set right before openPicker() when reopened from "Change beach" on
+  // an already-registered tag -- the very next pick uses PUT (overwrite)
+  // instead of POST (create-only). Cleared the moment a pick is made, so
+  // it never lingers into a later, unrelated pick.
+  let isChanging = false;
 
   function render() {
     if (!events) return;
@@ -231,6 +257,27 @@
 
     drawCurve(now);
     $('tideBody').classList.remove('hidden'); $('tideMsg').classList.add('hidden');
+  }
+
+  // Small line-art stick figure riding a surfboard, replacing the old
+  // plain dashed-line+dot "now" marker -- same idea (mark where "now"
+  // falls on today's curve) but on theme for a tide page. Drawn in a
+  // local -11..3-ish coordinate space with the board/feet at the
+  // origin, so translating to (cx, cy) plants the board exactly on the
+  // curve at that point, same as the dot used to sit there.
+  function surferMarker(cx, cy) {
+    const s = 2.7;
+    return `<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) scale(${s})" stroke="#0f1b3d" stroke-width="0.9" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="0" cy="-9.4" r="1.6" fill="#0f1b3d"/>
+      <line x1="0" y1="-7.8" x2="0.3" y2="-2.3"/>
+      <line x1="0.2" y1="-6.6" x2="-3.3" y2="-9.3"/>
+      <line x1="0.2" y1="-6.6" x2="3.1" y2="-9.7"/>
+      <line x1="0.3" y1="-2.3" x2="-2.3" y2="-0.3"/>
+      <line x1="-2.3" y1="-0.3" x2="-3.4" y2="2"/>
+      <line x1="0.3" y1="-2.3" x2="3.2" y2="-0.2"/>
+      <line x1="3.2" y1="-0.2" x2="4.2" y2="1.8"/>
+      <path d="M -6.5 2.1 Q -1 3.3 4 2.2 Q 6 1.8 7.2 0.2" stroke-width="1.1"/>
+    </g>`;
   }
 
   function drawCurve(now) {
@@ -255,9 +302,12 @@
       marks += `<text x="${Math.min(Math.max(x, 26), W - 26)}" y="${e.hi ? Math.max(y - 8, 14) : Math.min(y + 18, H - padB + 18)}" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1b3d">${e.hi ? 'H' : 'L'} ${fmtTime(e.t).replace(' ', '')}</text>`;
     });
     const nv = levelAt(events, now);
-    const dot = nv == null ? '' : `<line x1="${X(now)}" y1="${padT - 10}" x2="${X(now)}" y2="${H - padB}" stroke="#0f1b3d" stroke-width="1.5" stroke-dasharray="3 3"/><circle cx="${X(now)}" cy="${Y(nv)}" r="7" fill="#fff" stroke="#0f1b3d" stroke-width="3"/>`;
+    // Clamped so the figure's head/board never run past the chart's own
+    // top/bottom edges, same defensive clamping the H/L text labels
+    // above already use.
+    const marker = nv == null ? '' : surferMarker(X(now), Math.min(Math.max(Y(nv), padT + 31), H - padB - 5));
     const hours = [6, 12, 18].map(h => `<text x="${W * h / 24}" y="${H - 6}" text-anchor="middle" font-size="12" fill="#4a5675">${h === 12 ? 'noon' : (h % 12) + (h < 12 ? 'am' : 'pm')}</text>`).join('');
-    $('curve').innerHTML = `<path d="${area}" fill="#1f5fd1" opacity="0.25"/><path d="${d}" fill="none" stroke="#1f5fd1" stroke-width="3"/>${marks}${dot}${hours}`;
+    $('curve').innerHTML = `<path d="${area}" fill="#1f5fd1" opacity="0.25"/><path d="${d}" fill="none" stroke="#1f5fd1" stroke-width="3"/>${marks}${marker}${hours}`;
   }
 
   function showMsg(t) { $('tideBody').classList.add('hidden'); const m = $('tideMsg'); m.textContent = t; m.classList.remove('hidden'); }
@@ -287,11 +337,12 @@
     const j = await r.json();
     return j.registered ? { id: j.stationId, name: j.stationName } : null;
   }
-  // Registers st against this tag. If another tap already won the race
-  // (409), defers to whatever's actually registered now rather than
-  // erroring -- two people are vanishingly unlikely to tap the same
-  // physical keychain seconds apart, but a double-tap/double-submit from
-  // one phone is the realistic version of this race.
+  // Registers st against this tag for the FIRST time. If another tap
+  // already won the race (409), defers to whatever's actually
+  // registered now rather than erroring -- two people are vanishingly
+  // unlikely to tap the same physical keychain seconds apart, but a
+  // double-tap/double-submit from one phone is the realistic version of
+  // this race.
   async function registerTag(st) {
     const r = await fetch(TAG_PROXY, {
       method: 'POST',
@@ -305,58 +356,225 @@
     if (!r.ok && r.status !== 409) throw new Error('http ' + r.status);
     return st;
   }
+  // Deliberately OVERWRITES an existing registration -- only reachable
+  // via the "Change beach" link below, never the first-tap flow above
+  // (which must keep using registerTag's atomic create-only guard).
+  async function updateRegisteredTag(st) {
+    const r = await fetch(TAG_PROXY, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tagId, stationId: st.id, stationName: st.name })
+    });
+    if (!r.ok) throw new Error('http ' + r.status);
+    return st;
+  }
 
-  // ---------- picker (shown only for a tag with no server registration yet) ----------
-  let stationList = null;
-  async function loadStations() {
-    if (stationList) return stationList;
+  // ================= picker: free-text town search + map =================
+  // Mirrors location/index.html's own town-search-then-nearby-stations
+  // step: real geocoding (Nominatim) instead of matching typed text
+  // against NOAA's own station names, which missed plenty of real
+  // searches (e.g. "Ocean City, NJ" not matching NOAA's station name
+  // for the nearest actual station).
+  let allStationsCache = null;
+  async function fetchAllStations() {
+    if (allStationsCache) return allStationsCache;
     const r = await fetch(STATIONS); const j = await r.json();
-    stationList = (j.stations || j.stationList || []).map(s => ({ id: String(s.id), name: s.name, state: s.state || '', lat: +s.lat, lng: +s.lng }));
-    return stationList;
+    allStationsCache = (j.stations || j.stationList || []).map(s => ({
+      id: String(s.id), name: s.name, state: s.state || '',
+      lat: +s.lat, lng: +(s.lng != null ? s.lng : s.lon)
+    }));
+    return allStationsCache;
   }
-  const label = s => s.name + (s.state ? ', ' + s.state : '');
-  function showResults(list, note) {
-    $('results').innerHTML = list.slice(0, 40).map(s =>
-      `<li><button type="button" data-id="${s.id}" data-name="${label(s).replace(/"/g, '&quot;')}">${s.name}<small>${[s.state, s.dist != null ? s.dist.toFixed(1) + ' mi away' : ''].filter(Boolean).join(' · ')}</small></button></li>`).join('');
-    $('pickHint').textContent = note || '';
+  function haversineMiles(lat1, lon1, lat2, lon2) {
+    const R = 3958.8, rad = x => x * Math.PI / 180;
+    const dLa = rad(lat2 - lat1), dLo = rad(lon2 - lon1);
+    const h = Math.sin(dLa / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLo / 2) ** 2;
+    return R * 2 * Math.asin(Math.sqrt(h));
   }
-  function openPicker() {
-    $('tide').classList.add('hidden'); $('picker').classList.remove('hidden');
-    $('pickHint').textContent = 'Loading beaches…';
-    loadStations().then(list => {
-      const nj = list.filter(s => s.state === 'NJ').sort((a, b) => b.lat - a.lat);
-      showResults(nj, 'New Jersey shore, north to south. Search for anywhere else.');
-    }).catch(() => $('pickHint').textContent = 'Couldn’t load the beach list. Check your signal.');
+
+  // US state name -> abbreviation, for a Nominatim result's full state
+  // name ("New Jersey") -- a fixed, permanent list, never needs
+  // maintenance. Mirrors location/index.html's own STATE_ABBR exactly.
+  const STATE_ABBR = {
+    Alabama: "AL", Alaska: "AK", Arizona: "AZ", Arkansas: "AR", California: "CA",
+    Colorado: "CO", Connecticut: "CT", Delaware: "DE", "District of Columbia": "DC",
+    Florida: "FL", Georgia: "GA", Hawaii: "HI", Idaho: "ID", Illinois: "IL",
+    Indiana: "IN", Iowa: "IA", Kansas: "KS", Kentucky: "KY", Louisiana: "LA",
+    Maine: "ME", Maryland: "MD", Massachusetts: "MA", Michigan: "MI", Minnesota: "MN",
+    Mississippi: "MS", Missouri: "MO", Montana: "MT", Nebraska: "NE", Nevada: "NV",
+    "New Hampshire": "NH", "New Jersey": "NJ", "New Mexico": "NM", "New York": "NY",
+    "North Carolina": "NC", "North Dakota": "ND", Ohio: "OH", Oklahoma: "OK",
+    Oregon: "OR", Pennsylvania: "PA", "Rhode Island": "RI", "South Carolina": "SC",
+    "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT",
+    Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI",
+    Wyoming: "WY"
+  };
+  function buildTownLabel(result) {
+    result = result || {};
+    const address = result.address || {};
+    const state = address.state || "";
+    const stateAbbr = STATE_ABBR[state] || state;
+    const shortName =
+      result.name ||
+      address.city || address.town || address.village || address.hamlet ||
+      address.neighbourhood || address.suburb || address.municipality || address.county;
+    if (shortName && stateAbbr) return { short: shortName, full: shortName + ", " + stateAbbr, state: stateAbbr };
+    if (shortName) return { short: shortName, full: shortName, state: "" };
+    const parts = (result.display_name || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const short = parts[0] || "Your Location";
+    return { short: short, full: parts.slice(0, 2).join(", ") || short, state: stateAbbr };
   }
-  $('results').addEventListener('click', e => {
-    const b = e.target.closest('button[data-id]'); if (!b) return;
-    const st = { id: b.dataset.id, name: b.dataset.name };
+
+  const TOWN_MARKER_HTML =
+    '<svg viewBox="0 0 24 24" width="20" height="20">' +
+    '<path d="M12 2 L14.35 8.76 L21.51 8.91 L15.8 13.24 L17.88 20.09 L12 16 L6.12 20.09 L8.2 13.24 L2.49 8.91 L9.65 8.76 Z" ' +
+    'fill="#1f5fd1" stroke="#0f1b3d" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+
+  let stationMap = null, stationMapMarkers = [];
+  function clearStationMap() {
+    if (stationMap) { stationMap.remove(); stationMap = null; }
+    stationMapMarkers = [];
+    $('stationMap').style.display = 'none';
+  }
+  function renderStationMap(town, stations) {
+    clearStationMap();
+    if (typeof L === 'undefined' || !stations.length) return;
+    try {
+      const el = $('stationMap');
+      el.style.display = 'block';
+      stationMap = L.map(el, { zoomControl: true, attributionControl: true }).setView([town.lat, town.lon], 11);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(stationMap);
+      const townIcon = L.divIcon({ className: 'town-marker', html: TOWN_MARKER_HTML, iconSize: [20, 20] });
+      const stationIcon = L.divIcon({ className: 'station-marker', html: '<span></span>', iconSize: [13, 13] });
+      L.marker([town.lat, town.lon], { icon: townIcon }).addTo(stationMap);
+      stations.forEach(s => {
+        const m = L.marker([s.lat, s.lng], { icon: stationIcon }).addTo(stationMap);
+        m.on('click', () => pickStation({ id: s.id, name: s.name + (s.state ? ', ' + s.state : '') }));
+        stationMapMarkers.push(m);
+      });
+    } catch (e) {
+      console.error('Station map failed to load:', e);
+      clearStationMap();
+    }
+  }
+
+  function showStationResults(stations) {
+    $('results').innerHTML = stations.map(s =>
+      `<li><button type="button" data-id="${s.id}" data-name="${(s.name + (s.state ? ', ' + s.state : '')).replace(/"/g, '&quot;')}">${s.name}<small>${[s.state, s.dist != null ? s.dist.toFixed(1) + ' mi away' : ''].filter(Boolean).join(' · ')}</small></button></li>`
+    ).join('');
+  }
+
+  async function loadStationsNear(town) {
+    clearStationMap();
+    $('results').innerHTML = '';
+    $('pickHint').textContent = 'Looking up nearby tide stations…';
+    try {
+      const all = await fetchAllStations();
+      const nearby = all
+        .map(s => Object.assign({}, s, { dist: haversineMiles(town.lat, town.lon, s.lat, s.lng) }))
+        .filter(s => s.dist <= 100)
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, 40);
+      if (!nearby.length) {
+        $('pickHint').textContent = 'No NOAA tide stations found within 100 miles of there. Try a different town.';
+        return;
+      }
+      $('pickHint').textContent = nearby.length + ' nearby tide station' + (nearby.length === 1 ? '' : 's') + ' — tap one below, or a pin on the map.';
+      showStationResults(nearby);
+      renderStationMap(town, nearby);
+    } catch (e) {
+      $('pickHint').textContent = 'Couldn’t reach NOAA right now. Check your connection and try again.';
+    }
+  }
+
+  function renderTownResults(results) {
+    const rows = results.map(r => {
+      const label = buildTownLabel(r);
+      const lat = parseFloat(r.lat), lon = parseFloat(r.lon);
+      if (isNaN(lat) || isNaN(lon)) return '';
+      return `<li><button type="button" class="town-result" data-name="${label.short.replace(/"/g, '&quot;')}" data-state="${(label.state || '').replace(/"/g, '&quot;')}" data-lat="${lat}" data-lon="${lon}">${label.full}</button></li>`;
+    }).filter(Boolean);
+    $('results').innerHTML = rows.length ? rows.join('') : '<li class="hint">No matches — try a nearby town, city, or zip code.</li>';
+  }
+
+  let searchTimer = null, searchAbort = null;
+  async function runTownSearch(q) {
+    if (searchAbort) searchAbort.abort();
+    searchAbort = new AbortController();
+    $('pickHint').textContent = 'Searching…';
+    try {
+      const resp = await fetch(
+        NOMINATIM + '?format=jsonv2&countrycodes=us&addressdetails=1&limit=8&q=' + encodeURIComponent(q),
+        { signal: searchAbort.signal }
+      );
+      if (!resp.ok) throw new Error('search failed: ' + resp.status);
+      const data = await resp.json();
+      $('pickHint').textContent = data.length ? 'Tap your town below.' : '';
+      renderTownResults(data);
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      $('pickHint').textContent = 'Search isn’t working right now — try again in a moment.';
+    }
+  }
+
+  // st.name is expected ALREADY fully combined ("Name, ST") -- both call
+  // sites (the map marker handler above, and the list-button handler
+  // below) build that combined name themselves, rather than this
+  // function guessing from a separate state field that not every caller
+  // has.
+  function pickStation(st) {
     // Show the tide immediately -- don't block on the registration
-    // round trip. If it fails to sync, the tag just stays unregistered
-    // and boot() tries again (via the picker) on the next tap; nothing
-    // about THIS visit depends on it succeeding.
+    // round trip. If it fails to sync, the tag just stays as it was and
+    // boot()/the next "Change beach" tap tries again; nothing about
+    // THIS visit depends on it succeeding.
     applyRegistration(st);
-    registerTag(st).then(confirmed => applyRegistration(confirmed)).catch(() => {});
+    const save = isChanging ? updateRegisteredTag(st) : registerTag(st);
+    isChanging = false;
+    save.then(confirmed => applyRegistration(confirmed)).catch(() => {});
+  }
+
+  $('results').addEventListener('click', e => {
+    const townBtn = e.target.closest('button.town-result');
+    if (townBtn) {
+      loadStationsNear({ name: townBtn.dataset.name, state: townBtn.dataset.state, lat: parseFloat(townBtn.dataset.lat), lon: parseFloat(townBtn.dataset.lon) });
+      return;
+    }
+    const stationBtn = e.target.closest('button[data-id]');
+    if (stationBtn) pickStation({ id: stationBtn.dataset.id, name: stationBtn.dataset.name });
   });
   $('search').addEventListener('input', () => {
-    const q = $('search').value.trim().toLowerCase(); if (!stationList) return;
-    if (!q) { openPicker(); return; }
-    const hits = stationList.filter(s => label(s).toLowerCase().includes(q));
-    showResults(hits, hits.length ? '' : 'No match. Try a nearby town or inlet name.');
+    const q = $('search').value.trim();
+    clearTimeout(searchTimer);
+    if (q.length < 3) {
+      $('results').innerHTML = '';
+      $('pickHint').textContent = 'Search for your town, or tap "Use my location."';
+      return;
+    }
+    searchTimer = setTimeout(() => runTownSearch(q), 350);
   });
   $('locBtn').addEventListener('click', () => {
     if (!navigator.geolocation) { $('pickHint').textContent = 'Location isn’t available. Search instead.'; return; }
-    $('pickHint').textContent = 'Finding the closest beaches…';
-    navigator.geolocation.getCurrentPosition(async pos => {
-      const list = await loadStations(); const { latitude: la, longitude: lo } = pos.coords;
-      const R = 3958.8, rad = x => x * Math.PI / 180;
-      list.forEach(s => {
-        const dLa = rad(s.lat - la), dLo = rad(s.lng - lo);
-        const h = Math.sin(dLa / 2) ** 2 + Math.cos(rad(la)) * Math.cos(rad(s.lat)) * Math.sin(dLo / 2) ** 2;
-        s.dist = 2 * R * Math.asin(Math.sqrt(h));
-      });
-      showResults([...list].sort((a, b) => a.dist - b.dist), 'Closest tide stations to you. Tap yours.');
+    $('pickHint').textContent = 'Finding your location…';
+    navigator.geolocation.getCurrentPosition(pos => {
+      loadStationsNear({ name: 'Your location', state: '', lat: pos.coords.latitude, lon: pos.coords.longitude });
     }, () => $('pickHint').textContent = 'No location permission. Search for your beach instead.', { timeout: 10000 });
+  });
+
+  function openPicker() {
+    $('tide').classList.add('hidden'); $('picker').classList.remove('hidden');
+    $('pickerSub').textContent = isChanging
+      ? 'Pick a new beach for this keychain.'
+      : 'This keychain will remember it from now on — every tap after this opens straight to your tide.';
+    $('search').value = '';
+    $('results').innerHTML = '';
+    $('pickHint').textContent = 'Search for your town, or tap "Use my location."';
+    clearStationMap();
+  }
+  $('changeBtn').addEventListener('click', () => {
+    isChanging = true;
+    openPicker();
   });
 
   // ---------- keep it current ----------

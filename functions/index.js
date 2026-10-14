@@ -27,7 +27,7 @@ const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
-const { isValidTagId, fetchTideTag, saveTideTag, deleteTideTag } = require("./lib/tideTag");
+const { isValidTagId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag } = require("./lib/tideTag");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -961,6 +961,34 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
     return;
   }
 
+  if (req.method === "PUT") {
+    // Deliberately-overwriting counterpart to POST above -- the "Change
+    // beach" link on an already-registered tag's tide page. Same
+    // validation, but always succeeds (short of a real storage failure)
+    // since there's no "already registered" case to guard against here.
+    const { tagId, stationId, stationName } = req.body || {};
+    if (typeof tagId !== "string" || !isValidTagId(tagId)) {
+      res.status(400).json({ error: TAG_ID_HINT });
+      return;
+    }
+    if (typeof stationId !== "string" || !/^[0-9]{5,9}$/.test(stationId)) {
+      res.status(400).json({ error: "stationId must be a NOAA station number" });
+      return;
+    }
+    if (typeof stationName !== "string" || !stationName.trim()) {
+      res.status(400).json({ error: "stationName is required" });
+      return;
+    }
+    try {
+      const record = await updateTideTag(bucket, tagId, stationId, stationName.trim());
+      res.status(200).json({ registered: true, stationId: record.stationId, stationName: record.stationName });
+    } catch (err) {
+      logger.error("Tide tag proxy PUT failed for " + tagId + ":", err);
+      res.status(502).json({ error: "Couldn't save that right now" });
+    }
+    return;
+  }
+
   if (req.method === "DELETE") {
     const tagId = req.query.tagId;
     if (typeof tagId !== "string" || !isValidTagId(tagId)) {
@@ -977,7 +1005,7 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
     return;
   }
 
-  res.status(405).json({ error: "GET, POST, or DELETE only" });
+  res.status(405).json({ error: "GET, POST, PUT, or DELETE only" });
 }
 
 exports.tideTagProxy = onRequest({ cors: true, region: "us-central1" }, tideTagProxyHandler);
