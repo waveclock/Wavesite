@@ -8,7 +8,7 @@
 // that's the exact atomicity saveTideTag depends on.
 
 const assert = require("assert");
-const { TAG_ID_PATTERN, isValidTagId, sanitizeCoords, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag } = require("../lib/tideTag");
+const { TAG_ID_PATTERN, isValidTagId, sanitizeCoords, sanitizeTownName, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag } = require("../lib/tideTag");
 
 function makeFakeBucket(initialFiles) {
   const store = new Map(Object.entries(initialFiles || {})); // path -> string
@@ -132,6 +132,22 @@ async function test(name, fn) {
     assert.strictEqual(sanitizeCoords(null, null), null);
   });
 
+  console.log("sanitizeTownName (the user's display name, distinct from the NOAA station's own name)");
+  await test("trims whitespace", () => {
+    assert.strictEqual(sanitizeTownName("  Ocean City, NJ  "), "Ocean City, NJ");
+  });
+  await test("returns null for missing/blank/non-string input", () => {
+    assert.strictEqual(sanitizeTownName(undefined), null);
+    assert.strictEqual(sanitizeTownName(null), null);
+    assert.strictEqual(sanitizeTownName(""), null);
+    assert.strictEqual(sanitizeTownName("   "), null);
+    assert.strictEqual(sanitizeTownName(42), null);
+  });
+  await test("caps an unreasonably long value rather than storing it unbounded", () => {
+    const huge = "X".repeat(500);
+    assert.strictEqual(sanitizeTownName(huge).length, 100);
+  });
+
   console.log("saveTideTag");
   await test("creates a new tag registration and returns the saved record", async () => {
     const bucket = makeFakeBucket({});
@@ -153,6 +169,17 @@ async function test(name, fn) {
     const result = await saveTideTag(bucket, "A7K2", "8536110", "Atlantic City, NJ");
     assert.strictEqual("lat" in result.record, false);
     assert.strictEqual("lon" in result.record, false);
+  });
+  await test("stores townName (the user's picked display name) alongside the NOAA station's own name", async () => {
+    const bucket = makeFakeBucket({});
+    const result = await saveTideTag(bucket, "A7K2", "8534720", "Ventnor, NJ", 39.355, -74.4183, "Ocean City, NJ");
+    assert.strictEqual(result.record.stationName, "Ventnor, NJ");
+    assert.strictEqual(result.record.townName, "Ocean City, NJ");
+  });
+  await test("omits townName entirely when not given, rather than storing an empty string", async () => {
+    const bucket = makeFakeBucket({});
+    const result = await saveTideTag(bucket, "A7K2", "8536110", "Atlantic City, NJ", 39.355, -74.4183);
+    assert.strictEqual("townName" in result.record, false);
   });
   await test("refuses to overwrite an already-registered tag -- status 'already-registered', original record untouched", async () => {
     const bucket = makeFakeBucket({
@@ -186,6 +213,11 @@ async function test(name, fn) {
     const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "x", lat: 10, lon: 20 }) });
     const record = await updateTideTag(bucket, "A7K2", "8536110", "Different Beach", 39.355, -74.4183);
     assert.deepStrictEqual({ lat: record.lat, lon: record.lon }, { lat: 39.355, lon: -74.4183 });
+  });
+  await test("stores the new townName on overwrite too, dropping the old one", async () => {
+    const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "x", townName: "Old Town, NJ" }) });
+    const record = await updateTideTag(bucket, "A7K2", "8534720", "Ventnor, NJ", 39.355, -74.4183, "Ocean City, NJ");
+    assert.strictEqual(record.townName, "Ocean City, NJ");
   });
   await test("also works as a plain create for a tag that was never registered", async () => {
     const bucket = makeFakeBucket({});

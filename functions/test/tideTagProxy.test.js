@@ -94,6 +94,13 @@ async function test(name, fn) {
     await tideTagProxyHandler(req, res, bucket);
     assert.deepStrictEqual(res.body, { registered: true, stationId: "8536110", stationName: "Atlantic City, NJ", lat: 39.355, lon: -74.4183 });
   });
+  await test("includes townName (the user's picked display name) when the stored record has it", async () => {
+    const req = fakeReq({ method: "GET", query: { tagId: "A7K2" } });
+    const res = fakeRes();
+    const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "8534720", stationName: "Ventnor, NJ", createdAt: "x", townName: "Ocean City, NJ" }) });
+    await tideTagProxyHandler(req, res, bucket);
+    assert.deepStrictEqual(res.body, { registered: true, stationId: "8534720", stationName: "Ventnor, NJ", townName: "Ocean City, NJ" });
+  });
   await test("rejects a missing tagId", async () => {
     const req = fakeReq({ method: "GET", query: {} });
     const res = fakeRes();
@@ -139,6 +146,21 @@ async function test(name, fn) {
     const res = fakeRes();
     await tideTagProxyHandler(req, res, bucket);
     assert.strictEqual(res.statusCode, 201);
+  });
+  await test("accepts and returns townName (the picked town) alongside the NOAA station's own name", async () => {
+    const bucket = makeFakeBucket({});
+    const req = fakeReq({ method: "POST", body: { tagId: "A7K2", stationId: "8534720", stationName: "Ventnor, NJ", lat: 39.355, lon: -74.4183, townName: "Ocean City, NJ" } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.deepStrictEqual(res.body, { registered: true, stationId: "8534720", stationName: "Ventnor, NJ", lat: 39.355, lon: -74.4183, townName: "Ocean City, NJ" });
+  });
+  await test("registering without townName still succeeds -- an older client just won't send one", async () => {
+    const bucket = makeFakeBucket({});
+    const req = fakeReq({ method: "POST", body: { tagId: "A7K2", stationId: "8536110", stationName: "Atlantic City, NJ" } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 201);
+    assert.strictEqual("townName" in res.body, false);
   });
   await test("refuses to re-register an already-registered tag -- 409, original untouched", async () => {
     const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "x" }) });
@@ -196,6 +218,13 @@ async function test(name, fn) {
     const res = fakeRes();
     await tideTagProxyHandler(req, res, bucket);
     assert.deepStrictEqual(res.body, { registered: true, stationId: "8536110", stationName: "Different Beach", lat: 39.355, lon: -74.4183 });
+  });
+  await test("accepts and returns the new townName on overwrite too", async () => {
+    const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "x", townName: "Old Town, NJ" }) });
+    const req = fakeReq({ method: "PUT", body: { tagId: "A7K2", stationId: "8534720", stationName: "Ventnor, NJ", lat: 39.355, lon: -74.4183, townName: "Ocean City, NJ" } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.deepStrictEqual(res.body, { registered: true, stationId: "8534720", stationName: "Ventnor, NJ", lat: 39.355, lon: -74.4183, townName: "Ocean City, NJ" });
   });
   await test("also works to register a brand-new tag (never 409s, unlike POST)", async () => {
     const bucket = makeFakeBucket({});
