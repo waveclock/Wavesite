@@ -32,8 +32,8 @@
 // only the two real shell files removes that interception entirely for
 // everything else, so those requests now behave exactly as they would
 // on an uncontrolled page either way.
-const SHELL_CACHE = "wc-tide-shell-v2";
-const DATA_CACHE = "wc-tide-data-v2";
+const SHELL_CACHE = "wc-tide-shell-v3";
+const DATA_CACHE = "wc-tide-data-v3";
 const SHELL_URLS = ["/404.html", "/logo.png"];
 
 self.addEventListener("install", (event) => {
@@ -57,9 +57,18 @@ self.addEventListener("fetch", (event) => {
 
   // A navigation to /t/:id -- network first (so everyone gets the
   // latest app code when they have signal), falling back to the cached
-  // shell only when the network is unreachable.
+  // shell only when the network is unreachable. { cache: "reload" }
+  // forces this past the BROWSER's own ordinary HTTP cache for the
+  // document itself (a separate thing from this service worker's own
+  // CacheStorage, already bypassed by going straight to fetch() here) --
+  // a real report traced several rounds of "still broken after I
+  // reloaded" back to exactly this: a reload that looked fresh but was
+  // still quietly served from that regular HTTP cache, keeping a much
+  // older version of this very page (and its JS) in play. A phone
+  // browser has no true cache-bypassing hard reload the way a desktop
+  // browser's devtools does, so this can't be left to chance.
   if (req.mode === "navigate") {
-    event.respondWith(fetch(req).catch(() => caches.match("/404.html")));
+    event.respondWith(fetch(req, { cache: "reload" }).catch(() => caches.match("/404.html")));
     return;
   }
 
