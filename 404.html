@@ -189,6 +189,21 @@
   .bar-legend i.fair { background: var(--fair); }
   .bar-legend i.choppy { background: var(--fall); }
 
+  /* Today/tomorrow swipe pager -- #dayPagerViewport clips to one day's
+     width, #dayPager holds both day-pages side by side and is the thing
+     that actually translates (by touch or by the commit animation).
+     touch-action: pan-y lets the OUTER page's own vertical scroll-snap
+     keep working for a mostly-vertical drag; the JS only preventDefault
+     on a drag it's decided is horizontal (see dayPager's touch handlers). */
+  #dayPagerViewport { overflow: hidden; touch-action: pan-y; }
+  #dayPager { display: flex; }
+  #dayPager.dragging { transition: none; }
+  #dayPager:not(.dragging) { transition: transform 280ms cubic-bezier(.22,.61,.36,1); }
+  .day-page { flex: 0 0 100%; min-width: 0; }
+  .day-dots { display: flex; justify-content: center; gap: 8px; margin: 14px 0 2px; }
+  .day-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--line); transition: background 200ms; }
+  .day-dot.active { background: var(--wave); }
+
   /* picker */
   h1 { font-size: 34px; font-weight: 900; margin: 18px 0 6px; line-height: 1.1; }
   .sub { font-size: 18px; color: var(--soft); margin: 0 0 18px; }
@@ -300,14 +315,46 @@
 
     <div class="msg hidden" id="windMsg"></div>
 
+    <!-- Swipe right anywhere in here to see tomorrow -- wind and wave
+         move together as one unit, then lock onto whichever day the
+         drag commits to (see the touch handlers near dayPager in the
+         script). Tomorrow's pane sits BEFORE today's in source order
+         (not after) so dragging your finger right, which visually
+         slides the whole pager right, reveals it from the left edge --
+         exactly the physical "drag right to see what's to the right of
+         today" feel that was asked for, rather than the reversed
+         left-for-next convention most carousels use. Both panes' charts
+         are real, already-drawn SVGs from data already sitting in
+         memory (fetchWindWave pulls enough forecast_hours to cover
+         tomorrow too) -- swiping never triggers a new network request,
+         so there's no loading flash either direction. -->
     <div id="windChartsWrap" class="hidden">
-      <div id="waveChartBlock">
-        <div class="mini-chart-cap">Wave height, today</div>
-        <div class="curve"><svg id="waveChart" viewBox="0 0 360 110" role="img" aria-label="Wave height forecast, bars colored by predicted surf quality"></svg></div>
-        <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
+      <div id="dayPagerViewport">
+        <div id="dayPager">
+          <div class="day-page" data-day="tomorrow">
+            <div id="waveChartBlockTomorrow">
+              <div class="mini-chart-cap">Wave height, tomorrow</div>
+              <div class="curve"><svg id="waveChartTomorrow" viewBox="0 0 360 110" role="img" aria-label="Tomorrow's wave height forecast, bars colored by predicted surf quality"></svg></div>
+              <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
+            </div>
+            <div class="mini-chart-cap">Wind speed, tomorrow</div>
+            <div class="curve"><svg id="windChartTomorrow" viewBox="0 0 360 90" role="img" aria-label="Tomorrow's wind speed forecast"></svg></div>
+          </div>
+          <div class="day-page" data-day="today">
+            <div id="waveChartBlock">
+              <div class="mini-chart-cap">Wave height, today</div>
+              <div class="curve"><svg id="waveChart" viewBox="0 0 360 110" role="img" aria-label="Wave height forecast, bars colored by predicted surf quality"></svg></div>
+              <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
+            </div>
+            <div class="mini-chart-cap">Wind speed, today</div>
+            <div class="curve"><svg id="windChart" viewBox="0 0 360 90" role="img" aria-label="Wind speed forecast"></svg></div>
+          </div>
+        </div>
       </div>
-      <div class="mini-chart-cap">Wind speed, today</div>
-      <div class="curve"><svg id="windChart" viewBox="0 0 360 90" role="img" aria-label="Wind speed forecast"></svg></div>
+      <div class="day-dots" id="dayDots">
+        <span class="day-dot" data-day="tomorrow"></span>
+        <span class="day-dot active" data-day="today"></span>
+      </div>
     </div>
 
   </section>
@@ -526,6 +573,14 @@
   function todayWindow(now) {
     const start = new Date(now); start.setHours(0, 0, 0, 0);
     return { start, end: new Date(start.getTime() + 24 * 3600e3) };
+  }
+
+  // The next day's own midnight-to-midnight window, for the Wind & Waves
+  // charts' swipe-right-for-tomorrow pager -- just today's window
+  // shifted forward by one day.
+  function tomorrowWindow(now) {
+    const today = todayWindow(now);
+    return { start: today.end, end: new Date(today.end.getTime() + 24 * 3600e3) };
   }
 
   // The same pale night-shading (before sunrise, after sunset) the tide
@@ -1170,15 +1225,17 @@
   // offset from UTC (these requests are fetched/parsed in UTC) -- the
   // wave-height bar chart below plots the full today midnight-to-
   // midnight window, same as the tide curve, not just a forward-looking
-  // forecast.
+  // forecast. forecast_hours reaches far enough past that to also cover
+  // the whole of TOMORROW (for the swipe-right pager), with real margin
+  // either side for timezone offset.
   async function fetchWindWave(lat, lon) {
     const weatherParams = new URLSearchParams({
       latitude: lat, longitude: lon, hourly: 'wind_speed_10m,wind_direction_10m',
-      wind_speed_unit: 'mph', timezone: 'UTC', past_hours: '36', forecast_hours: '60'
+      wind_speed_unit: 'mph', timezone: 'UTC', past_hours: '36', forecast_hours: '72'
     });
     const marineParams = new URLSearchParams({
       latitude: lat, longitude: lon, hourly: 'wave_height,wave_period',
-      length_unit: 'imperial', timezone: 'UTC', past_hours: '36', forecast_hours: '60'
+      length_unit: 'imperial', timezone: 'UTC', past_hours: '36', forecast_hours: '72'
     });
     const [weatherResult, marineResult] = await Promise.allSettled([
       fetch(OPEN_METEO_WEATHER + '?' + weatherParams).then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status))),
@@ -1278,16 +1335,21 @@
   // so both panels read "today" the same way at a glance.
   //
   // No numeric y-axis scale here (unlike drawMiniChart's two corner
-  // labels) -- instead, the three bars that actually matter (right now,
-  // the day's peak, the day's trough) get their own callout label
-  // directly above them, same idea as the tide curve's H/L labels. "Now"
-  // is the one that always wins a collision: if any two callouts would
-  // overlap (including High/Low landing on the same bar as each other,
-  // or either coinciding with "now" itself), only "Now" is shown --
-  // simpler than the tide curve's push-sideways approach, since there's
-  // no good direction to nudge a label on a bar chart without it landing
-  // on a NEIGHBORING bar's own value.
-  function drawWaveBarChart(svgEl, points, windowStart, windowEnd, coastBearing) {
+  // labels) -- instead, the bars that actually matter (right now, the
+  // day's peak, the day's trough) get their own callout label directly
+  // above them, same idea as the tide curve's H/L labels. Whichever
+  // candidate is listed FIRST always wins a collision: if any two
+  // callouts would overlap (including High/Low landing on the same bar
+  // as each other, or either coinciding with "now"), only the first one
+  // shows -- simpler than the tide curve's push-sideways approach, since
+  // there's no good direction to nudge a label on a bar chart without it
+  // landing on a NEIGHBORING bar's own value.
+  //
+  // showNow is false for tomorrow's chart -- "now" isn't a meaningful
+  // point on a day that hasn't started yet, so that pane only ever shows
+  // High/Low (with High as the collision-priority candidate instead).
+  function drawWaveBarChart(svgEl, points, windowStart, windowEnd, coastBearing, showNow) {
+    if (showNow == null) showNow = true;
     const W = 360, H = svgEl.viewBox.baseVal.height || 110, padT = 16, padB = 22;
     const pts = points.filter(p => p.waveHeightFt != null);
     if (!pts.length) { svgEl.innerHTML = ''; return; }
@@ -1318,14 +1380,14 @@
     // are drawn from the SAME pts array) so a tie (e.g. "now" happens to
     // also be the day's peak) collapses to one candidate instead of two
     // labels fighting for the same bar.
-    const nowPt = nearestWindWave(pts, Date.now());
+    const nowPt = showNow ? nearestWindWave(pts, Date.now()) : null;
     let hiPt = pts[0], loPt = pts[0];
     pts.forEach(p => {
       if (p.waveHeightFt > hiPt.waveHeightFt) hiPt = p;
       if (p.waveHeightFt < loPt.waveHeightFt) loPt = p;
     });
     const fmtFt = v => (Math.round(v * 10) / 10) + ' ft';
-    const candidates = [{ pt: nowPt, text: 'Now' }];
+    const candidates = nowPt ? [{ pt: nowPt, text: 'Now' }] : [];
     if (hiPt !== nowPt) candidates.push({ pt: hiPt, text: fmtFt(hiPt.waveHeightFt) });
     if (loPt !== nowPt && loPt !== hiPt) candidates.push({ pt: loPt, text: fmtFt(loPt.waveHeightFt) });
 
@@ -1345,7 +1407,7 @@
         if (a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0) { overlap = true; break; }
       }
     }
-    const shownBoxes = overlap ? boxes.slice(0, 1) : boxes; // candidates[0] is always "now"
+    const shownBoxes = overlap ? boxes.slice(0, 1) : boxes; // candidates[0] is "Now" when shown, else "High"
     const calloutLabels = shownBoxes.map(b =>
       '<text x="' + b.cx.toFixed(1) + '" y="' + b.cy.toFixed(1) + '" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1b3d">' + b.text + '</text>'
     ).join('');
@@ -1353,18 +1415,99 @@
     svgEl.innerHTML = nightBands + bars + hourLabels + calloutLabels;
   }
 
+  // ---------- the today/tomorrow swipe pager ----------
+  // #dayPager holds both day-pages side by side (tomorrow first in
+  // source order, today second -- see the HTML comment above #tide's
+  // windChartsWrap for why) and is the element that actually translates,
+  // whether by live touch-drag or by the commit animation afterward.
+  // Both panes' charts are already real, fully-drawn SVGs by the time
+  // anyone can swipe (renderWindWave draws both every time it runs), so
+  // dragging between them is pure CSS transform -- no redraw, no
+  // network, nothing to wait on.
+  const DAY_POSITIONS = ['tomorrow', 'today'];
+  let activeDayPos = 1; // starts on "today"
+  const dayPager = $('dayPager');
+  const dayPagerViewport = $('dayPagerViewport');
+
+  function pagePx(pos) { return -pos * dayPagerViewport.getBoundingClientRect().width; }
+
+  function renderDayDots() {
+    $('dayDots').querySelectorAll('.day-dot').forEach(d => {
+      d.classList.toggle('active', d.getAttribute('data-day') === DAY_POSITIONS[activeDayPos]);
+    });
+  }
+
+  function snapToPos(pos, animate) {
+    activeDayPos = Math.max(0, Math.min(DAY_POSITIONS.length - 1, pos));
+    dayPager.classList.toggle('dragging', !animate);
+    dayPager.style.transform = 'translateX(' + pagePx(activeDayPos) + 'px)';
+    renderDayDots();
+  }
+
+  // Always lands back on "today" -- called every time renderWindWave
+  // finishes a fresh fetch (a new beach, the periodic 3-hourly refresh),
+  // so nobody's left stranded on yesterday's "tomorrow" after the day
+  // rolls over, or on a different beach's forecast after "Change beach."
+  function resetDayPager() { snapToPos(1, false); }
+
+  let touchStartX = null, touchStartY = null, touchDx = 0, touchAxis = null;
+  dayPagerViewport.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY;
+    touchDx = 0; touchAxis = null;
+    dayPager.classList.add('dragging');
+  }, { passive: true });
+  dayPagerViewport.addEventListener('touchmove', e => {
+    if (touchStartX == null) return;
+    const dx = e.touches[0].clientX - touchStartX, dy = e.touches[0].clientY - touchStartY;
+    // Direction is decided once, on the first few pixels of movement --
+    // a mostly-vertical drag is left alone entirely (so it still scrolls
+    // the outer page normally; see touch-action: pan-y on this
+    // viewport), while a mostly-horizontal one takes over from here on.
+    if (touchAxis == null && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) touchAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    if (touchAxis !== 'x') return;
+    e.preventDefault();
+    touchDx = dx;
+    let next = pagePx(activeDayPos) + dx;
+    const min = pagePx(DAY_POSITIONS.length - 1), max = pagePx(0);
+    // Rubber-band resistance past either end -- dragging past "today"
+    // (trying to reveal a nonexistent yesterday) or past "tomorrow"
+    // (a nonexistent day-after) still moves a little, so the drag
+    // doesn't feel like it's hit a dead stop, but springs back on release.
+    if (next > max) next = max + (next - max) * 0.3;
+    if (next < min) next = min + (next - min) * 0.3;
+    dayPager.style.transform = 'translateX(' + next + 'px)';
+  }, { passive: false });
+  function endDayDrag() {
+    if (touchStartX == null) return;
+    if (touchAxis === 'x') {
+      const threshold = Math.max(44, dayPagerViewport.getBoundingClientRect().width * 0.18);
+      // Dragging RIGHT (positive dx) moves toward position 0 ("tomorrow")
+      // -- the pane sitting to the LEFT in source order slides into view
+      // as the whole pager follows your finger rightward.
+      if (touchDx > threshold) snapToPos(activeDayPos - 1, true);
+      else if (touchDx < -threshold) snapToPos(activeDayPos + 1, true);
+      else snapToPos(activeDayPos, true);
+    }
+    touchStartX = null; touchAxis = null;
+  }
+  dayPagerViewport.addEventListener('touchend', endDayDrag);
+  dayPagerViewport.addEventListener('touchcancel', endDayDrag);
+  window.addEventListener('resize', () => snapToPos(activeDayPos, false));
+
   function hideSurfBadge() { $('surfBadge').classList.add('hidden'); }
 
   // Independent of (and never blocking) the rest of this screen -- same
   // "degrade the extra, not the core thing" principle as the charts
   // themselves not blocking the tide fetch. A coastline lookup failure
   // (or simply not having one cached/reachable yet) just means no badge
-  // and plain neutral-colored bars, not an error shown anywhere. The
-  // wave bar chart is drawn once immediately (uncolored) by the caller
-  // below, then redrawn here, in place, once (if) the real classification
-  // resolves -- a progressive upgrade, not something either render has to
-  // wait on.
-  async function renderSurfQuality(st, now, wavePoints, dayWindow) {
+  // and plain neutral-colored bars, not an error shown anywhere. Both
+  // wave bar charts (today AND tomorrow) are drawn once immediately
+  // (uncolored) by the caller below, then redrawn here, in place, once
+  // (if) the real classification resolves -- a progressive upgrade, not
+  // something either render has to wait on. One coastline lookup covers
+  // both days (the coastline's shape doesn't change tomorrow).
+  async function renderSurfQuality(st, now, todayPoints, dayWindow, tomorrowPoints, tomorrowWin) {
     if (!now || now.windMph == null || now.windDir == null) { hideSurfBadge(); return; }
     try {
       const coastBearing = await fetchCoastFacingBearing(st.lat, st.lon);
@@ -1377,8 +1520,11 @@
       } else {
         hideSurfBadge();
       }
-      if (wavePoints.some(p => p.waveHeightFt != null)) {
-        drawWaveBarChart($('waveChart'), wavePoints, dayWindow.start, dayWindow.end, coastBearing);
+      if (todayPoints.some(p => p.waveHeightFt != null)) {
+        drawWaveBarChart($('waveChart'), todayPoints, dayWindow.start, dayWindow.end, coastBearing, true);
+      }
+      if (tomorrowPoints.some(p => p.waveHeightFt != null)) {
+        drawWaveBarChart($('waveChartTomorrow'), tomorrowPoints, tomorrowWin.start, tomorrowWin.end, coastBearing, false);
       }
     } catch (e) {
       hideSurfBadge();
@@ -1430,9 +1576,25 @@
 
       const hasWave = todayPoints.some(p => p.waveHeightFt != null);
       $('waveChartBlock').classList.toggle('hidden', !hasWave);
-      if (hasWave) drawWaveBarChart($('waveChart'), todayPoints, dayWindow.start, dayWindow.end, null);
-      renderSurfQuality(st, now, todayPoints, dayWindow); // fire-and-forget -- see its own comment
+      if (hasWave) drawWaveBarChart($('waveChart'), todayPoints, dayWindow.start, dayWindow.end, null, true);
+
+      // Tomorrow's pane, for the swipe-right pager -- same `series`
+      // already fetched above (forecast_hours reaches comfortably past
+      // tomorrow's own end), so this is just another filter + redraw,
+      // never a second network round trip.
+      const tomorrowWin = tomorrowWindow(new Date());
+      const tomorrowPoints = series.filter(p => p.t >= tomorrowWin.start && p.t <= tomorrowWin.end);
+      drawMiniChart($('windChartTomorrow'), tomorrowPoints, 'windMph', '#0f1b3d', ' mph', 0, tomorrowWin.start, tomorrowWin.end);
+      const hasWaveTomorrow = tomorrowPoints.some(p => p.waveHeightFt != null);
+      $('waveChartBlockTomorrow').classList.toggle('hidden', !hasWaveTomorrow);
+      if (hasWaveTomorrow) drawWaveBarChart($('waveChartTomorrow'), tomorrowPoints, tomorrowWin.start, tomorrowWin.end, null, false);
+
+      renderSurfQuality(st, now, todayPoints, dayWindow, tomorrowPoints, tomorrowWin); // fire-and-forget -- see its own comment
+      // wrap has to be visible (not display:none) BEFORE resetDayPager
+      // measures the viewport's real width -- otherwise it computes the
+      // pager's transform against a collapsed 0px box.
       wrap.classList.remove('hidden');
+      resetDayPager(); // a fresh render (new beach, or a periodic refresh) always lands back on "today"
     } catch (e) {
       $('windMsg').textContent = "Couldn't reach the wind & wave forecast. Check your signal and try again.";
       $('windMsg').classList.remove('hidden');
