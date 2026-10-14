@@ -177,6 +177,13 @@
   .chart-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 18px 0 6px; }
   .chart-header-title { font-size: 14px; font-weight: 700; color: var(--soft); text-transform: uppercase; letter-spacing: .03em; }
   .chart-header-stat { font-size: 20px; font-weight: 800; display: inline-flex; align-items: center; gap: 3px; }
+  /* Tomorrow's header: the title and its detail line (the day's
+     forecast range, e.g. "Tomorrow -- 1.8-4.5 ft") stack vertically
+     instead of sitting side by side -- same two lines' worth of height
+     the title row + nothing else already used, so this doesn't push
+     the chart below it down any further. */
+  .chart-header.stacked { flex-direction: column; align-items: flex-start; gap: 1px; margin: 18px 0 8px; }
+  .chart-header.stacked .chart-header-stat { font-size: 15px; font-weight: 700; color: var(--soft); }
   .chart-header-badge { font-size: 12px; font-weight: 800; padding: 3px 11px; border-radius: 999px; color: #fff; }
   .chart-header-badge.clean { background: var(--rise); }
   .chart-header-badge.fair { background: var(--fair); }
@@ -320,11 +327,11 @@
          SAME color, since both come from one classification run. The
          wind badge is always a fixed black/white treatment, not tier
          colored -- it's the direction call, not the quality itself.
-         TOMORROW's headers use the SAME chart-header format/sizing as
-         today's, just with "Tomorrow" standing in for the live stat and
-         no badge -- there's no "now" value or a single quality call for
-         a whole forecast day, same reasoning as tomorrow's bar chart
-         never showing a "Now" callout. -->
+         TOMORROW's headers stack the title and a detail line (the
+         day's forecast range, e.g. "Tomorrow -- 1.8-4.5 ft") instead of
+         sitting side by side -- no badge, since there's no single
+         quality call for a whole forecast day, same reasoning as
+         tomorrow's bar chart never showing a "Now" callout. -->
     <div id="windChartsWrap" class="hidden">
       <div id="dayPagerViewport">
         <div id="dayPager">
@@ -335,7 +342,7 @@
                 <span class="chart-header-stat"><span id="waveHeight">—</span> <span id="wavePeriod"></span></span>
                 <span class="chart-header-badge hidden" id="waveHeaderBadge"></span>
               </div>
-              <div class="curve"><svg id="waveChart" viewBox="0 0 360 130" role="img" aria-label="Wave height forecast, bars colored by predicted surf quality"></svg></div>
+              <div class="curve"><svg id="waveChart" viewBox="0 0 360 150" role="img" aria-label="Wave height forecast, bars colored by predicted surf quality"></svg></div>
               <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
             </div>
             <div class="chart-header">
@@ -347,22 +354,22 @@
               </span>
               <span class="chart-header-badge hidden" id="windHeaderBadge"></span>
             </div>
-            <div class="curve"><svg id="windChart" viewBox="0 0 360 130" role="img" aria-label="Wind speed forecast"></svg></div>
+            <div class="curve"><svg id="windChart" viewBox="0 0 360 150" role="img" aria-label="Wind speed forecast, with a small direction arrow every other hour"></svg></div>
           </div>
           <div class="day-page" data-day="tomorrow">
             <div id="waveChartBlockTomorrow">
-              <div class="chart-header">
+              <div class="chart-header stacked">
                 <span class="chart-header-title">Waves</span>
-                <span class="chart-header-stat">Tomorrow</span>
+                <span class="chart-header-stat" id="waveHeaderStatTomorrow">Tomorrow</span>
               </div>
-              <div class="curve"><svg id="waveChartTomorrow" viewBox="0 0 360 130" role="img" aria-label="Tomorrow's wave height forecast, bars colored by predicted surf quality"></svg></div>
+              <div class="curve"><svg id="waveChartTomorrow" viewBox="0 0 360 150" role="img" aria-label="Tomorrow's wave height forecast, bars colored by predicted surf quality"></svg></div>
               <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
             </div>
-            <div class="chart-header">
+            <div class="chart-header stacked">
               <span class="chart-header-title">Wind</span>
-              <span class="chart-header-stat">Tomorrow</span>
+              <span class="chart-header-stat" id="windHeaderStatTomorrow">Tomorrow</span>
             </div>
-            <div class="curve"><svg id="windChartTomorrow" viewBox="0 0 360 130" role="img" aria-label="Tomorrow's wind speed forecast"></svg></div>
+            <div class="curve"><svg id="windChartTomorrow" viewBox="0 0 360 150" role="img" aria-label="Tomorrow's wind speed forecast, with a small direction arrow every other hour"></svg></div>
           </div>
         </div>
       </div>
@@ -1108,6 +1115,18 @@
   }
   function parseOpenMeteoTime(t) { return new Date(t + ':00Z'); }
 
+  // Low-high range across a day's forecast values, formatted for the
+  // tomorrow header's detail line (e.g. "1.8-4.5 ft") -- null values
+  // (a real data gap) are skipped rather than treated as 0. Returns null
+  // outright if nothing usable is in range, so the caller can fall back
+  // to just "Tomorrow" with no range appended.
+  function fmtRange(vals, decimals, unit) {
+    const nums = vals.filter(v => v != null);
+    if (!nums.length) return null;
+    const fmt = v => (decimals ? v.toFixed(decimals) : Math.round(v));
+    return fmt(Math.min(...nums)) + '–' + fmt(Math.max(...nums)) + unit;
+  }
+
   // ---------- Clean / Fair / Choppy (wind vs. coastline direction) ----------
   // The physical Wave Clock's own Wave Forecast screen shows this same
   // Clean/Fair/Choppy call -- its exact classification is firmware-side
@@ -1300,8 +1319,15 @@
   // corner labels (top = the chart's own max, bottom = 0 -- wind speed
   // is never negative, so lo is always 0 here in practice; see the
   // Math.min(0, ...) below).
+  //
+  // For the wind chart specifically (valueKey === 'windMph'), a small
+  // direction arrow is drawn just above the line at every OTHER hour --
+  // every hour read as too cluttered at this width, and the line's own
+  // shape already carries the speed trend, so the arrows only need to
+  // add direction on top of it. Rotated the same "points downwind"
+  // convention as the big header arrow ((windDir + 180) % 360).
   function drawMiniChart(svgEl, series, valueKey, color, unit, decimals, windowStart, windowEnd) {
-    const W = 360, H = svgEl.viewBox.baseVal.height || 100, padT = 16, padB = 22;
+    const W = 360, H = svgEl.viewBox.baseVal.height || 100, padT = 24, padB = 22;
     const pts = series.filter(p => p[valueKey] != null);
     if (pts.length < 2) { svgEl.innerHTML = ''; return; }
     const start = windowStart, end = windowEnd;
@@ -1329,7 +1355,16 @@
     const yAxisLabels =
       '<text x="4" y="' + (Y(hi) + 9).toFixed(1) + '" font-size="10" fill="#4a5675">' + fmtVal(hi) + '</text>' +
       '<text x="4" y="' + (Y(lo) - 3).toFixed(1) + '" font-size="10" fill="#4a5675">' + fmtVal(lo) + '</text>';
-    svgEl.innerHTML = nightBands + '<path d="' + area + '" fill="' + color + '" opacity="0.2"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="3"/>' + hourLabels + yAxisLabels;
+    let dirArrows = '';
+    if (valueKey === 'windMph') {
+      pts.forEach((p, i) => {
+        if (i % 2 !== 0 || p.windDir == null) return;
+        const ax = X(p.t), ay = Math.max(padT - 10, Y(p[valueKey]) - 11);
+        const deg = (p.windDir + 180) % 360;
+        dirArrows += '<g transform="translate(' + ax.toFixed(1) + ',' + ay.toFixed(1) + ') rotate(' + deg.toFixed(0) + ')"><path d="M0,-5 L3.5,4 L0,1.5 L-3.5,4 Z" fill="' + color + '"/></g>';
+      });
+    }
+    svgEl.innerHTML = nightBands + '<path d="' + area + '" fill="' + color + '" opacity="0.2"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="3"/>' + hourLabels + yAxisLabels + dirArrows;
   }
 
   // Hex twins of the --rise/--fair/--fall CSS custom properties above --
@@ -1611,6 +1646,14 @@
       const hasWaveTomorrow = tomorrowPoints.some(p => p.waveHeightFt != null);
       $('waveChartBlockTomorrow').classList.toggle('hidden', !hasWaveTomorrow);
       if (hasWaveTomorrow) drawWaveBarChart($('waveChartTomorrow'), tomorrowPoints, tomorrowWin.start, tomorrowWin.end, null, false);
+
+      // Tomorrow's header detail line -- the day's forecast low-high
+      // range for each chart, not a live "now" value (there isn't one
+      // yet). Degrades to plain "Tomorrow" if a day's data is missing.
+      const waveRange = fmtRange(tomorrowPoints.map(p => p.waveHeightFt), 1, ' ft');
+      $('waveHeaderStatTomorrow').textContent = 'Tomorrow' + (waveRange ? ' · ' + waveRange : '');
+      const windRange = fmtRange(tomorrowPoints.map(p => p.windMph), 0, ' mph');
+      $('windHeaderStatTomorrow').textContent = 'Tomorrow' + (windRange ? ' · ' + windRange : '');
 
       renderSurfQuality(st, now, todayPoints, dayWindow, tomorrowPoints, tomorrowWin); // fire-and-forget -- see its own comment
       // wrap has to be visible (not display:none) BEFORE resetDayPager
