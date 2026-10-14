@@ -533,16 +533,22 @@
   // these coordinates, so there's no risk of a transcription error
   // drifting from the source art.
   //
-  // The outer translate(-320,-330) shifts the brand art's own
-  // coordinate space so local (0,0) lands exactly on the front foot --
-  // where the board actually bears weight, confirmed against the
-  // source art's own board-top curve at that x -- not the waist/hips.
-  // translate(cx,cy) scale(s) then plants that point (and so the
-  // BOARD) on the curve, with the figure rising above it, instead of
-  // appearing to stand waist-deep in the line.
+  // The outer translate(-190,-397) shifts the brand art's own coordinate
+  // space so local (0,0) lands on the BOTTOM edge of the board, directly
+  // beneath the back foot (190,372) -- confirmed via getBBox() against
+  // the source art's own geometry: the board's underside at that x sits
+  // at y=397, ~2px (at this draw's scale) below the back foot itself.
+  // An earlier version anchored at the front foot (320,330), which sits
+  // on the board's TOP surface -- the board's own tail/back end then
+  // hung visibly below the curve line instead of riding on it. Anchoring
+  // at the board's bottom near the back foot instead means the WHOLE
+  // board sits at-or-above the curve, with the back foot essentially
+  // touching it too, matching how an actual surfboard's underside (not
+  // the rider's feet, which stand on TOP of the board) is what actually
+  // contacts the wave.
   function surferMarker(cx, cy) {
     const s = 0.09;
-    return `<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) scale(${s}) translate(-320,-330)">
+    return `<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) scale(${s}) translate(-190,-397)">
       <g fill="none" stroke="#0f1b3d" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="243" cy="73" r="38"/>
         <path d="M240 112 L218 228"/>
@@ -607,19 +613,24 @@
     // top of "now" (a real case -- "now" is often close to the very
     // high/low tide it's about to reach) can be pushed clear of it; see
     // surferBox below.
-    const surferCx = Math.min(Math.max(X(now), 24), W - 16);
-    const surferCy = Math.min(Math.max(Y(nv), padT + 27), H - padB - 11);
+    // Margins match the figure's actual footprint around its new anchor
+    // (12px to its left, 28px to its right, 33px above, 4px below --
+    // see surferBox just below) so the head/board never run past the
+    // chart's own edges.
+    const surferCx = Math.min(Math.max(X(now), 13), W - 29);
+    const surferCy = Math.min(Math.max(Y(nv), padT + 33), H - padB - 4);
     const marker = nv == null ? '' : surferMarker(surferCx, surferCy);
-    // Approximate footprint of the surfer artwork around its anchor
-    // (the front foot) -- measured off the source SVG's own bounding
-    // box at this draw's scale, padded a few px. Only used for the
-    // collision check right below, never for layout math elsewhere.
-    const surferBox = nv == null ? null : { x0: surferCx - 25, x1: surferCx + 19, y0: surferCy - 29, y1: surferCy + 12 };
+    // Footprint of the surfer artwork around its anchor (the board's
+    // bottom edge near the back foot) -- measured via getBBox() on the
+    // actual source art at this draw's scale, padded a touch. Only used
+    // for the collision check right below, never for layout math
+    // elsewhere.
+    const surferBox = nv == null ? null : { x0: surferCx - 12, x1: surferCx + 28, y0: surferCy - 33, y1: surferCy + 4 };
 
     let marks = '';
     events.filter(e => e.t >= start && e.t <= end).forEach(e => {
-      const x = Math.min(Math.max(X(e.t), 26), W - 26);
-      let y = e.hi ? Math.max(Y(e.v) - 8, 14) : Math.min(Y(e.v) + 18, H - padB + 18);
+      let x = Math.min(Math.max(X(e.t), 26), W - 26);
+      const y = e.hi ? Math.max(Y(e.v) - 8, 14) : Math.min(Y(e.v) + 18, H - padB + 18);
       const label = (e.hi ? 'H ' : 'L ') + fmtTime(e.t).replace(' ', '');
       if (surferBox) {
         // Rough text bbox: bold 12px, ~7.5px/char wide, baseline with a
@@ -630,11 +641,11 @@
         const boxX0 = x - halfW, boxX1 = x + halfW, boxY0 = y - 11, boxY1 = y + 3;
         const overlaps = boxX0 < surferBox.x1 && boxX1 > surferBox.x0 && boxY0 < surferBox.y1 && boxY1 > surferBox.y0;
         if (overlaps) {
-          // Push the label further in the SAME direction it already
-          // leans (above the curve for a high, below for a low) until
-          // it clears the surfer's own footprint, re-clamping so it
-          // never runs off the chart's own top/bottom edge either.
-          y = e.hi ? Math.max(14, surferBox.y0 - 6) : Math.min(H - padB + 18, surferBox.y1 + 6);
+          // Shift sideways, away from the surfer along the time axis,
+          // rather than up/down -- the label still sits at roughly its
+          // own tide height, just nudged clear in x instead of floating
+          // far from the curve vertically.
+          x = x <= surferCx ? Math.max(26, surferBox.x0 - halfW - 4) : Math.min(W - 26, surferBox.x1 + halfW + 4);
         }
       }
       marks += `<text x="${x}" y="${y}" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1b3d">${label}</text>`;
