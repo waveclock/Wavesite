@@ -58,7 +58,7 @@
        as the bar's own padding does, so it isn't double-reserved. Kept
        as one variable so the panel padding and the bar's real height
        can't drift out of sync. */
-    --bottom-bar-h: 82px;
+    --bottom-bar-h: 74px;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--ink); }
@@ -94,24 +94,18 @@
     padding: max(16px, env(safe-area-inset-top)) 16px calc(16px + var(--bottom-bar-h));
     max-width: 560px; margin: 0 auto;
   }
-  .swipe-hint {
-    background: none; border: 0; padding: 0; color: var(--soft);
-    font-size: 14px; font-weight: 700; display: flex; align-items: center;
-    justify-content: center; gap: 2px; cursor: pointer;
-  }
-  .swipe-hint .chev { font-size: 20px; line-height: 1; animation: wc-bob 2s ease-in-out infinite; }
-  #swipeUpHint { margin: 0 auto 18px; flex-direction: column-reverse; }
-  @keyframes wc-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
-
   /* Location/WaveClock as a true fixed bottom bar -- present in the same
      place no matter which snap-panel is in view or how far it's
      scrolled, not something that has to be re-added to every panel (and
      then disappears from whichever one doesn't have it, which is
-     exactly what happened when it only lived inside the tide panel). */
+     exactly what happened when it only lived inside the tide panel).
+     Tight top padding so the icons sit close to the bottom edge rather
+     than floating mid-bar -- that's what actually buys the content
+     above more room, not just a shorter bar in the abstract. */
   .action-bar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
     display: flex; justify-content: center; gap: 56px;
-    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    padding: 6px 16px calc(10px + env(safe-area-inset-bottom));
     background: #fff; border-top: 2px solid var(--line);
   }
   .action-btn {
@@ -252,7 +246,6 @@
   </section>
 
   <section class="snap-panel" id="windPanel">
-    <button type="button" class="swipe-hint swipe-hint-up" id="swipeUpHint"><span class="chev" aria-hidden="true">⌃</span>Tide</button>
     <h1 class="wind-title">Wind &amp; Waves</h1>
 
     <div class="stat-row" id="windStats">
@@ -1118,8 +1111,6 @@
       wrap.classList.add('hidden');
     }
   }
-
-  $('swipeUpHint').addEventListener('click', () => $('tidePanel').scrollIntoView({ behavior: 'smooth', block: 'start' }));
 
   // ---------- keep it current ----------
   setInterval(render, 30e3);
