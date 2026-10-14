@@ -1194,8 +1194,15 @@
   // the raw Overpass response, so coastlineBearingFromOsm below needs no
   // changes at all.
   const COASTLINE_PROXY = 'https://us-central1-waveclock.cloudfunctions.net/coastlineProxy';
+  // 30s, not 15s: the proxy's own worst case (one mirror tried alone,
+  // then the rest raced in parallel, at each of 2 search radii -- see
+  // functions/lib/coastline.js) can take up to ~32s end to end. A 15s
+  // client timeout was cutting that off before the server had even
+  // finished its own retries, which a live report traced as the actual
+  // cause of badges/bar-colors staying gray-pending on a real phone --
+  // worse on a weak connection, where every leg of this is already slower.
   async function fetchOverpassCoastline(lat, lon) {
-    const resp = await withTimeout(fetch(COASTLINE_PROXY + '?lat=' + lat + '&lon=' + lon), 15000);
+    const resp = await withTimeout(fetch(COASTLINE_PROXY + '?lat=' + lat + '&lon=' + lon), 30000);
     if (!resp.ok) throw new Error('http ' + resp.status);
     const data = await resp.json();
     if (!(data && Array.isArray(data.elements) && data.elements.length)) throw new Error('no coastline elements in range');
@@ -1230,6 +1237,14 @@
   // successes are cached; a failure is left uncached so a later retry
   // can succeed once Overpass recovers.
   function coastBearingCacheKey(lat, lon) { return 'wc_coast_bearing_' + lat.toFixed(2) + '_' + lon.toFixed(2); }
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  // One retry after a short pause -- this whole lookup already never
+  // blocks anything else on the page (renderSurfQuality runs it
+  // independently and just leaves the bars/badges in their neutral
+  // pending state on failure), so there's no real cost to giving a
+  // single transient hiccup (exactly the kind a weak mobile connection
+  // produces) a second shot before settling for "unavailable this visit."
+  const COAST_BEARING_RETRY_DELAY_MS = 2500;
   let coastBearingInFlight = null;
   async function fetchCoastFacingBearing(lat, lon) {
     const cacheKey = coastBearingCacheKey(lat, lon);
@@ -1239,11 +1254,18 @@
     } catch (e) { /* localStorage unavailable -- just skip caching */ }
     if (coastBearingInFlight) return coastBearingInFlight;
     coastBearingInFlight = (async () => {
-      const osmData = await fetchOverpassCoastline(lat, lon);
-      const bearing = coastlineBearingFromOsm(osmData);
-      if (bearing == null) throw new Error('no coastline found nearby');
-      try { localStorage.setItem(cacheKey, String(bearing)); } catch (e) {}
-      return bearing;
+      let lastError = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) await sleep(COAST_BEARING_RETRY_DELAY_MS);
+        try {
+          const osmData = await fetchOverpassCoastline(lat, lon);
+          const bearing = coastlineBearingFromOsm(osmData);
+          if (bearing == null) throw new Error('no coastline found nearby');
+          try { localStorage.setItem(cacheKey, String(bearing)); } catch (e) {}
+          return bearing;
+        } catch (e) { lastError = e; }
+      }
+      throw lastError;
     })();
     try { return await coastBearingInFlight; } finally { coastBearingInFlight = null; }
   }

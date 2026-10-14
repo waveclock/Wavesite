@@ -45,7 +45,7 @@ const REAL_COASTLINE_DATA = {
     assert.strictEqual(calls, 1, "shouldn't try a second mirror once the first succeeds");
   });
 
-  await test("falls through to the next mirror when the first returns no usable coastline", async () => {
+  await test("falls through to the remaining mirrors (raced in parallel) when the first returns no usable coastline", async () => {
     let call = 0;
     const fakeFetch = async () => {
       call++;
@@ -54,7 +54,29 @@ const REAL_COASTLINE_DATA = {
     };
     const data = await fetchCoastlineNear(39.2776, -74.5746, fakeFetch);
     assert.deepStrictEqual(data, REAL_COASTLINE_DATA);
-    assert.strictEqual(call, 2);
+    // The first mirror is tried alone (call 1, no usable data), then the
+    // REMAINING mirrors are raced in parallel rather than one at a time --
+    // both get invoked even though only the faster one's result is used.
+    assert.strictEqual(call, 3);
+  });
+
+  await test("doesn't wait for a slow mirror once a faster one in the same race resolves", async () => {
+    // Mirror[0] fails fast. Of the remaining two, one resolves slowly
+    // (an unresolved promise standing in for "still pending"), the other
+    // resolves immediately with real data -- proves the two are raced
+    // (Promise.any), not awaited one after another, which is the whole
+    // point of parallelizing them: a single slow/hanging mirror must
+    // never hold up the other's already-successful answer.
+    let callIndex = 0;
+    const neverResolves = new Promise(() => {});
+    const fakeFetch = async () => {
+      callIndex++;
+      if (callIndex === 1) return { ok: false, status: 500 }; // mirror[0]
+      if (callIndex === 2) return neverResolves; // one of the parallel pair hangs forever
+      return { ok: true, json: async () => REAL_COASTLINE_DATA }; // the other resolves right away
+    };
+    const data = await fetchCoastlineNear(39.2776, -74.5746, fakeFetch);
+    assert.deepStrictEqual(data, REAL_COASTLINE_DATA);
   });
 
   await test("falls through to the next mirror when one errors outright", async () => {
