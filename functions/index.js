@@ -28,6 +28,7 @@ const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
 const { isValidTagId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag } = require("./lib/tideTag");
+const { fetchCoastlineNear } = require("./lib/coastline");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -739,6 +740,32 @@ async function hurricaneTrackerProxyHandler(req, res) {
 
 exports.hurricaneTrackerProxy = onRequest({ cors: true, region: "us-central1" }, hurricaneTrackerProxyHandler);
 
+// ================= Coastline proxy =================
+// Backs the tide tag page's (404.html) Clean/Fair/Choppy wind-vs-coast
+// badge -- see lib/coastline.js's own header comment for why this has to
+// be a server-side proxy rather than 404.html calling Overpass's public
+// mirrors directly. Same required-coordinates validation as
+// hurricaneTrackerProxy above; returns the raw Overpass response
+// (elements array) unchanged so the client's own existing
+// coastlineBearingFromOsm keeps doing the actual bearing math.
+async function coastlineProxyHandler(req, res, fetchImpl) {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+    res.status(400).json({ error: "lat/lon must be valid coordinates" });
+    return;
+  }
+  try {
+    const data = await fetchCoastlineNear(lat, lon, fetchImpl);
+    res.status(200).json(data);
+  } catch (err) {
+    logger.error("Coastline proxy request failed for " + lat + "," + lon + ":", err);
+    res.status(502).json({ error: "Couldn't reach the coastline service right now" });
+  }
+}
+
+exports.coastlineProxy = onRequest({ cors: true, region: "us-central1" }, coastlineProxyHandler);
+
 // ================= Imagen proxy (Beach Buddy) =================
 // design's Beach Buddy tool needs to show the REAL Imagen illustration
 // while previewing, not just the procedural fallback -- same CORS
@@ -1046,4 +1073,4 @@ exports.tideTagProxy = onRequest({ cors: true, region: "us-central1" }, tideTagP
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
