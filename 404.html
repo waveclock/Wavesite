@@ -68,6 +68,7 @@
     --bg: #ffffff;
     --rise: #0b7a3e;
     --fall: #b4361b;
+    --fair: #b8860b;       /* Clean/Fair/Choppy's middle tier -- rise/fall are already taken */
     /* The fixed action bar's own content height (icon + gap + label +
        its padding/border), EXCLUDING env(safe-area-inset-bottom) -- the
        panels' own bottom padding adds that separately via calc(), same
@@ -175,6 +176,12 @@
   .stat-sub { font-size: 15px; font-weight: 600; color: var(--soft); margin-top: 4px; display: flex; align-items: center; gap: 4px; min-height: 19px; }
   .wind-arrow { color: var(--wave); flex-shrink: 0; }
   .mini-chart-cap { font-size: 14px; font-weight: 700; color: var(--soft); margin: 18px 0 6px; }
+  .surf-badge { display: flex; align-items: center; gap: 10px; margin: 16px 0 2px; }
+  .surf-badge-pill { font-size: 13px; font-weight: 800; padding: 4px 13px; border-radius: 999px; color: #fff; }
+  .surf-badge-pill.clean { background: var(--rise); }
+  .surf-badge-pill.fair { background: var(--fair); }
+  .surf-badge-pill.choppy { background: var(--fall); }
+  .surf-badge-note { font-size: 13px; font-weight: 600; color: var(--soft); }
 
   /* picker */
   h1 { font-size: 34px; font-weight: 900; margin: 18px 0 6px; line-height: 1.1; }
@@ -278,6 +285,11 @@
         <div class="stat-value" id="waveHeight">—</div>
         <div class="stat-sub" id="wavePeriod"></div>
       </div>
+    </div>
+
+    <div class="surf-badge hidden" id="surfBadge">
+      <span class="surf-badge-pill" id="surfBadgePill"></span>
+      <span class="surf-badge-note" id="surfBadgeNote"></span>
     </div>
 
     <div class="msg hidden" id="windMsg"></div>
@@ -1010,6 +1022,133 @@
   }
   function parseOpenMeteoTime(t) { return new Date(t + ':00Z'); }
 
+  // ---------- Clean / Fair / Choppy (wind vs. coastline direction) ----------
+  // The physical Wave Clock's own Wave Forecast screen shows this same
+  // Clean/Fair/Choppy call -- its exact classification is firmware-side
+  // and not in this repo to copy, but the INPUT it needs (the compass
+  // direction the coast actually faces at this specific spot, so wind
+  // direction can be read as onshore vs. offshore) already has a proven
+  // method: location/index.html's own device-setup wizard resolves
+  // coastFacingDirection the same way, for the same reason (real
+  // coastline shape varies town to town, not by state or region).
+  // Duplicated here rather than shared, same "self-contained page"
+  // convention as everything else on this page.
+  function bearingDeg(lat1, lon1, lat2, lon2) {
+    const toRad = d => d * Math.PI / 180, toDeg = r => r * 180 / Math.PI;
+    const phi1 = toRad(lat1), phi2 = toRad(lat2), dLambda = toRad(lon2 - lon1);
+    const y = Math.sin(dLambda) * Math.cos(phi2);
+    const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLambda);
+    return (toDeg(Math.atan2(y, x)) + 360) % 360;
+  }
+  function haversineKmWW(lat1, lon1, lat2, lon2) {
+    const R = 6371, toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.asin(Math.sqrt(a));
+  }
+  function withTimeout(promise, ms) {
+    return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms))]);
+  }
+  const OVERPASS_ENDPOINTS = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+  ];
+  const COASTLINE_SEARCH_RADII_KM = [3, 8];
+  async function fetchOverpassCoastline(lat, lon, radiusKm) {
+    const dLat = radiusKm / 111.32;
+    const dLon = radiusKm / (111.32 * Math.cos(lat * Math.PI / 180));
+    const south = lat - dLat, north = lat + dLat, west = lon - dLon, east = lon + dLon;
+    const query = `[out:json][timeout:20];way["natural"="coastline"](${south},${west},${north},${east});out body;>;out skel qt;`;
+    let lastError = null;
+    for (const url of OVERPASS_ENDPOINTS) {
+      try {
+        const resp = await withTimeout(fetch(url, {
+          method: 'POST', body: 'data=' + encodeURIComponent(query),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        }), 8000);
+        if (!resp.ok) { lastError = new Error('http ' + resp.status); continue; }
+        const data = await resp.json();
+        if (data && Array.isArray(data.elements) && data.elements.length) return data;
+        lastError = new Error('no coastline elements in range');
+      } catch (e) { lastError = e; }
+    }
+    throw lastError || new Error('all Overpass mirrors failed');
+  }
+  // Length-weighted circular mean of each segment's own seaward bearing
+  // (segment travel bearing + 90 -- OSM digitizes coastline ways with the
+  // sea on the RIGHT of the way's own node order).
+  function coastlineBearingFromOsm(osmData) {
+    const nodes = {};
+    osmData.elements.forEach(el => { if (el.type === 'node') nodes[el.id] = [el.lat, el.lon]; });
+    let sumSin = 0, sumCos = 0, totalKm = 0, segCount = 0;
+    osmData.elements.forEach(el => {
+      if (el.type !== 'way' || !el.nodes || el.nodes.length < 2) return;
+      for (let i = 0; i < el.nodes.length - 1; i++) {
+        const a = nodes[el.nodes[i]], b = nodes[el.nodes[i + 1]];
+        if (!a || !b) continue;
+        const lenKm = haversineKmWW(a[0], a[1], b[0], b[1]);
+        if (lenKm <= 0) continue;
+        const seawardRad = (bearingDeg(a[0], a[1], b[0], b[1]) + 90) * Math.PI / 180;
+        sumSin += Math.sin(seawardRad) * lenKm; sumCos += Math.cos(seawardRad) * lenKm;
+        totalKm += lenKm; segCount++;
+      }
+    });
+    if (!segCount || totalKm <= 0) return null;
+    return (Math.atan2(sumSin, sumCos) * 180 / Math.PI + 360) % 360;
+  }
+  // Cached in localStorage keyed by rounded coordinates -- a coastline's
+  // shape doesn't change, and Overpass's public mirrors have no real SLA
+  // (rate limits, timeouts), so a repeat visit (or this page's own
+  // multiple openTide() calls per load) shouldn't re-hit it. Only
+  // successes are cached; a failure is left uncached so a later retry
+  // can succeed once Overpass recovers.
+  function coastBearingCacheKey(lat, lon) { return 'wc_coast_bearing_' + lat.toFixed(2) + '_' + lon.toFixed(2); }
+  let coastBearingInFlight = null;
+  async function fetchCoastFacingBearing(lat, lon) {
+    const cacheKey = coastBearingCacheKey(lat, lon);
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached != null) return parseFloat(cached);
+    } catch (e) { /* localStorage unavailable -- just skip caching */ }
+    if (coastBearingInFlight) return coastBearingInFlight;
+    coastBearingInFlight = (async () => {
+      let lastError = null;
+      for (const radiusKm of COASTLINE_SEARCH_RADII_KM) {
+        try {
+          const osmData = await fetchOverpassCoastline(lat, lon, radiusKm);
+          const bearing = coastlineBearingFromOsm(osmData);
+          if (bearing != null) {
+            try { localStorage.setItem(cacheKey, String(bearing)); } catch (e) {}
+            return bearing;
+          }
+        } catch (e) { lastError = e; }
+      }
+      throw lastError || new Error('no coastline found nearby');
+    })();
+    try { return await coastBearingInFlight; } finally { coastBearingInFlight = null; }
+  }
+
+  // Simplified version of the real forecast call a surfer makes by eye:
+  // wind blowing roughly FROM the coast-facing direction (the open-ocean
+  // side) is onshore and roughs up the wave face; wind blowing from
+  // roughly the opposite direction is offshore and grooms/holds it up;
+  // anything in between is cross-shore. Speed then decides how much it
+  // matters -- light wind barely textures the water regardless of
+  // direction, strong wind (from any angle) eventually degrades it. This
+  // is a rule-of-thumb approximation for a quick glance, not a real surf
+  // forecaster's call (same spirit as ripCurrentRisk in
+  // functions/lib/astro.js, which carries the same caveat).
+  function classifySurfQuality(windMph, windDir, coastBearing) {
+    if (windMph == null || windDir == null || coastBearing == null) return null;
+    if (windMph < 6) return { quality: 'Clean', note: 'Calm wind' };
+    let diff = Math.abs(windDir - coastBearing) % 360;
+    if (diff > 180) diff = 360 - diff;
+    if (diff > 110) return { quality: windMph <= 25 ? 'Clean' : 'Fair', note: 'Offshore wind' };
+    if (diff < 70) return { quality: windMph < 10 ? 'Fair' : 'Choppy', note: 'Onshore wind' };
+    return { quality: windMph < 12 ? 'Fair' : 'Choppy', note: 'Cross-shore wind' };
+  }
+
   async function fetchWindWave(lat, lon) {
     const weatherParams = new URLSearchParams({
       latitude: lat, longitude: lon, hourly: 'wind_speed_10m,wind_direction_10m',
@@ -1060,9 +1199,12 @@
   // marks, no day/night bands, no "now" marker, since this is a forecast
   // TREND over the next day, not "where are we right now." Points with a
   // null value are skipped rather than interpolated through, so a real
-  // data gap reads as a gap, not a smoothed guess.
-  function drawMiniChart(svgEl, series, valueKey, color) {
-    const W = 360, H = svgEl.viewBox.baseVal.height || 100, padT = 10, padB = 22;
+  // data gap reads as a gap, not a smoothed guess. unit/decimals format
+  // the two y-axis corner labels (top = the chart's own max, bottom = 0
+  // -- wind speed and wave height are never negative, so lo is always 0
+  // here in practice; see the Math.min(0, ...) below).
+  function drawMiniChart(svgEl, series, valueKey, color, unit, decimals) {
+    const W = 360, H = svgEl.viewBox.baseVal.height || 100, padT = 16, padB = 22;
     const pts = series.filter(p => p[valueKey] != null);
     if (pts.length < 2) { svgEl.innerHTML = ''; return; }
     const start = series[0].t, end = series[series.length - 1].t;
@@ -1086,7 +1228,33 @@
       if (t > end) break;
       hourLabels += '<text x="' + X(t).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="11" fill="#4a5675">' + fmtTime(t).replace(/:00/, '').replace(' ', '') + '</text>';
     }
-    svgEl.innerHTML = '<path d="' + area + '" fill="' + color + '" opacity="0.2"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="3"/>' + hourLabels;
+    const fmtVal = v => (decimals ? v.toFixed(decimals) : Math.round(v)) + unit;
+    const yAxisLabels =
+      '<text x="4" y="' + (Y(hi) + 9).toFixed(1) + '" font-size="10" fill="#4a5675">' + fmtVal(hi) + '</text>' +
+      '<text x="4" y="' + (Y(lo) - 3).toFixed(1) + '" font-size="10" fill="#4a5675">' + fmtVal(lo) + '</text>';
+    svgEl.innerHTML = '<path d="' + area + '" fill="' + color + '" opacity="0.2"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="3"/>' + hourLabels + yAxisLabels;
+  }
+
+  function hideSurfBadge() { $('surfBadge').classList.add('hidden'); }
+
+  // Independent of (and never blocking) the rest of this screen -- same
+  // "degrade the extra, not the core thing" principle as the charts
+  // themselves not blocking the tide fetch. A coastline lookup failure
+  // (or simply not having one cached/reachable yet) just means no badge,
+  // not an error shown anywhere.
+  async function renderSurfBadge(st, now) {
+    if (!now || now.windMph == null || now.windDir == null) { hideSurfBadge(); return; }
+    try {
+      const coastBearing = await fetchCoastFacingBearing(st.lat, st.lon);
+      const result = classifySurfQuality(now.windMph, now.windDir, coastBearing);
+      if (!result) { hideSurfBadge(); return; }
+      $('surfBadgePill').textContent = result.quality;
+      $('surfBadgePill').className = 'surf-badge-pill ' + result.quality.toLowerCase();
+      $('surfBadgeNote').textContent = result.note;
+      $('surfBadge').classList.remove('hidden');
+    } catch (e) {
+      hideSurfBadge();
+    }
   }
 
   async function renderWindWave(st) {
@@ -1096,12 +1264,14 @@
       $('windMsg').classList.remove('hidden');
       wrap.classList.add('hidden');
       $('windMph').textContent = '—'; $('windDirLabel').textContent = ''; $('waveHeight').textContent = '—'; $('wavePeriod').textContent = '';
+      hideSurfBadge();
       return;
     }
     $('windMsg').classList.add('hidden');
     try {
       const series = await fetchWindWave(st.lat, st.lon);
       const now = nearestWindWave(series, Date.now());
+      renderSurfBadge(st, now); // fire-and-forget -- see its own comment
       if (now && now.windMph != null) {
         $('windMph').textContent = Math.round(now.windMph) + ' mph';
         const dir = degreesToCompass(now.windDir);
@@ -1129,13 +1299,14 @@
       const future = series.filter(p => p.t.getTime() >= Date.now() - 3600e3).slice(0, 25);
       const hasWave = future.some(p => p.waveHeightFt != null);
       $('waveChartBlock').classList.toggle('hidden', !hasWave);
-      if (hasWave) drawMiniChart($('waveChart'), future, 'waveHeightFt', '#1f5fd1');
-      drawMiniChart($('windChart'), future, 'windMph', '#0f1b3d');
+      if (hasWave) drawMiniChart($('waveChart'), future, 'waveHeightFt', '#1f5fd1', ' ft', 1);
+      drawMiniChart($('windChart'), future, 'windMph', '#0f1b3d', ' mph', 0);
       wrap.classList.remove('hidden');
     } catch (e) {
       $('windMsg').textContent = "Couldn't reach the wind & wave forecast. Check your signal and try again.";
       $('windMsg').classList.remove('hidden');
       wrap.classList.add('hidden');
+      hideSurfBadge();
     }
   }
 
