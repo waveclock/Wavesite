@@ -170,18 +170,23 @@
   /* wind & waves screen */
   .wind-title { font-size: clamp(30px, 9vw, 42px); font-weight: 900; letter-spacing: -0.01em; margin: 4px 0 18px; }
   .wind-arrow { color: var(--wave); flex-shrink: 0; }
-  .mini-chart-cap { font-size: 14px; font-weight: 700; color: var(--soft); margin: 18px 0 6px; }
-  /* Per-chart header (today's pane only) -- replaces the old shared
-     stat tiles + single badge row above both charts with one compact
-     line per chart: a short title, the live stat, and a colored
-     Clean/Fair/Choppy-style badge. */
+  /* Per-chart header, same format for both today (live stat + badge)
+     and tomorrow (just "Tomorrow" where the live stat would go) --
+     replaces the old shared stat tiles + single badge row above both
+     charts with one compact line per chart. */
   .chart-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 18px 0 6px; }
   .chart-header-title { font-size: 14px; font-weight: 700; color: var(--soft); text-transform: uppercase; letter-spacing: .03em; }
-  .chart-header-stat { font-size: 16px; font-weight: 800; display: inline-flex; align-items: center; gap: 3px; }
+  .chart-header-stat { font-size: 20px; font-weight: 800; display: inline-flex; align-items: center; gap: 3px; }
   .chart-header-badge { font-size: 12px; font-weight: 800; padding: 3px 11px; border-radius: 999px; color: #fff; }
   .chart-header-badge.clean { background: var(--rise); }
   .chart-header-badge.fair { background: var(--fair); }
   .chart-header-badge.choppy { background: var(--fall); }
+  /* The wind badge (Offshore/Onshore/Cross-shore/Calm) always reads
+     black-on-white-text -- unlike the wave badge, it isn't itself a
+     Clean/Fair/Choppy tier color, just the direction call that tier was
+     based on, so it gets a neutral treatment instead of borrowing the
+     wave badge's green/blue/red. */
+  .chart-header-badge.wind-badge { background: #000; }
   .bar-legend { display: flex; gap: 16px; margin: 4px 0 0; font-size: 12px; font-weight: 600; color: var(--soft); }
   .bar-legend span { display: inline-flex; align-items: center; gap: 5px; }
   .bar-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
@@ -312,10 +317,14 @@
          colored Clean/Fair/Choppy-style badge -- the wave header shows
          the quality itself ("Clean"), the wind header shows the
          direction call that quality was based on ("Offshore") in the
-         SAME color, since both come from one classification run.
-         TOMORROW's headers stay plain captions -- there's no "live" stat
-         or badge for a forecast day, same reasoning as tomorrow's bar
-         chart never showing a "Now" callout. -->
+         SAME color, since both come from one classification run. The
+         wind badge is always a fixed black/white treatment, not tier
+         colored -- it's the direction call, not the quality itself.
+         TOMORROW's headers use the SAME chart-header format/sizing as
+         today's, just with "Tomorrow" standing in for the live stat and
+         no badge -- there's no "now" value or a single quality call for
+         a whole forecast day, same reasoning as tomorrow's bar chart
+         never showing a "Now" callout. -->
     <div id="windChartsWrap" class="hidden">
       <div id="dayPagerViewport">
         <div id="dayPager">
@@ -326,7 +335,7 @@
                 <span class="chart-header-stat"><span id="waveHeight">—</span> <span id="wavePeriod"></span></span>
                 <span class="chart-header-badge hidden" id="waveHeaderBadge"></span>
               </div>
-              <div class="curve"><svg id="waveChart" viewBox="0 0 360 110" role="img" aria-label="Wave height forecast, bars colored by predicted surf quality"></svg></div>
+              <div class="curve"><svg id="waveChart" viewBox="0 0 360 130" role="img" aria-label="Wave height forecast, bars colored by predicted surf quality"></svg></div>
               <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
             </div>
             <div class="chart-header">
@@ -338,16 +347,22 @@
               </span>
               <span class="chart-header-badge hidden" id="windHeaderBadge"></span>
             </div>
-            <div class="curve"><svg id="windChart" viewBox="0 0 360 90" role="img" aria-label="Wind speed forecast"></svg></div>
+            <div class="curve"><svg id="windChart" viewBox="0 0 360 130" role="img" aria-label="Wind speed forecast"></svg></div>
           </div>
           <div class="day-page" data-day="tomorrow">
             <div id="waveChartBlockTomorrow">
-              <div class="mini-chart-cap">Waves, tomorrow</div>
-              <div class="curve"><svg id="waveChartTomorrow" viewBox="0 0 360 110" role="img" aria-label="Tomorrow's wave height forecast, bars colored by predicted surf quality"></svg></div>
+              <div class="chart-header">
+                <span class="chart-header-title">Waves</span>
+                <span class="chart-header-stat">Tomorrow</span>
+              </div>
+              <div class="curve"><svg id="waveChartTomorrow" viewBox="0 0 360 130" role="img" aria-label="Tomorrow's wave height forecast, bars colored by predicted surf quality"></svg></div>
               <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
             </div>
-            <div class="mini-chart-cap">Wind, tomorrow</div>
-            <div class="curve"><svg id="windChartTomorrow" viewBox="0 0 360 90" role="img" aria-label="Tomorrow's wind speed forecast"></svg></div>
+            <div class="chart-header">
+              <span class="chart-header-title">Wind</span>
+              <span class="chart-header-stat">Tomorrow</span>
+            </div>
+            <div class="curve"><svg id="windChartTomorrow" viewBox="0 0 360 130" role="img" aria-label="Tomorrow's wind speed forecast"></svg></div>
           </div>
         </div>
       </div>
@@ -1274,17 +1289,17 @@
   }
 
   // A small line+area chart in the same visual language as the tide
-  // curve (blue line, pale fill, hour labels) but simpler -- no extrema
-  // marks, no day/night bands, no "now" marker. windowStart/windowEnd
-  // are the SAME today-midnight-to-midnight window the tide curve and
-  // the wave bar chart use (passed in, not inferred from the series'
-  // own first/last point), so every chart on this screen reads "today"
-  // the same way. Points with a null value are skipped rather than
-  // interpolated through, so a real data gap reads as a gap, not a
-  // smoothed guess. unit/decimals format the two y-axis corner labels
-  // (top = the chart's own max, bottom = 0 -- wind speed is never
-  // negative, so lo is always 0 here in practice; see the Math.min(0, ...)
-  // below).
+  // curve (blue line, pale fill, hour labels, the same pale day/night
+  // shading) but simpler -- no extrema marks, no "now" marker.
+  // windowStart/windowEnd are the SAME today-midnight-to-midnight window
+  // the tide curve and the wave bar chart use (passed in, not inferred
+  // from the series' own first/last point), so every chart on this
+  // screen reads "today" the same way. Points with a null value are
+  // skipped rather than interpolated through, so a real data gap reads
+  // as a gap, not a smoothed guess. unit/decimals format the two y-axis
+  // corner labels (top = the chart's own max, bottom = 0 -- wind speed
+  // is never negative, so lo is always 0 here in practice; see the
+  // Math.min(0, ...) below).
   function drawMiniChart(svgEl, series, valueKey, color, unit, decimals, windowStart, windowEnd) {
     const W = 360, H = svgEl.viewBox.baseVal.height || 100, padT = 16, padB = 22;
     const pts = series.filter(p => p[valueKey] != null);
@@ -1296,6 +1311,7 @@
     const span = (hi - lo) || 1;
     const X = t => (t - start) / span2 * W;
     const Y = v => padT + (1 - (v - lo) / span) * (H - padT - padB);
+    const nightBands = nightBandsSvg(start, X, W, H);
     let d = 'M ' + X(pts[0].t).toFixed(1) + ' ' + Y(pts[0][valueKey]).toFixed(1);
     pts.slice(1).forEach(p => { d += ' L ' + X(p.t).toFixed(1) + ' ' + Y(p[valueKey]).toFixed(1); });
     const area = d + ' L ' + X(pts[pts.length - 1].t).toFixed(1) + ' ' + (H - padB) + ' L ' + X(pts[0].t).toFixed(1) + ' ' + (H - padB) + ' Z';
@@ -1313,7 +1329,7 @@
     const yAxisLabels =
       '<text x="4" y="' + (Y(hi) + 9).toFixed(1) + '" font-size="10" fill="#4a5675">' + fmtVal(hi) + '</text>' +
       '<text x="4" y="' + (Y(lo) - 3).toFixed(1) + '" font-size="10" fill="#4a5675">' + fmtVal(lo) + '</text>';
-    svgEl.innerHTML = '<path d="' + area + '" fill="' + color + '" opacity="0.2"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="3"/>' + hourLabels + yAxisLabels;
+    svgEl.innerHTML = nightBands + '<path d="' + area + '" fill="' + color + '" opacity="0.2"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="3"/>' + hourLabels + yAxisLabels;
   }
 
   // Hex twins of the --rise/--fair/--fall CSS custom properties above --
@@ -1509,21 +1525,21 @@
   // (if) the real classification resolves -- a progressive upgrade, not
   // something either render has to wait on. One coastline lookup covers
   // both days (the coastline's shape doesn't change tomorrow) and both
-  // header badges (the wave header shows the quality itself, the wind
-  // header shows the direction call it was based on, in the same color).
+  // header badges (the wave header shows the quality itself, colored by
+  // tier; the wind header shows the direction call it was based on, in
+  // a fixed black/white treatment since it isn't itself a tier color).
   async function renderSurfQuality(st, now, todayPoints, dayWindow, tomorrowPoints, tomorrowWin) {
     if (!now || now.windMph == null || now.windDir == null) { hideSurfBadge(); return; }
     try {
       const coastBearing = await fetchCoastFacingBearing(st.lat, st.lon);
       const result = classifySurfQuality(now.windMph, now.windDir, coastBearing);
       if (result) {
-        const tierClass = result.quality.toLowerCase();
         const waveBadge = $('waveHeaderBadge');
         waveBadge.textContent = result.quality;
-        waveBadge.className = 'chart-header-badge ' + tierClass;
+        waveBadge.className = 'chart-header-badge ' + result.quality.toLowerCase();
         const windBadge = $('windHeaderBadge');
         windBadge.textContent = result.note.replace(/ wind$/, ''); // "Offshore wind" -> "Offshore", "Calm wind" -> "Calm"
-        windBadge.className = 'chart-header-badge ' + tierClass;
+        windBadge.className = 'chart-header-badge wind-badge';
       } else {
         hideSurfBadge();
       }
