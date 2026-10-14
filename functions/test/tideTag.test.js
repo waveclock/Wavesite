@@ -8,7 +8,7 @@
 // that's the exact atomicity saveTideTag depends on.
 
 const assert = require("assert");
-const { TAG_ID_PATTERN, isValidTagId, sanitizeCoords, sanitizeTownName, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag } = require("../lib/tideTag");
+const { TAG_ID_PATTERN, isValidTagId, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag } = require("../lib/tideTag");
 
 function makeFakeBucket(initialFiles) {
   const store = new Map(Object.entries(initialFiles || {})); // path -> string
@@ -148,6 +148,36 @@ async function test(name, fn) {
     assert.strictEqual(sanitizeTownName(huge).length, 100);
   });
 
+  console.log("sanitizeCoastFacingDirection (the compass point the coast opens toward)");
+  await test("accepts any of the 8 real compass points", () => {
+    for (const dir of ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]) {
+      assert.strictEqual(sanitizeCoastFacingDirection(dir), dir);
+    }
+  });
+  await test("returns null for anything not one of the 8 known compass points", () => {
+    assert.strictEqual(sanitizeCoastFacingDirection("NNE"), null);
+    assert.strictEqual(sanitizeCoastFacingDirection("north"), null);
+    assert.strictEqual(sanitizeCoastFacingDirection(""), null);
+    assert.strictEqual(sanitizeCoastFacingDirection(null), null);
+    assert.strictEqual(sanitizeCoastFacingDirection(undefined), null);
+    assert.strictEqual(sanitizeCoastFacingDirection(90), null);
+  });
+
+  console.log("sanitizeZoneId (shared shape for srfZone and marineZone)");
+  await test("accepts real NWS zone IDs", () => {
+    assert.strictEqual(sanitizeZoneId("NJZ024"), "NJZ024");
+    assert.strictEqual(sanitizeZoneId("ANZ453"), "ANZ453");
+  });
+  await test("returns null for anything not matching the 2-3 letter + Z + 3 digit shape", () => {
+    assert.strictEqual(sanitizeZoneId("njz024"), null);
+    assert.strictEqual(sanitizeZoneId("NJZ24"), null);
+    assert.strictEqual(sanitizeZoneId("NJZ02499"), null);
+    assert.strictEqual(sanitizeZoneId(""), null);
+    assert.strictEqual(sanitizeZoneId(null), null);
+    assert.strictEqual(sanitizeZoneId(undefined), null);
+    assert.strictEqual(sanitizeZoneId(24), null);
+  });
+
   console.log("saveTideTag");
   await test("creates a new tag registration and returns the saved record", async () => {
     const bucket = makeFakeBucket({});
@@ -180,6 +210,20 @@ async function test(name, fn) {
     const bucket = makeFakeBucket({});
     const result = await saveTideTag(bucket, "A7K2", "8536110", "Atlantic City, NJ", 39.355, -74.4183);
     assert.strictEqual("townName" in result.record, false);
+  });
+  await test("stores coastFacingDirection, srfZone, and marineZone when given", async () => {
+    const bucket = makeFakeBucket({});
+    const result = await saveTideTag(bucket, "A7K2", "8534720", "Ventnor, NJ", 39.355, -74.4183, "Ocean City, NJ", "E", "NJZ024", "ANZ453");
+    assert.strictEqual(result.record.coastFacingDirection, "E");
+    assert.strictEqual(result.record.srfZone, "NJZ024");
+    assert.strictEqual(result.record.marineZone, "ANZ453");
+  });
+  await test("omits coastFacingDirection/srfZone/marineZone entirely when not given or malformed", async () => {
+    const bucket = makeFakeBucket({});
+    const result = await saveTideTag(bucket, "A7K2", "8536110", "Atlantic City, NJ", 39.355, -74.4183, "Ocean City, NJ", "not-a-direction", "bad-zone", "");
+    assert.strictEqual("coastFacingDirection" in result.record, false);
+    assert.strictEqual("srfZone" in result.record, false);
+    assert.strictEqual("marineZone" in result.record, false);
   });
   await test("refuses to overwrite an already-registered tag -- status 'already-registered', original record untouched", async () => {
     const bucket = makeFakeBucket({
@@ -218,6 +262,13 @@ async function test(name, fn) {
     const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "x", townName: "Old Town, NJ" }) });
     const record = await updateTideTag(bucket, "A7K2", "8534720", "Ventnor, NJ", 39.355, -74.4183, "Ocean City, NJ");
     assert.strictEqual(record.townName, "Ocean City, NJ");
+  });
+  await test("stores the new coastFacingDirection/srfZone/marineZone on overwrite too, dropping the old ones", async () => {
+    const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "x", coastFacingDirection: "W", srfZone: "OLDZ001", marineZone: "OLDZ002" }) });
+    const record = await updateTideTag(bucket, "A7K2", "8534720", "Ventnor, NJ", 39.355, -74.4183, "Ocean City, NJ", "E", "NJZ024", "ANZ453");
+    assert.strictEqual(record.coastFacingDirection, "E");
+    assert.strictEqual(record.srfZone, "NJZ024");
+    assert.strictEqual(record.marineZone, "ANZ453");
   });
   await test("also works as a plain create for a tag that was never registered", async () => {
     const bucket = makeFakeBucket({});

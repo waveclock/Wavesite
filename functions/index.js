@@ -920,6 +920,15 @@ function tagResponseBody(record) {
   if (record.townName != null) {
     body.townName = record.townName;
   }
+  if (record.coastFacingDirection != null) {
+    body.coastFacingDirection = record.coastFacingDirection;
+  }
+  if (record.srfZone != null) {
+    body.srfZone = record.srfZone;
+  }
+  if (record.marineZone != null) {
+    body.marineZone = record.marineZone;
+  }
   return body;
 }
 
@@ -947,7 +956,7 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
   }
 
   if (req.method === "POST") {
-    const { tagId, stationId, stationName, lat, lon, townName } = req.body || {};
+    const { tagId, stationId, stationName, lat, lon, townName, coastFacingDirection, srfZone, marineZone } = req.body || {};
     if (typeof tagId !== "string" || !isValidTagId(tagId)) {
       res.status(400).json({ error: TAG_ID_HINT });
       return;
@@ -965,11 +974,14 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
       res.status(400).json({ error: "stationName is required" });
       return;
     }
-    // lat/lon are optional (see sanitizeCoords in lib/tideTag.js) -- a
-    // missing or malformed value just means no sunrise/sunset shading
-    // for this tag later, not a rejected registration.
+    // lat/lon, coastFacingDirection, srfZone, and marineZone are all
+    // optional (see lib/tideTag.js's own sanitizers) -- these are
+    // resolved client-side from OSM/NWS lookups that can legitimately
+    // fail or be skipped, so a missing/malformed value here just means
+    // those enrichments aren't available for this tag yet, not a
+    // rejected registration.
     try {
-      const result = await saveTideTag(bucket, tagId, stationId, stationName.trim(), lat, lon, townName);
+      const result = await saveTideTag(bucket, tagId, stationId, stationName.trim(), lat, lon, townName, coastFacingDirection, srfZone, marineZone);
       if (result.status === "already-registered") {
         res.status(409).json({ error: "This tag is already registered to a beach" });
         return;
@@ -987,7 +999,7 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
     // beach" link on an already-registered tag's tide page. Same
     // validation, but always succeeds (short of a real storage failure)
     // since there's no "already registered" case to guard against here.
-    const { tagId, stationId, stationName, lat, lon, townName } = req.body || {};
+    const { tagId, stationId, stationName, lat, lon, townName, coastFacingDirection, srfZone, marineZone } = req.body || {};
     if (typeof tagId !== "string" || !isValidTagId(tagId)) {
       res.status(400).json({ error: TAG_ID_HINT });
       return;
@@ -1001,7 +1013,7 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
       return;
     }
     try {
-      const record = await updateTideTag(bucket, tagId, stationId, stationName.trim(), lat, lon, townName);
+      const record = await updateTideTag(bucket, tagId, stationId, stationName.trim(), lat, lon, townName, coastFacingDirection, srfZone, marineZone);
       res.status(200).json(tagResponseBody(record));
     } catch (err) {
       logger.error("Tide tag proxy PUT failed for " + tagId + ":", err);

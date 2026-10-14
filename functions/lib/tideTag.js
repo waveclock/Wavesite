@@ -88,6 +88,29 @@ function sanitizeTownName(townName) {
   return trimmed.slice(0, TOWN_NAME_MAX_LENGTH);
 }
 
+// coastFacingDirection: the compass point the coast opens TOWARD (the
+// seaward side), e.g. "E" for a Jersey-shore-style east-facing beach --
+// the client resolves this (from the OSM coastline, same method
+// location/index.html's own setup wizard already uses) and just hands
+// over the final compass label, never a raw bearing, so this only has
+// to trust it's one of the 8 real compass points rather than re-derive
+// it. Same graceful-degrade convention as lat/lon/townName: missing or
+// unrecognized is silently dropped, not a rejected registration.
+const COAST_FACING_DIRECTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+function sanitizeCoastFacingDirection(dir) {
+  return typeof dir === "string" && COAST_FACING_DIRECTIONS.includes(dir) ? dir : null;
+}
+
+// srfZone (NWS public/land forecast zone, e.g. "NJZ024") and marineZone
+// (NWS Coastal Waters Forecast zone, e.g. "ANZ453") share the exact same
+// ID shape -- 2-3 letter state/region code + "Z" + 3 digits -- the same
+// pattern location/index.html's own MARINE_ZONE_ID_PATTERN already
+// validates marine zones against, reused here for both.
+const ZONE_ID_PATTERN = /^[A-Z]{2,3}Z\d{3}$/;
+function sanitizeZoneId(zoneId) {
+  return typeof zoneId === "string" && ZONE_ID_PATTERN.test(zoneId) ? zoneId : null;
+}
+
 // Registers a station against a tag -- but ONLY if that tag isn't
 // already registered. preconditionOpts.ifGenerationMatch: 0 is Cloud
 // Storage's own atomic "create, don't overwrite" precondition
@@ -97,13 +120,19 @@ function sanitizeTownName(townName) {
 // phone double-submitting the picker. That specific, expected race
 // returns { status: "already-registered" } instead of throwing; any
 // OTHER storage failure still throws.
-async function saveTideTag(bucket, tagId, stationId, stationName, lat, lon, townName) {
+async function saveTideTag(bucket, tagId, stationId, stationName, lat, lon, townName, coastFacingDirection, srfZone, marineZone) {
   if (!isValidTagId(tagId)) throw new Error("invalid tagId");
   const sanitizedTownName = sanitizeTownName(townName);
+  const sanitizedCoastFacingDirection = sanitizeCoastFacingDirection(coastFacingDirection);
+  const sanitizedSrfZone = sanitizeZoneId(srfZone);
+  const sanitizedMarineZone = sanitizeZoneId(marineZone);
   const record = Object.assign(
     { stationId: String(stationId), stationName: String(stationName), createdAt: new Date().toISOString() },
     sanitizeCoords(lat, lon),
-    sanitizedTownName ? { townName: sanitizedTownName } : null
+    sanitizedTownName ? { townName: sanitizedTownName } : null,
+    sanitizedCoastFacingDirection ? { coastFacingDirection: sanitizedCoastFacingDirection } : null,
+    sanitizedSrfZone ? { srfZone: sanitizedSrfZone } : null,
+    sanitizedMarineZone ? { marineZone: sanitizedMarineZone } : null
   );
   try {
     await tagFile(bucket, tagId).save(JSON.stringify(record), {
@@ -126,13 +155,19 @@ async function saveTideTag(bucket, tagId, stationId, stationName, lat, lon, town
 // silently overwriting one another's pick. No precondition, so this
 // always succeeds (short of a genuine storage failure) -- there's no
 // "already registered" case to report here, that's the whole point.
-async function updateTideTag(bucket, tagId, stationId, stationName, lat, lon, townName) {
+async function updateTideTag(bucket, tagId, stationId, stationName, lat, lon, townName, coastFacingDirection, srfZone, marineZone) {
   if (!isValidTagId(tagId)) throw new Error("invalid tagId");
   const sanitizedTownName = sanitizeTownName(townName);
+  const sanitizedCoastFacingDirection = sanitizeCoastFacingDirection(coastFacingDirection);
+  const sanitizedSrfZone = sanitizeZoneId(srfZone);
+  const sanitizedMarineZone = sanitizeZoneId(marineZone);
   const record = Object.assign(
     { stationId: String(stationId), stationName: String(stationName), createdAt: new Date().toISOString() },
     sanitizeCoords(lat, lon),
-    sanitizedTownName ? { townName: sanitizedTownName } : null
+    sanitizedTownName ? { townName: sanitizedTownName } : null,
+    sanitizedCoastFacingDirection ? { coastFacingDirection: sanitizedCoastFacingDirection } : null,
+    sanitizedSrfZone ? { srfZone: sanitizedSrfZone } : null,
+    sanitizedMarineZone ? { marineZone: sanitizedMarineZone } : null
   );
   await tagFile(bucket, tagId).save(JSON.stringify(record), { contentType: "application/json" });
   return record;
@@ -151,4 +186,4 @@ async function deleteTideTag(bucket, tagId) {
   }
 }
 
-module.exports = { TAG_ID_PATTERN, isValidTagId, sanitizeCoords, sanitizeTownName, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag };
+module.exports = { TAG_ID_PATTERN, isValidTagId, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, COAST_FACING_DIRECTIONS, ZONE_ID_PATTERN, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag };
