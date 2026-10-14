@@ -90,12 +90,27 @@
     justify-content: center; gap: 2px; cursor: pointer;
   }
   .swipe-hint .chev { font-size: 20px; line-height: 1; animation: wc-bob 2s ease-in-out infinite; }
-  #swipeDownHint { margin: 22px auto 0; flex-direction: column; }
+  #swipeDownHint { margin: 0 auto 14px; flex-direction: column; }
   #swipeUpHint { margin: 0 auto 18px; flex-direction: column-reverse; }
   @keyframes wc-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
 
+  /* Change beach / WaveClock sit in a fixed bottom-group, pushed to the
+     very bottom of the panel's flex column (margin-top: auto) instead
+     of just trailing after whatever content happens to be above them --
+     a persistent bottom bar, not "the last thing in the scroll." */
+  .bottom-group { margin-top: auto; padding-top: 14px; }
+  .action-bar { display: flex; justify-content: center; gap: 56px; padding-top: 16px; border-top: 2px solid var(--line); }
+  .action-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    background: none; border: 0; padding: 4px 10px; cursor: pointer; text-decoration: none;
+  }
+  .action-icon { color: var(--wave); display: block; }
+  .action-label { font-size: 13px; font-weight: 700; color: var(--soft); }
+
   /* header */
-  .top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  /* A thin bottom border reads as a persistent top app-bar -- the town
+     name should feel anchored up here, not just be "whatever's first." */
+  .top { display: flex; align-items: center; gap: 10px; padding-bottom: 14px; margin-bottom: 10px; border-bottom: 2px solid var(--line); }
   .station-names { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
   .station { font-size: 20px; font-weight: 700; line-height: 1.2; }
   .station-sub { font-size: 13px; font-weight: 500; color: var(--soft); line-height: 1.2; }
@@ -163,6 +178,31 @@
   .notfound { text-align: center; margin-top: 60px; }
   .notfound h1 { font-size: 30px; }
   .notfound p { font-size: 18px; color: var(--soft); margin: 10px 0 22px; }
+
+  /* Tighter vertical rhythm on shorter screens (older/smaller phones, or
+     any browser tab where the address bar eats into the viewport) so the
+     tide panel still gets as close to one screen as it reasonably can --
+     the clamp()s above already respond to viewport WIDTH, not height, so
+     a narrow-but-short screen needs this separately. Placed at the very
+     end of this stylesheet deliberately: every rule it overrides below
+     has equal selector specificity, so with no !important this only
+     wins the cascade by coming LAST in source order -- defined any
+     earlier (even inside the media query, even though the condition
+     still matches) would lose to those later, unconditional rules. */
+  @media (max-height: 700px) {
+    .top { padding-bottom: 8px; margin-bottom: 6px; }
+    .state { margin: 10px 0 2px; }
+    .next-label { margin-top: 8px; font-size: clamp(36px, 13vw, 60px); }
+    .next-in { margin-top: 4px; font-size: clamp(32px, 11vw, 52px); }
+    .next-at { margin-top: 4px; }
+    .curve { margin: 14px 0 4px; padding: 6px 6px 2px; }
+    .curve-cap { display: none; }
+    .list { margin-top: 10px; }
+    .row { padding: 8px 2px; }
+    .bottom-group { padding-top: 8px; }
+    #swipeDownHint { margin: 0 auto 8px; }
+    .action-bar { padding-top: 10px; }
+  }
 </style>
 </head>
 <body>
@@ -202,12 +242,19 @@
     </div>
     <div class="msg hidden" id="tideMsg"></div>
 
-    <div class="foot">
-      <button type="button" class="linklike" id="changeBtn">Change beach</button><br>
-      Want this on your wall? <a href="https://waveclock.net">Get a Wave Clock →</a>
+    <div class="bottom-group">
+      <button type="button" class="swipe-hint" id="swipeDownHint">Wind &amp; waves<span class="chev" aria-hidden="true">⌄</span></button>
+      <div class="action-bar">
+        <button type="button" class="action-btn" id="changeBtn">
+          <svg class="action-icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z" fill="currentColor"/></svg>
+          <span class="action-label">Location</span>
+        </button>
+        <a class="action-btn" href="https://waveclock.net">
+          <img class="action-icon" src="/logo.png" alt="" width="28" height="28">
+          <span class="action-label">WaveClock</span>
+        </a>
+      </div>
     </div>
-
-    <button type="button" class="swipe-hint" id="swipeDownHint">Wind &amp; waves<span class="chev" aria-hidden="true">⌄</span></button>
   </section>
 
   <section class="snap-panel" id="windPanel">
@@ -445,7 +492,10 @@
     $('nextIn').textContent = untilText(next.t - now);
     $('nextAt').textContent = (dayWord(next.t) === 'Today' ? '' : dayWord(next.t) + ' ') + fmtTime(next.t);
 
-    const rows = events.slice(nextIdx + 1, nextIdx + 4).map(e =>
+    // Just the ONE tide after next -- not a 3-row list -- so this panel
+    // actually fits one screen instead of needing its own internal
+    // scroll before the "Wind & waves" swipe hint comes into view.
+    const rows = events.slice(nextIdx + 1, nextIdx + 2).map(e =>
       `<div class="row"><b>${e.hi ? 'High' : 'Low'}</b><span>${fmtTime(e.t)}<small>${dayWord(e.t)}</small></span></div>`).join('');
     $('list').innerHTML = rows;
 
