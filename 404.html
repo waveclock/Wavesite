@@ -1183,31 +1183,23 @@
   function withTimeout(promise, ms) {
     return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms))]);
   }
-  const OVERPASS_ENDPOINTS = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
-  ];
-  const COASTLINE_SEARCH_RADII_KM = [3, 8];
-  async function fetchOverpassCoastline(lat, lon, radiusKm) {
-    const dLat = radiusKm / 111.32;
-    const dLon = radiusKm / (111.32 * Math.cos(lat * Math.PI / 180));
-    const south = lat - dLat, north = lat + dLat, west = lon - dLon, east = lon + dLon;
-    const query = `[out:json][timeout:20];way["natural"="coastline"](${south},${west},${north},${east});out body;>;out skel qt;`;
-    let lastError = null;
-    for (const url of OVERPASS_ENDPOINTS) {
-      try {
-        const resp = await withTimeout(fetch(url, {
-          method: 'POST', body: 'data=' + encodeURIComponent(query),
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-        }), 8000);
-        if (!resp.ok) { lastError = new Error('http ' + resp.status); continue; }
-        const data = await resp.json();
-        if (data && Array.isArray(data.elements) && data.elements.length) return data;
-        lastError = new Error('no coastline elements in range');
-      } catch (e) { lastError = e; }
-    }
-    throw lastError || new Error('all Overpass mirrors failed');
+  // Routed through our own backend (coastlineProxy) rather than hitting
+  // Overpass's public mirrors directly from the browser -- live reports
+  // showed the Clean/Offshore badges and bar colors silently disappearing
+  // on real phones, traced to Overpass mirrors being unreliable when
+  // called straight from browser JS (CORS preflight failures and
+  // occasional 406 responses some of them return to browser-originated
+  // requests). The proxy does the same multi-mirror, multi-radius retry
+  // server-to-server (see functions/lib/coastline.js) and just hands back
+  // the raw Overpass response, so coastlineBearingFromOsm below needs no
+  // changes at all.
+  const COASTLINE_PROXY = 'https://us-central1-waveclock.cloudfunctions.net/coastlineProxy';
+  async function fetchOverpassCoastline(lat, lon) {
+    const resp = await withTimeout(fetch(COASTLINE_PROXY + '?lat=' + lat + '&lon=' + lon), 15000);
+    if (!resp.ok) throw new Error('http ' + resp.status);
+    const data = await resp.json();
+    if (!(data && Array.isArray(data.elements) && data.elements.length)) throw new Error('no coastline elements in range');
+    return data;
   }
   // Length-weighted circular mean of each segment's own seaward bearing
   // (segment travel bearing + 90 -- OSM digitizes coastline ways with the
@@ -1247,18 +1239,11 @@
     } catch (e) { /* localStorage unavailable -- just skip caching */ }
     if (coastBearingInFlight) return coastBearingInFlight;
     coastBearingInFlight = (async () => {
-      let lastError = null;
-      for (const radiusKm of COASTLINE_SEARCH_RADII_KM) {
-        try {
-          const osmData = await fetchOverpassCoastline(lat, lon, radiusKm);
-          const bearing = coastlineBearingFromOsm(osmData);
-          if (bearing != null) {
-            try { localStorage.setItem(cacheKey, String(bearing)); } catch (e) {}
-            return bearing;
-          }
-        } catch (e) { lastError = e; }
-      }
-      throw lastError || new Error('no coastline found nearby');
+      const osmData = await fetchOverpassCoastline(lat, lon);
+      const bearing = coastlineBearingFromOsm(osmData);
+      if (bearing == null) throw new Error('no coastline found nearby');
+      try { localStorage.setItem(cacheKey, String(bearing)); } catch (e) {}
+      return bearing;
     })();
     try { return await coastBearingInFlight; } finally { coastBearingInFlight = null; }
   }
