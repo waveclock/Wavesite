@@ -17,8 +17,23 @@
 // GET requests are cacheable here, and a registration write always
 // needs to actually reach the server to mean anything.
 
-const SHELL_CACHE = "wc-tide-shell-v1";
-const DATA_CACHE = "wc-tide-data-v1";
+// Bumped to v2 (forcing a clean cache purge on update -- see the
+// activate handler below) alongside narrowing the catch-all fetch
+// handler further down: it used to wrap EVERY request this scope's page
+// ever makes (Open-Meteo, Nominatim, the NWS zone lookups, the Overpass
+// coastline proxy, tideTagProxy's own GET) in caches.match/respondWith,
+// not just the two real shell assets it was meant for. A home-screen-
+// installed tag (standalone display mode) reported the Clean/Offshore
+// badges and bar colors staying gray even after the coastlineProxy fix
+// shipped, while the SAME tag in a plain browser tab was fine -- pointing
+// at this service worker's blanket interception of that cross-origin
+// fetch specifically in the installed-PWA context, not the coastline
+// lookup itself (already proxied server-side). Narrowing respondWith to
+// only the two real shell files removes that interception entirely for
+// everything else, so those requests now behave exactly as they would
+// on an uncontrolled page either way.
+const SHELL_CACHE = "wc-tide-shell-v2";
+const DATA_CACHE = "wc-tide-data-v2";
 const SHELL_URLS = ["/404.html", "/logo.png"];
 
 self.addEventListener("install", (event) => {
@@ -65,7 +80,14 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Everything else this scope ever requests (the shell files, mainly)
-  // -- cache first, network as the fallback for anything not yet cached.
-  event.respondWith(caches.match(req).then((cached) => cached || fetch(req)));
+  // The two real shell files -- cache first, network as the fallback
+  // for anything not yet cached. Everything else (Open-Meteo, Nominatim,
+  // the NWS zone lookups, the Overpass coastline proxy, tideTagProxy's
+  // own GET, ...) deliberately gets NO event.respondWith at all, so the
+  // browser handles those requests exactly as it would on an
+  // uncontrolled page -- this service worker has no business deciding
+  // how any of them are fetched or cached.
+  if (SHELL_URLS.includes(url.pathname)) {
+    event.respondWith(caches.match(req).then((cached) => cached || fetch(req)));
+  }
 });
