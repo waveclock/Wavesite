@@ -170,20 +170,17 @@
   /* wind & waves screen */
   .wind-title { font-size: clamp(30px, 9vw, 42px); font-weight: 900; letter-spacing: -0.01em; margin: 4px 0 18px; }
   .wind-arrow { color: var(--wave); flex-shrink: 0; }
-  /* Per-chart header, same format for both today (live stat + badge)
-     and tomorrow (just "Tomorrow" where the live stat would go) --
-     replaces the old shared stat tiles + single badge row above both
-     charts with one compact line per chart. */
+  /* Per-chart header -- the SAME format for both today and tomorrow (a
+     short title, a live stat, a colored badge), replacing the old
+     shared stat tiles + single badge row above both charts with one
+     compact line per chart. Tomorrow's own day label sits once at the
+     top of that pane instead (see .day-label) rather than each header
+     repeating "tomorrow" where there's no room for it to sit next to a
+     plain value the way today's headers are laid out. */
   .chart-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 18px 0 6px; }
   .chart-header-title { font-size: 14px; font-weight: 700; color: var(--soft); text-transform: uppercase; letter-spacing: .03em; }
   .chart-header-stat { font-size: 20px; font-weight: 800; display: inline-flex; align-items: center; gap: 3px; }
-  /* Tomorrow's header: the title and its detail line (the day's
-     forecast range, e.g. "Tomorrow -- 1.8-4.5 ft") stack vertically
-     instead of sitting side by side -- same two lines' worth of height
-     the title row + nothing else already used, so this doesn't push
-     the chart below it down any further. */
-  .chart-header.stacked { flex-direction: column; align-items: flex-start; gap: 1px; margin: 18px 0 8px; }
-  .chart-header.stacked .chart-header-stat { font-size: 15px; font-weight: 700; color: var(--soft); }
+  .day-label { font-size: 20px; font-weight: 800; color: var(--soft); margin: 2px 0 10px; }
   .chart-header-badge { font-size: 12px; font-weight: 800; padding: 3px 11px; border-radius: 999px; color: #fff; }
   .chart-header-badge.clean { background: var(--rise); }
   .chart-header-badge.fair { background: var(--fair); }
@@ -318,20 +315,23 @@
          tomorrow too) -- swiping never triggers a new network request,
          so there's no loading flash either direction.
 
-         Each TODAY chart gets its own header instead of the old shared
-         stat tiles + single badge row above both charts: a short title,
-         the live stat (height+period, or speed+direction), and a
-         colored Clean/Fair/Choppy-style badge -- the wave header shows
-         the quality itself ("Clean"), the wind header shows the
-         direction call that quality was based on ("Offshore") in the
-         SAME color, since both come from one classification run. The
-         wind badge is always a fixed black/white treatment, not tier
-         colored -- it's the direction call, not the quality itself.
-         TOMORROW's headers stack the title and a detail line (the
-         day's forecast range, e.g. "Tomorrow -- 1.8-4.5 ft") instead of
-         sitting side by side -- no badge, since there's no single
-         quality call for a whole forecast day, same reasoning as
-         tomorrow's bar chart never showing a "Now" callout. -->
+         Each chart gets its own header: a short title, a live stat
+         (height+period, or speed+direction), and a colored Clean/Fair/
+         Choppy-style badge -- the wave header shows the quality itself
+         ("Clean"), the wind header shows the direction call that
+         quality was based on ("Offshore") in the SAME color, since both
+         come from one classification run. The wind badge is always a
+         fixed black/white treatment, not tier colored -- it's the
+         direction call, not the quality itself. TOMORROW's headers use
+         the EXACT same format as today's (no separate "stacked"
+         variant) -- "today" there just means "a representative point
+         in tomorrow's forecast" (the hour nearest tomorrow noon,
+         picked in renderWindWave/renderSurfQuality) rather than a true
+         live "now", which doesn't exist yet for a day that hasn't
+         started. The "Tomorrow" day label itself lives ONCE at the top
+         of that pane instead of repeated inside every header, since
+         nothing in a plain, single-value header row has room to say so
+         otherwise. -->
     <div id="windChartsWrap" class="hidden">
       <div id="dayPagerViewport">
         <div id="dayPager">
@@ -357,17 +357,24 @@
             <div class="curve"><svg id="windChart" viewBox="0 0 360 150" role="img" aria-label="Wind speed forecast, with a small direction arrow every other hour"></svg></div>
           </div>
           <div class="day-page" data-day="tomorrow">
+            <div class="day-label">Tomorrow</div>
             <div id="waveChartBlockTomorrow">
-              <div class="chart-header stacked">
+              <div class="chart-header">
                 <span class="chart-header-title">Waves</span>
-                <span class="chart-header-stat" id="waveHeaderStatTomorrow">Tomorrow</span>
+                <span class="chart-header-stat"><span id="waveHeightTomorrow">—</span> <span id="wavePeriodTomorrow"></span></span>
+                <span class="chart-header-badge hidden" id="waveHeaderBadgeTomorrow"></span>
               </div>
               <div class="curve"><svg id="waveChartTomorrow" viewBox="0 0 360 150" role="img" aria-label="Tomorrow's wave height forecast, bars colored by predicted surf quality"></svg></div>
               <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
             </div>
-            <div class="chart-header stacked">
+            <div class="chart-header">
               <span class="chart-header-title">Wind</span>
-              <span class="chart-header-stat" id="windHeaderStatTomorrow">Tomorrow</span>
+              <span class="chart-header-stat">
+                <span id="windMphTomorrow">—</span>
+                <svg class="wind-arrow" id="windArrowTomorrow" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 2 L17.5 15 L12 11.8 L6.5 15 Z" fill="currentColor"/></svg>
+                <span id="windDirLabelTomorrow"></span>
+              </span>
+              <span class="chart-header-badge hidden" id="windHeaderBadgeTomorrow"></span>
             </div>
             <div class="curve"><svg id="windChartTomorrow" viewBox="0 0 360 150" role="img" aria-label="Tomorrow's wind speed forecast, with a small direction arrow every other hour"></svg></div>
           </div>
@@ -1115,16 +1122,15 @@
   }
   function parseOpenMeteoTime(t) { return new Date(t + ':00Z'); }
 
-  // Low-high range across a day's forecast values, formatted for the
-  // tomorrow header's detail line (e.g. "1.8-4.5 ft") -- null values
-  // (a real data gap) are skipped rather than treated as 0. Returns null
-  // outright if nothing usable is in range, so the caller can fall back
-  // to just "Tomorrow" with no range appended.
-  function fmtRange(vals, decimals, unit) {
-    const nums = vals.filter(v => v != null);
-    if (!nums.length) return null;
-    const fmt = v => (decimals ? v.toFixed(decimals) : Math.round(v));
-    return fmt(Math.min(...nums)) + '–' + fmt(Math.max(...nums)) + unit;
+  // Tomorrow has no real "now" (the day hasn't started), but its header
+  // needs ONE representative hour to show a value+badge "just like
+  // today does" instead of a range -- noon is the conventional stand-in
+  // for "a day's conditions" at a glance. Reuses nearestWindWave so a
+  // missing exact-noon tick (data gaps, non-hour-aligned timezones)
+  // still resolves to the closest real point instead of nothing.
+  function representativePoint(points, window) {
+    const noon = new Date(window.start.getTime() + 12 * 3600e3);
+    return nearestWindWave(points, noon.getTime());
   }
 
   // ---------- Clean / Fair / Choppy (wind vs. coastline direction) ----------
@@ -1546,8 +1552,31 @@
   window.addEventListener('resize', () => snapToPos(activeDayPos, false));
 
   function hideSurfBadge() {
-    $('waveHeaderBadge').classList.add('hidden');
-    $('windHeaderBadge').classList.add('hidden');
+    $('waveHeaderBadge').className = 'chart-header-badge hidden';
+    $('windHeaderBadge').className = 'chart-header-badge hidden';
+    $('waveHeaderBadgeTomorrow').className = 'chart-header-badge hidden';
+    $('windHeaderBadgeTomorrow').className = 'chart-header-badge hidden';
+  }
+
+  // Shared by today's and tomorrow's badge pair -- windMph/windDir are
+  // either the real live reading (today) or tomorrow's representative
+  // point (see representativePoint() above), classified against the
+  // SAME resolved coastBearing either way (the coastline's shape
+  // doesn't change tomorrow). Resets to a clean hidden state rather
+  // than just adding the 'hidden' class back, so a stale tier/wind-badge
+  // class never lingers underneath it.
+  function setQualityBadges(windMph, windDir, coastBearing, waveBadgeId, windBadgeId) {
+    const waveBadge = $(waveBadgeId), windBadge = $(windBadgeId);
+    const result = (windMph != null && windDir != null) ? classifySurfQuality(windMph, windDir, coastBearing) : null;
+    if (result) {
+      waveBadge.textContent = result.quality;
+      waveBadge.className = 'chart-header-badge ' + result.quality.toLowerCase();
+      windBadge.textContent = result.note.replace(/ wind$/, ''); // "Offshore wind" -> "Offshore", "Calm wind" -> "Calm"
+      windBadge.className = 'chart-header-badge wind-badge';
+    } else {
+      waveBadge.className = 'chart-header-badge hidden';
+      windBadge.className = 'chart-header-badge hidden';
+    }
   }
 
   // Independent of (and never blocking) the rest of this screen -- same
@@ -1559,25 +1588,14 @@
   // (uncolored) by the caller below, then redrawn here, in place, once
   // (if) the real classification resolves -- a progressive upgrade, not
   // something either render has to wait on. One coastline lookup covers
-  // both days (the coastline's shape doesn't change tomorrow) and both
-  // header badges (the wave header shows the quality itself, colored by
-  // tier; the wind header shows the direction call it was based on, in
-  // a fixed black/white treatment since it isn't itself a tier color).
+  // both days' badges, evaluated at today's real "now" and tomorrow's
+  // representative (noon) point respectively.
   async function renderSurfQuality(st, now, todayPoints, dayWindow, tomorrowPoints, tomorrowWin) {
-    if (!now || now.windMph == null || now.windDir == null) { hideSurfBadge(); return; }
     try {
       const coastBearing = await fetchCoastFacingBearing(st.lat, st.lon);
-      const result = classifySurfQuality(now.windMph, now.windDir, coastBearing);
-      if (result) {
-        const waveBadge = $('waveHeaderBadge');
-        waveBadge.textContent = result.quality;
-        waveBadge.className = 'chart-header-badge ' + result.quality.toLowerCase();
-        const windBadge = $('windHeaderBadge');
-        windBadge.textContent = result.note.replace(/ wind$/, ''); // "Offshore wind" -> "Offshore", "Calm wind" -> "Calm"
-        windBadge.className = 'chart-header-badge wind-badge';
-      } else {
-        hideSurfBadge();
-      }
+      setQualityBadges(now && now.windMph, now && now.windDir, coastBearing, 'waveHeaderBadge', 'windHeaderBadge');
+      const tomorrowNow = representativePoint(tomorrowPoints, tomorrowWin);
+      setQualityBadges(tomorrowNow && tomorrowNow.windMph, tomorrowNow && tomorrowNow.windDir, coastBearing, 'waveHeaderBadgeTomorrow', 'windHeaderBadgeTomorrow');
       if (todayPoints.some(p => p.waveHeightFt != null)) {
         drawWaveBarChart($('waveChart'), todayPoints, dayWindow.start, dayWindow.end, coastBearing, true);
       }
@@ -1589,13 +1607,42 @@
     }
   }
 
+  // Shared by today's header (point = the real "now" reading) and
+  // tomorrow's (point = representativePoint()'s noon stand-in) --
+  // suffix is '' for today's element ids, 'Tomorrow' for tomorrow's. A
+  // null/incomplete point (no location yet, a fetch failure, a data
+  // gap) resets to the same plain dash either way.
+  function applyWindWaveStat(point, suffix) {
+    const windMphEl = $('windMph' + suffix), windDirEl = $('windDirLabel' + suffix), windArrowEl = $('windArrow' + suffix);
+    const waveHeightEl = $('waveHeight' + suffix), wavePeriodEl = $('wavePeriod' + suffix);
+    if (point && point.windMph != null) {
+      windMphEl.textContent = Math.round(point.windMph) + ' mph';
+      windDirEl.textContent = degreesToCompass(point.windDir) || '';
+      // Rotated to point in the direction the wind is blowing TOWARD
+      // (downwind) -- the meteorological convention windDir itself
+      // encodes ("wind direction" means where it's blowing FROM) points
+      // the "wrong" way for an at-a-glance arrow.
+      windArrowEl.style.visibility = point.windDir != null ? 'visible' : 'hidden';
+      if (point.windDir != null) windArrowEl.style.transform = 'rotate(' + ((point.windDir + 180) % 360) + 'deg)';
+    } else {
+      windMphEl.textContent = '—'; windDirEl.textContent = '';
+    }
+    if (point && point.waveHeightFt != null) {
+      waveHeightEl.textContent = (Math.round(point.waveHeightFt * 10) / 10) + ' ft';
+      wavePeriodEl.textContent = point.wavePeriodS != null ? ('@ ' + Math.round(point.wavePeriodS) + 's') : '';
+    } else {
+      waveHeightEl.textContent = '—'; wavePeriodEl.textContent = '';
+    }
+  }
+
   async function renderWindWave(st) {
     const wrap = $('windChartsWrap');
     if (!st || !Number.isFinite(st.lat) || !Number.isFinite(st.lon)) {
       $('windMsg').textContent = "Wind & wave data needs this beach's location — tap Change beach and pick it again to turn this on.";
       $('windMsg').classList.remove('hidden');
       wrap.classList.add('hidden');
-      $('windMph').textContent = '—'; $('windDirLabel').textContent = ''; $('waveHeight').textContent = '—'; $('wavePeriod').textContent = '';
+      applyWindWaveStat(null, '');
+      applyWindWaveStat(null, 'Tomorrow');
       hideSurfBadge();
       return;
     }
@@ -1603,25 +1650,7 @@
     try {
       const series = await fetchWindWave(st.lat, st.lon);
       const now = nearestWindWave(series, Date.now());
-      if (now && now.windMph != null) {
-        $('windMph').textContent = Math.round(now.windMph) + ' mph';
-        const dir = degreesToCompass(now.windDir);
-        $('windDirLabel').textContent = dir || '';
-        // Rotated to point in the direction the wind is blowing TOWARD
-        // (downwind) -- the meteorological convention windDir itself
-        // encodes ("wind direction" means where it's blowing FROM)
-        // points the "wrong" way for an at-a-glance arrow.
-        $('windArrow').style.visibility = now.windDir != null ? 'visible' : 'hidden';
-        if (now.windDir != null) $('windArrow').style.transform = 'rotate(' + ((now.windDir + 180) % 360) + 'deg)';
-      } else {
-        $('windMph').textContent = '—'; $('windDirLabel').textContent = '';
-      }
-      if (now && now.waveHeightFt != null) {
-        $('waveHeight').textContent = (Math.round(now.waveHeightFt * 10) / 10) + ' ft';
-        $('wavePeriod').textContent = now.wavePeriodS != null ? ('@ ' + Math.round(now.wavePeriodS) + 's') : '';
-      } else {
-        $('waveHeight').textContent = '—'; $('wavePeriod').textContent = '';
-      }
+      applyWindWaveStat(now, '');
 
       // Both charts share today's own midnight-to-midnight window -- same
       // axis as the tide curve on the other panel -- rather than each
@@ -1647,13 +1676,10 @@
       $('waveChartBlockTomorrow').classList.toggle('hidden', !hasWaveTomorrow);
       if (hasWaveTomorrow) drawWaveBarChart($('waveChartTomorrow'), tomorrowPoints, tomorrowWin.start, tomorrowWin.end, null, false);
 
-      // Tomorrow's header detail line -- the day's forecast low-high
-      // range for each chart, not a live "now" value (there isn't one
-      // yet). Degrades to plain "Tomorrow" if a day's data is missing.
-      const waveRange = fmtRange(tomorrowPoints.map(p => p.waveHeightFt), 1, ' ft');
-      $('waveHeaderStatTomorrow').textContent = 'Tomorrow' + (waveRange ? ' · ' + waveRange : '');
-      const windRange = fmtRange(tomorrowPoints.map(p => p.windMph), 0, ' mph');
-      $('windHeaderStatTomorrow').textContent = 'Tomorrow' + (windRange ? ' · ' + windRange : '');
+      // Tomorrow's header stat -- the SAME format as today's, just
+      // evaluated at tomorrow's representative (noon) point instead of
+      // a real "now" (see representativePoint()'s own comment).
+      applyWindWaveStat(representativePoint(tomorrowPoints, tomorrowWin), 'Tomorrow');
 
       renderSurfQuality(st, now, todayPoints, dayWindow, tomorrowPoints, tomorrowWin); // fire-and-forget -- see its own comment
       // wrap has to be visible (not display:none) BEFORE resetDayPager
