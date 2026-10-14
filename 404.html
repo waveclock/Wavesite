@@ -68,7 +68,7 @@
     --bg: #ffffff;
     --rise: #0b7a3e;
     --fall: #b4361b;
-    --fair: #b8860b;       /* Clean/Fair/Choppy's middle tier -- rise/fall are already taken */
+    --fair: #1f5fd1;       /* Clean/Fair/Choppy's middle tier -- same brand blue as --wave, so "Fair" reads as its own color family, not a clash */
     /* The fixed action bar's own content height (icon + gap + label +
        its padding/border), EXCLUDING env(safe-area-inset-bottom) -- the
        panels' own bottom padding adds that separately via calc(), same
@@ -182,6 +182,12 @@
   .surf-badge-pill.fair { background: var(--fair); }
   .surf-badge-pill.choppy { background: var(--fall); }
   .surf-badge-note { font-size: 13px; font-weight: 600; color: var(--soft); }
+  .bar-legend { display: flex; gap: 16px; margin: 4px 0 0; font-size: 12px; font-weight: 600; color: var(--soft); }
+  .bar-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .bar-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .bar-legend i.clean { background: var(--rise); }
+  .bar-legend i.fair { background: var(--fair); }
+  .bar-legend i.choppy { background: var(--fall); }
 
   /* picker */
   h1 { font-size: 34px; font-weight: 900; margin: 18px 0 6px; line-height: 1.1; }
@@ -296,8 +302,9 @@
 
     <div id="windChartsWrap" class="hidden">
       <div id="waveChartBlock">
-        <div class="mini-chart-cap">Wave height, next 24 hours</div>
-        <div class="curve"><svg id="waveChart" viewBox="0 0 360 110" role="img" aria-label="Wave height forecast"></svg></div>
+        <div class="mini-chart-cap">Wave height, today</div>
+        <div class="curve"><svg id="waveChart" viewBox="0 0 360 110" role="img" aria-label="Wave height forecast, bars colored by predicted surf quality"></svg></div>
+        <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
       </div>
       <div class="mini-chart-cap">Wind speed, next 24 hours</div>
       <div class="curve"><svg id="windChart" viewBox="0 0 360 90" role="img" aria-label="Wind speed forecast"></svg></div>
@@ -511,6 +518,33 @@
     return { sunrise: fromJulian(Jrise), sunset: fromJulian(Jset) };
   }
 
+  // Today's own midnight-to-midnight window, in the VIEWER's local wall
+  // clock (same convention the tide curve below already used) -- shared
+  // so the wave-height bar chart can be put on the exact same time axis
+  // as the tide curve instead of its own separate "next 24 hours from
+  // now" rolling window.
+  function todayWindow(now) {
+    const start = new Date(now); start.setHours(0, 0, 0, 0);
+    return { start, end: new Date(start.getTime() + 24 * 3600e3) };
+  }
+
+  // The same pale night-shading (before sunrise, after sunset) the tide
+  // curve paints, factored out so the wave-height bar chart can share it
+  // -- both charts span one midnight-to-midnight day, just with their
+  // own X mapping/pixel size. No lat/lon on record (or no current
+  // station yet) is the graceful "no bands" fallback, same as before.
+  function nightBandsSvg(windowStart, X, W, H) {
+    if (!current || !Number.isFinite(current.lat) || !Number.isFinite(current.lon)) return '';
+    // Fed the window's own NOON, not midnight -- see the long comment on
+    // this same trick in drawCurve below.
+    const sun = sunriseSunset(new Date(windowStart.getTime() + 12 * 3600e3), current.lat, current.lon);
+    const riseX = X(sun.sunrise), setX = X(sun.sunset);
+    if (!Number.isFinite(riseX) || !Number.isFinite(setX) || setX <= riseX) return '';
+    const r = Math.min(Math.max(riseX, 0), W), s = Math.min(Math.max(setX, 0), W);
+    return `<rect x="0" y="0" width="${r.toFixed(1)}" height="${H}" fill="#e7effc"/>` +
+           `<rect x="${s.toFixed(1)}" y="0" width="${(W - s).toFixed(1)}" height="${H}" fill="#e7effc"/>`;
+  }
+
   function render() {
     if (!events) return;
     const now = new Date();
@@ -576,8 +610,7 @@
 
   function drawCurve(now) {
     const W = 360, H = 175, padT = 24, padB = 46;
-    const start = new Date(now); start.setHours(0, 0, 0, 0);
-    const end = new Date(start.getTime() + 24 * 3600e3);
+    const { start, end } = todayWindow(now);
     const pts = [];
     for (let i = 0; i <= 96; i++) {
       const t = new Date(start.getTime() + i * 15 * 60e3); const v = levelAt(events, t);
@@ -596,24 +629,7 @@
     // panel. A tag registered before lat/lon existed (or missing them
     // for any other reason) just gets no bands -- the plain white
     // background underneath is the graceful fallback, not an error.
-    let nightBands = '';
-    if (current && Number.isFinite(current.lat) && Number.isFinite(current.lon)) {
-      // Fed the chart day's NOON instant, not midnight -- the algorithm
-      // picks whichever solar transit is nearest the given instant, and
-      // for a longitude west of Greenwich, midnight UTC is still evening
-      // of the PREVIOUS UTC calendar date locally, which silently picked
-      // yesterday's sunrise/sunset instead of today's (caught by a
-      // Playwright check expecting bands near today's real sunrise/
-      // sunset and getting ~a full day off instead). Noon has no such
-      // ambiguity for any real station's longitude.
-      const sun = sunriseSunset(new Date(start.getTime() + 12 * 3600e3), current.lat, current.lon);
-      const riseX = X(sun.sunrise), setX = X(sun.sunset);
-      if (Number.isFinite(riseX) && Number.isFinite(setX) && setX > riseX) {
-        const r = Math.min(Math.max(riseX, 0), W), s = Math.min(Math.max(setX, 0), W);
-        nightBands = `<rect x="0" y="0" width="${r.toFixed(1)}" height="${H}" fill="#e7effc"/>` +
-                     `<rect x="${s.toFixed(1)}" y="0" width="${(W - s).toFixed(1)}" height="${H}" fill="#e7effc"/>`;
-      }
-    }
+    const nightBands = nightBandsSvg(start, X, W, H);
 
     let d = `M ${X(pts[0][0]).toFixed(1)} ${Y(pts[0][1]).toFixed(1)}`;
     pts.slice(1).forEach(p => d += ` L ${X(p[0]).toFixed(1)} ${Y(p[1]).toFixed(1)}`);
@@ -1149,14 +1165,20 @@
     return { quality: windMph < 12 ? 'Fair' : 'Choppy', note: 'Cross-shore wind' };
   }
 
+  // past_hours reaches back far enough that the viewer's own local
+  // midnight is always inside the series, no matter their timezone
+  // offset from UTC (these requests are fetched/parsed in UTC) -- the
+  // wave-height bar chart below plots the full today midnight-to-
+  // midnight window, same as the tide curve, not just a forward-looking
+  // forecast.
   async function fetchWindWave(lat, lon) {
     const weatherParams = new URLSearchParams({
       latitude: lat, longitude: lon, hourly: 'wind_speed_10m,wind_direction_10m',
-      wind_speed_unit: 'mph', timezone: 'UTC', forecast_hours: '48'
+      wind_speed_unit: 'mph', timezone: 'UTC', past_hours: '36', forecast_hours: '60'
     });
     const marineParams = new URLSearchParams({
       latitude: lat, longitude: lon, hourly: 'wave_height,wave_period',
-      length_unit: 'imperial', timezone: 'UTC', forecast_hours: '48'
+      length_unit: 'imperial', timezone: 'UTC', past_hours: '36', forecast_hours: '60'
     });
     const [weatherResult, marineResult] = await Promise.allSettled([
       fetch(OPEN_METEO_WEATHER + '?' + weatherParams).then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status))),
@@ -1235,23 +1257,85 @@
     svgEl.innerHTML = '<path d="' + area + '" fill="' + color + '" opacity="0.2"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="3"/>' + hourLabels + yAxisLabels;
   }
 
+  // Hex twins of the --rise/--fair/--fall CSS custom properties above --
+  // kept in sync by hand. A plain hex (not var(--rise)) is used here on
+  // purpose: these bars are injected via innerHTML as SVG fill
+  // attributes, and var() resolution on an attribute set that way isn't
+  // reliable across browsers the way it is in an actual stylesheet rule
+  // (which is exactly how the matching badge pill/legend swatches above
+  // DO use var(), safely, since those are real CSS rules).
+  const QUALITY_BAR_COLOR = { Clean: '#0b7a3e', Fair: '#1f5fd1', Choppy: '#b4361b' };
+  const QUALITY_BAR_PENDING = '#9aa3bf'; // classification not resolved yet -- neutral, not wrong
+
+  // Wave-height forecast as colored bars instead of a line -- height
+  // still tracks forecast wave height, but each bar's COLOR is that
+  // hour's own Clean/Fair/Choppy call (not just "now"'s), using the same
+  // wind-vs-coastline classifier as the badge above. Spans the exact
+  // same midnight-to-midnight window as the tide curve (via windowStart/
+  // windowEnd from todayWindow()), including the same day/night shading,
+  // so both panels read "today" the same way at a glance -- unlike
+  // drawMiniChart's own rolling "next 24 hours from now" window, which
+  // the wind-speed line chart still uses.
+  function drawWaveBarChart(svgEl, points, windowStart, windowEnd, coastBearing) {
+    const W = 360, H = svgEl.viewBox.baseVal.height || 110, padT = 16, padB = 22;
+    const pts = points.filter(p => p.waveHeightFt != null);
+    if (!pts.length) { svgEl.innerHTML = ''; return; }
+    const span2 = (windowEnd - windowStart) || 1;
+    const X = t => (t - windowStart) / span2 * W;
+    const hi = Math.max(0.1, Math.max(...pts.map(p => p.waveHeightFt)));
+    const Y = v => padT + (1 - v / hi) * (H - padT - padB);
+    const barW = Math.max(3, (W / 24) * 0.7);
+
+    const nightBands = nightBandsSvg(windowStart, X, W, H);
+
+    let bars = '';
+    pts.forEach(p => {
+      const quality = (coastBearing != null && p.windMph != null && p.windDir != null)
+        ? (classifySurfQuality(p.windMph, p.windDir, coastBearing) || {}).quality
+        : null;
+      const fill = quality ? (QUALITY_BAR_COLOR[quality] || QUALITY_BAR_PENDING) : QUALITY_BAR_PENDING;
+      const x = X(p.t) - barW / 2, y = Y(p.waveHeightFt);
+      bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + (H - padB - y).toFixed(1) + '" rx="2" fill="' + fill + '"/>';
+    });
+
+    const hourLabels = [6, 12, 18].map(h => {
+      const t = new Date(windowStart.getTime() + h * 3600e3);
+      return '<text x="' + (W * h / 24).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="11" fill="#4a5675">' + (h === 12 ? 'noon' : (h % 12) + (h < 12 ? 'am' : 'pm')) + '</text>';
+    }).join('');
+    const yAxisLabels =
+      '<text x="4" y="' + (padT + 9).toFixed(1) + '" font-size="10" fill="#4a5675">' + (Math.round(hi * 10) / 10) + ' ft</text>' +
+      '<text x="4" y="' + (H - padB - 3).toFixed(1) + '" font-size="10" fill="#4a5675">0.0 ft</text>';
+
+    svgEl.innerHTML = nightBands + bars + hourLabels + yAxisLabels;
+  }
+
   function hideSurfBadge() { $('surfBadge').classList.add('hidden'); }
 
   // Independent of (and never blocking) the rest of this screen -- same
   // "degrade the extra, not the core thing" principle as the charts
   // themselves not blocking the tide fetch. A coastline lookup failure
-  // (or simply not having one cached/reachable yet) just means no badge,
-  // not an error shown anywhere.
-  async function renderSurfBadge(st, now) {
+  // (or simply not having one cached/reachable yet) just means no badge
+  // and plain neutral-colored bars, not an error shown anywhere. The
+  // wave bar chart is drawn once immediately (uncolored) by the caller
+  // below, then redrawn here, in place, once (if) the real classification
+  // resolves -- a progressive upgrade, not something either render has to
+  // wait on.
+  async function renderSurfQuality(st, now, wavePoints, dayWindow) {
     if (!now || now.windMph == null || now.windDir == null) { hideSurfBadge(); return; }
     try {
       const coastBearing = await fetchCoastFacingBearing(st.lat, st.lon);
       const result = classifySurfQuality(now.windMph, now.windDir, coastBearing);
-      if (!result) { hideSurfBadge(); return; }
-      $('surfBadgePill').textContent = result.quality;
-      $('surfBadgePill').className = 'surf-badge-pill ' + result.quality.toLowerCase();
-      $('surfBadgeNote').textContent = result.note;
-      $('surfBadge').classList.remove('hidden');
+      if (result) {
+        $('surfBadgePill').textContent = result.quality;
+        $('surfBadgePill').className = 'surf-badge-pill ' + result.quality.toLowerCase();
+        $('surfBadgeNote').textContent = result.note;
+        $('surfBadge').classList.remove('hidden');
+      } else {
+        hideSurfBadge();
+      }
+      if (wavePoints.some(p => p.waveHeightFt != null)) {
+        drawWaveBarChart($('waveChart'), wavePoints, dayWindow.start, dayWindow.end, coastBearing);
+      }
     } catch (e) {
       hideSurfBadge();
     }
@@ -1271,7 +1355,6 @@
     try {
       const series = await fetchWindWave(st.lat, st.lon);
       const now = nearestWindWave(series, Date.now());
-      renderSurfBadge(st, now); // fire-and-forget -- see its own comment
       if (now && now.windMph != null) {
         $('windMph').textContent = Math.round(now.windMph) + ' mph';
         const dir = degreesToCompass(now.windDir);
@@ -1292,15 +1375,22 @@
         $('waveHeight').textContent = '—'; $('wavePeriod').textContent = '';
       }
 
-      // Capped to ~24h so the chart's own x-axis actually matches its
-      // "next 24 hours" caption -- fetchWindWave pulls 48h because
-      // that's the natural Open-Meteo request shape, not because this
-      // chart should plot all of it.
+      // Capped to ~24h so the wind chart's own x-axis actually matches
+      // its "next 24 hours" caption -- fetchWindWave pulls a wider
+      // window because that's what the wave bar chart below needs, not
+      // because the wind line chart should plot all of it.
       const future = series.filter(p => p.t.getTime() >= Date.now() - 3600e3).slice(0, 25);
-      const hasWave = future.some(p => p.waveHeightFt != null);
-      $('waveChartBlock').classList.toggle('hidden', !hasWave);
-      if (hasWave) drawMiniChart($('waveChart'), future, 'waveHeightFt', '#1f5fd1', ' ft', 1);
       drawMiniChart($('windChart'), future, 'windMph', '#0f1b3d', ' mph', 0);
+
+      // The wave bar chart, in contrast, spans today's own midnight-to-
+      // midnight window -- same axis as the tide curve on the other
+      // panel -- not a rolling "next 24 hours from now."
+      const dayWindow = todayWindow(new Date());
+      const todayPoints = series.filter(p => p.t >= dayWindow.start && p.t <= dayWindow.end);
+      const hasWave = todayPoints.some(p => p.waveHeightFt != null);
+      $('waveChartBlock').classList.toggle('hidden', !hasWave);
+      if (hasWave) drawWaveBarChart($('waveChart'), todayPoints, dayWindow.start, dayWindow.end, null);
+      renderSurfQuality(st, now, todayPoints, dayWindow); // fire-and-forget -- see its own comment
       wrap.classList.remove('hidden');
     } catch (e) {
       $('windMsg').textContent = "Couldn't reach the wind & wave forecast. Check your signal and try again.";
