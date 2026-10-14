@@ -1371,6 +1371,11 @@
       });
     }
     svgEl.innerHTML = nightBands + '<path d="' + area + '" fill="' + color + '" opacity="0.2"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="3"/>' + hourLabels + yAxisLabels + dirArrows;
+    // Read by the press-and-hold scrub tooltip (see setupChartScrub
+    // below). drawMiniChart only ever draws the wind chart in practice,
+    // so 'wind' is hardcoded here rather than threaded through as
+    // another parameter.
+    svgEl._scrub = { kind: 'wind', pts, X, Y, W, H, padT, padB };
   }
 
   // Hex twins of the --rise/--fair/--fall CSS custom properties above --
@@ -1423,6 +1428,7 @@
       const quality = (coastBearing != null && p.windMph != null && p.windDir != null)
         ? (classifySurfQuality(p.windMph, p.windDir, coastBearing) || {}).quality
         : null;
+      p._quality = quality; // stashed on the point itself -- the scrub tooltip below reads this straight off the bar it's currently showing, instead of re-classifying a second time
       const fill = quality ? (QUALITY_BAR_COLOR[quality] || QUALITY_BAR_PENDING) : QUALITY_BAR_PENDING;
       const x = X(p.t) - barW / 2, y = Y(p.waveHeightFt);
       bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + (H - padB - y).toFixed(1) + '" rx="2" fill="' + fill + '"/>';
@@ -1470,6 +1476,10 @@
     ).join('');
 
     svgEl.innerHTML = nightBands + bars + hourLabels + calloutLabels;
+    // Read by the press-and-hold scrub tooltip (see setupChartScrub
+    // below) -- kept in sync with every redraw automatically, since it's
+    // just a reference to this draw's own pts/X/Y, not a copy.
+    svgEl._scrub = { kind: 'wave', pts, X, Y, W, H, padT, padB };
   }
 
   // ---------- the today/tomorrow swipe pager ----------
@@ -1550,6 +1560,121 @@
   dayPagerViewport.addEventListener('touchend', endDayDrag);
   dayPagerViewport.addEventListener('touchcancel', endDayDrag);
   window.addEventListener('resize', () => snapToPos(activeDayPos, false));
+
+  // ---------- press-and-hold a chart to see one data point's details ----------
+  // A quick drag anywhere in #dayPagerViewport already swipes between
+  // today/tomorrow (see above), so scrubbing needs its own gesture that
+  // can't be confused with that one: press and HOLD still (under
+  // SCRUB_HOLD_SLOP px of movement) for SCRUB_HOLD_MS before it
+  // activates, rather than reacting to any drag immediately. Once
+  // active, it stops the touch event from bubbling up to the day-pager's
+  // own listeners for the rest of that gesture, so the two can't both
+  // fire for the same touch. Attached directly to each chart's own
+  // .curve wrapper (a descendant of #dayPagerViewport), not the
+  // viewport itself, so each chart only ever scrubs its own data.
+  const SCRUB_HOLD_MS = 180;
+  const SCRUB_HOLD_SLOP = 10;
+
+  function nearestScrubIndex(scrub, svgEl, clientX) {
+    const rect = svgEl.getBoundingClientRect();
+    const svgX = rect.width ? (clientX - rect.left) / rect.width * scrub.W : 0;
+    let best = 0, bestDist = Infinity;
+    scrub.pts.forEach((p, i) => {
+      const dist = Math.abs(scrub.X(p.t) - svgX);
+      if (dist < bestDist) { bestDist = dist; best = i; }
+    });
+    return best;
+  }
+
+  // Small dark pill, auto-sized to its longest line (same rough
+  // chars-to-px heuristic the wave chart's own Now/High/Low callouts
+  // use), clamped so it never runs off either side of the chart, and
+  // flipped below the point instead of above when there's no headroom.
+  function scrubTooltipSvg(x, y, lines, W, padT) {
+    const padX = 8, padY = 6, lineH = 14;
+    const boxW = Math.max(...lines.map(l => l.length)) * 6.3 + padX * 2;
+    const boxH = lines.length * lineH + padY * 2 - 2;
+    let bx = Math.min(Math.max(x - boxW / 2, 2), W - boxW - 2);
+    let by = y - boxH - 14;
+    if (by < padT - 14) by = y + 14;
+    let svg = '<rect x="' + bx.toFixed(1) + '" y="' + by.toFixed(1) + '" width="' + boxW.toFixed(1) + '" height="' + boxH.toFixed(1) + '" rx="8" fill="#0f1b3d"/>';
+    lines.forEach((line, i) => {
+      svg += '<text x="' + (bx + boxW / 2).toFixed(1) + '" y="' + (by + padY + lineH * (i + 1) - 4).toFixed(1) + '" text-anchor="middle" font-size="' + (i === 0 ? 13 : 11) + '" font-weight="' + (i === 0 ? 800 : 600) + '" fill="#fff">' + line + '</text>';
+    });
+    return svg;
+  }
+
+  function setupChartScrub(curveEl, svgEl) {
+    let holdTimer = null, scrubbing = false, startX = 0, startY = 0;
+
+    function render(clientX) {
+      const scrub = svgEl._scrub;
+      if (!scrub || !scrub.pts.length) return;
+      const idx = nearestScrubIndex(scrub, svgEl, clientX);
+      const p = scrub.pts[idx];
+      const x = scrub.X(p.t);
+      const timeLabel = fmtTime(p.t).replace(/:00/, '').replace(' ', '');
+      let value, markerY, markerColor = '#0f1b3d', lines;
+      if (scrub.kind === 'wave') {
+        value = p.waveHeightFt;
+        if (value == null) return;
+        markerY = scrub.Y(value);
+        const valueLine = (Math.round(value * 10) / 10) + ' ft' + (p.wavePeriodS != null ? ' @ ' + Math.round(p.wavePeriodS) + 's' : '');
+        lines = p._quality ? [timeLabel, valueLine, p._quality] : [timeLabel, valueLine];
+        if (p._quality) markerColor = QUALITY_BAR_COLOR[p._quality] || markerColor;
+      } else {
+        value = p.windMph;
+        if (value == null) return;
+        markerY = scrub.Y(value);
+        const dir = degreesToCompass(p.windDir);
+        lines = [timeLabel, Math.round(value) + ' mph' + (dir ? ' ' + dir : '')];
+      }
+      const crosshair = '<line x1="' + x.toFixed(1) + '" y1="' + scrub.padT.toFixed(1) + '" x2="' + x.toFixed(1) + '" y2="' + (scrub.H - scrub.padB).toFixed(1) + '" stroke="#0f1b3d" stroke-width="1" stroke-dasharray="3,3" opacity="0.45"/>';
+      const dot = '<circle cx="' + x.toFixed(1) + '" cy="' + markerY.toFixed(1) + '" r="5" fill="' + markerColor + '" stroke="#fff" stroke-width="2"/>';
+      const tooltip = scrubTooltipSvg(x, markerY, lines, scrub.W, scrub.padT);
+      let layer = svgEl.querySelector('#scrubLayer');
+      if (!layer) { svgEl.insertAdjacentHTML('beforeend', '<g id="scrubLayer"></g>'); layer = svgEl.querySelector('#scrubLayer'); }
+      layer.innerHTML = crosshair + dot + tooltip;
+    }
+
+    function clear() {
+      const layer = svgEl.querySelector('#scrubLayer');
+      if (layer) layer.remove();
+    }
+
+    curveEl.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1) return;
+      startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+      scrubbing = false;
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => { scrubbing = true; render(startX); }, SCRUB_HOLD_MS);
+    }, { passive: true });
+
+    curveEl.addEventListener('touchmove', e => {
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      if (!scrubbing) {
+        if (Math.abs(t.clientX - startX) > SCRUB_HOLD_SLOP || Math.abs(t.clientY - startY) > SCRUB_HOLD_SLOP) clearTimeout(holdTimer); // real drag -- let it bubble up as a normal swipe
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      render(t.clientX);
+    }, { passive: false });
+
+    function onEnd(e) {
+      clearTimeout(holdTimer);
+      if (scrubbing) { e.stopPropagation(); clear(); }
+      scrubbing = false;
+    }
+    curveEl.addEventListener('touchend', onEnd);
+    curveEl.addEventListener('touchcancel', onEnd);
+  }
+
+  ['waveChart', 'windChart', 'waveChartTomorrow', 'windChartTomorrow'].forEach(id => {
+    const svgEl = $(id);
+    setupChartScrub(svgEl.closest('.curve'), svgEl);
+  });
 
   function hideSurfBadge() {
     $('waveHeaderBadge').className = 'chart-header-badge hidden';
