@@ -169,6 +169,7 @@
 
   /* wind & waves screen */
   .wind-title { font-size: clamp(30px, 9vw, 42px); font-weight: 900; letter-spacing: -0.01em; margin: 4px 0 18px; }
+  .surf-debug { font-size: 13px; color: var(--soft); margin: -12px 0 14px; }
   .wind-arrow { color: var(--wave); flex-shrink: 0; }
   /* Per-chart header -- the SAME format for both today and tomorrow (a
      short title, a live stat, a colored badge), replacing the old
@@ -310,6 +311,15 @@
 
   <section class="snap-panel" id="windPanel">
     <h1 class="wind-title">Waves &amp; Wind</h1>
+    <!-- Temporary diagnostic, not a permanent feature: the coastline
+         classification has failed silently (just gray bars, no badges,
+         no explanation) across several live reports now, each with a
+         different real cause -- an unreliable Overpass mirror, an
+         oversized/undersized timeout, a location-switch race. Rather
+         than guess blind at the NEXT cause too, surface the actual
+         reason here so it's readable without needing a computer or
+         devtools. See renderSurfQuality's catch block. -->
+    <div class="surf-debug hidden" id="surfDebug"></div>
 
     <div class="msg hidden" id="windMsg"></div>
 
@@ -1860,6 +1870,7 @@
     try {
       const storedBearing = st.coastFacingDirection ? compassToBearing(st.coastFacingDirection) : null;
       const coastBearing = storedBearing != null ? storedBearing : await fetchCoastFacingBearing(st.lat, st.lon);
+      $('surfDebug').classList.add('hidden');
       setQualityBadges(now && now.windMph, now && now.windDir, coastBearing, 'waveHeaderBadge', 'windHeaderBadge');
       const tomorrowNow = representativePoint(tomorrowPoints, tomorrowWin);
       setQualityBadges(tomorrowNow && tomorrowNow.windMph, tomorrowNow && tomorrowNow.windDir, coastBearing, 'waveHeaderBadgeTomorrow', 'windHeaderBadgeTomorrow');
@@ -1871,6 +1882,13 @@
       }
     } catch (e) {
       hideSurfBadge();
+      // Temporary diagnostic (see #surfDebug's own comment) -- the
+      // actual reason (a thrown Error's message) read straight off
+      // fetchCoastFacingBearing/fetchOverpassCoastline/coastlineProxy's
+      // own error paths, e.g. "no coastline found nearby" vs "http 502"
+      // vs "timed out", without needing devtools access to see it.
+      $('surfDebug').textContent = 'Direction unavailable: ' + (e && e.message ? e.message : 'unknown error');
+      $('surfDebug').classList.remove('hidden');
     }
   }
 
