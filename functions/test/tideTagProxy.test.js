@@ -87,6 +87,13 @@ async function test(name, fn) {
     assert.strictEqual(res.statusCode, 200);
     assert.deepStrictEqual(res.body, { registered: true, stationId: "8536110", stationName: "Atlantic City, NJ" });
   });
+  await test("includes lat/lon when the stored record has them", async () => {
+    const req = fakeReq({ method: "GET", query: { tagId: "A7K2" } });
+    const res = fakeRes();
+    const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "8536110", stationName: "Atlantic City, NJ", createdAt: "x", lat: 39.355, lon: -74.4183 }) });
+    await tideTagProxyHandler(req, res, bucket);
+    assert.deepStrictEqual(res.body, { registered: true, stationId: "8536110", stationName: "Atlantic City, NJ", lat: 39.355, lon: -74.4183 });
+  });
   await test("rejects a missing tagId", async () => {
     const req = fakeReq({ method: "GET", query: {} });
     const res = fakeRes();
@@ -118,6 +125,20 @@ async function test(name, fn) {
     assert.strictEqual(res.statusCode, 201);
     assert.deepStrictEqual(res.body, { registered: true, stationId: "8536110", stationName: "Atlantic City, NJ" });
     assert.ok(bucket._store.has("tide-tags/A7K2.json"));
+  });
+  await test("accepts and returns lat/lon when given", async () => {
+    const bucket = makeFakeBucket({});
+    const req = fakeReq({ method: "POST", body: { tagId: "A7K2", stationId: "8536110", stationName: "Atlantic City, NJ", lat: 39.355, lon: -74.4183 } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.deepStrictEqual(res.body, { registered: true, stationId: "8536110", stationName: "Atlantic City, NJ", lat: 39.355, lon: -74.4183 });
+  });
+  await test("registering without lat/lon still succeeds -- they're a nice-to-have, not required", async () => {
+    const bucket = makeFakeBucket({});
+    const req = fakeReq({ method: "POST", body: { tagId: "A7K2", stationId: "8536110", stationName: "Atlantic City, NJ" } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 201);
   });
   await test("refuses to re-register an already-registered tag -- 409, original untouched", async () => {
     const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "x" }) });
@@ -168,6 +189,13 @@ async function test(name, fn) {
     assert.strictEqual(res.statusCode, 200);
     assert.deepStrictEqual(res.body, { registered: true, stationId: "8536110", stationName: "Different Beach" });
     assert.strictEqual(JSON.parse(bucket._store.get("tide-tags/A7K2.json")).stationId, "8536110");
+  });
+  await test("accepts and returns the new lat/lon when given", async () => {
+    const bucket = makeFakeBucket({ "tide-tags/A7K2.json": JSON.stringify({ stationId: "ORIGINAL", stationName: "First Beach", createdAt: "x", lat: 10, lon: 20 }) });
+    const req = fakeReq({ method: "PUT", body: { tagId: "A7K2", stationId: "8536110", stationName: "Different Beach", lat: 39.355, lon: -74.4183 } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, bucket);
+    assert.deepStrictEqual(res.body, { registered: true, stationId: "8536110", stationName: "Different Beach", lat: 39.355, lon: -74.4183 });
   });
   await test("also works to register a brand-new tag (never 409s, unlike POST)", async () => {
     const bucket = makeFakeBucket({});

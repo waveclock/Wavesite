@@ -905,6 +905,21 @@ exports.teamsnapProxy = onRequest({ cors: true, region: "us-central1" }, teamsna
 // used only by tests (a fully in-memory fake bucket, no live GCS call).
 const TAG_ID_HINT = "tagId must be 4-6 characters (A-Z, 2-9, excluding the easily-misread 0/O/1/I)";
 
+// Shared response shape for GET/POST/PUT -- lat/lon are only included
+// when the record actually has them (an older registration, or one
+// whose picker request didn't send coordinates, won't), never as
+// explicit `undefined` keys, which would otherwise round-trip through
+// res.json() and change the response's own key set for every existing
+// client parsing it.
+function tagResponseBody(record) {
+  const body = { registered: true, stationId: record.stationId, stationName: record.stationName };
+  if (record.lat != null && record.lon != null) {
+    body.lat = record.lat;
+    body.lon = record.lon;
+  }
+  return body;
+}
+
 async function tideTagProxyHandler(req, res, bucketImpl) {
   const bucket = bucketImpl || admin.storage().bucket();
 
@@ -920,7 +935,7 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
         res.status(200).json({ registered: false });
         return;
       }
-      res.status(200).json({ registered: true, stationId: record.stationId, stationName: record.stationName });
+      res.status(200).json(tagResponseBody(record));
     } catch (err) {
       logger.error("Tide tag proxy GET failed for " + tagId + ":", err);
       res.status(502).json({ error: "Couldn't reach tag storage right now" });
@@ -929,7 +944,7 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
   }
 
   if (req.method === "POST") {
-    const { tagId, stationId, stationName } = req.body || {};
+    const { tagId, stationId, stationName, lat, lon } = req.body || {};
     if (typeof tagId !== "string" || !isValidTagId(tagId)) {
       res.status(400).json({ error: TAG_ID_HINT });
       return;
@@ -947,13 +962,16 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
       res.status(400).json({ error: "stationName is required" });
       return;
     }
+    // lat/lon are optional (see sanitizeCoords in lib/tideTag.js) -- a
+    // missing or malformed value just means no sunrise/sunset shading
+    // for this tag later, not a rejected registration.
     try {
-      const result = await saveTideTag(bucket, tagId, stationId, stationName.trim());
+      const result = await saveTideTag(bucket, tagId, stationId, stationName.trim(), lat, lon);
       if (result.status === "already-registered") {
         res.status(409).json({ error: "This tag is already registered to a beach" });
         return;
       }
-      res.status(201).json({ registered: true, stationId: result.record.stationId, stationName: result.record.stationName });
+      res.status(201).json(tagResponseBody(result.record));
     } catch (err) {
       logger.error("Tide tag proxy POST failed for " + tagId + ":", err);
       res.status(502).json({ error: "Couldn't save that right now" });
@@ -966,7 +984,7 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
     // beach" link on an already-registered tag's tide page. Same
     // validation, but always succeeds (short of a real storage failure)
     // since there's no "already registered" case to guard against here.
-    const { tagId, stationId, stationName } = req.body || {};
+    const { tagId, stationId, stationName, lat, lon } = req.body || {};
     if (typeof tagId !== "string" || !isValidTagId(tagId)) {
       res.status(400).json({ error: TAG_ID_HINT });
       return;
@@ -980,8 +998,8 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
       return;
     }
     try {
-      const record = await updateTideTag(bucket, tagId, stationId, stationName.trim());
-      res.status(200).json({ registered: true, stationId: record.stationId, stationName: record.stationName });
+      const record = await updateTideTag(bucket, tagId, stationId, stationName.trim(), lat, lon);
+      res.status(200).json(tagResponseBody(record));
     } catch (err) {
       logger.error("Tide tag proxy PUT failed for " + tagId + ":", err);
       res.status(502).json({ error: "Couldn't save that right now" });

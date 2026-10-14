@@ -49,6 +49,27 @@ async function fetchTideTag(bucket, tagId) {
   }
 }
 
+// lat/lon are optional and nice-to-have, not load-bearing -- the
+// picker always has the chosen station's real coordinates in hand (the
+// NOAA stations list carries them), so this is just passing them
+// through to store alongside the station, for the tide page's sunrise/
+// sunset-based day/night background. A missing or out-of-range value
+// is silently dropped rather than rejecting the whole registration
+// over it; a tag registered before this existed (or whose picker
+// request didn't include them for any reason) just won't get the
+// sunrise/sunset shading, same graceful-degrade as a missing logo.
+function sanitizeCoords(lat, lon) {
+  // Number(null) and Number(undefined) coerce to 0 and NaN respectively
+  // -- 0 is a real (if unlikely) coordinate, so a missing value has to
+  // be rejected explicitly before the coercion below, not left to fall
+  // out of the finite/range checks on its own.
+  if (lat == null || lon == null) return null;
+  const la = Number(lat), lo = Number(lon);
+  if (!Number.isFinite(la) || la < -90 || la > 90) return null;
+  if (!Number.isFinite(lo) || lo < -180 || lo > 180) return null;
+  return { lat: la, lon: lo };
+}
+
 // Registers a station against a tag -- but ONLY if that tag isn't
 // already registered. preconditionOpts.ifGenerationMatch: 0 is Cloud
 // Storage's own atomic "create, don't overwrite" precondition
@@ -58,9 +79,12 @@ async function fetchTideTag(bucket, tagId) {
 // phone double-submitting the picker. That specific, expected race
 // returns { status: "already-registered" } instead of throwing; any
 // OTHER storage failure still throws.
-async function saveTideTag(bucket, tagId, stationId, stationName) {
+async function saveTideTag(bucket, tagId, stationId, stationName, lat, lon) {
   if (!isValidTagId(tagId)) throw new Error("invalid tagId");
-  const record = { stationId: String(stationId), stationName: String(stationName), createdAt: new Date().toISOString() };
+  const record = Object.assign(
+    { stationId: String(stationId), stationName: String(stationName), createdAt: new Date().toISOString() },
+    sanitizeCoords(lat, lon)
+  );
   try {
     await tagFile(bucket, tagId).save(JSON.stringify(record), {
       contentType: "application/json",
@@ -82,9 +106,12 @@ async function saveTideTag(bucket, tagId, stationId, stationName) {
 // silently overwriting one another's pick. No precondition, so this
 // always succeeds (short of a genuine storage failure) -- there's no
 // "already registered" case to report here, that's the whole point.
-async function updateTideTag(bucket, tagId, stationId, stationName) {
+async function updateTideTag(bucket, tagId, stationId, stationName, lat, lon) {
   if (!isValidTagId(tagId)) throw new Error("invalid tagId");
-  const record = { stationId: String(stationId), stationName: String(stationName), createdAt: new Date().toISOString() };
+  const record = Object.assign(
+    { stationId: String(stationId), stationName: String(stationName), createdAt: new Date().toISOString() },
+    sanitizeCoords(lat, lon)
+  );
   await tagFile(bucket, tagId).save(JSON.stringify(record), { contentType: "application/json" });
   return record;
 }
@@ -102,4 +129,4 @@ async function deleteTideTag(bucket, tagId) {
   }
 }
 
-module.exports = { TAG_ID_PATTERN, isValidTagId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag };
+module.exports = { TAG_ID_PATTERN, isValidTagId, sanitizeCoords, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag };
