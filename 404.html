@@ -9,6 +9,14 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Tide">
+<link rel="apple-touch-icon" href="/logo.png">
+<!-- The <link rel="manifest"> itself is injected per-tag by the script
+     below, not declared here -- this one HTML file serves every tag
+     (/t/A7K2, /t/Q7M3, ...), and each install needs its OWN start_url so
+     reopening it goes straight back to THAT tag's tide, not a blank
+     picker. apple-touch-icon stays static here because iOS reads it
+     directly from the HTML for "Add to Home Screen" regardless of the
+     JSON manifest. -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
@@ -188,6 +196,43 @@
   if (!tagId) {
     $('notfound').classList.remove('hidden');
     return;
+  }
+
+  // ---------- installable as an app (PWA) ----------
+  // A single manifest shared by every tag would make "Add to Home
+  // Screen" open to a blank/generic start every time -- there's no one
+  // "start page" here, each tag IS its own app identity (its own
+  // start_url, its own home-screen icon). So the manifest is built and
+  // injected per-tag at runtime instead of declared statically in
+  // <head>, same spirit as everything else on this page being derived
+  // from the current tagId. A failure here (e.g. third-party cookies/
+  // storage blocked) just means no install prompt -- the tide itself
+  // doesn't depend on it.
+  try {
+    const manifest = {
+      id: location.pathname,
+      name: 'WaveClock Tide',
+      short_name: 'Tide',
+      description: 'Next high and low tide for your beach, in big easy-to-read print.',
+      start_url: location.pathname,
+      scope: '/t/',
+      display: 'standalone',
+      background_color: '#ffffff',
+      theme_color: '#ffffff',
+      icons: [{ src: '/logo.png', sizes: '456x455', type: 'image/png', purpose: 'any' }]
+    };
+    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+    const link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = URL.createObjectURL(blob);
+    document.head.appendChild(link);
+  } catch (e) { /* no manifest -- the tide page still works, just not installable */ }
+
+  // Scoped to '/t/' (not the site-wide default of '/') so this never
+  // touches caching/offline behavior anywhere else on waveclock.net --
+  // only the tide-tag experience itself.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js', { scope: '/t/' }).catch(() => {});
   }
 
   const CACHE_KEY = 'wc_tide_tag_' + tagId;
