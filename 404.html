@@ -295,6 +295,11 @@
 
   /* station map (Leaflet) */
   .station-map { display: none; height: 220px; border: 2px solid var(--line); border-radius: 14px; margin: 14px 0; overflow: hidden; background: var(--wave-pale); }
+  /* radar panel's own map (Leaflet) -- always visible (unlike
+     .station-map, which starts hidden and only appears mid-picker-flow),
+     so it's shown by default and sized to fill most of the panel rather
+     than a fixed 220px. */
+  .radar-map { display: block; height: min(58vh, 440px); border: 2px solid var(--line); border-radius: 14px; margin: 14px 0 6px; overflow: hidden; background: var(--wave-pale); }
   .town-marker svg { display: block; filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff); }
   .station-marker span { display: block; width: 13px; height: 13px; border-radius: 50%; background: var(--wave); border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink); cursor: pointer; }
   /* The one pin that's actually been picked -- a distinct color (not
@@ -468,7 +473,13 @@
 
   </section>
 
-  <!-- Location/WaveClock live OUTSIDE both snap-panels, as a fixed
+  <section class="snap-panel" id="radarPanel">
+    <h1 class="wind-title">Radar</h1>
+    <div class="curve-cap" id="radarCap">Live precipitation near <span id="radarTownName"></span></div>
+    <div class="radar-map" id="radarMap"></div>
+  </section>
+
+  <!-- Location/WaveClock live OUTSIDE all three snap-panels, as a fixed
        overlay -- not "whatever's pushed to the bottom of the panel
        currently in view" (which disappeared when swiping to Wind &
        Waves, since that panel had no action bar of its own), but a
@@ -1001,19 +1012,17 @@
 
   // ---------- screen registry ----------
   // Each entry is an independent beach screen: given the active beach
-  // (st), it renders its own panel and touches nothing else. Right now
-  // this covers exactly the 2 screens that already existed (Tide, Waves
-  // & Wind) -- a pure reshaping of the SAME behavior into a list openTide
-  // iterates, not a new feature. What it unblocks later: a "pick which
-  // screens to show" setup step, or a screen gated on owning a WaveClock,
-  // both become "push another entry onto this array" instead of hand-
-  // wiring a 3rd/4th special case into openTide itself. Each panel's own
-  // markup still lives as static HTML inside #tide, matched by id -- this
-  // registry only orders and triggers each screen's render, it doesn't
-  // generate panel markup (yet).
+  // (st), it renders its own panel and touches nothing else. Originally
+  // covered the 2 screens that already existed (Tide, Waves & Wind); the
+  // Radar screen below is the first screen added just by pushing another
+  // entry onto this array, exactly what it was built to unblock. Each
+  // panel's own markup still lives as static HTML inside #tide, matched
+  // by id -- this registry only orders and triggers each screen's
+  // render, it doesn't generate panel markup (yet).
   const SCREENS = [
     { id: 'tide', label: 'Tide', render: renderTidePanel },
-    { id: 'windwave', label: 'Waves & Wind', render: renderWindWave }
+    { id: 'windwave', label: 'Waves & Wind', render: renderWindWave },
+    { id: 'radar', label: 'Radar', render: renderRadarPanel }
   ];
 
   async function renderTidePanel(st) {
@@ -1248,6 +1257,36 @@
     } catch (e) {
       console.error('Confirm map failed to load:', e);
       clearConfirmMap();
+    }
+  }
+
+  // Radar screen -- a live precipitation map centered on the active
+  // beach, same OSM base tiles as the picker's own maps plus a NEXRAD
+  // overlay from the Iowa Environmental Mesonet's public radar tile
+  // service (free, no API key, reprocessed NOAA NEXRAD data -- the same
+  // public-domain source most weather sites' "free" radar embeds use).
+  // Re-rendered on every openTide (not just the first time), same as the
+  // tide/wind-&-wave screens, so "Change beach" re-centers it on the new
+  // location instead of leaving the old beach's radar showing.
+  let radarMap = null;
+  function renderRadarPanel(st) {
+    $('radarTownName').textContent = st.name;
+    if (radarMap) { radarMap.remove(); radarMap = null; }
+    if (typeof L === 'undefined' || !Number.isFinite(st.lat) || !Number.isFinite(st.lon)) return;
+    try {
+      const el = $('radarMap');
+      radarMap = L.map(el, { zoomControl: true, attributionControl: true }).setView([st.lat, st.lon], 7);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(radarMap);
+      L.tileLayer('https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png', {
+        maxZoom: 12, opacity: 0.65, attribution: 'Radar &copy; Iowa Environmental Mesonet'
+      }).addTo(radarMap);
+      const townIcon = L.divIcon({ className: 'town-marker', html: TOWN_MARKER_HTML, iconSize: [20, 20] });
+      L.marker([st.lat, st.lon], { icon: townIcon }).addTo(radarMap);
+    } catch (e) {
+      console.error('Radar map failed to load:', e);
+      if (radarMap) { radarMap.remove(); radarMap = null; }
     }
   }
 
