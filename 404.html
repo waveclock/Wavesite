@@ -1866,10 +1866,18 @@
   // been hardened) on every single page open. The live fetchCoastFacingBearing
   // path below only runs as a fallback, for a tag whose enrichment
   // hasn't landed yet (just registered, or predates this field).
-  async function renderSurfQuality(st, now, todayPoints, dayWindow, tomorrowPoints, tomorrowWin) {
+  async function renderSurfQuality(st, now, todayPoints, dayWindow, tomorrowPoints, tomorrowWin, myRenderToken) {
     try {
       const storedBearing = st.coastFacingDirection ? compassToBearing(st.coastFacingDirection) : null;
       const coastBearing = storedBearing != null ? storedBearing : await fetchCoastFacingBearing(st.lat, st.lon);
+      // A NEWER renderWindWave call has started since this one kicked
+      // off (see windWaveRenderToken's own comment) -- that one already
+      // painted its own uncolored bars on top of whatever this call was
+      // about to color in, so writing this call's result now would just
+      // be overwriting fresher content with a stale one. Bail silently;
+      // the newer call's own renderSurfQuality is already in flight and
+      // will finish the job properly.
+      if (myRenderToken !== windWaveRenderToken) return;
       $('surfDebug').classList.add('hidden');
       setQualityBadges(now && now.windMph, now && now.windDir, coastBearing, 'waveHeaderBadge', 'windHeaderBadge');
       const tomorrowNow = representativePoint(tomorrowPoints, tomorrowWin);
@@ -1881,6 +1889,7 @@
         drawWaveBarChart($('waveChartTomorrow'), tomorrowPoints, tomorrowWin.start, tomorrowWin.end, coastBearing, false);
       }
     } catch (e) {
+      if (myRenderToken !== windWaveRenderToken) return;
       hideSurfBadge();
       // Temporary diagnostic (see #surfDebug's own comment) -- the
       // actual reason (a thrown Error's message) read straight off
@@ -1920,7 +1929,24 @@
     }
   }
 
+  // boot() can fire TWO full applyRegistration -> openTide -> renderWindWave
+  // passes in quick succession on an ordinary revisit (the cached pick,
+  // painted instantly, then the server-confirmed one once checkRegistration
+  // resolves) -- each with its own independent fetchWindWave round trip and
+  // its own fire-and-forget renderSurfQuality. Those two passes' network
+  // timings aren't guaranteed to finish in the order they started, so
+  // without this guard a SECOND (but actually older-feeling) pass's initial
+  // uncolored paint could land right after the FIRST pass's already-
+  // colored one -- leaving real badge text (never reset once set) sitting
+  // next to bars nobody ever got around to re-coloring, which is exactly
+  // the "Clean/Choppy badge shows but the bars stay gray" report this
+  // fixes. Every renderWindWave call grabs its own token and checks it's
+  // still the current one before writing anything to the DOM; a call that
+  // finds a newer one already running bails out and leaves the newer
+  // call's own (still in-flight) render to finish the job.
+  let windWaveRenderToken = 0;
   async function renderWindWave(st) {
+    const myRenderToken = ++windWaveRenderToken;
     const wrap = $('windChartsWrap');
     if (!st || !Number.isFinite(st.lat) || !Number.isFinite(st.lon)) {
       $('windMsg').textContent = "Wind & wave data needs this beach's location — tap Change beach and pick it again to turn this on.";
@@ -1934,6 +1960,7 @@
     $('windMsg').classList.add('hidden');
     try {
       const series = await fetchWindWave(st.lat, st.lon);
+      if (myRenderToken !== windWaveRenderToken) return; // superseded by a newer renderWindWave call while this fetch was in flight
       const now = nearestWindWave(series, Date.now());
       applyWindWaveStat(now, '');
 
@@ -1966,13 +1993,14 @@
       // a real "now" (see representativePoint()'s own comment).
       applyWindWaveStat(representativePoint(tomorrowPoints, tomorrowWin), 'Tomorrow');
 
-      renderSurfQuality(st, now, todayPoints, dayWindow, tomorrowPoints, tomorrowWin); // fire-and-forget -- see its own comment
+      renderSurfQuality(st, now, todayPoints, dayWindow, tomorrowPoints, tomorrowWin, myRenderToken); // fire-and-forget -- see its own comment
       // wrap has to be visible (not display:none) BEFORE resetDayPager
       // measures the viewport's real width -- otherwise it computes the
       // pager's transform against a collapsed 0px box.
       wrap.classList.remove('hidden');
       resetDayPager(); // a fresh render (new beach, or a periodic refresh) always lands back on "today"
     } catch (e) {
+      if (myRenderToken !== windWaveRenderToken) return;
       $('windMsg').textContent = "Couldn't reach the wind & wave forecast. Check your signal and try again.";
       $('windMsg').classList.remove('hidden');
       wrap.classList.add('hidden');
