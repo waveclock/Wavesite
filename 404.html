@@ -866,14 +866,26 @@
   // An earlier version anchored at the front foot (320,330), which sits
   // on the board's TOP surface -- the board's own tail/back end then
   // hung visibly below the curve line instead of riding on it. Anchoring
-  // at the board's bottom near the back foot instead means the WHOLE
-  // board sits at-or-above the curve, with the back foot essentially
-  // touching it too, matching how an actual surfboard's underside (not
-  // the rider's feet, which stand on TOP of the board) is what actually
-  // contacts the wave.
-  function surferMarker(cx, cy) {
-    const s = 0.09;
-    return `<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) scale(${s}) translate(-190,-397)">
+  // at the board's bottom near the back foot instead means the back foot
+  // itself touches the curve exactly -- but the board is a long diagonal
+  // shape (front near local (497,270), tail near local (61,420)), drawn
+  // at ONE fixed angle. A live report (plus a rendered side-by-side
+  // check) showed that fixed angle visibly fighting the curve's own
+  // local slope -- the art's un-rotated nose-up-right tilt (about -19
+  // degrees, measured via getBBox on the board path, nose to tail) only
+  // happens to roughly match an UPHILL stretch; on a downhill stretch
+  // the two tilts point opposite ways, so the nose floats clear above
+  // the line while the tail pokes through below it, even though the
+  // anchor point itself is exactly on the curve. rotateDeg (see
+  // drawCurve's own BOARD_BASE_ANGLE_DEG) corrects for this by rotating
+  // the whole marker to match the curve's own local tangent at "now",
+  // so the board actually lies along the line regardless of which way
+  // it's sloping. scale defaults to the tide curve's own 0.09; the wave
+  // bar chart's much shorter "now" callout passes a smaller one.
+  function surferMarker(cx, cy, rotateDeg, scale) {
+    const s = scale || 0.09;
+    const r = rotateDeg || 0;
+    return `<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) rotate(${r.toFixed(1)}) scale(${s}) translate(-190,-397)">
       <g fill="none" stroke="#0f1b3d" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="243" cy="73" r="38"/>
         <path d="M240 112 L218 228"/>
@@ -926,7 +938,30 @@
     // chart's own edges.
     const surferCx = Math.min(Math.max(X(now), 13), W - 29);
     const surferCy = Math.min(Math.max(Y(nv), padT + 33), H - padB - 4);
-    const marker = nv == null ? '' : surferMarker(surferCx, surferCy);
+    // The board's own un-rotated art already tilts nose-up-right at
+    // roughly this angle (measured via getBBox on the board path, nose
+    // to tail) -- see surferMarker's own comment. Subtracting it back
+    // out of the curve's local tangent means a rotation of 0 here would
+    // mean "match the curve's slope exactly," not "match whatever angle
+    // the art happens to already be drawn at."
+    const BOARD_BASE_ANGLE_DEG = -18.9;
+    let surferRotateDeg = 0;
+    if (nv != null) {
+      // Sampled 20 minutes either side of "now" (not adjacent points in
+      // the already-computed 15-min pts array) for a tangent that isn't
+      // overly sensitive to any single sample's own small noise.
+      const dt = 20 * 60e3;
+      const v1 = levelAt(events, new Date(now.getTime() - dt));
+      const v2 = levelAt(events, new Date(now.getTime() + dt));
+      if (v1 != null && v2 != null) {
+        const tangentDeg = Math.atan2(Y(v2) - Y(v1), X(new Date(now.getTime() + dt)) - X(new Date(now.getTime() - dt))) * 180 / Math.PI;
+        // Clamped defensively -- real tide curves never actually swing
+        // this steep, but there's no reason to trust an extreme value
+        // from a data gap/edge case enough to flip the figure oddly.
+        surferRotateDeg = Math.max(-35, Math.min(35, tangentDeg - BOARD_BASE_ANGLE_DEG));
+      }
+    }
+    const marker = nv == null ? '' : surferMarker(surferCx, surferCy, surferRotateDeg);
     // Footprint of the surfer artwork around its anchor (the board's
     // bottom edge near the back foot) -- measured via getBBox() on the
     // actual source art at this draw's scale, padded a touch. Only used
@@ -2070,18 +2105,30 @@
       if (p.waveHeightFt < loPt.waveHeightFt) loPt = p;
     });
     const fmtFt = v => (Math.round(v * 10) / 10) + ' ft';
-    const candidates = nowPt ? [{ pt: nowPt, text: 'Now' }] : [];
+    // "Now" is marked with the same brand surfer (see surferMarker) used
+    // on the tide curve, instead of the word "Now" -- isNow flags which
+    // candidate that is so the render step below knows to draw the icon
+    // there instead of text.
+    const candidates = nowPt ? [{ pt: nowPt, text: 'Now', isNow: true }] : [];
     if (hiPt !== nowPt) candidates.push({ pt: hiPt, text: fmtFt(hiPt.waveHeightFt) });
     if (loPt !== nowPt && loPt !== hiPt) candidates.push({ pt: loPt, text: fmtFt(loPt.waveHeightFt) });
 
-    // Same rough text-bbox heuristic the tide curve's own label-collision
+    // Scaled down from the tide curve's own 0.09 to fit this chart's
+    // much shorter height -- no rotation here (unlike the tide curve's
+    // slope-matching, see drawCurve), since there's no continuous line
+    // for a bar chart's discrete hourly bars to lie along; it's a plain
+    // upright marker, not something riding a visible wave face.
+    const NOW_ICON_SCALE = 0.045;
+    // Same rough bbox heuristic the tide curve's own label-collision
     // check uses -- good enough to catch a real overlap, not meant to be
-    // pixel-exact.
+    // pixel-exact. The icon's footprint (~20px wide at this scale,
+    // measured from the source art's own left/right extent) stands in
+    // for a text width here.
     const boxes = candidates.map(c => {
       const cx = Math.min(Math.max(X(c.pt.t), 20), W - 20);
       const cy = Math.max(padT - 2, Y(c.pt.waveHeightFt) - 8);
-      const halfW = c.text.length * 3.6 + 3;
-      return { cx, cy, x0: cx - halfW, x1: cx + halfW, y0: cy - 11, y1: cy + 3, text: c.text };
+      const halfW = c.isNow ? 11 : c.text.length * 3.6 + 3;
+      return { cx, cy, x0: cx - halfW, x1: cx + halfW, y0: cy - 11, y1: cy + 3, text: c.text, isNow: c.isNow };
     });
     let overlap = false;
     for (let i = 0; i < boxes.length && !overlap; i++) {
@@ -2092,7 +2139,9 @@
     }
     const shownBoxes = overlap ? boxes.slice(0, 1) : boxes; // candidates[0] is "Now" when shown, else "High"
     const calloutLabels = shownBoxes.map(b =>
-      '<text x="' + b.cx.toFixed(1) + '" y="' + b.cy.toFixed(1) + '" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1b3d">' + b.text + '</text>'
+      b.isNow
+        ? surferMarker(b.cx, b.cy, 0, NOW_ICON_SCALE)
+        : '<text x="' + b.cx.toFixed(1) + '" y="' + b.cy.toFixed(1) + '" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1b3d">' + b.text + '</text>'
     ).join('');
 
     svgEl.innerHTML = nightBands + bars + hourLabels + calloutLabels;
