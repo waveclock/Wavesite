@@ -29,6 +29,7 @@ const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
 const { isValidTagId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag } = require("./lib/tideTag");
 const { fetchCoastlineNear } = require("./lib/coastline");
+const { fetchCachedCoastline, saveCachedCoastline } = require("./lib/coastlineCache");
 
 admin.initializeApp({ storageBucket: "waveclock.firebasestorage.app" });
 
@@ -748,16 +749,36 @@ exports.hurricaneTrackerProxy = onRequest({ cors: true, region: "us-central1" },
 // hurricaneTrackerProxy above; returns the raw Overpass response
 // (elements array) unchanged so the client's own existing
 // coastlineBearingFromOsm keeps doing the actual bearing math.
-async function coastlineProxyHandler(req, res, fetchImpl) {
+//
+// Checks lib/coastlineCache.js's own cross-user cache before ever
+// touching Overpass -- a coastline's shape doesn't change, so the FIRST
+// pick anywhere near a given spot pays Overpass's own (hardened but
+// still sometimes slow) retry chain, and every later pick near that same
+// spot, by anyone, is an instant cache hit instead. `bucketImpl`, when
+// given, replaces admin.storage().bucket() -- same injectable-dependency
+// convention tideTagProxyHandler's own bucketImpl already uses, for
+// tests.
+async function coastlineProxyHandler(req, res, fetchImpl, bucketImpl) {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
   if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
     res.status(400).json({ error: "lat/lon must be valid coordinates" });
     return;
   }
+  const bucket = bucketImpl || admin.storage().bucket();
+  const cached = await fetchCachedCoastline(bucket, lat, lon);
+  if (cached) {
+    res.status(200).json(cached);
+    return;
+  }
   try {
     const data = await fetchCoastlineNear(lat, lon, fetchImpl);
     res.status(200).json(data);
+    // Only reached once the real response is already on its way to the
+    // client -- see saveCachedCoastline's own "never throws" contract,
+    // which is what makes awaiting it here safe: a cache-write failure
+    // can never turn into a second, conflicting response below.
+    await saveCachedCoastline(bucket, lat, lon, data);
   } catch (err) {
     logger.error("Coastline proxy request failed for " + lat + "," + lon + ":", err);
     res.status(502).json({ error: "Couldn't reach the coastline service right now" });
