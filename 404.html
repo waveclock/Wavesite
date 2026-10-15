@@ -490,20 +490,28 @@
 
 <!-- ============ BEACH PICKER (first tap on an unregistered tag, or "Change beach") ============ -->
 <main id="picker" class="hidden">
-  <!-- Only shown when "Change beach" opened this (isChanging) -- same
-       .top/.station-names banner the tide screen itself uses, so the
-       beach you're ABOUT to possibly replace stays visible the whole
-       time you're picking a new one, styled identically either place. -->
-  <div class="top hidden" id="pickerBanner">
-    <img class="brand-logo" src="/logo.png" alt="WaveClock.net" width="36" height="36">
-    <div class="station-names">
-      <div class="station" id="pickerBannerName">—</div>
-      <div class="station-sub" id="pickerBannerSub"></div>
+  <!-- Only visible during step 1 (the keep-or-change choice) and the
+       search step -- once a town's actually been picked (step 2
+       onward), this whole intro (and its "Pick your beach" heading)
+       hides so whichever step is showing is genuinely the top line on
+       the page, not sandwiched below leftover intro content (see
+       confirmLocation/openPicker's own toggles). -->
+  <div id="pickerIntro">
+    <!-- Only shown when "Change beach" opened this (isChanging) -- same
+         .top/.station-names banner the tide screen itself uses, so the
+         beach you're ABOUT to possibly replace stays visible the whole
+         time you're picking a new one, styled identically either place. -->
+    <div class="top hidden" id="pickerBanner">
+      <img class="brand-logo" src="/logo.png" alt="WaveClock.net" width="36" height="36">
+      <div class="station-names">
+        <div class="station" id="pickerBannerName">—</div>
+        <div class="station-sub" id="pickerBannerSub"></div>
+      </div>
     </div>
+    <img class="brand-logo" id="pickerLogo" src="/logo.png" alt="WaveClock.net" width="36" height="36">
+    <h1>Pick your beach</h1>
+    <p class="sub" id="pickerSub">This keychain will remember it from now on — every tap after this opens straight to your tide.</p>
   </div>
-  <img class="brand-logo" id="pickerLogo" src="/logo.png" alt="WaveClock.net" width="36" height="36">
-  <h1>Pick your beach</h1>
-  <p class="sub" id="pickerSub">This keychain will remember it from now on — every tap after this opens straight to your tide.</p>
   <button class="bigbtn ghost hidden" id="keepBtn" type="button">Keep my current beach</button>
   <!-- Step 1 of the picker wizard: when there's an existing beach to
        possibly replace, lead with a choice (keep it, or go pick a new
@@ -531,7 +539,6 @@
        hands the (possibly renamed) town to loadStationsNear exactly like
        picking a town result always has. -->
   <div class="hidden" id="confirmLocationStep">
-    <h1>Is this the right spot?</h1>
     <div class="station-map" id="confirmMap"></div>
     <p class="sub">Name this beach</p>
     <input class="save-name-input" id="confirmLocationName" type="text" maxlength="60" aria-label="Beach name">
@@ -548,7 +555,7 @@
        fresh town result would. -->
   <div class="hidden" id="stationStep">
     <h1>Pick your tide station</h1>
-    <p class="sub">Choose an ocean buoy for open-ocean tides, or an "inside" station (a bay or inlet) for calmer, more sheltered readings.</p>
+    <p class="sub">Choose an ocean buoy for open-ocean tides.</p>
     <div class="hint" id="stationHint"></div>
     <div class="station-map" id="stationMap"></div>
     <ul class="results" id="stationResults"></ul>
@@ -571,7 +578,7 @@
       <h2 id="saveConfirmName">—</h2>
       <p class="sub">Tide station</p>
       <p class="station-confirm" id="saveConfirmStation">—</p>
-      <p class="sub">Save this as your beach?</p>
+      <p class="sub">Save this as your tide station?</p>
       <button class="bigbtn" id="saveConfirmBtn" type="button">Save</button>
       <button class="bigbtn ghost" id="saveCancelBtn" type="button">Back</button>
     </div>
@@ -1209,6 +1216,26 @@
     }
   }
 
+  // Resolving coastFacingDirection/srfZone/marineZone in the background
+  // from the moment a town's confirmed (see confirmLocation's own call),
+  // rather than waiting until Save is finally tapped at the end of
+  // station-picking. { town, promise, extras, done } -- `done`/`extras`
+  // let confirmAndSave below tell whether this already finished (an
+  // instant save) or is still running (fall back to watching the SAME
+  // promise's own live status updates, not starting a second lookup).
+  let pendingEnrichment = null;
+  function startEnrichment(town) {
+    // Already running (or finished) for this exact spot -- e.g.
+    // stationBackBtn re-entering confirmLocation for the same town.
+    // Re-starting would waste a second round of Overpass/NWS calls and
+    // throw away any progress the first one already made.
+    if (pendingEnrichment && pendingEnrichment.town.lat === town.lat && pendingEnrichment.town.lon === town.lon) return;
+    const entry = { town, extras: null, done: false, promise: null };
+    entry.promise = resolveEnrichment(town, msg => { $('saveStatusText').textContent = msg; })
+      .then(extras => { entry.extras = extras; entry.done = true; return extras; });
+    pendingEnrichment = entry;
+  }
+
   // Step 2: confirm the picked town on its own -- shown on a map, name
   // editable right here -- before moving on to the tide station step.
   // "Continue" hands the (possibly renamed) town to loadStationsNear
@@ -1217,10 +1244,20 @@
   let pendingLocation = null;
   function confirmLocation(town) {
     pendingLocation = town;
+    $('pickerIntro').classList.add('hidden');
     $('searchStep').classList.add('hidden');
     $('confirmLocationStep').classList.remove('hidden');
     $('confirmLocationName').value = town.name + (town.state ? ', ' + town.state : '');
     renderConfirmMap(town);
+    // Kicks off resolving coastFacingDirection/srfZone/marineZone right
+    // away, as soon as there's a real lat/lon to resolve against --
+    // renaming (below) and picking a tide station don't change WHERE
+    // the beach is, so there's no reason to wait until Save is tapped to
+    // even start. By the time the user's gotten through naming and
+    // station-picking, this is often already done -- see
+    // startEnrichment's own guard against re-starting it redundantly
+    // (e.g. when stationBackBtn re-enters this same function).
+    startEnrichment(town);
     maximizeViewport();
   }
   $('confirmLocationBtn').addEventListener('click', () => {
@@ -1249,8 +1286,10 @@
   });
   $('confirmLocationBackBtn').addEventListener('click', () => {
     pendingLocation = null;
+    pendingEnrichment = null;
     clearConfirmMap();
     $('confirmLocationStep').classList.add('hidden');
+    $('pickerIntro').classList.remove('hidden');
     $('searchStep').classList.remove('hidden');
     maximizeViewport();
   });
@@ -1306,7 +1345,7 @@
         $('stationHint').textContent = 'No NOAA tide stations found within 100 miles of there. Try a different town.';
         return;
       }
-      $('stationHint').textContent = nearby.length + ' nearby tide station' + (nearby.length === 1 ? '' : 's') + ' — tap one below, or a pin on the map.';
+      $('stationHint').textContent = nearby.length + ' nearby tide station' + (nearby.length === 1 ? '' : 's') + ' — tap one below.';
       showStationResults(nearby);
       renderStationMap(town, nearby);
     } catch (e) {
@@ -1379,17 +1418,31 @@
     if (!st) return;
     $('saveConfirmState').classList.add('hidden');
     $('saveProgressState').classList.remove('hidden');
-    $('saveStatusText').textContent = 'Saving your beach…';
 
-    // resolveEnrichment's own onStatus callback updates this live, as
-    // soon as the coast direction itself resolves -- independently of
-    // srfZone/marineZone, which can legitimately take much longer (see
-    // its own comment for why that used to make this look permanently
-    // stuck instead of just slow).
-    const extras = await resolveEnrichment(st, msg => { $('saveStatusText').textContent = msg; });
+    // Enrichment was already kicked off back at step 2 (see
+    // confirmLocation/startEnrichment) -- reuse that same promise rather
+    // than starting a fresh lookup now. If it already finished while the
+    // user was naming the beach and picking a station, #saveStatusText
+    // already shows the resolved result (e.g. "Coast faces E") from its
+    // own onStatus, so it's left alone here rather than overwritten --
+    // the sleep(900) below still gives it a moment to actually be SEEN
+    // before flipping to "Saving...". If it's still running, that same
+    // onStatus keeps updating live exactly as before, just possibly
+    // already partway through instead of starting from zero.
+    // pendingEnrichment should always be set by the time a station's
+    // been picked (every path here runs through confirmLocation first)
+    // -- the plain resolveEnrichment() call is a defensive fallback, not
+    // the normal case.
+    let extrasPromise;
+    if (!pendingEnrichment) {
+      $('saveStatusText').textContent = 'Saving your beach…';
+      extrasPromise = resolveEnrichment(st, msg => { $('saveStatusText').textContent = msg; });
+    }
+    const extras = await (pendingEnrichment ? pendingEnrichment.promise : extrasPromise);
     await sleep(900); // long enough to actually read the final status line before it changes again
 
     const stWithExtras = Object.assign({}, st, extras);
+    pendingEnrichment = null;
     const wasChanging = isChanging;
     isChanging = false;
     $('saveStatusText').textContent = 'Saving…';
@@ -1438,6 +1491,7 @@
   function openPicker() {
     $('tide').classList.add('hidden'); $('picker').classList.remove('hidden');
     document.body.classList.remove('tide-active');
+    $('pickerIntro').classList.remove('hidden');
     // The banner + "keep current beach" option only make sense when
     // there's an existing registration to show/keep -- i.e. reached via
     // "Change beach", never a tag's first-ever pick.
@@ -1463,6 +1517,7 @@
     $('pickHint').textContent = 'Search for your town, city, or zip code.';
     $('confirmLocationStep').classList.add('hidden');
     pendingLocation = null;
+    pendingEnrichment = null;
     clearConfirmMap();
     $('stationStep').classList.add('hidden');
     $('stationResults').innerHTML = '';
