@@ -218,6 +218,12 @@
   #dayPager { display: flex; }
   #dayPager.dragging { transition: none; }
   #dayPager:not(.dragging) { transition: transform 280ms cubic-bezier(.22,.61,.36,1); }
+  /* The radar panel's own, independent pager -- same rules, different
+     ID, so it can't be affected by (or affect) the Waves & Wind one. */
+  #radarDayPagerViewport { overflow: hidden; touch-action: pan-y; }
+  #radarDayPager { display: flex; }
+  #radarDayPager.dragging { transition: none; }
+  #radarDayPager:not(.dragging) { transition: transform 280ms cubic-bezier(.22,.61,.36,1); }
   .day-page { position: relative; flex: 0 0 100%; min-width: 0; }
   .day-dots { display: flex; justify-content: center; gap: 8px; margin: 14px 0 2px; }
   .day-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--line); transition: background 200ms; }
@@ -499,10 +505,36 @@
     <h1 class="wind-title">Radar <span class="radar-rain-status hidden" id="radarRainStatus"></span></h1>
     <div class="curve-cap" id="radarCap">Live precipitation near <span id="radarTownName"></span></div>
     <div class="radar-map" id="radarMap"></div>
-    <div class="chart-header">
-      <span class="chart-header-title">Rain &amp; Sky</span>
+    <!-- Swipe left for tomorrow's own Rain & Sky chart -- a second,
+         independent instance of the exact swipe mechanism the Waves &
+         Wind panel's own #dayPager already uses (see "the radar panel's
+         own today/tomorrow swipe pager" in the script), not a shared
+         one, so each panel's pager state can't leak into the other's.
+         The radar MAP above is live/current-only (there's no "tomorrow"
+         radar), so only the chart below swipes. -->
+    <div id="radarDayPagerViewport">
+      <div id="radarDayPager">
+        <div class="day-page" data-day="today">
+          <div class="chart-header">
+            <span class="chart-header-title">Rain &amp; Sky</span>
+            <span class="chart-header-stat" id="radarTempStat"></span>
+          </div>
+          <div class="curve"><svg id="rainChart" viewBox="0 0 360 150" role="img" aria-label="Hourly rainfall amount, and cloud cover vs. sun for hours it isn't raining, with a surfer marking the current hour"></svg></div>
+        </div>
+        <div class="day-page" data-day="tomorrow">
+          <div class="day-label">Tomorrow</div>
+          <div class="chart-header">
+            <span class="chart-header-title">Rain &amp; Sky</span>
+            <span class="chart-header-stat" id="radarTempStatTomorrow"></span>
+          </div>
+          <div class="curve"><svg id="rainChartTomorrow" viewBox="0 0 360 150" role="img" aria-label="Tomorrow's hourly rainfall amount, and cloud cover vs. sun for hours it isn't raining"></svg></div>
+        </div>
+      </div>
     </div>
-    <div class="curve"><svg id="rainChart" viewBox="0 0 360 150" role="img" aria-label="Hourly rainfall amount, and cloud cover vs. sun for hours it isn't raining, with a surfer marking the current hour"></svg></div>
+    <div class="day-dots" id="radarDayDots">
+      <span class="day-dot active" data-day="today"></span>
+      <span class="day-dot" data-day="tomorrow"></span>
+    </div>
     <div class="bar-legend"><span><i class="rain"></i>Rain</span><span><i class="cloud"></i>Cloudy</span><span><i class="sun"></i>Sun</span></div>
   </section>
 
@@ -1333,7 +1365,8 @@
   // the chart's full height, there's no naturally-shorter neighboring
   // bar to float the surfer above the way the wave chart can; the room
   // has to be reserved on purpose.
-  function drawRainChart(svgEl, points, windowStart, windowEnd) {
+  function drawRainChart(svgEl, points, windowStart, windowEnd, showNow) {
+    if (showNow == null) showNow = true;
     const W = 360, H = svgEl.viewBox.baseVal.height || 150, padT = NOW_ICON_HEAD_REACH + 14, padB = 22;
     const pts = points.filter(p => p.precipIn != null || p.cloudPct != null);
     if (!pts.length) { svgEl.innerHTML = ''; return; }
@@ -1355,7 +1388,7 @@
       const sun = sunriseSunset(new Date(windowStart.getTime() + 12 * 3600e3), current.lat, current.lon);
       if (Number.isFinite(sun.sunrise.getTime()) && Number.isFinite(sun.sunset.getTime())) { sunrise = sun.sunrise; sunset = sun.sunset; }
     }
-    const nowPt = nearestWindWave(pts, Date.now());
+    const nowPt = showNow ? nearestWindWave(pts, Date.now()) : null;
     let bars = '', nowMarker = '';
     pts.forEach(p => {
       const x = X(p.t) - barW / 2;
@@ -1392,6 +1425,16 @@
     svgEl.innerHTML = nightBands + bars + hourLabels + nowMarker;
   }
 
+  // "72°/58°" -- today's (or tomorrow's) own high/low, next to the
+  // Rain & Sky title, same spot the wave/wind headers put their own
+  // live stat. Blank (not "--") when there's no temperature data for
+  // that day at all, rather than claiming a reading that doesn't exist.
+  function setRadarTempStat(el, points) {
+    const temps = points.map(p => p.tempF).filter(v => v != null);
+    if (!temps.length) { el.textContent = ''; return; }
+    el.textContent = Math.round(Math.max(...temps)) + '°/' + Math.round(Math.min(...temps)) + '°';
+  }
+
   async function renderRadarPanel(st) {
     $('radarTownName').textContent = st.name;
     $('radarRainStatus').classList.add('hidden');
@@ -1418,7 +1461,8 @@
     // above -- its own failure (or a beach with no lat/lon) leaves the
     // map working on its own, same "degrade the extra, not the core
     // thing" principle every other screen here already follows.
-    $('rainChart').innerHTML = '';
+    $('rainChart').innerHTML = ''; $('rainChartTomorrow').innerHTML = '';
+    $('radarTempStat').textContent = ''; $('radarTempStatTomorrow').textContent = '';
     if (!Number.isFinite(st.lat) || !Number.isFinite(st.lon)) return;
     try {
       // A second, independent fetchWindWave call -- renderWindWave (the
@@ -1432,7 +1476,18 @@
       const todayPoints = series.filter(p => p.t >= dayWindow.start && p.t <= dayWindow.end);
       const status = computeRainStatus(todayPoints, Date.now());
       if (status) { $('radarRainStatus').textContent = status; $('radarRainStatus').classList.remove('hidden'); }
-      drawRainChart($('rainChart'), todayPoints, dayWindow.start, dayWindow.end);
+      drawRainChart($('rainChart'), todayPoints, dayWindow.start, dayWindow.end, true);
+      setRadarTempStat($('radarTempStat'), todayPoints);
+
+      // Tomorrow's own pane, for the swipe-left pager -- same `series`
+      // already fetched above (forecast_hours reaches comfortably past
+      // tomorrow's own end), so this is just another filter + redraw,
+      // never a second network round trip.
+      const tomorrowWin = tomorrowWindow(new Date());
+      const tomorrowPoints = series.filter(p => p.t >= tomorrowWin.start && p.t <= tomorrowWin.end);
+      drawRainChart($('rainChartTomorrow'), tomorrowPoints, tomorrowWin.start, tomorrowWin.end, false);
+      setRadarTempStat($('radarTempStatTomorrow'), tomorrowPoints);
+      resetRadarDayPager(); // a fresh render (new beach, periodic refresh) always lands back on "today"
     } catch (e) {
       console.error('Radar forecast failed to load:', e);
     }
@@ -2112,8 +2167,8 @@
   // either side for timezone offset.
   async function fetchWindWave(lat, lon) {
     const weatherParams = new URLSearchParams({
-      latitude: lat, longitude: lon, hourly: 'wind_speed_10m,wind_direction_10m,precipitation,cloud_cover',
-      wind_speed_unit: 'mph', precipitation_unit: 'inch', timezone: 'UTC', past_hours: '36', forecast_hours: '72'
+      latitude: lat, longitude: lon, hourly: 'wind_speed_10m,wind_direction_10m,precipitation,cloud_cover,temperature_2m',
+      wind_speed_unit: 'mph', precipitation_unit: 'inch', temperature_unit: 'fahrenheit', timezone: 'UTC', past_hours: '36', forecast_hours: '72'
     });
     const marineParams = new URLSearchParams({
       latitude: lat, longitude: lon, hourly: 'wave_height,wave_period',
@@ -2144,6 +2199,7 @@
         windDir: wh.wind_direction_10m ? wh.wind_direction_10m[i] : null,
         precipIn: wh.precipitation ? wh.precipitation[i] : null,
         cloudPct: wh.cloud_cover ? wh.cloud_cover[i] : null,
+        tempF: wh.temperature_2m ? wh.temperature_2m[i] : null,
         waveHeightFt: mv.waveHeightFt != null ? mv.waveHeightFt : null,
         wavePeriodS: mv.wavePeriodS != null ? mv.wavePeriodS : null
       };
@@ -2520,6 +2576,68 @@
   dayPagerViewport.addEventListener('touchend', endDayDrag);
   dayPagerViewport.addEventListener('touchcancel', endDayDrag);
   window.addEventListener('resize', () => snapToPos(activeDayPos, false));
+
+  // ---------- the radar panel's own today/tomorrow swipe pager ----------
+  // A second, independent instance of the exact same mechanism as the
+  // Waves & Wind pager just above -- duplicated rather than shared, so
+  // each panel's own pager state (which day is active, any in-flight
+  // touch drag) can't leak into the other's. See that pager's own
+  // comments for why each piece works the way it does.
+  const RADAR_DAY_POSITIONS = ['today', 'tomorrow'];
+  let radarActiveDayPos = 0;
+  const radarDayPager = $('radarDayPager');
+  const radarDayPagerViewport = $('radarDayPagerViewport');
+
+  function radarPagePx(pos) { return -pos * radarDayPagerViewport.getBoundingClientRect().width; }
+
+  function renderRadarDayDots() {
+    $('radarDayDots').querySelectorAll('.day-dot').forEach(d => {
+      d.classList.toggle('active', d.getAttribute('data-day') === RADAR_DAY_POSITIONS[radarActiveDayPos]);
+    });
+  }
+
+  function radarSnapToPos(pos, animate) {
+    radarActiveDayPos = Math.max(0, Math.min(RADAR_DAY_POSITIONS.length - 1, pos));
+    radarDayPager.classList.toggle('dragging', !animate);
+    radarDayPager.style.transform = 'translateX(' + radarPagePx(radarActiveDayPos) + 'px)';
+    renderRadarDayDots();
+  }
+
+  function resetRadarDayPager() { radarSnapToPos(0, false); }
+
+  let radarTouchStartX = null, radarTouchStartY = null, radarTouchDx = 0, radarTouchAxis = null;
+  radarDayPagerViewport.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    radarTouchStartX = e.touches[0].clientX; radarTouchStartY = e.touches[0].clientY;
+    radarTouchDx = 0; radarTouchAxis = null;
+    radarDayPager.classList.add('dragging');
+  }, { passive: true });
+  radarDayPagerViewport.addEventListener('touchmove', e => {
+    if (radarTouchStartX == null) return;
+    const dx = e.touches[0].clientX - radarTouchStartX, dy = e.touches[0].clientY - radarTouchStartY;
+    if (radarTouchAxis == null && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) radarTouchAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    if (radarTouchAxis !== 'x') return;
+    e.preventDefault();
+    radarTouchDx = dx;
+    let next = radarPagePx(radarActiveDayPos) + dx;
+    const min = radarPagePx(RADAR_DAY_POSITIONS.length - 1), max = radarPagePx(0);
+    if (next > max) next = max + (next - max) * 0.3;
+    if (next < min) next = min + (next - min) * 0.3;
+    radarDayPager.style.transform = 'translateX(' + next + 'px)';
+  }, { passive: false });
+  function endRadarDayDrag() {
+    if (radarTouchStartX == null) return;
+    if (radarTouchAxis === 'x') {
+      const threshold = Math.max(44, radarDayPagerViewport.getBoundingClientRect().width * 0.18);
+      if (radarTouchDx < -threshold) radarSnapToPos(radarActiveDayPos + 1, true);
+      else if (radarTouchDx > threshold) radarSnapToPos(radarActiveDayPos - 1, true);
+      else radarSnapToPos(radarActiveDayPos, true);
+    }
+    radarTouchStartX = null; radarTouchAxis = null;
+  }
+  radarDayPagerViewport.addEventListener('touchend', endRadarDayDrag);
+  radarDayPagerViewport.addEventListener('touchcancel', endRadarDayDrag);
+  window.addEventListener('resize', () => radarSnapToPos(radarActiveDayPos, false));
 
   // ---------- press-and-hold a chart to see one data point's details ----------
   // A quick drag anywhere in #dayPagerViewport already swipes between
