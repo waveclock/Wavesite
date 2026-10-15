@@ -2108,8 +2108,9 @@
     // "Now" is marked with the same brand surfer (see surferMarker) used
     // on the tide curve, instead of the word "Now" -- isNow flags which
     // candidate that is so the render step below knows to draw the icon
-    // there instead of text.
-    const candidates = nowPt ? [{ pt: nowPt, text: 'Now', isNow: true }] : [];
+    // (plus its own ft value alongside, see ftText) there instead of
+    // plain text.
+    const candidates = nowPt ? [{ pt: nowPt, text: 'Now', isNow: true, ftText: fmtFt(nowPt.waveHeightFt) }] : [];
     if (hiPt !== nowPt) candidates.push({ pt: hiPt, text: fmtFt(hiPt.waveHeightFt) });
     if (loPt !== nowPt && loPt !== hiPt) candidates.push({ pt: loPt, text: fmtFt(loPt.waveHeightFt) });
 
@@ -2119,16 +2120,38 @@
     // for a bar chart's discrete hourly bars to lie along; it's a plain
     // upright marker, not something riding a visible wave face.
     const NOW_ICON_SCALE = 0.045;
+    // How far the icon's own head extends ABOVE its anchor point at this
+    // scale (local head-top y=35, local anchor y=397 -- see surferMarker
+    // itself) -- a live report showed the head getting clipped off by
+    // the chart's own top edge on a tall bar, because the OLD clamp
+    // below only accounted for a single line of text's much shorter
+    // reach above its own anchor, not this much taller icon's.
+    const NOW_ICON_HEAD_REACH = (397 - 35) * NOW_ICON_SCALE;
     // Same rough bbox heuristic the tide curve's own label-collision
     // check uses -- good enough to catch a real overlap, not meant to be
-    // pixel-exact. The icon's footprint (~20px wide at this scale,
-    // measured from the source art's own left/right extent) stands in
-    // for a text width here.
+    // pixel-exact. The icon's own footprint (left/right extent measured
+    // from the source art) plus its adjacent ft text, side by side, both
+    // count toward the "Now" candidate's combined box.
     const boxes = candidates.map(c => {
       const cx = Math.min(Math.max(X(c.pt.t), 20), W - 20);
+      if (c.isNow) {
+        const cy = Math.max(NOW_ICON_HEAD_REACH + 2, Y(c.pt.waveHeightFt) - 8);
+        const ftW = c.ftText.length * 7.2 + 2;
+        // Goes to the icon's right by default (~cx+13.8 at this scale is
+        // its own right edge); when "now" is late enough in the day that
+        // the right side runs out of chart, it flips to the icon's LEFT
+        // instead of clamping in place -- clamping alone just slid the
+        // text back until it sat ON TOP of the icon instead of beside it.
+        const fitsRight = cx + 15 + ftW <= W - 2;
+        const ftAnchor = fitsRight ? 'start' : 'end';
+        const ftX = fitsRight ? cx + 15 : cx - 8;
+        const x0 = fitsRight ? cx - 6 : ftX - ftW;
+        const x1 = fitsRight ? ftX + ftW : cx + 14;
+        return { cx, cy, x0, x1, y0: cy - NOW_ICON_HEAD_REACH, y1: cy + 2, text: c.text, isNow: true, ftText: c.ftText, ftX, ftAnchor };
+      }
       const cy = Math.max(padT - 2, Y(c.pt.waveHeightFt) - 8);
-      const halfW = c.isNow ? 11 : c.text.length * 3.6 + 3;
-      return { cx, cy, x0: cx - halfW, x1: cx + halfW, y0: cy - 11, y1: cy + 3, text: c.text, isNow: c.isNow };
+      const halfW = c.text.length * 3.6 + 3;
+      return { cx, cy, x0: cx - halfW, x1: cx + halfW, y0: cy - 11, y1: cy + 3, text: c.text };
     });
     let overlap = false;
     for (let i = 0; i < boxes.length && !overlap; i++) {
@@ -2140,7 +2163,8 @@
     const shownBoxes = overlap ? boxes.slice(0, 1) : boxes; // candidates[0] is "Now" when shown, else "High"
     const calloutLabels = shownBoxes.map(b =>
       b.isNow
-        ? surferMarker(b.cx, b.cy, 0, NOW_ICON_SCALE)
+        ? surferMarker(b.cx, b.cy, 0, NOW_ICON_SCALE) +
+          '<text x="' + b.ftX.toFixed(1) + '" y="' + (b.cy - 6).toFixed(1) + '" text-anchor="' + b.ftAnchor + '" font-size="12" font-weight="700" fill="#0f1b3d">' + b.ftText + '</text>'
         : '<text x="' + b.cx.toFixed(1) + '" y="' + b.cy.toFixed(1) + '" text-anchor="middle" font-size="12" font-weight="700" fill="#0f1b3d">' + b.text + '</text>'
     ).join('');
 
