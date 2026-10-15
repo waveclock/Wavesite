@@ -511,6 +511,22 @@
     <div class="station-map" id="stationMap"></div>
     <ul class="results" id="results"></ul>
   </div>
+
+  <!-- Step 2 of the picker wizard: once a town's picked from search,
+       confirm it on its own (the city alone, not yet the tide station
+       list) before moving on -- shows where it landed on a map, and lets
+       the name be set right here rather than waiting until the very end
+       to rename it. confirmLocation() below wires this in; "Continue"
+       hands the (possibly renamed) town to loadStationsNear exactly like
+       picking a town result always has. -->
+  <div class="hidden" id="confirmLocationStep">
+    <h1>Is this the right spot?</h1>
+    <div class="station-map" id="confirmMap"></div>
+    <p class="sub">Name this beach</p>
+    <input class="save-name-input" id="confirmLocationName" type="text" maxlength="60" aria-label="Beach name">
+    <button class="bigbtn" id="confirmLocationBtn" type="button">Continue</button>
+    <button class="bigbtn ghost" id="confirmLocationBackBtn" type="button">Back</button>
+  </div>
 </main>
 
 <!-- Picking a station opens this instead of registering immediately --
@@ -1109,6 +1125,70 @@
     }
   }
 
+  // Step 2's own map -- just the picked town, no station pins yet (those
+  // come later, at the station step renderStationMap already handles).
+  // Confirming "is this the right spot" before even looking at tide
+  // stations is its own small thing worth seeing on a map, separate from
+  // (and simpler than) the combined town+stations map above.
+  let confirmMap = null;
+  function clearConfirmMap() {
+    if (confirmMap) { confirmMap.remove(); confirmMap = null; }
+    $('confirmMap').style.display = 'none';
+  }
+  function renderConfirmMap(town) {
+    clearConfirmMap();
+    if (typeof L === 'undefined') return;
+    try {
+      const el = $('confirmMap');
+      el.style.display = 'block';
+      confirmMap = L.map(el, { zoomControl: true, attributionControl: true }).setView([town.lat, town.lon], 12);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(confirmMap);
+      const townIcon = L.divIcon({ className: 'town-marker', html: TOWN_MARKER_HTML, iconSize: [20, 20] });
+      L.marker([town.lat, town.lon], { icon: townIcon }).addTo(confirmMap);
+    } catch (e) {
+      console.error('Confirm map failed to load:', e);
+      clearConfirmMap();
+    }
+  }
+
+  // Step 2: confirm the picked town on its own -- shown on a map, name
+  // editable right here -- before moving on to the tide station step.
+  // "Continue" hands the (possibly renamed) town to loadStationsNear
+  // exactly like picking a town result always has; loadStationsNear
+  // itself is what actually sets currentTown.
+  let pendingLocation = null;
+  function confirmLocation(town) {
+    pendingLocation = town;
+    $('searchStep').classList.add('hidden');
+    $('confirmLocationStep').classList.remove('hidden');
+    $('confirmLocationName').value = town.name + (town.state ? ', ' + town.state : '');
+    renderConfirmMap(town);
+  }
+  $('confirmLocationBtn').addEventListener('click', () => {
+    if (!pendingLocation) return;
+    // A custom name replaces BOTH name and state -- state's only job is
+    // getting appended back onto the name downstream (see stationPick),
+    // and the prefill above already baked it into the text the user is
+    // editing, so leaving state set would double it onto a fully custom
+    // name ("Dad's Secret Jetty, NJ" instead of just "Dad's Secret
+    // Jetty"). Clearing the field entirely falls back to the original
+    // town, same convention as the final save screen's own name field.
+    const customName = $('confirmLocationName').value.trim();
+    const named = customName ? Object.assign({}, pendingLocation, { name: customName, state: '' }) : pendingLocation;
+    clearConfirmMap();
+    $('confirmLocationStep').classList.add('hidden');
+    $('searchStep').classList.remove('hidden');
+    loadStationsNear(named);
+  });
+  $('confirmLocationBackBtn').addEventListener('click', () => {
+    pendingLocation = null;
+    clearConfirmMap();
+    $('confirmLocationStep').classList.add('hidden');
+    $('searchStep').classList.remove('hidden');
+  });
+
   // Builds the object pickStation/registerTag/updateRegisteredTag actually
   // use from a tapped/clicked NOAA station `s` (id, name, state) plus
   // whatever town is currently in play: st.name/lat/lon come from the
@@ -1263,7 +1343,7 @@
   $('results').addEventListener('click', e => {
     const townBtn = e.target.closest('button.town-result');
     if (townBtn) {
-      loadStationsNear({ name: townBtn.dataset.name, state: townBtn.dataset.state, lat: parseFloat(townBtn.dataset.lat), lon: parseFloat(townBtn.dataset.lon) });
+      confirmLocation({ name: townBtn.dataset.name, state: townBtn.dataset.state, lat: parseFloat(townBtn.dataset.lat), lon: parseFloat(townBtn.dataset.lon) });
       return;
     }
     const stationBtn = e.target.closest('button[data-id]');
@@ -1307,6 +1387,9 @@
     $('results').innerHTML = '';
     $('pickHint').textContent = 'Search for your town, city, or zip code.';
     clearStationMap();
+    $('confirmLocationStep').classList.add('hidden');
+    pendingLocation = null;
+    clearConfirmMap();
     pendingPick = null;
     $('saveOverlay').classList.add('hidden');
   }
