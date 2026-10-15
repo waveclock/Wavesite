@@ -507,6 +507,20 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       <input class="search" id="search" type="search" placeholder="Town, city, or zip code…" autocomplete="off" enterkeyhint="search">
     </div>
+    <!-- Step 3's own intro -- shown once loadStationsNear starts (a town's
+         been confirmed), so picking a station reads as its own step
+         rather than the same results list silently turning into
+         something else. The ocean-buoy note directly answers a real
+         point of confusion: NOAA station names alone don't say whether a
+         station reads the open ocean or a calmer bay/inlet (e.g.
+         "Longport (inside), Great Egg Harbor Inlet, NJ"). Typing a fresh
+         search hides this again (see the #search input handler) --
+         that's still how you back out of station-picking, same as it's
+         always been. -->
+    <div class="hidden" id="stationStepIntro">
+      <h1>Pick your tide station</h1>
+      <p class="sub">Choose an ocean buoy for open-ocean tides, or an "inside" station (a bay or inlet) for calmer, more sheltered readings.</p>
+    </div>
     <div class="hint" id="pickHint">Search for your town, city, or zip code.</div>
     <div class="station-map" id="stationMap"></div>
     <ul class="results" id="results"></ul>
@@ -1220,6 +1234,7 @@
     currentTown = town;
     clearStationMap();
     $('results').innerHTML = '';
+    $('stationStepIntro').classList.remove('hidden');
     $('pickHint').textContent = 'Looking up nearby tide stations…';
     try {
       const all = await fetchAllStations();
@@ -1352,6 +1367,11 @@
   $('search').addEventListener('input', () => {
     const q = $('search').value.trim();
     clearTimeout(searchTimer);
+    // Typing a fresh search is how you back out of station-picking (step
+    // 3) -- hides its own intro/map again so a new town search doesn't
+    // leave the PREVIOUS town's stations/heading sitting there stale.
+    $('stationStepIntro').classList.add('hidden');
+    clearStationMap();
     if (q.length < 3) {
       $('results').innerHTML = '';
       $('pickHint').textContent = 'Search for your town, city, or zip code.';
@@ -1386,6 +1406,7 @@
     $('search').value = '';
     $('results').innerHTML = '';
     $('pickHint').textContent = 'Search for your town, city, or zip code.';
+    $('stationStepIntro').classList.add('hidden');
     clearStationMap();
     $('confirmLocationStep').classList.add('hidden');
     pendingLocation = null;
