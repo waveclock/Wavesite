@@ -502,8 +502,8 @@
     <div class="chart-header">
       <span class="chart-header-title">Rain &amp; Sky</span>
     </div>
-    <div class="curve"><svg id="rainChart" viewBox="0 0 360 150" role="img" aria-label="Hourly rainfall amount, and cloud cover for hours it isn't raining"></svg></div>
-    <div class="bar-legend"><span><i class="rain"></i>Rain</span><span><i class="cloud"></i>Cloudy</span><span><i class="sun"></i>Clear</span></div>
+    <div class="curve"><svg id="rainChart" viewBox="0 0 360 150" role="img" aria-label="Hourly rainfall amount, and cloud cover vs. sun for hours it isn't raining, with a surfer marking the current hour"></svg></div>
+    <div class="bar-legend"><span><i class="rain"></i>Rain</span><span><i class="cloud"></i>Cloudy</span><span><i class="sun"></i>Sun</span></div>
   </section>
 
   <!-- Location/WaveClock live OUTSIDE all three snap-panels, as a fixed
@@ -1307,42 +1307,41 @@
   // key required, same as every other map already on this page.
   let radarMap = null;
   // One bar per hour: dark navy for rain (height = that hour's own
-  // rainfall amount), or -- for a DRY hour -- gray/yellow for cloud
-  // cover (height = how cloudy or how clear it is). Cloud and "sun"
-  // aren't two separate quantities here, just one (cloud_cover %) read
-  // from either end: >=50% cloudy draws a gray bar at its own cloud-
-  // cover height, <50% draws a YELLOW bar at 100-minus-that height (so a
-  // gray bar shrinking and a yellow bar growing are the same number,
-  // just approached from opposite sides of the 50% line, matching how
-  // "less cloud" and "more sun" are actually the same fact) -- but ONLY
-  // during daylight. There's no sun up to call a clear hour after dark
-  // "sunny," so any dry hour before sunrise or after sunset draws gray
-  // at its own cloud-cover height no matter how low that is, the same
-  // as a cloudy DAYtime hour -- it just stays a cloud reading, never
-  // flips to yellow.
+  // rainfall amount, on its own scale -- see rainHi below), or -- for a
+  // DRY DAYTIME hour -- a STACKED bar, always the full chart height: a
+  // gray segment at the bottom sized to the cloud cover %, a "Sun"
+  // (yellow) segment on top sized to the rest (100 - cloud%). The two
+  // segments always sum to the chart's full height, so growing cloud
+  // and shrinking sun (or the reverse) are the same number shown two
+  // ways in the same bar, not separately scaled bars that only show
+  // whichever side happens to dominate.
   //
-  // Rain and cloud/sun are on two SEPARATE scales sharing the same pixel
-  // range (Yrain vs Ypct below) rather than one shared axis -- inches of
-  // rain and percent cloud cover aren't the same unit, and forcing them
-  // onto one axis would make a light sprinkle dwarf a fully overcast
-  // hour or the reverse, depending on which happened to be the day's
-  // own max. A chart max of at least 0.1in keeps a dry/near-dry day's
-  // rain bars (on the hours that DO have any) from blowing up to full
-  // height off tiny forecast noise.
+  // At NIGHT, there's no sun to show regardless of how clear it is --
+  // "sun does not exist at night" -- so a dry hour before sunrise or
+  // after sunset draws ONLY the gray segment, sized to its own actual
+  // cloud cover (not stacked to full height), leaving the rest of the
+  // bar's column empty. Cloud cover still reads at a glance at night;
+  // there's just no yellow to pair it with.
   //
-  // Same visual family as drawWaveBarChart (bar width, hour labels,
-  // night shading) but simpler -- no quality classification, no "Now"
-  // icon (the rain-starts/stops status next to the title already covers
-  // "now").
+  // Rain stays on its OWN scale (inches, via rainHi) rather than
+  // sharing the cloud/sun stack's fixed 0-100% scale -- a light
+  // sprinkle shouldn't dwarf a fully overcast hour or the reverse.
+  //
+  // padT reserves real headroom above the bars (not just the minimum
+  // the "Now" icon's own clamp needs to avoid clipping, the way the
+  // wave chart does it) -- since a dry daytime bar now ALWAYS reaches
+  // the chart's full height, there's no naturally-shorter neighboring
+  // bar to float the surfer above the way the wave chart can; the room
+  // has to be reserved on purpose.
   function drawRainChart(svgEl, points, windowStart, windowEnd) {
-    const W = 360, H = svgEl.viewBox.baseVal.height || 150, padT = 10, padB = 22;
+    const W = 360, H = svgEl.viewBox.baseVal.height || 150, padT = NOW_ICON_HEAD_REACH + 14, padB = 22;
     const pts = points.filter(p => p.precipIn != null || p.cloudPct != null);
     if (!pts.length) { svgEl.innerHTML = ''; return; }
     const span2 = (windowEnd - windowStart) || 1;
     const X = t => (t - windowStart) / span2 * W;
     const rainHi = Math.max(0.1, ...pts.map(p => p.precipIn || 0));
-    const Yrain = v => padT + (1 - v / rainHi) * (H - padT - padB);
-    const Ypct = v => padT + (1 - v / 100) * (H - padT - padB);
+    const plotH = H - padT - padB;
+    const Yrain = v => padT + (1 - v / rainHi) * plotH;
     const barW = Math.max(3, (W / 24) * 0.7);
     const nightBands = nightBandsSvg(windowStart, X, W, H);
     // Same sunrise/sunset calc nightBandsSvg itself makes (its own call
@@ -1356,27 +1355,41 @@
       const sun = sunriseSunset(new Date(windowStart.getTime() + 12 * 3600e3), current.lat, current.lon);
       if (Number.isFinite(sun.sunrise.getTime()) && Number.isFinite(sun.sunset.getTime())) { sunrise = sun.sunrise; sunset = sun.sunset; }
     }
-    let bars = '';
+    const nowPt = nearestWindWave(pts, Date.now());
+    let bars = '', nowMarker = '';
     pts.forEach(p => {
       const x = X(p.t) - barW / 2;
-      let y, fill;
+      let topY; // the Y of this bar's own top -- the "Now" surfer (below) anchors here when this is the current hour
+      let segs = '';
       if (p.precipIn != null && p.precipIn >= RAIN_THRESHOLD_IN) {
-        y = Yrain(p.precipIn); fill = '#0b2d6b';
+        topY = Yrain(p.precipIn);
+        segs = '<rect x="' + x.toFixed(1) + '" y="' + topY.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + (H - padB - topY).toFixed(1) + '" rx="2" fill="#0b2d6b"/>';
       } else if (p.cloudPct != null) {
         const isNight = sunrise && sunset && (p.t < sunrise || p.t > sunset);
-        const cloudy = isNight || p.cloudPct >= 50;
-        y = Ypct(cloudy ? p.cloudPct : (100 - p.cloudPct));
-        fill = cloudy ? '#9aa3bf' : '#f0b429';
+        const cloudH = (p.cloudPct / 100) * plotH;
+        const grayY = H - padB - cloudH;
+        segs = '<rect x="' + x.toFixed(1) + '" y="' + grayY.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + cloudH.toFixed(1) + '" rx="2" fill="#9aa3bf"/>';
+        if (isNight) {
+          topY = grayY; // gray segment only -- no sun stacked on top, see this function's own comment
+        } else {
+          const sunH = plotH - cloudH;
+          segs += '<rect x="' + x.toFixed(1) + '" y="' + padT.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + sunH.toFixed(1) + '" rx="2" fill="#f0b429"/>';
+          topY = padT; // the stack always reaches the chart's own top during the day
+        }
       } else {
         return; // a dry hour with no cloud data either draws nothing, not a guess
       }
-      bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + (H - padB - y).toFixed(1) + '" rx="2" fill="' + fill + '"/>';
+      bars += segs;
+      if (nowPt && p.t.getTime() === nowPt.t.getTime()) {
+        const cy = Math.max(NOW_ICON_HEAD_REACH + 2, topY - 8);
+        nowMarker = surferMarker(x + barW / 2, cy, 0, NOW_ICON_SCALE);
+      }
     });
     const hourLabels = [6, 12, 18].map(h => {
       const t = new Date(windowStart.getTime() + h * 3600e3);
       return '<text x="' + (W * h / 24).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="11" fill="#4a5675">' + (h === 12 ? 'noon' : (h % 12) + (h < 12 ? 'am' : 'pm')) + '</text>';
     }).join('');
-    svgEl.innerHTML = nightBands + bars + hourLabels;
+    svgEl.innerHTML = nightBands + bars + hourLabels + nowMarker;
   }
 
   async function renderRadarPanel(st) {
