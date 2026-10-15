@@ -1423,6 +1423,11 @@
       return '<text x="' + (W * h / 24).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="11" fill="#4a5675">' + (h === 12 ? 'noon' : (h % 12) + (h < 12 ? 'am' : 'pm')) + '</text>';
     }).join('');
     svgEl.innerHTML = nightBands + bars + hourLabels + nowMarker;
+    // Read by the press-and-hold scrub tooltip (see setupChartScrub
+    // below) -- Yrain/plotH/sunrise/sunset are the same values the bars
+    // above were just drawn with, so the tooltip's own rain-vs-sky split
+    // for a given hour always matches what's actually on screen.
+    svgEl._scrub = { kind: 'rain', pts, X, Yrain, W, H, padT, padB, plotH, sunrise, sunset };
   }
 
   // "72°/58°" -- today's (or tomorrow's) own high/low, next to the
@@ -2700,6 +2705,22 @@
         const valueLine = (Math.round(value * 10) / 10) + ' ft' + (p.wavePeriodS != null ? ' @ ' + Math.round(p.wavePeriodS) + 's' : '');
         lines = p._quality ? [timeLabel, valueLine, p._quality] : [timeLabel, valueLine];
         if (p._quality) markerColor = QUALITY_BAR_COLOR[p._quality] || markerColor;
+      } else if (scrub.kind === 'rain') {
+        const tempLine = p.tempF != null ? Math.round(p.tempF) + '°F' : null;
+        if (p.precipIn != null && p.precipIn >= RAIN_THRESHOLD_IN) {
+          markerY = scrub.Yrain(p.precipIn);
+          markerColor = '#0b2d6b';
+          const amtLine = (Math.round(p.precipIn * 100) / 100) + ' in rain';
+          lines = tempLine ? [timeLabel, amtLine, tempLine] : [timeLabel, amtLine];
+        } else if (p.cloudPct != null) {
+          const isNight = scrub.sunrise && scrub.sunset && (p.t < scrub.sunrise || p.t > scrub.sunset);
+          const cloudH = (p.cloudPct / 100) * scrub.plotH;
+          markerY = isNight ? (scrub.H - scrub.padB - cloudH) : scrub.padT;
+          const skyLine = isNight ? Math.round(p.cloudPct) + '% cloudy' : Math.round(100 - p.cloudPct) + '% sun';
+          lines = tempLine ? [timeLabel, skyLine, tempLine] : [timeLabel, skyLine];
+        } else {
+          return; // a dry hour with no cloud data either -- nothing to show
+        }
       } else {
         value = p.windMph;
         if (value == null) return;
@@ -2749,7 +2770,7 @@
     curveEl.addEventListener('touchcancel', onEnd);
   }
 
-  ['waveChart', 'windChart', 'waveChartTomorrow', 'windChartTomorrow'].forEach(id => {
+  ['waveChart', 'windChart', 'waveChartTomorrow', 'windChartTomorrow', 'rainChart', 'rainChartTomorrow'].forEach(id => {
     const svgEl = $(id);
     setupChartScrub(svgEl.closest('.curve'), svgEl);
   });
