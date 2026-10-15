@@ -234,7 +234,11 @@
      coastFacingDirection/srfZone/marineZone before registering (see
      confirmAndSave), mirroring location/index.html's own device wizard
      instead of the old fire-and-forget background enrichment. */
-  .save-overlay { position: fixed; inset: 0; background: rgba(15, 27, 61, .55); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
+  /* 2000, not 50 -- Leaflet's own zoom controls sit at z-index 1000 by
+     default (.leaflet-top/.leaflet-bottom), which a live report showed
+     poking through this overlay (the station map rendering on TOP of
+     the save card) when 50 wasn't nearly enough to clear it. */
+  .save-overlay { position: fixed; inset: 0; background: rgba(15, 27, 61, .55); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 2000; }
   .save-card { background: #fff; border-radius: 18px; padding: 30px 26px; max-width: 360px; width: 100%; text-align: center; }
   .save-card h2 { font-size: 27px; font-weight: 900; margin: 0 0 4px; }
   .save-card .sub { margin: 0 0 20px; }
@@ -1153,11 +1157,13 @@
     $('saveProgressState').classList.remove('hidden');
     $('saveStatusText').textContent = 'Saving your beach…';
 
+    // resolveEnrichment's own onStatus callback updates this live, as
+    // soon as the coast direction itself resolves -- independently of
+    // srfZone/marineZone, which can legitimately take much longer (see
+    // its own comment for why that used to make this look permanently
+    // stuck instead of just slow).
     const extras = await resolveEnrichment(st, msg => { $('saveStatusText').textContent = msg; });
-    $('saveStatusText').textContent = extras.coastFacingDirection
-      ? ('Coast faces ' + extras.coastFacingDirection)
-      : 'Couldn’t determine the coast direction this time — saving without it.';
-    await sleep(900); // long enough to actually read it before the status line changes again
+    await sleep(900); // long enough to actually read the final status line before it changes again
 
     const stWithExtras = Object.assign({}, st, extras);
     const wasChanging = isChanging;
@@ -1409,8 +1415,15 @@
   // here (first successful hit, no candidate list or map picker UI),
   // since this is a lightweight background enrichment for an NFC tag's
   // registration, not an interactive confirm-your-zone step.
+  // 15s timeout -- unlike fetchOverpassCoastline, this had NONE at all
+  // until a live report showed the save overlay's status line getting
+  // stuck on "Figuring out which way the coast faces..." forever: that
+  // text is only updated once Promise.all in resolveEnrichment settles
+  // ALL THREE lookups, so an NWS fetch that just hangs (no timeout, no
+  // abort) blocked the whole thing indefinitely even though
+  // coastFacingDirection itself had already resolved.
   async function fetchZoneForPoint(lat, lon) {
-    const resp = await fetch('https://api.weather.gov/points/' + lat.toFixed(4) + ',' + lon.toFixed(4));
+    const resp = await withTimeout(fetch('https://api.weather.gov/points/' + lat.toFixed(4) + ',' + lon.toFixed(4)), 15000);
     if (!resp.ok) throw new Error('NWS point lookup failed: ' + resp.status);
     const data = await resp.json();
     const zoneUrl = data.properties && data.properties.forecastZone;
@@ -1434,7 +1447,12 @@
     return { lat: lat2 * 180 / Math.PI, lon: lon2 * 180 / Math.PI };
   }
   async function fetchMarineZoneIdAtPoint(lat, lon) {
-    const resp = await fetch('https://api.weather.gov/zones?type=marine&point=' + lat.toFixed(4) + ',' + lon.toFixed(4));
+    // Shorter per-attempt timeout than fetchZoneForPoint's -- this can run
+    // up to 24 times in a row (MARINE_ZONE_SEARCH_KM x
+    // MARINE_ZONE_SEARCH_BEARINGS), so a single hung attempt mustn't eat
+    // a large timeout on its own; resolveEnrichment also caps the WHOLE
+    // retry loop's total time separately, as a second layer of defense.
+    const resp = await withTimeout(fetch('https://api.weather.gov/zones?type=marine&point=' + lat.toFixed(4) + ',' + lon.toFixed(4)), 6000);
     if (!resp.ok) return null;
     const data = await resp.json();
     const features = data.features || [];
@@ -1468,10 +1486,28 @@
   async function resolveEnrichment(st, onStatus) {
     if (st.lat == null || st.lon == null) return {};
     if (onStatus) onStatus('Figuring out which way the coast faces…');
+    const bearingPromise = fetchCoastFacingBearing(st.lat, st.lon).catch(() => null);
+    // Updates the status line as soon as the coast-facing direction
+    // ITSELF resolves, independent of srfZone/marineZone -- a live
+    // report showed this stuck on "Figuring out..." forever because the
+    // status update used to wait on Promise.all of all three together,
+    // so a slow/hung NWS zone lookup (see fetchZoneForPoint/
+    // fetchMarineZoneIdAtPoint's own timeouts, added for the same
+    // reason) made it LOOK like the coastline lookup itself had failed,
+    // even when it had already succeeded.
+    bearingPromise.then(bearing => {
+      if (!onStatus) return;
+      onStatus(bearing != null ? ('Coast faces ' + bearingToCompass(bearing)) : 'Couldn’t determine the coast direction this time — saving without it.');
+    });
+    // The marine zone search's own retry loop can run up to 24 sequential
+    // NWS requests -- each now individually timed out (see
+    // fetchMarineZoneIdAtPoint), but this outer cap bounds the WHOLE
+    // loop's total time too, so a string of slow-but-not-quite-timed-out
+    // attempts still can't drag the save out indefinitely.
     const [bearing, srfZone, marineZone] = await Promise.all([
-      fetchCoastFacingBearing(st.lat, st.lon).catch(() => null),
+      bearingPromise,
       fetchZoneForPoint(st.lat, st.lon).catch(() => null),
-      fetchMarineZoneIdWithRetries(st.lat, st.lon).catch(() => null)
+      withTimeout(fetchMarineZoneIdWithRetries(st.lat, st.lon), 20000).catch(() => null)
     ]);
     const coastFacingDirection = bearing != null ? bearingToCompass(bearing) : null;
     return { coastFacingDirection, srfZone, marineZone };
