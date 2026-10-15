@@ -242,6 +242,18 @@
   .save-card { background: #fff; border-radius: 18px; padding: 30px 26px; max-width: 360px; width: 100%; text-align: center; }
   .save-card h2 { font-size: 27px; font-weight: 900; margin: 0 0 4px; }
   .save-card .sub { margin: 0 0 20px; }
+  /* Pre-filled with the auto-derived town name, but a REAL editable
+     input (a visible bordered box, not a dotted-underline-on-plain-text
+     trick) -- "editable" has to be obvious at a glance here, since
+     nothing else about this card hints that the heading-looking text can
+     be changed at all. Looks like an ordinary text field, just centered
+     and sized to read as a name rather than a form row. */
+  .save-name-input {
+    display: block; width: 100%; text-align: center; font-size: 22px; font-weight: 800;
+    border: 2px solid var(--line); border-radius: 12px; margin: 0 0 4px;
+    padding: 10px 12px; background: #fff; color: var(--ink);
+  }
+  .save-name-input:focus { outline: none; border-color: var(--wave); }
   .surf-loading { margin: 6px auto 4px; max-width: 280px; }
   /* The exact brand surfer art from surferMarker() (see its own comment
      for why the source coordinates are never hand-edited), just wrapped
@@ -490,7 +502,12 @@
 <div class="save-overlay hidden" id="saveOverlay">
   <div class="save-card">
     <div id="saveConfirmState">
-      <h2 id="saveConfirmName">—</h2>
+      <!-- Pre-filled with the auto-derived town name, but freely
+           editable -- lets someone rename this beach to something
+           personal ("Dad's Secret Jetty") without changing which
+           station/town actually feeds its tide and weather data
+           underneath (see confirmAndSave's own comment). -->
+      <input class="save-name-input" id="saveConfirmName" type="text" maxlength="60" aria-label="Beach name">
       <p class="sub">Save this as your beach?</p>
       <button class="bigbtn" id="saveConfirmBtn" type="button">Save</button>
       <button class="bigbtn ghost" id="saveCancelBtn" type="button">Back</button>
@@ -1169,7 +1186,7 @@
   let pendingPick = null;
   function pickStation(st) {
     pendingPick = st;
-    $('saveConfirmName').textContent = st.name;
+    $('saveConfirmName').value = st.name;
     $('saveConfirmState').classList.remove('hidden');
     $('saveProgressState').classList.add('hidden');
     $('saveOverlay').classList.remove('hidden');
@@ -1177,6 +1194,16 @@
   async function confirmAndSave() {
     const st = pendingPick;
     if (!st) return;
+    // Whatever's left in the name field once Save is tapped -- pre-filled
+    // with the auto-derived town name (see pickStation above) but freely
+    // editable. st.name is what ends up displayed everywhere (the tide
+    // header, the picker banner) AND stored as townName, which has
+    // always been plain display text server-side (see sanitizeTownName --
+    // never validated against a real place), so renaming it here needs
+    // no new field or backend change at all. Clearing it entirely falls
+    // back to the original name rather than saving a blank one.
+    const customName = $('saveConfirmName').value.trim();
+    const named = customName ? Object.assign({}, st, { name: customName }) : st;
     $('saveConfirmState').classList.add('hidden');
     $('saveProgressState').classList.remove('hidden');
     $('saveStatusText').textContent = 'Saving your beach…';
@@ -1186,10 +1213,10 @@
     // srfZone/marineZone, which can legitimately take much longer (see
     // its own comment for why that used to make this look permanently
     // stuck instead of just slow).
-    const extras = await resolveEnrichment(st, msg => { $('saveStatusText').textContent = msg; });
+    const extras = await resolveEnrichment(named, msg => { $('saveStatusText').textContent = msg; });
     await sleep(900); // long enough to actually read the final status line before it changes again
 
-    const stWithExtras = Object.assign({}, st, extras);
+    const stWithExtras = Object.assign({}, named, extras);
     const wasChanging = isChanging;
     isChanging = false;
     $('saveStatusText').textContent = 'Saving…';
