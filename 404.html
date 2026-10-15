@@ -297,9 +297,25 @@
   .station-map { display: none; height: 220px; border: 2px solid var(--line); border-radius: 14px; margin: 14px 0; overflow: hidden; background: var(--wave-pale); }
   /* radar panel's own map (Leaflet) -- always visible (unlike
      .station-map, which starts hidden and only appears mid-picker-flow),
-     so it's shown by default and sized to fill most of the panel rather
-     than a fixed 220px. */
-  .radar-map { display: block; height: min(58vh, 440px); border: 2px solid var(--line); border-radius: 14px; margin: 14px 0 6px; overflow: hidden; background: var(--wave-pale); }
+     so it's shown by default. Shorter than a typical full-panel map (was
+     min(58vh, 440px)) to leave real room below for the rainfall chart
+     and the hourly icon row -- the radar itself only needs to be big
+     enough to read the precipitation shape near the beach, not fill the
+     whole screen. */
+  .radar-map { display: block; height: min(32vh, 260px); border: 2px solid var(--line); border-radius: 14px; margin: 14px 0 6px; overflow: hidden; background: var(--wave-pale); }
+  /* Next to the "Radar" title -- "Rain in 40m" / "Rain ending in 1h 20m",
+     styled like the chart badges elsewhere (chart-header-badge) so it
+     reads as a status pill, not body text. Hidden by default/whenever
+     there's no near-term rain to call out (see computeRainStatus). */
+  .radar-rain-status { display: inline-block; font-size: 14px; font-weight: 800; vertical-align: middle; padding: 3px 11px; border-radius: 999px; background: var(--wave-pale); color: var(--wave); }
+  /* Hourly weather icon strip below the rainfall chart -- one column per
+     sampled hour (every 3h -- see renderHourlyIcons), icon above its own
+     time label. flex + justify-content:space-between spaces them evenly
+     across the panel's width without needing per-column pixel math. */
+  .hourly-icons { display: flex; justify-content: space-between; margin: 10px 2px 0; }
+  .hourly-icon-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .hourly-icon-col svg { width: 22px; height: 22px; color: var(--wave); }
+  .hourly-icon-col span { font-size: 11px; font-weight: 600; color: var(--soft); }
   /* Grayscales just the radar map's OWN base tile layer (Leaflet's
      tileLayer className option tags each of that layer's own <img>
      tiles with this class) -- the NEXRAD overlay tiles and the beach
@@ -482,9 +498,14 @@
   </section>
 
   <section class="snap-panel" id="radarPanel">
-    <h1 class="wind-title">Radar</h1>
+    <h1 class="wind-title">Radar <span class="radar-rain-status hidden" id="radarRainStatus"></span></h1>
     <div class="curve-cap" id="radarCap">Live precipitation near <span id="radarTownName"></span></div>
     <div class="radar-map" id="radarMap"></div>
+    <div class="chart-header">
+      <span class="chart-header-title">Rainfall</span>
+    </div>
+    <div class="curve"><svg id="rainChart" viewBox="0 0 360 90" role="img" aria-label="Hourly rainfall amount"></svg></div>
+    <div class="hourly-icons" id="hourlyIcons"></div>
   </section>
 
   <!-- Location/WaveClock live OUTSIDE all three snap-panels, as a fixed
@@ -1287,25 +1308,101 @@
   // rain), while staying on a tile source that's actually free with no
   // key required, same as every other map already on this page.
   let radarMap = null;
-  function renderRadarPanel(st) {
+  // Dark navy bars for hourly rainfall amount, same visual family as
+  // drawWaveBarChart (same bar width, hour labels, night shading) but
+  // simpler -- one flat color throughout, no quality classification, no
+  // "Now" icon (the rain-starts/stops status next to the title already
+  // covers "now," and a bar chart's SCALE is the point here, not calling
+  // out one specific hour). A chart max of at least 0.1in keeps a
+  // dry/near-dry day's bars from blowing up to full height off tiny
+  // noise in the forecast.
+  function drawRainChart(svgEl, points, windowStart, windowEnd) {
+    const W = 360, H = svgEl.viewBox.baseVal.height || 90, padT = 10, padB = 22;
+    const pts = points.filter(p => p.precipIn != null);
+    if (!pts.length) { svgEl.innerHTML = ''; return; }
+    const span2 = (windowEnd - windowStart) || 1;
+    const X = t => (t - windowStart) / span2 * W;
+    const hi = Math.max(0.1, Math.max(...pts.map(p => p.precipIn)));
+    const Y = v => padT + (1 - v / hi) * (H - padT - padB);
+    const barW = Math.max(3, (W / 24) * 0.7);
+    const nightBands = nightBandsSvg(windowStart, X, W, H);
+    let bars = '';
+    pts.forEach(p => {
+      if (p.precipIn < RAIN_THRESHOLD_IN) return; // a dry hour draws no bar at all, not a sliver
+      const x = X(p.t) - barW / 2, y = Y(p.precipIn);
+      bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + (H - padB - y).toFixed(1) + '" rx="2" fill="#0b2d6b"/>';
+    });
+    const hourLabels = [6, 12, 18].map(h => {
+      const t = new Date(windowStart.getTime() + h * 3600e3);
+      return '<text x="' + (W * h / 24).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="11" fill="#4a5675">' + (h === 12 ? 'noon' : (h % 12) + (h < 12 ? 'am' : 'pm')) + '</text>';
+    }).join('');
+    svgEl.innerHTML = nightBands + bars + hourLabels;
+  }
+
+  // Every 3rd hour across today's window -- enough columns (8) to read as
+  // genuinely hourly-sourced without crowding a phone-width row the way
+  // all 24 individual hours would. flex + space-between (see .hourly-
+  // icons) spaces these evenly without needing per-column pixel math.
+  function renderHourlyIcons(el, points, windowStart) {
+    const pts = points.filter(p => p.weatherCode != null || p.precipIn != null);
+    if (!pts.length) { el.innerHTML = ''; return; }
+    let html = '';
+    for (let h = 0; h < 24; h += 3) {
+      const t = new Date(windowStart.getTime() + h * 3600e3);
+      const p = nearestWindWave(pts, t.getTime());
+      if (!p) continue;
+      const hour12 = (h % 12) === 0 ? 12 : (h % 12);
+      const label = hour12 + (h < 12 ? 'a' : 'p');
+      html += '<div class="hourly-icon-col">' + weatherCodeIcon(p.weatherCode) + '<span>' + label + '</span></div>';
+    }
+    el.innerHTML = html;
+  }
+
+  async function renderRadarPanel(st) {
     $('radarTownName').textContent = st.name;
+    $('radarRainStatus').classList.add('hidden');
     if (radarMap) { radarMap.remove(); radarMap = null; }
-    if (typeof L === 'undefined' || !Number.isFinite(st.lat) || !Number.isFinite(st.lon)) return;
+    if (typeof L !== 'undefined' && Number.isFinite(st.lat) && Number.isFinite(st.lon)) {
+      try {
+        const el = $('radarMap');
+        radarMap = L.map(el, { zoomControl: true, attributionControl: true }).setView([st.lat, st.lon], 7);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19, className: 'radar-base-tile',
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(radarMap);
+        L.tileLayer('https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png', {
+          maxZoom: 12, opacity: 0.65, attribution: 'Radar &copy; Iowa Environmental Mesonet'
+        }).addTo(radarMap);
+        const townIcon = L.divIcon({ className: 'town-marker', html: TOWN_MARKER_HTML, iconSize: [20, 20] });
+        L.marker([st.lat, st.lon], { icon: townIcon }).addTo(radarMap);
+      } catch (e) {
+        console.error('Radar map failed to load:', e);
+        if (radarMap) { radarMap.remove(); radarMap = null; }
+      }
+    }
+    // The rain status/chart/icons are a SEPARATE forecast fetch from the
+    // map above -- its own failure (or a beach with no lat/lon) leaves
+    // the map working on its own, same "degrade the extra, not the core
+    // thing" principle every other screen here already follows.
+    $('rainChart').innerHTML = '';
+    $('hourlyIcons').innerHTML = '';
+    if (!Number.isFinite(st.lat) || !Number.isFinite(st.lon)) return;
     try {
-      const el = $('radarMap');
-      radarMap = L.map(el, { zoomControl: true, attributionControl: true }).setView([st.lat, st.lon], 7);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19, className: 'radar-base-tile',
-        attribution: '&copy; OpenStreetMap contributors'
-      }).addTo(radarMap);
-      L.tileLayer('https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png', {
-        maxZoom: 12, opacity: 0.65, attribution: 'Radar &copy; Iowa Environmental Mesonet'
-      }).addTo(radarMap);
-      const townIcon = L.divIcon({ className: 'town-marker', html: TOWN_MARKER_HTML, iconSize: [20, 20] });
-      L.marker([st.lat, st.lon], { icon: townIcon }).addTo(radarMap);
+      // A second, independent fetchWindWave call -- renderWindWave (the
+      // PREVIOUS screen in the SCREENS registry) already fetched this
+      // same beach's hourly forecast, but keeping each screen's own
+      // render function self-contained (no reaching into another
+      // screen's local state) is worth one extra free, keyless Open-
+      // Meteo request per beach load.
+      const series = await fetchWindWave(st.lat, st.lon);
+      const dayWindow = todayWindow(new Date());
+      const todayPoints = series.filter(p => p.t >= dayWindow.start && p.t <= dayWindow.end);
+      const status = computeRainStatus(todayPoints, Date.now());
+      if (status) { $('radarRainStatus').textContent = status; $('radarRainStatus').classList.remove('hidden'); }
+      drawRainChart($('rainChart'), todayPoints, dayWindow.start, dayWindow.end);
+      renderHourlyIcons($('hourlyIcons'), todayPoints, dayWindow.start);
     } catch (e) {
-      console.error('Radar map failed to load:', e);
-      if (radarMap) { radarMap.remove(); radarMap = null; }
+      console.error('Radar forecast failed to load:', e);
     }
   }
 
@@ -1983,8 +2080,8 @@
   // either side for timezone offset.
   async function fetchWindWave(lat, lon) {
     const weatherParams = new URLSearchParams({
-      latitude: lat, longitude: lon, hourly: 'wind_speed_10m,wind_direction_10m',
-      wind_speed_unit: 'mph', timezone: 'UTC', past_hours: '36', forecast_hours: '72'
+      latitude: lat, longitude: lon, hourly: 'wind_speed_10m,wind_direction_10m,precipitation,weather_code',
+      wind_speed_unit: 'mph', precipitation_unit: 'inch', timezone: 'UTC', past_hours: '36', forecast_hours: '72'
     });
     const marineParams = new URLSearchParams({
       latitude: lat, longitude: lon, hourly: 'wave_height,wave_period',
@@ -2013,6 +2110,8 @@
         t: parseOpenMeteoTime(t),
         windMph: wh.wind_speed_10m ? wh.wind_speed_10m[i] : null,
         windDir: wh.wind_direction_10m ? wh.wind_direction_10m[i] : null,
+        precipIn: wh.precipitation ? wh.precipitation[i] : null,
+        weatherCode: wh.weather_code ? wh.weather_code[i] : null,
         waveHeightFt: mv.waveHeightFt != null ? mv.waveHeightFt : null,
         wavePeriodS: mv.wavePeriodS != null ? mv.wavePeriodS : null
       };
@@ -2047,6 +2146,71 @@
     const labelW = labelText.length * 7.2 + 2;
     const fitsRight = cx + 15 + labelW <= chartW - 2;
     return fitsRight ? [cx + 15, 'start'] : [cx - 8, 'end'];
+  }
+
+  // "2h 15m" / "40m" / "3h" -- used next to the radar title for "rain in
+  // ___" / "rain stops in ___", never seconds (nothing here needs that
+  // precision) and never both-zero (a 0-minute gap just means "now",
+  // which computeRainStatus below already special-cases before calling
+  // this).
+  function fmtDuration(ms) {
+    const totalMin = Math.max(1, Math.round(ms / 60000));
+    const h = Math.floor(totalMin / 60), m = totalMin % 60;
+    if (h === 0) return m + 'm';
+    if (m === 0) return h + 'h';
+    return h + 'h ' + m + 'm';
+  }
+
+  // Rain threshold in inches/hour -- below this, Open-Meteo's own
+  // forecast noise (a hundredth of an inch here or there) shouldn't read
+  // as "it's raining." 0.01in/hr is the standard light-rain cutoff.
+  const RAIN_THRESHOLD_IN = 0.01;
+
+  // Walks forward from "now" through TODAY's points (the same window the
+  // rain chart below draws) to decide what to say next to the radar
+  // title: if it's raining right now, when it's forecast to stop; if
+  // not, when it's next forecast to start. Returns null (shows nothing)
+  // when there's no near-term rain to call out either way, rather than
+  // claiming "no rain" the forecast window itself can't actually promise.
+  function computeRainStatus(points, nowMs) {
+    const pts = points.filter(p => p.precipIn != null).sort((a, b) => a.t - b.t);
+    if (!pts.length) return null;
+    const nowPt = nearestWindWave(pts, nowMs);
+    const future = pts.filter(p => p.t.getTime() >= nowPt.t.getTime());
+    if (nowPt.precipIn >= RAIN_THRESHOLD_IN) {
+      const stopsAt = future.find(p => p.precipIn < RAIN_THRESHOLD_IN);
+      if (!stopsAt) return 'Raining';
+      return 'Rain stops in ' + fmtDuration(stopsAt.t.getTime() - nowMs);
+    }
+    const startsAt = future.find(p => p.precipIn >= RAIN_THRESHOLD_IN);
+    if (!startsAt) return null;
+    return 'Rain in ' + fmtDuration(startsAt.t.getTime() - nowMs);
+  }
+
+  // Open-Meteo's weather_code is the WMO code table -- bucketed down to
+  // the handful of icons this strip actually draws. Each icon is a
+  // small, currentColor-stroked outline (same style as the other inline
+  // SVGs on this page, e.g. .wind-arrow) so it inherits .hourly-icon-col
+  // svg's own color rather than needing its own fill per icon.
+  const WEATHER_ICONS = {
+    clear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>',
+    cloudy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 0 1-.5-8.97A5.5 5.5 0 0 1 17.3 8.1 4 4 0 0 1 17 18H7Z"/></svg>',
+    fog: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h16M3 12h18M4 16h16M6 20h12"/></svg>',
+    rain: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 15a4.5 4.5 0 0 1-.5-8.97A5.5 5.5 0 0 1 16.3 5.1 4 4 0 0 1 16 15H7Z"/><path d="M8 18l-1 3M13 18l-1 3M18 18l-1 3"/></svg>',
+    snow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 15a4.5 4.5 0 0 1-.5-8.97A5.5 5.5 0 0 1 16.3 5.1 4 4 0 0 1 16 15H7Z"/><path d="M8 19v3M8 22l-1.2-1.2M8 22l1.2-1.2M13 19v3M13 22l-1.2-1.2M13 22l1.2-1.2"/></svg>',
+    storm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 14a4.5 4.5 0 0 1-.5-8.97A5.5 5.5 0 0 1 16.3 4.1 4 4 0 0 1 16 14H7Z"/><path d="M13 14l-3 5h3l-2 4"/></svg>'
+  };
+  // WMO weather code -> icon key. https://open-meteo.com/en/docs (the
+  // table under "WMO Weather interpretation codes").
+  function weatherCodeIcon(code) {
+    let key = 'clear';
+    if (code == null) key = 'clear';
+    else if (code >= 95) key = 'storm';
+    else if ((code >= 71 && code <= 77) || code === 85 || code === 86) key = 'snow';
+    else if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) key = 'rain';
+    else if (code === 45 || code === 48) key = 'fog';
+    else if (code >= 1 && code <= 3) key = 'cloudy';
+    return WEATHER_ICONS[key] || WEATHER_ICONS.clear;
   }
 
   // A small line+area chart in the same visual language as the tide
