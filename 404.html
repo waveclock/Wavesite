@@ -1408,6 +1408,40 @@
   const COMPASS_DIRECTIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   function bearingToCompass(bearing) { return COMPASS_DIRECTIONS[Math.round(bearing / 45) % 8]; }
   function compassToBearing(dir) { const i = COMPASS_DIRECTIONS.indexOf(dir); return i === -1 ? null : i * 45; }
+  // Last-resort fallback for when Overpass has no natural=coastline way
+  // digitized at all within either search radius -- a real gap, not a
+  // transient failure: a live report (Wildwood, NJ) showed this
+  // consistently failing both radii on every mirror (same "all Overpass
+  // mirrors failed"/"http 502" outcome regardless of retries), while
+  // location/index.html's own device wizard resolved the same town fine
+  // because it falls back to exactly this -- the bearing from the beach
+  // to the centroid of whichever marine zone covers its offshore water,
+  // reusing the marineZone lookup resolveEnrichment is already doing in
+  // parallel rather than requiring a coastline shape at all.
+  function geojsonCentroid(geojson) {
+    const geom = geojson && geojson.type === 'Feature' ? geojson.geometry : geojson;
+    if (!geom) return null;
+    const pts = [];
+    function collect(rings) { rings.forEach(ring => ring.forEach(([lon, lat]) => pts.push([lat, lon]))); }
+    if (geom.type === 'Polygon') collect(geom.coordinates);
+    else if (geom.type === 'MultiPolygon') geom.coordinates.forEach(poly => collect(poly));
+    if (!pts.length) return null;
+    const sum = pts.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1]], [0, 0]);
+    return { lat: sum[0] / pts.length, lon: sum[1] / pts.length };
+  }
+  async function fetchMarineZoneGeometry(id) {
+    const resp = await withTimeout(fetch('https://api.weather.gov/zones/marine/' + id), 8000);
+    if (!resp.ok) throw new Error('marine zone geometry fetch failed: ' + resp.status);
+    return await resp.json();
+  }
+  async function coastFacingDirectionFallback(st, marineZone) {
+    if (!marineZone) return null;
+    try {
+      const geojson = await fetchMarineZoneGeometry(marineZone);
+      const centroid = geojsonCentroid(geojson);
+      return centroid ? bearingToCompass(bearingDeg(st.lat, st.lon, centroid.lat, centroid.lon)) : null;
+    } catch (e) { return null; }
+  }
 
   // ================= NWS forecast zones (srfZone / marineZone) =================
   // Ported from location/index.html's own setup wizard (same method,
@@ -1494,10 +1528,12 @@
     // so a slow/hung NWS zone lookup (see fetchZoneForPoint/
     // fetchMarineZoneIdAtPoint's own timeouts, added for the same
     // reason) made it LOOK like the coastline lookup itself had failed,
-    // even when it had already succeeded.
+    // even when it had already succeeded. Only fires on SUCCESS here --
+    // a null bearing doesn't mean failure yet, since
+    // coastFacingDirectionFallback below still gets a shot once marineZone
+    // is in; the final status line is set after that, whichever way it goes.
     bearingPromise.then(bearing => {
-      if (!onStatus) return;
-      onStatus(bearing != null ? ('Coast faces ' + bearingToCompass(bearing)) : 'Couldn’t determine the coast direction this time — saving without it.');
+      if (onStatus && bearing != null) onStatus('Coast faces ' + bearingToCompass(bearing));
     });
     // The marine zone search's own retry loop can run up to 24 sequential
     // NWS requests -- each now individually timed out (see
@@ -1509,7 +1545,15 @@
       fetchZoneForPoint(st.lat, st.lon).catch(() => null),
       withTimeout(fetchMarineZoneIdWithRetries(st.lat, st.lon), 20000).catch(() => null)
     ]);
-    const coastFacingDirection = bearing != null ? bearingToCompass(bearing) : null;
+    let coastFacingDirection = bearing != null ? bearingToCompass(bearing) : null;
+    if (coastFacingDirection == null) {
+      coastFacingDirection = await coastFacingDirectionFallback(st, marineZone);
+      if (onStatus) {
+        onStatus(coastFacingDirection != null
+          ? ('Coast faces ' + coastFacingDirection)
+          : 'Couldn’t determine the coast direction this time — saving without it.');
+      }
+    }
     return { coastFacingDirection, srfZone, marineZone };
   }
 
