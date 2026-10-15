@@ -1261,13 +1261,22 @@
   }
 
   // Radar screen -- a live precipitation map centered on the active
-  // beach, same OSM base tiles as the picker's own maps plus a NEXRAD
-  // overlay from the Iowa Environmental Mesonet's public radar tile
-  // service (free, no API key, reprocessed NOAA NEXRAD data -- the same
-  // public-domain source most weather sites' "free" radar embeds use).
-  // Re-rendered on every openTide (not just the first time), same as the
-  // tide/wind-&-wave screens, so "Change beach" re-centers it on the new
-  // location instead of leaving the old beach's radar showing.
+  // beach, with a NEXRAD overlay from the Iowa Environmental Mesonet's
+  // public radar tile service (free, no API key, reprocessed NOAA NEXRAD
+  // data -- the same public-domain source most weather sites' "free"
+  // radar embeds use). Re-rendered on every openTide (not just the first
+  // time), same as the tide/wind-&-wave screens, so "Change beach"
+  // re-centers it on the new location instead of leaving the old beach's
+  // radar showing.
+  //
+  // Base tiles here are CARTO's free "Positron" style, NOT the same OSM
+  // tiles the picker's own maps use -- a live report caught standard OSM
+  // tiles coloring parks/forests the same green as light-to-moderate
+  // rain on the radar overlay, reading as rain where there was none.
+  // Positron is deliberately desaturated (near-white, no green land
+  // cover) specifically so a color overlay on top is the only color on
+  // the map -- the picker's maps don't carry any overlay, so they don't
+  // have this problem and are left on OSM.
   let radarMap = null;
   function renderRadarPanel(st) {
     $('radarTownName').textContent = st.name;
@@ -1276,8 +1285,9 @@
     try {
       const el = $('radarMap');
       radarMap = L.map(el, { zoomControl: true, attributionControl: true }).setView([st.lat, st.lon], 7);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19, subdomains: 'abcd',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
       }).addTo(radarMap);
       L.tileLayer('https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png', {
         maxZoom: 12, opacity: 0.65, attribution: 'Radar &copy; Iowa Environmental Mesonet'
