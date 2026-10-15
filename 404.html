@@ -297,6 +297,10 @@
   .station-map { display: none; height: 220px; border: 2px solid var(--line); border-radius: 14px; margin: 14px 0; overflow: hidden; background: var(--wave-pale); }
   .town-marker svg { display: block; filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff); }
   .station-marker span { display: block; width: 13px; height: 13px; border-radius: 50%; background: var(--wave); border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink); cursor: pointer; }
+  /* The one pin that's actually been picked -- a distinct color (not
+     just a bigger/bolder blue dot) so it reads as "this one, confirmed"
+     at a glance against the rest, which stay the plain brand blue. */
+  .station-marker.selected span { background: #e8821a; }
   .leaflet-container { font-family: inherit; }
 
   /* genuine site 404 (anything NOT /t/:id) */
@@ -515,22 +519,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       <input class="search" id="search" type="search" placeholder="Town, city, or zip code…" autocomplete="off" enterkeyhint="search">
     </div>
-    <!-- Step 3's own intro -- shown once loadStationsNear starts (a town's
-         been confirmed), so picking a station reads as its own step
-         rather than the same results list silently turning into
-         something else. The ocean-buoy note directly answers a real
-         point of confusion: NOAA station names alone don't say whether a
-         station reads the open ocean or a calmer bay/inlet (e.g.
-         "Longport (inside), Great Egg Harbor Inlet, NJ"). Typing a fresh
-         search hides this again (see the #search input handler) --
-         that's still how you back out of station-picking, same as it's
-         always been. -->
-    <div class="hidden" id="stationStepIntro">
-      <h1>Pick your tide station</h1>
-      <p class="sub">Choose an ocean buoy for open-ocean tides, or an "inside" station (a bay or inlet) for calmer, more sheltered readings.</p>
-    </div>
     <div class="hint" id="pickHint">Search for your town, city, or zip code.</div>
-    <div class="station-map" id="stationMap"></div>
     <ul class="results" id="results"></ul>
   </div>
 
@@ -548,6 +537,22 @@
     <input class="save-name-input" id="confirmLocationName" type="text" maxlength="60" aria-label="Beach name">
     <button class="bigbtn" id="confirmLocationBtn" type="button">Continue</button>
     <button class="bigbtn ghost" id="confirmLocationBackBtn" type="button">Back</button>
+  </div>
+
+  <!-- Step 3 of the picker wizard: picking a tide station gets its own
+       screen -- not the search box/results reused in place, which left
+       old content from earlier steps sitting above it. loadStationsNear
+       below is what actually populates #stationHint/#stationMap/
+       #stationResults; "Back" returns to step 2 with the same (already
+       named) town, re-entering confirmLocation exactly like tapping a
+       fresh town result would. -->
+  <div class="hidden" id="stationStep">
+    <h1>Pick your tide station</h1>
+    <p class="sub">Choose an ocean buoy for open-ocean tides, or an "inside" station (a bay or inlet) for calmer, more sheltered readings.</p>
+    <div class="hint" id="stationHint"></div>
+    <div class="station-map" id="stationMap"></div>
+    <ul class="results" id="stationResults"></ul>
+    <button class="bigbtn ghost" id="stationBackBtn" type="button">Back</button>
   </div>
 </main>
 
@@ -1136,6 +1141,14 @@
     stationMapMarkers = [];
     $('stationMap').style.display = 'none';
   }
+  // selected=false is the plain brand-blue dot every unpicked station
+  // gets; selected=true is the one pin that's actually been confirmed
+  // (see highlightStationMarker below) -- built fresh each call rather
+  // than cached, since L.divIcon instances are cheap and this way
+  // there's no risk of two markers accidentally sharing one icon object.
+  function stationMarkerIcon(selected) {
+    return L.divIcon({ className: 'station-marker' + (selected ? ' selected' : ''), html: '<span></span>', iconSize: [13, 13] });
+  }
   function renderStationMap(town, stations) {
     clearStationMap();
     if (typeof L === 'undefined' || !stations.length) return;
@@ -1147,10 +1160,10 @@
         maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
       }).addTo(stationMap);
       const townIcon = L.divIcon({ className: 'town-marker', html: TOWN_MARKER_HTML, iconSize: [20, 20] });
-      const stationIcon = L.divIcon({ className: 'station-marker', html: '<span></span>', iconSize: [13, 13] });
       L.marker([town.lat, town.lon], { icon: townIcon }).addTo(stationMap);
       stations.forEach(s => {
-        const m = L.marker([s.lat, s.lng], { icon: stationIcon }).addTo(stationMap);
+        const m = L.marker([s.lat, s.lng], { icon: stationMarkerIcon(false) }).addTo(stationMap);
+        m.stationId = s.id;
         m.on('click', () => pickStation(stationPick(s)));
         stationMapMarkers.push(m);
       });
@@ -1158,6 +1171,14 @@
       console.error('Station map failed to load:', e);
       clearStationMap();
     }
+  }
+  // Called from pickStation -- whether the pick came from tapping a pin
+  // directly or a list row, the map should show which one actually got
+  // picked. Resets every OTHER pin back to plain blue first, so picking
+  // a different station (after Back, say) never leaves two pins
+  // highlighted at once.
+  function highlightStationMarker(stationId) {
+    stationMapMarkers.forEach(m => m.setIcon(stationMarkerIcon(m.stationId === stationId)));
   }
 
   // Step 2's own map -- just the picked town, no station pins yet (those
@@ -1215,10 +1236,16 @@
     // context (see pickStation's own comment).
     const customName = $('confirmLocationName').value.trim();
     const named = customName ? Object.assign({}, pendingLocation, { name: customName, state: '' }) : pendingLocation;
+    // Kept around (not nulled) rather than consumed -- stationStep's own
+    // Back button re-enters confirmLocation with this exact (already
+    // named) town, so backing out of station-picking doesn't lose the
+    // rename or land back on a blank search.
+    pendingLocation = named;
     clearConfirmMap();
     $('confirmLocationStep').classList.add('hidden');
-    $('searchStep').classList.remove('hidden');
+    $('stationStep').classList.remove('hidden');
     loadStationsNear(named);
+    maximizeViewport();
   });
   $('confirmLocationBackBtn').addEventListener('click', () => {
     pendingLocation = null;
@@ -1226,6 +1253,14 @@
     $('confirmLocationStep').classList.add('hidden');
     $('searchStep').classList.remove('hidden');
     maximizeViewport();
+  });
+  // Returns to step 2 with the SAME town (name included) still in hand --
+  // confirmLocation() re-populates everything (map, name field) exactly
+  // like a fresh town pick would, just without losing what was already
+  // confirmed.
+  $('stationBackBtn').addEventListener('click', () => {
+    $('stationStep').classList.add('hidden');
+    confirmLocation(pendingLocation);
   });
 
   // Builds the object pickStation/registerTag/updateRegisteredTag actually
@@ -1250,7 +1285,7 @@
   }
 
   function showStationResults(stations) {
-    $('results').innerHTML = stations.map(s =>
+    $('stationResults').innerHTML = stations.map(s =>
       `<li><button type="button" data-id="${s.id}" data-name="${s.name.replace(/"/g, '&quot;')}" data-state="${(s.state || '').replace(/"/g, '&quot;')}">${s.name}<small>${[s.state, s.dist != null ? s.dist.toFixed(1) + ' mi away' : ''].filter(Boolean).join(' · ')}</small></button></li>`
     ).join('');
   }
@@ -1258,10 +1293,8 @@
   async function loadStationsNear(town) {
     currentTown = town;
     clearStationMap();
-    $('results').innerHTML = '';
-    $('stationStepIntro').classList.remove('hidden');
-    $('pickHint').textContent = 'Looking up nearby tide stations…';
-    maximizeViewport();
+    $('stationResults').innerHTML = '';
+    $('stationHint').textContent = 'Looking up nearby tide stations…';
     try {
       const all = await fetchAllStations();
       const nearby = all
@@ -1270,14 +1303,14 @@
         .sort((a, b) => a.dist - b.dist)
         .slice(0, 40);
       if (!nearby.length) {
-        $('pickHint').textContent = 'No NOAA tide stations found within 100 miles of there. Try a different town.';
+        $('stationHint').textContent = 'No NOAA tide stations found within 100 miles of there. Try a different town.';
         return;
       }
-      $('pickHint').textContent = nearby.length + ' nearby tide station' + (nearby.length === 1 ? '' : 's') + ' — tap one below, or a pin on the map.';
+      $('stationHint').textContent = nearby.length + ' nearby tide station' + (nearby.length === 1 ? '' : 's') + ' — tap one below, or a pin on the map.';
       showStationResults(nearby);
       renderStationMap(town, nearby);
     } catch (e) {
-      $('pickHint').textContent = 'Couldn’t reach NOAA right now. Check your connection and try again.';
+      $('stationHint').textContent = 'Couldn’t reach NOAA right now. Check your connection and try again.';
     }
   }
 
@@ -1326,6 +1359,10 @@
   let pendingPick = null;
   function pickStation(st) {
     pendingPick = st;
+    // Whether the pick came from a map pin or a list row, the map itself
+    // should show which one just got picked (orange, not plain blue) --
+    // see highlightStationMarker's own comment.
+    highlightStationMarker(st.id);
     // The beach NAME was already settled at step 2 (confirmLocationStep)
     // -- this screen just shows it as context and highlights which
     // STATION was actually just picked, since that's the one thing that
@@ -1379,21 +1416,17 @@
 
   $('results').addEventListener('click', e => {
     const townBtn = e.target.closest('button.town-result');
-    if (townBtn) {
-      confirmLocation({ name: townBtn.dataset.name, state: townBtn.dataset.state, lat: parseFloat(townBtn.dataset.lat), lon: parseFloat(townBtn.dataset.lon) });
-      return;
-    }
+    if (townBtn) confirmLocation({ name: townBtn.dataset.name, state: townBtn.dataset.state, lat: parseFloat(townBtn.dataset.lat), lon: parseFloat(townBtn.dataset.lon) });
+  });
+  // Step 3's own results list, separate from #results (step 2's town
+  // search lives on its own screen now, see #stationStep's own comment).
+  $('stationResults').addEventListener('click', e => {
     const stationBtn = e.target.closest('button[data-id]');
     if (stationBtn) pickStation(stationPick({ id: stationBtn.dataset.id, name: stationBtn.dataset.name, state: stationBtn.dataset.state }));
   });
   $('search').addEventListener('input', () => {
     const q = $('search').value.trim();
     clearTimeout(searchTimer);
-    // Typing a fresh search is how you back out of station-picking (step
-    // 3) -- hides its own intro/map again so a new town search doesn't
-    // leave the PREVIOUS town's stations/heading sitting there stale.
-    $('stationStepIntro').classList.add('hidden');
-    clearStationMap();
     if (q.length < 3) {
       $('results').innerHTML = '';
       $('pickHint').textContent = 'Search for your town, city, or zip code.';
@@ -1428,11 +1461,13 @@
     $('search').value = '';
     $('results').innerHTML = '';
     $('pickHint').textContent = 'Search for your town, city, or zip code.';
-    $('stationStepIntro').classList.add('hidden');
-    clearStationMap();
     $('confirmLocationStep').classList.add('hidden');
     pendingLocation = null;
     clearConfirmMap();
+    $('stationStep').classList.add('hidden');
+    $('stationResults').innerHTML = '';
+    $('stationHint').textContent = '';
+    clearStationMap();
     pendingPick = null;
     $('saveOverlay').classList.add('hidden');
     maximizeViewport();
