@@ -1212,15 +1212,19 @@
   // the raw Overpass response, so coastlineBearingFromOsm below needs no
   // changes at all.
   const COASTLINE_PROXY = 'https://us-central1-waveclock.cloudfunctions.net/coastlineProxy';
-  // 30s, not 15s: the proxy's own worst case (one mirror tried alone,
-  // then the rest raced in parallel, at each of 2 search radii -- see
-  // functions/lib/coastline.js) can take up to ~32s end to end. A 15s
-  // client timeout was cutting that off before the server had even
-  // finished its own retries, which a live report traced as the actual
-  // cause of badges/bar-colors staying gray-pending on a real phone --
-  // worse on a weak connection, where every leg of this is already slower.
+  // 45s: the proxy's own worst case (one mirror tried alone, then the
+  // rest raced in parallel, at each of 2 search radii -- see
+  // functions/lib/coastline.js) is 8s + 8s per radius x 2 radii = ~32s
+  // end to end -- BEFORE accounting for network round-trip time or a
+  // Cloud Function cold start on top of that. A previous round set this
+  // to 30s, reasoning (correctly, in the comment, just not in the
+  // number) that it needed to clear that ~32s server-side worst case --
+  // 30 < 32, so it was STILL cutting the server off before it could
+  // finish, confirmed live via the "Direction unavailable: timed out"
+  // diagnostic text below actually showing up. 45s gives real headroom
+  // above the server's own worst case instead of being a hair short of it.
   async function fetchOverpassCoastline(lat, lon) {
-    const resp = await withTimeout(fetch(COASTLINE_PROXY + '?lat=' + lat + '&lon=' + lon), 30000);
+    const resp = await withTimeout(fetch(COASTLINE_PROXY + '?lat=' + lat + '&lon=' + lon), 45000);
     if (!resp.ok) throw new Error('http ' + resp.status);
     const data = await resp.json();
     if (!(data && Array.isArray(data.elements) && data.elements.length)) throw new Error('no coastline elements in range');
