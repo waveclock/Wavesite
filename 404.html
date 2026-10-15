@@ -228,6 +228,30 @@
   .sub { font-size: 18px; color: var(--soft); margin: 0 0 18px; }
   .bigbtn { width: 100%; display: block; background: var(--wave); color: #fff; border: 0; border-radius: 14px; padding: 18px; font-size: 21px; font-weight: 800; cursor: pointer; }
   .bigbtn.ghost { background: none; color: var(--wave); border: 2px solid var(--wave); padding: 16px; }
+  .bigbtn + .bigbtn { margin-top: 10px; }
+
+  /* Picker's "confirm, then save" overlay -- blocks on resolving
+     coastFacingDirection/srfZone/marineZone before registering (see
+     confirmAndSave), mirroring location/index.html's own device wizard
+     instead of the old fire-and-forget background enrichment. */
+  .save-overlay { position: fixed; inset: 0; background: rgba(15, 27, 61, .55); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50; }
+  .save-card { background: #fff; border-radius: 18px; padding: 30px 26px; max-width: 360px; width: 100%; text-align: center; }
+  .save-card h2 { font-size: 27px; font-weight: 900; margin: 0 0 4px; }
+  .save-card .sub { margin: 0 0 20px; }
+  .surf-loading { margin: 6px auto 4px; max-width: 280px; }
+  /* The exact brand surfer art from surferMarker() (see its own comment
+     for why the source coordinates are never hand-edited), just wrapped
+     in its own <g> so this CSS transform can glide it across the loading
+     card without touching that art's own transform at all. */
+  .surf-loading-rider { animation: surf-glide 1.6s linear infinite; }
+  @keyframes surf-glide {
+    from { transform: translateX(-40px); }
+    to { transform: translateX(260px); }
+  }
+  .save-status { font-size: 17px; font-weight: 700; color: var(--ink); margin: 10px 0 0; min-height: 24px; }
+  @media (prefers-reduced-motion: reduce) {
+    .surf-loading-rider { animation: none; }
+  }
   .search-row { position: relative; margin: 14px 0 6px; }
   .search-row svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--soft); pointer-events: none; }
   .search { width: 100%; padding: 16px 16px 16px 42px; font-size: 20px; border: 2px solid var(--line); border-radius: 14px; }
@@ -453,6 +477,44 @@
   <div class="station-map" id="stationMap"></div>
   <ul class="results" id="results"></ul>
 </main>
+
+<!-- Picking a station opens this instead of registering immediately --
+     confirmAndSave (see its own comment) resolves coastFacingDirection/
+     srfZone/marineZone HERE, with the result visible, before the one
+     combined registration write, instead of the old silent background
+     attempt. -->
+<div class="save-overlay hidden" id="saveOverlay">
+  <div class="save-card">
+    <div id="saveConfirmState">
+      <h2 id="saveConfirmName">—</h2>
+      <p class="sub">Save this as your beach?</p>
+      <button class="bigbtn" id="saveConfirmBtn" type="button">Save</button>
+      <button class="bigbtn ghost" id="saveCancelBtn" type="button">Back</button>
+    </div>
+    <div class="hidden" id="saveProgressState">
+      <div class="surf-loading" aria-hidden="true">
+        <svg viewBox="0 0 320 90">
+          <line x1="0" y1="62" x2="320" y2="62" stroke="#d9dee9" stroke-width="3" stroke-dasharray="7,9"/>
+          <g class="surf-loading-rider">
+            <g transform="translate(45.0,45.0) scale(0.09) translate(-190,-397)">
+              <g fill="none" stroke="#0f1b3d" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="243" cy="73" r="38"/>
+                <path d="M240 112 L218 228"/>
+                <path d="M233 124 L160 152 L118 200"/>
+                <path d="M233 124 L295 165 L355 163"/>
+                <path d="M218 228 L300 253 L320 330"/>
+                <path d="M218 228 L232 295 L190 372"/>
+              </g>
+              <path fill="#0f1b3d" d="M66 404 C 200 372 380 318 497 270 C 500 268 503 274 498 278 C 420 330 250 392 80 420 C 62 423 56 407 66 404 Z"/>
+              <path fill="#0f1b3d" d="M106 410 C 98 424 102 440 116 440 C 124 430 130 420 136 406 Z"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+      <p class="save-status" id="saveStatusText">Saving your beach…</p>
+    </div>
+  </div>
+</div>
 
 <!-- ============ GENUINE 404 (anything that isn't /t/:id) ============ -->
 <main id="notfound" class="hidden notfound">
@@ -861,7 +923,7 @@
     const r = await fetch(TAG_PROXY, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tagId, stationId: st.id, stationName: st.stationName, townName: st.name, lat: st.lat, lon: st.lon })
+      body: JSON.stringify({ tagId, stationId: st.id, stationName: st.stationName, townName: st.name, lat: st.lat, lon: st.lon, coastFacingDirection: st.coastFacingDirection, srfZone: st.srfZone, marineZone: st.marineZone })
     });
     if (r.status === 409) {
       const existing = await checkRegistration();
@@ -877,7 +939,7 @@
     const r = await fetch(TAG_PROXY, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tagId, stationId: st.id, stationName: st.stationName, townName: st.name, lat: st.lat, lon: st.lon })
+      body: JSON.stringify({ tagId, stationId: st.id, stationName: st.stationName, townName: st.name, lat: st.lat, lon: st.lon, coastFacingDirection: st.coastFacingDirection, srfZone: st.srfZone, marineZone: st.marineZone })
     });
     if (!r.ok) throw new Error('http ' + r.status);
     return st;
@@ -1070,23 +1132,57 @@
   // sites (the map marker handler above, and the list-button handler
   // below) go through stationPick rather than building this shape by
   // hand, so there's one place that decides what gets displayed.
+  //
+  // Picking a station no longer registers immediately -- it opens the
+  // confirm-then-save overlay (see confirmAndSave below), which resolves
+  // coastFacingDirection/srfZone/marineZone and shows the result BEFORE
+  // the one write that registers everything together, the same order
+  // location/index.html's own device wizard already uses.
+  let pendingPick = null;
   function pickStation(st) {
-    // Show the tide immediately -- don't block on the registration
-    // round trip. If it fails to sync, the tag just stays as it was and
-    // boot()/the next "Change beach" tap tries again; nothing about
-    // THIS visit depends on it succeeding.
-    applyRegistration(st);
-    const save = isChanging ? updateRegisteredTag(st) : registerTag(st);
-    isChanging = false;
-    save.then(confirmed => {
-      applyRegistration(confirmed);
-      // Fire-and-forget: resolves and PUTs coastFacingDirection/srfZone/
-      // marineZone in the background, well after the tide is already
-      // showing -- see enrichRegistration's own comment for why this
-      // can't be allowed to block registration.
-      enrichRegistration(confirmed);
-    }).catch(() => {});
+    pendingPick = st;
+    $('saveConfirmName').textContent = st.name;
+    $('saveConfirmState').classList.remove('hidden');
+    $('saveProgressState').classList.add('hidden');
+    $('saveOverlay').classList.remove('hidden');
   }
+  async function confirmAndSave() {
+    const st = pendingPick;
+    if (!st) return;
+    $('saveConfirmState').classList.add('hidden');
+    $('saveProgressState').classList.remove('hidden');
+    $('saveStatusText').textContent = 'Saving your beach…';
+
+    const extras = await resolveEnrichment(st, msg => { $('saveStatusText').textContent = msg; });
+    $('saveStatusText').textContent = extras.coastFacingDirection
+      ? ('Coast faces ' + extras.coastFacingDirection)
+      : 'Couldn’t determine the coast direction this time — saving without it.';
+    await sleep(900); // long enough to actually read it before the status line changes again
+
+    const stWithExtras = Object.assign({}, st, extras);
+    const wasChanging = isChanging;
+    isChanging = false;
+    $('saveStatusText').textContent = 'Saving…';
+    try {
+      const confirmed = wasChanging ? await updateRegisteredTag(stWithExtras) : await registerTag(stWithExtras);
+      $('saveStatusText').textContent = 'Saved!';
+      await sleep(500);
+      $('saveOverlay').classList.add('hidden');
+      applyRegistration(confirmed);
+    } catch (e) {
+      // Registration itself failed (network down) -- still show the pick
+      // optimistically rather than stranding the user on a dead-end
+      // overlay; boot()/the next "Change beach" tap tries again.
+      $('saveOverlay').classList.add('hidden');
+      applyRegistration(stWithExtras);
+    }
+    pendingPick = null;
+  }
+  $('saveConfirmBtn').addEventListener('click', confirmAndSave);
+  $('saveCancelBtn').addEventListener('click', () => {
+    pendingPick = null;
+    $('saveOverlay').classList.add('hidden');
+  });
 
   $('results').addEventListener('click', e => {
     const townBtn = e.target.closest('button.town-result');
@@ -1129,6 +1225,8 @@
     $('results').innerHTML = '';
     $('pickHint').textContent = 'Search for your town, city, or zip code.';
     clearStationMap();
+    pendingPick = null;
+    $('saveOverlay').classList.add('hidden');
   }
   $('changeBtn').addEventListener('click', () => {
     isChanging = true;
@@ -1358,31 +1456,25 @@
     }
     return null;
   }
-  // Best-effort background enrichment -- resolves coastFacingDirection,
-  // srfZone, and marineZone AFTER the tide screen is already showing
-  // (never blocks registration on them: the marine zone search alone can
-  // take up to 24 sequential NWS requests in the worst case) and PUTs
-  // them once in hand. Same graceful-degrade convention as every other
-  // optional field here: a lookup that fails or times out just leaves
-  // this tag without that one field, not a broken registration -- a
-  // later "Change beach" (or a future tap, once this runs again) can
-  // always try again.
-  async function enrichRegistration(st) {
-    if (st.lat == null || st.lon == null) return;
+  // Resolves coastFacingDirection/srfZone/marineZone for a picked beach --
+  // called from the blocking Save flow below (confirmAndSave) BEFORE
+  // registration, the same "figure it out, show it, then save" order
+  // location/index.html's own device wizard already uses, rather than as
+  // a background afterthought once the tide screen's already showing.
+  // Returns whatever it can resolve in the time it has; a lookup that
+  // fails or times out just leaves that one field null, same graceful-
+  // degrade convention as every other optional field here -- never blocks
+  // the save forever, just goes ahead without it.
+  async function resolveEnrichment(st, onStatus) {
+    if (st.lat == null || st.lon == null) return {};
+    if (onStatus) onStatus('Figuring out which way the coast faces…');
     const [bearing, srfZone, marineZone] = await Promise.all([
       fetchCoastFacingBearing(st.lat, st.lon).catch(() => null),
       fetchZoneForPoint(st.lat, st.lon).catch(() => null),
       fetchMarineZoneIdWithRetries(st.lat, st.lon).catch(() => null)
     ]);
     const coastFacingDirection = bearing != null ? bearingToCompass(bearing) : null;
-    if (coastFacingDirection == null && srfZone == null && marineZone == null) return;
-    try {
-      await fetch(TAG_PROXY, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tagId, stationId: st.id, stationName: st.stationName, townName: st.name, lat: st.lat, lon: st.lon, coastFacingDirection, srfZone, marineZone })
-      });
-    } catch (e) { /* best-effort -- a later visit can try again */ }
+    return { coastFacingDirection, srfZone, marineZone };
   }
 
   // Simplified version of the real forecast call a surfer makes by eye:
