@@ -1968,6 +1968,29 @@
     return best;
   }
 
+  // Shared by both mini charts' own "Now" marker (drawMiniChart's wind
+  // chart, drawWaveBarChart's wave chart) -- scaled down from the tide
+  // curve's own 0.09 to fit these much shorter charts.
+  const NOW_ICON_SCALE = 0.045;
+  // How far the icon's own head extends ABOVE its anchor point at this
+  // scale (local head-top y=35, local anchor y=397 -- see surferMarker
+  // itself). A live report showed the head getting clipped off a
+  // chart's own top edge because the OLD positioning only accounted for
+  // a single line of text's much shorter reach above ITS anchor -- both
+  // charts' own "Now" clamp has to budget for this instead.
+  const NOW_ICON_HEAD_REACH = (397 - 35) * NOW_ICON_SCALE;
+  // Which side of a "Now" icon its adjacent value label goes on -- the
+  // icon's right by default, flipping to its left when there isn't
+  // enough chart width left for the label (another live report: without
+  // this, a label near the chart's own right edge just clamped in place
+  // and ended up sitting ON TOP of the icon instead of beside it).
+  // Returns [x, text-anchor].
+  function nowLabelPlacement(cx, labelText, chartW) {
+    const labelW = labelText.length * 7.2 + 2;
+    const fitsRight = cx + 15 + labelW <= chartW - 2;
+    return fitsRight ? [cx + 15, 'start'] : [cx - 8, 'end'];
+  }
+
   // A small line+area chart in the same visual language as the tide
   // curve (blue line, pale fill, hour labels, the same pale day/night
   // shading) but simpler -- no extrema marks, no "now" marker.
@@ -1987,7 +2010,7 @@
   // shape already carries the speed trend, so the arrows only need to
   // add direction on top of it. Rotated the same "points downwind"
   // convention as the big header arrow ((windDir + 180) % 360).
-  function drawMiniChart(svgEl, series, valueKey, color, unit, decimals, windowStart, windowEnd) {
+  function drawMiniChart(svgEl, series, valueKey, color, unit, decimals, windowStart, windowEnd, showNow) {
     const W = 360, H = svgEl.viewBox.baseVal.height || 100, padT = 24, padB = 22;
     const pts = series.filter(p => p[valueKey] != null);
     if (pts.length < 2) { svgEl.innerHTML = ''; return; }
@@ -2016,16 +2039,45 @@
     const yAxisLabels =
       '<text x="4" y="' + (Y(hi) + 9).toFixed(1) + '" font-size="10" fill="#4a5675">' + fmtVal(hi) + '</text>' +
       '<text x="4" y="' + (Y(lo) - 3).toFixed(1) + '" font-size="10" fill="#4a5675">' + fmtVal(lo) + '</text>';
+    // "Now" on the wind chart, same brand surfer + adjacent value label
+    // as the wave chart's own "Now" marker (see NOW_ICON_SCALE and
+    // nowLabelPlacement) -- "next to him" shows BOTH speed and
+    // direction, not just speed, since the wind badge/header above
+    // already treats direction as equally important to speed. Only
+    // meaningful for the wind chart (valueKey === 'windMph') and only
+    // for today (showNow false for tomorrow's own chart, same as the
+    // wave chart -- there's no real "now" on a day that hasn't started).
+    const nowPt = (showNow && valueKey === 'windMph') ? nearestWindWave(pts, Date.now()) : null;
+    let nowMarker = '';
+    let nowBox = null;
+    if (nowPt) {
+      const cx = Math.min(Math.max(X(nowPt.t), 13), W - 15);
+      const cy = Math.max(NOW_ICON_HEAD_REACH + 2, Y(nowPt[valueKey]) - 8);
+      const label = Math.round(nowPt.windMph) + ' mph' + (nowPt.windDir != null ? (' ' + degreesToCompass(nowPt.windDir)) : '');
+      const [labelX, labelAnchor] = nowLabelPlacement(cx, label, W);
+      const labelW = label.length * 7.2 + 2;
+      const labelX0 = labelAnchor === 'start' ? labelX : labelX - labelW;
+      const labelX1 = labelAnchor === 'start' ? labelX + labelW : labelX;
+      // Bounds the icon + its label together, so a direction arrow
+      // elsewhere on the curve gets suppressed by where it would
+      // actually LAND on screen, not by how far it is in time -- the
+      // label can reach several hours' worth of x-distance away from
+      // nowPt itself depending on which way nowLabelPlacement flips it.
+      nowBox = { x0: Math.min(cx - 10, labelX0) - 4, x1: Math.max(cx + 14, labelX1) + 4, y0: cy - NOW_ICON_HEAD_REACH - 4, y1: cy + 8 };
+      nowMarker = surferMarker(cx, cy, 0, NOW_ICON_SCALE) +
+        '<text x="' + labelX.toFixed(1) + '" y="' + (cy - 6).toFixed(1) + '" text-anchor="' + labelAnchor + '" font-size="12" font-weight="700" fill="#0f1b3d">' + label + '</text>';
+    }
     let dirArrows = '';
     if (valueKey === 'windMph') {
       pts.forEach((p, i) => {
         if (i % 2 !== 0 || p.windDir == null) return;
         const ax = X(p.t), ay = Math.max(padT - 10, Y(p[valueKey]) - 11);
+        if (nowBox && ax >= nowBox.x0 && ax <= nowBox.x1 && ay >= nowBox.y0 && ay <= nowBox.y1) return;
         const deg = (p.windDir + 180) % 360;
         dirArrows += '<g transform="translate(' + ax.toFixed(1) + ',' + ay.toFixed(1) + ') rotate(' + deg.toFixed(0) + ')"><path d="M0,-5 L3.5,4 L0,1.5 L-3.5,4 Z" fill="' + color + '"/></g>';
       });
     }
-    svgEl.innerHTML = nightBands + '<path d="' + area + '" fill="' + color + '" opacity="0.2"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="3"/>' + hourLabels + yAxisLabels + dirArrows;
+    svgEl.innerHTML = nightBands + '<path d="' + area + '" fill="' + color + '" opacity="0.2"/><path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="3"/>' + hourLabels + yAxisLabels + dirArrows + nowMarker;
     // Read by the press-and-hold scrub tooltip (see setupChartScrub
     // below). drawMiniChart only ever draws the wind chart in practice,
     // so 'wind' is hardcoded here rather than threaded through as
@@ -2114,19 +2166,13 @@
     if (hiPt !== nowPt) candidates.push({ pt: hiPt, text: fmtFt(hiPt.waveHeightFt) });
     if (loPt !== nowPt && loPt !== hiPt) candidates.push({ pt: loPt, text: fmtFt(loPt.waveHeightFt) });
 
-    // Scaled down from the tide curve's own 0.09 to fit this chart's
-    // much shorter height -- no rotation here (unlike the tide curve's
-    // slope-matching, see drawCurve), since there's no continuous line
-    // for a bar chart's discrete hourly bars to lie along; it's a plain
-    // upright marker, not something riding a visible wave face.
-    const NOW_ICON_SCALE = 0.045;
-    // How far the icon's own head extends ABOVE its anchor point at this
-    // scale (local head-top y=35, local anchor y=397 -- see surferMarker
-    // itself) -- a live report showed the head getting clipped off by
-    // the chart's own top edge on a tall bar, because the OLD clamp
-    // below only accounted for a single line of text's much shorter
-    // reach above its own anchor, not this much taller icon's.
-    const NOW_ICON_HEAD_REACH = (397 - 35) * NOW_ICON_SCALE;
+    // NOW_ICON_SCALE/NOW_ICON_HEAD_REACH/nowLabelPlacement are shared
+    // with the wind chart's own "Now" marker -- see their definitions
+    // (near nearestWindWave) for why. No rotation here (unlike the tide
+    // curve's slope-matching, see drawCurve), since there's no
+    // continuous line for a bar chart's discrete hourly bars to lie
+    // along; it's a plain upright marker.
+    //
     // Same rough bbox heuristic the tide curve's own label-collision
     // check uses -- good enough to catch a real overlap, not meant to be
     // pixel-exact. The icon's own footprint (left/right extent measured
@@ -2136,17 +2182,10 @@
       const cx = Math.min(Math.max(X(c.pt.t), 20), W - 20);
       if (c.isNow) {
         const cy = Math.max(NOW_ICON_HEAD_REACH + 2, Y(c.pt.waveHeightFt) - 8);
+        const [ftX, ftAnchor] = nowLabelPlacement(cx, c.ftText, W);
         const ftW = c.ftText.length * 7.2 + 2;
-        // Goes to the icon's right by default (~cx+13.8 at this scale is
-        // its own right edge); when "now" is late enough in the day that
-        // the right side runs out of chart, it flips to the icon's LEFT
-        // instead of clamping in place -- clamping alone just slid the
-        // text back until it sat ON TOP of the icon instead of beside it.
-        const fitsRight = cx + 15 + ftW <= W - 2;
-        const ftAnchor = fitsRight ? 'start' : 'end';
-        const ftX = fitsRight ? cx + 15 : cx - 8;
-        const x0 = fitsRight ? cx - 6 : ftX - ftW;
-        const x1 = fitsRight ? ftX + ftW : cx + 14;
+        const x0 = ftAnchor === 'start' ? cx - 6 : ftX - ftW;
+        const x1 = ftAnchor === 'start' ? ftX + ftW : cx + 14;
         return { cx, cy, x0, x1, y0: cy - NOW_ICON_HEAD_REACH, y1: cy + 2, text: c.text, isNow: true, ftText: c.ftText, ftX, ftAnchor };
       }
       const cy = Math.max(padT - 2, Y(c.pt.waveHeightFt) - 8);
@@ -2523,7 +2562,7 @@
       // fully covered.
       const dayWindow = todayWindow(new Date());
       const todayPoints = series.filter(p => p.t >= dayWindow.start && p.t <= dayWindow.end);
-      drawMiniChart($('windChart'), todayPoints, 'windMph', '#0f1b3d', ' mph', 0, dayWindow.start, dayWindow.end);
+      drawMiniChart($('windChart'), todayPoints, 'windMph', '#0f1b3d', ' mph', 0, dayWindow.start, dayWindow.end, true);
 
       const hasWave = todayPoints.some(p => p.waveHeightFt != null);
       $('waveChartBlock').classList.toggle('hidden', !hasWave);
@@ -2535,7 +2574,7 @@
       // never a second network round trip.
       const tomorrowWin = tomorrowWindow(new Date());
       const tomorrowPoints = series.filter(p => p.t >= tomorrowWin.start && p.t <= tomorrowWin.end);
-      drawMiniChart($('windChartTomorrow'), tomorrowPoints, 'windMph', '#0f1b3d', ' mph', 0, tomorrowWin.start, tomorrowWin.end);
+      drawMiniChart($('windChartTomorrow'), tomorrowPoints, 'windMph', '#0f1b3d', ' mph', 0, tomorrowWin.start, tomorrowWin.end, false);
       const hasWaveTomorrow = tomorrowPoints.some(p => p.waveHeightFt != null);
       $('waveChartBlockTomorrow').classList.toggle('hidden', !hasWaveTomorrow);
       if (hasWaveTomorrow) drawWaveBarChart($('waveChartTomorrow'), tomorrowPoints, tomorrowWin.start, tomorrowWin.end, null, false);
