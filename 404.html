@@ -228,6 +228,14 @@
   .sub { font-size: 18px; color: var(--soft); margin: 0 0 18px; }
   .bigbtn { width: 100%; display: block; background: var(--wave); color: #fff; border: 0; border-radius: 14px; padding: 18px; font-size: 21px; font-weight: 800; cursor: pointer; }
   .bigbtn.ghost { background: none; color: var(--wave); border: 2px solid var(--wave); padding: 16px; }
+  /* "Change Beach Location" -- the step-1 choice's other option,
+     deliberately a different color (not the brand blue every OTHER
+     primary button on this page uses) so it visually reads as a
+     distinct choice next to "Keep my current beach" rather than two
+     interchangeable blue buttons. Reuses --rise (already the page's own
+     "positive/forward" green, e.g. rising tide, the Clean quality badge)
+     rather than introducing a new color. */
+  .bigbtn.go { background: var(--rise); }
   .bigbtn + .bigbtn { margin-top: 10px; }
 
   /* Picker's "confirm, then save" overlay -- blocks on resolving
@@ -485,13 +493,24 @@
   <h1>Pick your beach</h1>
   <p class="sub" id="pickerSub">This keychain will remember it from now on — every tap after this opens straight to your tide.</p>
   <button class="bigbtn ghost hidden" id="keepBtn" type="button">Keep my current beach</button>
-  <div class="search-row">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    <input class="search" id="search" type="search" placeholder="Town, city, or zip code…" autocomplete="off" enterkeyhint="search">
+  <!-- Step 1 of the picker wizard: when there's an existing beach to
+       possibly replace, lead with a choice (keep it, or go pick a new
+       one) rather than dropping straight into a search box -- same
+       "walk through it a step at a time" structure as
+       location/index.html's own setup wizard. A brand-new tag has
+       nothing to keep, so it skips this choice entirely and opens
+       straight on #searchStep, same as before this existed (see
+       openPicker's own hasExisting branch). -->
+  <button class="bigbtn go hidden" id="changeLocationBtn" type="button">Change Beach Location</button>
+  <div id="searchStep">
+    <div class="search-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input class="search" id="search" type="search" placeholder="Town, city, or zip code…" autocomplete="off" enterkeyhint="search">
+    </div>
+    <div class="hint" id="pickHint">Search for your town, city, or zip code.</div>
+    <div class="station-map" id="stationMap"></div>
+    <ul class="results" id="results"></ul>
   </div>
-  <div class="hint" id="pickHint">Search for your town, city, or zip code.</div>
-  <div class="station-map" id="stationMap"></div>
-  <ul class="results" id="results"></ul>
 </main>
 
 <!-- Picking a station opens this instead of registering immediately --
@@ -1271,6 +1290,12 @@
     $('pickerBanner').classList.toggle('hidden', !hasExisting);
     $('pickerLogo').classList.toggle('hidden', hasExisting);
     $('keepBtn').classList.toggle('hidden', !hasExisting);
+    $('changeLocationBtn').classList.toggle('hidden', !hasExisting);
+    // hasExisting starts on the keep-or-change choice (#searchStep stays
+    // hidden until "Change Beach Location" is tapped -- see its own click
+    // handler below); a brand-new tag has nothing to choose between, so
+    // it opens straight on the search step, same as always.
+    $('searchStep').classList.toggle('hidden', hasExisting);
     if (hasExisting) {
       $('pickerBannerName').textContent = current.name;
       $('pickerBannerSub').textContent = (current.stationName && current.stationName !== current.name) ? ('Tide station: ' + current.stationName) : '';
@@ -1295,6 +1320,15 @@
   $('keepBtn').addEventListener('click', () => {
     $('picker').classList.add('hidden'); $('tide').classList.remove('hidden');
     document.body.classList.add('tide-active');
+  });
+  // Commits to replacing the current beach -- moves from the step-1
+  // choice into the search step, same UI a brand-new tag already starts
+  // on (see openPicker's own hasExisting branch).
+  $('changeLocationBtn').addEventListener('click', () => {
+    $('keepBtn').classList.add('hidden');
+    $('changeLocationBtn').classList.add('hidden');
+    $('searchStep').classList.remove('hidden');
+    $('search').focus();
   });
 
   // ================= wind & waves (second scroll-snap panel) =================
