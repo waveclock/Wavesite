@@ -865,11 +865,25 @@
 
   function showMsg(t) { $('tideBody').classList.add('hidden'); const m = $('tideMsg'); m.textContent = t; m.classList.remove('hidden'); }
 
-  async function openTide(st) {
-    current = st; events = null;
-    $('picker').classList.add('hidden'); $('tide').classList.remove('hidden');
-    document.body.classList.add('tide-active');
-    $('tide').scrollTo(0, 0); // always land back on the tide panel, not wherever the scroll-snap was left
+  // ---------- screen registry ----------
+  // Each entry is an independent beach screen: given the active beach
+  // (st), it renders its own panel and touches nothing else. Right now
+  // this covers exactly the 2 screens that already existed (Tide, Waves
+  // & Wind) -- a pure reshaping of the SAME behavior into a list openTide
+  // iterates, not a new feature. What it unblocks later: a "pick which
+  // screens to show" setup step, or a screen gated on owning a WaveClock,
+  // both become "push another entry onto this array" instead of hand-
+  // wiring a 3rd/4th special case into openTide itself. Each panel's own
+  // markup still lives as static HTML inside #tide, matched by id -- this
+  // registry only orders and triggers each screen's render, it doesn't
+  // generate panel markup (yet).
+  const SCREENS = [
+    { id: 'tide', label: 'Tide', render: renderTidePanel },
+    { id: 'windwave', label: 'Waves & Wind', render: renderWindWave }
+  ];
+
+  async function renderTidePanel(st) {
+    events = null;
     $('stationName').textContent = st.name;
     // Only shown when it's actually informative -- a legacy registration
     // (before townName existed) has st.stationName === st.name already,
@@ -879,11 +893,21 @@
     showMsg('Getting the tide…');
     try { events = await fetchTides(st.id); render(); }
     catch (e) { showMsg('Couldn’t reach the tide service. Check your signal and try again.'); }
-    // Independent of the tide fetch above -- a wind/wave outage (or a
-    // station with no lat/lon on record yet) should never block or blank
-    // out the tide screen itself, same "degrade the extra, not the core
-    // thing" principle as the night-shading bands.
-    renderWindWave(st);
+  }
+
+  async function openTide(st) {
+    current = st;
+    $('picker').classList.add('hidden'); $('tide').classList.remove('hidden');
+    document.body.classList.add('tide-active');
+    $('tide').scrollTo(0, 0); // always land back on the tide panel, not wherever the scroll-snap was left
+    // Awaited in registry order -- same sequencing this always had (Tide's
+    // own fetch settles, THEN Waves & Wind starts -- see renderWindWave's
+    // own comment on why it's independent/never blocks on the tide fetch
+    // failing), just driven by a list now instead of two screens called
+    // by name. One screen's own failure (each module owns its own try/
+    // catch) never stops the next screen in the list from rendering --
+    // same "degrade the extra, not the core thing" principle as before.
+    for (const screen of SCREENS) { await screen.render(st); }
   }
 
   // Caches the pick locally (so the NEXT tap is instant even if the
