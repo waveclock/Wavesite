@@ -262,6 +262,14 @@
     padding: 10px 12px; background: #fff; color: var(--ink);
   }
   .save-name-input:focus { outline: none; border-color: var(--wave); }
+  /* Highlights WHICH tide station just got picked -- this screen's own
+     job (see #saveConfirmState's own comment), styled as a filled chip
+     so it actually reads as "the thing to confirm" rather than blending
+     in with the plain .sub lines around it. */
+  .station-confirm {
+    font-size: 19px; font-weight: 800; color: var(--wave); background: var(--wave-pale);
+    border-radius: 12px; padding: 10px 14px; margin: 0 0 18px;
+  }
   .surf-loading { margin: 6px auto 4px; max-width: 280px; }
   /* The exact brand surfer art from surferMarker() (see its own comment
      for why the source coordinates are never hand-edited), just wrapped
@@ -551,12 +559,13 @@
 <div class="save-overlay hidden" id="saveOverlay">
   <div class="save-card">
     <div id="saveConfirmState">
-      <!-- Pre-filled with the auto-derived town name, but freely
-           editable -- lets someone rename this beach to something
-           personal ("Dad's Secret Jetty") without changing which
-           station/town actually feeds its tide and weather data
-           underneath (see confirmAndSave's own comment). -->
-      <input class="save-name-input" id="saveConfirmName" type="text" maxlength="60" aria-label="Beach name">
+      <!-- Naming the beach already happened at step 2 (confirmLocationStep)
+           -- this screen's own job is confirming the STATION pick, which
+           is the thing that actually changed since then, so it highlights
+           that instead of re-asking for a name that's already settled. -->
+      <h2 id="saveConfirmName">—</h2>
+      <p class="sub">Tide station</p>
+      <p class="station-confirm" id="saveConfirmStation">—</p>
       <p class="sub">Save this as your beach?</p>
       <button class="bigbtn" id="saveConfirmBtn" type="button">Save</button>
       <button class="bigbtn ghost" id="saveCancelBtn" type="button">Back</button>
@@ -600,6 +609,18 @@
   const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
   const TAG_PROXY = 'https://us-central1-waveclock.cloudfunctions.net/tideTagProxy';
   const $ = id => document.getElementById(id);
+
+  // Nudges the page into a scrolled state so the mobile browser's own
+  // address bar collapses -- without an actual scroll, it sits there the
+  // whole time, eating a real chunk (~15% on a typical phone) of the
+  // vertical space every picker step has to work with. Called at each
+  // step transition in the picker wizard so a fresh step opens with that
+  // space already reclaimed instead of making the user scroll manually
+  // first. Harmless (and simply a no-op) on a step short enough that
+  // there's nothing to scroll.
+  function maximizeViewport() {
+    window.scrollTo(0, 1);
+  }
 
   // ---------- which tag is this? ----------
   // Matches scripts/generateTagIds.js's own charset/length (4-6 chars,
@@ -1179,6 +1200,7 @@
     $('confirmLocationStep').classList.remove('hidden');
     $('confirmLocationName').value = town.name + (town.state ? ', ' + town.state : '');
     renderConfirmMap(town);
+    maximizeViewport();
   }
   $('confirmLocationBtn').addEventListener('click', () => {
     if (!pendingLocation) return;
@@ -1188,7 +1210,9 @@
     // editing, so leaving state set would double it onto a fully custom
     // name ("Dad's Secret Jetty, NJ" instead of just "Dad's Secret
     // Jetty"). Clearing the field entirely falls back to the original
-    // town, same convention as the final save screen's own name field.
+    // town -- this is now the ONLY place a beach gets (re)named, so it's
+    // what the final save screen just displays as already-settled
+    // context (see pickStation's own comment).
     const customName = $('confirmLocationName').value.trim();
     const named = customName ? Object.assign({}, pendingLocation, { name: customName, state: '' }) : pendingLocation;
     clearConfirmMap();
@@ -1201,6 +1225,7 @@
     clearConfirmMap();
     $('confirmLocationStep').classList.add('hidden');
     $('searchStep').classList.remove('hidden');
+    maximizeViewport();
   });
 
   // Builds the object pickStation/registerTag/updateRegisteredTag actually
@@ -1236,6 +1261,7 @@
     $('results').innerHTML = '';
     $('stationStepIntro').classList.remove('hidden');
     $('pickHint').textContent = 'Looking up nearby tide stations…';
+    maximizeViewport();
     try {
       const all = await fetchAllStations();
       const nearby = all
@@ -1300,24 +1326,20 @@
   let pendingPick = null;
   function pickStation(st) {
     pendingPick = st;
-    $('saveConfirmName').value = st.name;
+    // The beach NAME was already settled at step 2 (confirmLocationStep)
+    // -- this screen just shows it as context and highlights which
+    // STATION was actually just picked, since that's the one thing that
+    // changed since then (see #saveConfirmState's own comment).
+    $('saveConfirmName').textContent = st.name;
+    $('saveConfirmStation').textContent = st.stationName;
     $('saveConfirmState').classList.remove('hidden');
     $('saveProgressState').classList.add('hidden');
     $('saveOverlay').classList.remove('hidden');
+    maximizeViewport();
   }
   async function confirmAndSave() {
     const st = pendingPick;
     if (!st) return;
-    // Whatever's left in the name field once Save is tapped -- pre-filled
-    // with the auto-derived town name (see pickStation above) but freely
-    // editable. st.name is what ends up displayed everywhere (the tide
-    // header, the picker banner) AND stored as townName, which has
-    // always been plain display text server-side (see sanitizeTownName --
-    // never validated against a real place), so renaming it here needs
-    // no new field or backend change at all. Clearing it entirely falls
-    // back to the original name rather than saving a blank one.
-    const customName = $('saveConfirmName').value.trim();
-    const named = customName ? Object.assign({}, st, { name: customName }) : st;
     $('saveConfirmState').classList.add('hidden');
     $('saveProgressState').classList.remove('hidden');
     $('saveStatusText').textContent = 'Saving your beach…';
@@ -1327,10 +1349,10 @@
     // srfZone/marineZone, which can legitimately take much longer (see
     // its own comment for why that used to make this look permanently
     // stuck instead of just slow).
-    const extras = await resolveEnrichment(named, msg => { $('saveStatusText').textContent = msg; });
+    const extras = await resolveEnrichment(st, msg => { $('saveStatusText').textContent = msg; });
     await sleep(900); // long enough to actually read the final status line before it changes again
 
-    const stWithExtras = Object.assign({}, named, extras);
+    const stWithExtras = Object.assign({}, st, extras);
     const wasChanging = isChanging;
     isChanging = false;
     $('saveStatusText').textContent = 'Saving…';
@@ -1413,6 +1435,7 @@
     clearConfirmMap();
     pendingPick = null;
     $('saveOverlay').classList.add('hidden');
+    maximizeViewport();
   }
   $('changeBtn').addEventListener('click', () => {
     isChanging = true;
@@ -1433,6 +1456,7 @@
     $('changeLocationBtn').classList.add('hidden');
     $('searchStep').classList.remove('hidden');
     $('search').focus();
+    maximizeViewport();
   });
 
   // ================= wind & waves (second scroll-snap panel) =================
