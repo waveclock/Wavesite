@@ -1314,7 +1314,12 @@
   // cover height, <50% draws a YELLOW bar at 100-minus-that height (so a
   // gray bar shrinking and a yellow bar growing are the same number,
   // just approached from opposite sides of the 50% line, matching how
-  // "less cloud" and "more sun" are actually the same fact).
+  // "less cloud" and "more sun" are actually the same fact) -- but ONLY
+  // during daylight. There's no sun up to call a clear hour after dark
+  // "sunny," so any dry hour before sunrise or after sunset draws gray
+  // at its own cloud-cover height no matter how low that is, the same
+  // as a cloudy DAYtime hour -- it just stays a cloud reading, never
+  // flips to yellow.
   //
   // Rain and cloud/sun are on two SEPARATE scales sharing the same pixel
   // range (Yrain vs Ypct below) rather than one shared axis -- inches of
@@ -1340,6 +1345,17 @@
     const Ypct = v => padT + (1 - v / 100) * (H - padT - padB);
     const barW = Math.max(3, (W / 24) * 0.7);
     const nightBands = nightBandsSvg(windowStart, X, W, H);
+    // Same sunrise/sunset calc nightBandsSvg itself makes (its own call
+    // explains the noon trick) -- needed again here, separately, so each
+    // point can be tested against it below. Left null (never treated as
+    // night) when there's no current location to compute real sunrise/
+    // sunset from, or the computation comes back invalid (e.g. polar
+    // day/night) -- same fallback nightBandsSvg itself makes.
+    let sunrise = null, sunset = null;
+    if (current && Number.isFinite(current.lat) && Number.isFinite(current.lon)) {
+      const sun = sunriseSunset(new Date(windowStart.getTime() + 12 * 3600e3), current.lat, current.lon);
+      if (Number.isFinite(sun.sunrise.getTime()) && Number.isFinite(sun.sunset.getTime())) { sunrise = sun.sunrise; sunset = sun.sunset; }
+    }
     let bars = '';
     pts.forEach(p => {
       const x = X(p.t) - barW / 2;
@@ -1347,7 +1363,8 @@
       if (p.precipIn != null && p.precipIn >= RAIN_THRESHOLD_IN) {
         y = Yrain(p.precipIn); fill = '#0b2d6b';
       } else if (p.cloudPct != null) {
-        const cloudy = p.cloudPct >= 50;
+        const isNight = sunrise && sunset && (p.t < sunrise || p.t > sunset);
+        const cloudy = isNight || p.cloudPct >= 50;
         y = Ypct(cloudy ? p.cloudPct : (100 - p.cloudPct));
         fill = cloudy ? '#9aa3bf' : '#f0b429';
       } else {
