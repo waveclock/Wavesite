@@ -897,12 +897,12 @@
   }
 
   // ---------- which tag is this? ----------
-  // Matches scripts/generateTagIds.js's own charset/length (4-6 chars,
+  // Matches scripts/generateTagIds.js's own charset/length (16-32 chars,
   // A-Z/2-9, no 0/O/1/I) -- see lib/tideTag.js's TAG_ID_PATTERN on the
   // server for why. Uppercased defensively (every tag this project
   // writes is already uppercase) rather than trusted as-typed, since an
   // NFC phone banner or a manually-typed URL could come back lowercase.
-  const TAG_MATCH = location.pathname.match(/^\/t\/([2-9A-Za-z]{4,6})\/?$/);
+  const TAG_MATCH = location.pathname.match(/^\/t\/([2-9A-Za-z]{16,32})\/?$/);
   const tagId = TAG_MATCH ? TAG_MATCH[1].toUpperCase() : null;
 
   if (!tagId) {
