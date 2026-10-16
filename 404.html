@@ -1236,8 +1236,8 @@
   // autoplay outright; this is the one combination that's actually
   // allowed to play without the visitor tapping play themselves first.
   const BEACH_CAM_IDS = [
-    { frameId: 'beachCamIframe', ytId: 'EZkrTj5WfSE', layerId: 'beachCamLayer', overlayId: 'beachCamOverlay' },
-    { frameId: 'beachCamIframe2', ytId: '9S4VUEFfo_g', layerId: 'beachCamLayer2', overlayId: 'beachCamOverlay2' }
+    { frameId: 'beachCamIframe', ytId: 'EZkrTj5WfSE', layerId: 'beachCamLayer', overlayId: 'beachCamOverlay', startPanX: 0.5, startPanY: 0.5 },
+    { frameId: 'beachCamIframe2', ytId: '9S4VUEFfo_g', layerId: 'beachCamLayer2', overlayId: 'beachCamOverlay2', startPanX: 0.75, startPanY: 0.5 }
   ];
   async function renderBeachCam(st) {
     const panel = $('beachCamPanel');
@@ -1303,11 +1303,12 @@
     }, { passive: false });
   }
 
-  // Both cameras start centered vertically, and horizontally halfway
-  // between center and the right edge of their own pannable range (0.75
-  // on the 0-1 scale applyCamPan takes) -- a deliberate starting look,
-  // not "just show the middle," same for whichever camera it is.
-  BEACH_CAM_IDS.forEach(cam => setupCamPan($(cam.layerId), $(cam.overlayId), 0.75, 0.5));
+  // Each camera's own deliberate starting look (see its own startPanX/
+  // startPanY in BEACH_CAM_IDS above) -- the top camera starts dead
+  // center on both axes; the one below it starts centered vertically
+  // but horizontally halfway toward the right edge of its own pannable
+  // range (0.75 on the 0-1 scale applyCamPan takes).
+  BEACH_CAM_IDS.forEach(cam => setupCamPan($(cam.layerId), $(cam.overlayId), cam.startPanX, cam.startPanY));
 
   async function renderTidePanel(st) {
     events = null;
