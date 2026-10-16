@@ -375,9 +375,10 @@
   .beach-cam-pan-layer { position: absolute; width: 350%; height: 350%; pointer-events: none; }
   .beach-cam-pan-layer iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   /* Transparent, sits ON TOP of the (pointer-events:none) video -- this
-     is what actually receives the hold-then-drag gesture. Iframes can't
-     be reliably drag-detected directly (especially a cross-origin one
-     like YouTube's own), so touch input never reaches the video itself. */
+     is what actually receives the drag-to-pan gesture (see setupCamPan).
+     Iframes can't be reliably drag-detected directly (especially a
+     cross-origin one like YouTube's own), so touch input never reaches
+     the video itself. */
   .beach-cam-pan-overlay { position: absolute; inset: 0; }
   .town-marker svg { display: block; filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff); }
   .station-marker span { display: block; width: 13px; height: 13px; border-radius: 50%; background: var(--wave); border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink); cursor: pointer; }
@@ -614,8 +615,10 @@
     <!-- Each camera: a 3.5x-zoomed, pannable layer (see setupCamPan) --
          the layer holds the actual iframe and is what gets scaled/
          shifted; the overlay sits on top and is what actually receives
-         the hold-then-drag touch gesture, since the video itself can't
-         reliably be drag-detected directly. -->
+         the drag-to-pan touch gesture (engages immediately, no hold --
+         meaning swipe-to-change-screen only works from outside the
+         video now), since the video itself can't reliably be drag-
+         detected directly. -->
     <div class="beach-cam-frame">
       <div class="beach-cam-pan-layer" id="beachCamLayer"><iframe id="beachCamIframe" src="" title="Live beach camera at 14th Street Fishing Pier, Ocean City, NJ" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>
       <div class="beach-cam-pan-overlay" id="beachCamOverlay"></div>
@@ -1263,20 +1266,16 @@
     layerEl.style.top = (-panY * BEACH_CAM_PAN_RANGE) + '%';
   }
 
-  // Press-and-hold-then-drag to pan around inside the zoomed video --
-  // the SAME hold-first mechanism setupChartScrub uses below (reuses
-  // its own SCRUB_HOLD_MS/SCRUB_HOLD_SLOP constants directly, only ever
-  // read once an actual touch event fires, long after both are defined
-  // -- same deferred-reference pattern already used throughout this
-  // file), for the identical reason: a quick swipe over the video has
-  // to keep changing screens like it does everywhere else in this app,
-  // so panning can't grab a touch from its very first pixel of
-  // movement. Only engages once the finger's held still past
-  // SCRUB_HOLD_MS; a real swipe cancels the hold and bubbles up
-  // untouched, same as a quick swipe over any chart already does.
+  // Drag to pan around inside the zoomed video -- engages the instant a
+  // finger moves, no press-and-hold first. That's a deliberate trade-
+  // off: it means a swipe starting ON the video pans instead of
+  // changing screens, so swiping to the next/previous screen only
+  // works from outside the video now (the title/caption, the margins)
+  // -- accepted in exchange for panning that responds immediately
+  // instead of making the visitor wait out a hold first.
   function setupCamPan(layerEl, overlayEl, startPanX, startPanY) {
     let panX = startPanX, panY = startPanY;
-    let holdTimer = null, panning = false, startX = 0, startY = 0, lastX = 0, lastY = 0, rangeXpx = 1, rangeYpx = 1;
+    let lastX = 0, lastY = 0, rangeXpx = 1, rangeYpx = 1;
     applyCamPan(layerEl, panX, panY);
 
     overlayEl.addEventListener('touchstart', e => {
@@ -1284,22 +1283,14 @@
       const rect = overlayEl.getBoundingClientRect();
       rangeXpx = rect.width * (BEACH_CAM_ZOOM - 1) || 1;
       rangeYpx = rect.height * (BEACH_CAM_ZOOM - 1) || 1;
-      startX = lastX = e.touches[0].clientX;
-      startY = lastY = e.touches[0].clientY;
-      panning = false;
-      clearTimeout(holdTimer);
-      holdTimer = setTimeout(() => { panning = true; }, SCRUB_HOLD_MS);
+      lastX = e.touches[0].clientX;
+      lastY = e.touches[0].clientY;
     }, { passive: true });
 
     overlayEl.addEventListener('touchmove', e => {
       if (e.touches.length !== 1) return;
-      const t = e.touches[0];
-      if (!panning) {
-        if (Math.abs(t.clientX - startX) > SCRUB_HOLD_SLOP || Math.abs(t.clientY - startY) > SCRUB_HOLD_SLOP) clearTimeout(holdTimer); // real swipe -- let it bubble up as a normal screen change
-        return;
-      }
       e.preventDefault();
-      e.stopPropagation();
+      const t = e.touches[0];
       const dx = t.clientX - lastX, dy = t.clientY - lastY;
       lastX = t.clientX; lastY = t.clientY;
       // Content follows the finger -- the same direct-manipulation
@@ -1310,10 +1301,6 @@
       panY = Math.min(1, Math.max(0, panY - dy / rangeYpx));
       applyCamPan(layerEl, panX, panY);
     }, { passive: false });
-
-    function endPan() { clearTimeout(holdTimer); panning = false; }
-    overlayEl.addEventListener('touchend', endPan);
-    overlayEl.addEventListener('touchcancel', endPan);
   }
 
   // Both cameras start centered vertically, and horizontally halfway
