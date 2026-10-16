@@ -620,7 +620,7 @@
          video now), since the video itself can't reliably be drag-
          detected directly. -->
     <div class="beach-cam-frame">
-      <div class="beach-cam-pan-layer" id="beachCamLayer"><iframe id="beachCamIframe" src="" title="Live beach camera at 14th Street Fishing Pier, Ocean City, NJ" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>
+      <div class="beach-cam-pan-layer" id="beachCamLayer"><div id="beachCamIframe"></div></div>
       <div class="beach-cam-pan-overlay" id="beachCamOverlay"></div>
     </div>
     <!-- A second camera, same beach, no caption of its own (unlabeled by
@@ -628,7 +628,7 @@
          first, same muted-autoplay treatment (see renderBeachCam) and
          its own independent pan state. -->
     <div class="beach-cam-frame">
-      <div class="beach-cam-pan-layer" id="beachCamLayer2"><iframe id="beachCamIframe2" src="" title="Live beach camera 2, Ocean City, NJ" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>
+      <div class="beach-cam-pan-layer" id="beachCamLayer2"><div id="beachCamIframe2"></div></div>
       <div class="beach-cam-pan-overlay" id="beachCamOverlay2"></div>
     </div>
   </section>
@@ -1235,26 +1235,127 @@
   // autoplay) because every mobile/desktop browser blocks unmuted
   // autoplay outright; this is the one combination that's actually
   // allowed to play without the visitor tapping play themselves first.
+  // player/playerFailed are runtime state, stashed directly on each
+  // entry (same "extra state lives right on the object" pattern used
+  // elsewhere in this file, e.g. a wave point's own _quality) --
+  // populated once createCamPlayer resolves, never re-fetched after.
   const BEACH_CAM_IDS = [
     { frameId: 'beachCamIframe', ytId: 'EZkrTj5WfSE', layerId: 'beachCamLayer', overlayId: 'beachCamOverlay', startPanX: 0.5, startPanY: 0.5 },
     { frameId: 'beachCamIframe2', ytId: '9S4VUEFfo_g', layerId: 'beachCamLayer2', overlayId: 'beachCamOverlay2', startPanX: 0.75, startPanY: 0.5 }
   ];
+
+  // Loads YouTube's real IFrame Player API once, shared by both cameras
+  // -- free, no key, same youtube.com domain the embed already used.
+  // Resolves with the window.YT namespace; rejects (script error, or a
+  // timeout in case the network just never answers) so callers can fall
+  // back to a plain embed instead of hanging forever.
+  let ytApiPromise = null;
+  function loadYouTubeIframeAPI() {
+    if (ytApiPromise) return ytApiPromise;
+    ytApiPromise = new Promise((resolve, reject) => {
+      if (window.YT && window.YT.Player) { resolve(window.YT); return; }
+      const timer = setTimeout(() => reject(new Error('YouTube IFrame API load timed out')), 8000);
+      const prevReady = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => {
+        clearTimeout(timer);
+        if (typeof prevReady === 'function') prevReady();
+        resolve(window.YT);
+      };
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      tag.onerror = () => { clearTimeout(timer); reject(new Error('YouTube IFrame API script failed to load')); };
+      document.head.appendChild(tag);
+    });
+    return ytApiPromise;
+  }
+
+  // The one shared recovery path every trigger below (onStateChange,
+  // the periodic poll, the screen-became-visible check, and a touch on
+  // the pan overlay) funnels through -- nothing on this muted, control-
+  // less screen can legitimately pause/end/cue a video on purpose, so
+  // any state other than PLAYING(1) or BUFFERING(3, normal mid-stream,
+  // not a stall) gets a playVideo() nudge.
+  function ensureCamPlaying(cam) {
+    if (!cam.player || typeof cam.player.getPlayerState !== 'function') return;
+    const state = cam.player.getPlayerState();
+    if (state === -1 || state === 0 || state === 2 || state === 5) cam.player.playVideo();
+  }
+
+  // Builds this camera's real Player-API player ONCE (a second call
+  // while the first is still in flight, or after either has already
+  // settled, is a no-op) -- same "never restart what's already there"
+  // guard the old direct-iframe-src version used, just moved up a layer
+  // now that there's a real player object to check instead of a src
+  // string.
+  async function createCamPlayer(cam) {
+    if (cam.player || cam.playerFailed) return;
+    try {
+      const YT = await loadYouTubeIframeAPI();
+      if (cam.player) return; // a concurrent call already finished first
+      cam.player = new YT.Player(cam.frameId, {
+        videoId: cam.ytId,
+        playerVars: { autoplay: 1, mute: 1, playsinline: 1, rel: 0, modestbranding: 1 },
+        events: {
+          onReady: e => e.target.playVideo(),
+          onStateChange: e => { if (e.data === -1 || e.data === 0 || e.data === 2 || e.data === 5) e.target.playVideo(); }
+        }
+      });
+    } catch (err) {
+      // The API script itself never loaded (blocked, offline, timed
+      // out) -- same embed as before the Player API switch, just
+      // without playback-state control, rather than a broken screen.
+      cam.playerFailed = true;
+      const holder = $(cam.frameId);
+      if (holder) {
+        const iframe = document.createElement('iframe');
+        iframe.id = cam.frameId;
+        iframe.src = 'https://www.youtube.com/embed/' + cam.ytId + '?autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1';
+        iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
+        iframe.setAttribute('allowfullscreen', '');
+        iframe.style.border = '0';
+        holder.replaceWith(iframe);
+      }
+    }
+  }
+
   async function renderBeachCam(st) {
     const panel = $('beachCamPanel');
     const isCamBeach = !!(st && st.name === BEACH_CAM_TOWN);
     panel.classList.toggle('hidden', !isCamBeach);
     BEACH_CAM_IDS.forEach(cam => {
-      const frame = $(cam.frameId);
       if (isCamBeach) {
-        // Only point each iframe at its real embed once this screen can
-        // actually show -- never loads/buffers a live stream in the
-        // background for a beach that doesn't even have this screen.
-        const wantedSrc = 'https://www.youtube.com/embed/' + cam.ytId + '?autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1';
-        if (frame.src !== wantedSrc) frame.src = wantedSrc; // avoid restarting playback on every periodic re-render (see the 3-hourly openTide refresh)
-      } else if (frame.src) {
-        frame.src = ''; // "Change beach" away from here -- stop playback/buffering, don't just hide it
+        createCamPlayer(cam); // only ever builds it once -- see its own comment
+        ensureCamPlaying(cam); // covers returning here after stopVideo() below, same as any other trigger
+      } else if (cam.player && typeof cam.player.stopVideo === 'function') {
+        // "Change beach" away from here -- stopVideo() cancels loading/
+        // buffering too, not just pausing, same intent the old
+        // frame.src='' had, just through the Player API now. The
+        // player itself stays alive (not destroyed) so coming back
+        // later is just another playVideo(), not a full rebuild.
+        cam.player.stopVideo();
       }
     });
+  }
+
+  // Backup for onStateChange -- a live stream can occasionally get
+  // stuck mid-buffer without ever cleanly firing a state-change event,
+  // so this is the net under the net, not the primary mechanism.
+  setInterval(() => {
+    if ($('beachCamPanel').classList.contains('hidden')) return;
+    BEACH_CAM_IDS.forEach(ensureCamPlaying);
+  }, 25000);
+
+  // Resumes whichever camera(s) just scrolled back into view -- the
+  // most likely real-world cause of a stopped video is a mobile browser
+  // throttling it while this screen was off-screen, so catching it
+  // right as the visitor actually looks at it again matters more than
+  // the periodic poll above ever could on its own. A fully hidden panel
+  // (any beach but Ocean City) has no box at all, so it's never
+  // reported as intersecting -- nothing to gate on beach here.
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(entries => {
+      entries.forEach(entry => { if (entry.isIntersecting) BEACH_CAM_IDS.forEach(ensureCamPlaying); });
+    }, { threshold: 0.5 }).observe($('beachCamPanel'));
   }
 
   // ---------- each beach cam's own 3.5x zoom + pan ----------
@@ -1273,13 +1374,14 @@
   // works from outside the video now (the title/caption, the margins)
   // -- accepted in exchange for panning that responds immediately
   // instead of making the visitor wait out a hold first.
-  function setupCamPan(layerEl, overlayEl, startPanX, startPanY) {
+  function setupCamPan(cam, layerEl, overlayEl, startPanX, startPanY) {
     let panX = startPanX, panY = startPanY;
     let lastX = 0, lastY = 0, rangeXpx = 1, rangeYpx = 1;
     applyCamPan(layerEl, panX, panY);
 
     overlayEl.addEventListener('touchstart', e => {
       if (e.touches.length !== 1) return;
+      ensureCamPlaying(cam); // a touch on this camera is a clear signal someone's looking at it right now
       const rect = overlayEl.getBoundingClientRect();
       rangeXpx = rect.width * (BEACH_CAM_ZOOM - 1) || 1;
       rangeYpx = rect.height * (BEACH_CAM_ZOOM - 1) || 1;
@@ -1308,7 +1410,7 @@
   // center on both axes; the one below it starts centered vertically
   // but horizontally halfway toward the right edge of its own pannable
   // range (0.75 on the 0-1 scale applyCamPan takes).
-  BEACH_CAM_IDS.forEach(cam => setupCamPan($(cam.layerId), $(cam.overlayId), cam.startPanX, cam.startPanY));
+  BEACH_CAM_IDS.forEach(cam => setupCamPan(cam, $(cam.layerId), $(cam.overlayId), cam.startPanX, cam.startPanY));
 
   async function renderTidePanel(st) {
     events = null;
