@@ -307,7 +307,22 @@
      min(58vh, 440px)) to leave real room below for the rain/sky chart --
      the radar itself only needs to be big enough to read the
      precipitation shape near the beach, not fill the whole screen. */
-  .radar-map { display: block; height: min(32vh, 260px); border: 2px solid var(--line); border-radius: 14px; margin: 14px 0 6px; overflow: hidden; background: var(--wave-pale); }
+  .radar-map { display: block; height: min(32vh, 260px); border: 2px solid var(--line); border-radius: 14px; margin: 4px 0 3px; overflow: hidden; background: var(--wave-pale); }
+  /* Tighter spacing than the shared .wind-title/.curve-cap/.chart-header
+     rules give other panels -- the radar panel stacks a title, a caption,
+     a map, AND a whole second chart below all of that, so it needs to
+     claw back vertical room its siblings don't, to keep the Rain & Sky
+     chart + legend from spilling past one screen's height. Scoped to
+     #radarPanel (or #radarCap's own id) rather than edited on the shared
+     rules themselves, so Waves & Wind and the tide screen keep their own
+     normal spacing. */
+  #radarPanel .wind-title { margin-bottom: 6px; }
+  #radarCap { margin-bottom: 2px; }
+  /* Only TODAY's own header gets the tighter margin -- tomorrow's pane
+     has its own "Tomorrow" label (see .day-label) sitting in that same
+     margin, and it needs the shared .chart-header's full 18px to clear
+     without crowding "Rain & Sky" underneath it. */
+  #radarPanel .day-page[data-day="today"] .chart-header { margin-top: 8px; }
   /* Next to the "Radar" title -- "Rain in 40m" / "Rain ending in 1h 20m",
      styled like the chart badges elsewhere (chart-header-badge) so it
      reads as a status pill, not body text. Hidden by default/whenever
