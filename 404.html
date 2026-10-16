@@ -343,6 +343,12 @@
      margin, and it needs the shared .chart-header's full 18px to clear
      without crowding "Rain & Sky" underneath it. */
   #radarPanel .day-page[data-day="today"] .chart-header { margin-top: 8px; }
+  /* Real clearance for the temperature legend's own boundary labels,
+     which float above the gradient bar via absolute positioning (see
+     .temp-grad .boundary) and so add nothing to normal flow on their
+     own -- without this, they'd overlap the day-dots row right above
+     this shared legend. */
+  #radarPanel .bar-legend { margin-top: 16px; }
   /* Next to the "Radar" title -- "Rain in 40m" / "Rain ending in 1h 20m",
      styled like the chart badges elsewhere (chart-header-badge) so it
      reads as a status pill, not body text. Hidden by default/whenever
@@ -361,13 +367,18 @@
      rather than one swatch per step, which wouldn't fit this row at
      all. One legend for both today's and tomorrow's charts, same as
      Rain/Cloudy/Sun already is -- the color scale means the same thing
-     either day. */
-  .temp-grad { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0; }
-  .temp-grad-mid { position: relative; flex: 1 1 auto; min-width: 24px; }
+     either day. Every internal boundary (40/50/60/70/80/85/90°) gets
+     its own small label, absolutely positioned above the bar at its
+     own true x position -- they float OVER the row rather than adding
+     their own line, so the bar and the rest of the legend never shift
+     down just because there's text above them -- #radarPanel's own
+     .bar-legend margin-top (see its override below) is what reserves
+     real clearance for them against the day-dots row above, since
+     nothing in normal flow does that on its own. */
+  .temp-grad { position: relative; flex: 1 1 auto; min-width: 24px; }
   .temp-grad-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; }
   .temp-grad-bar div { flex: 1; }
-  .temp-grad .cap { font-size: 10px; font-weight: 700; color: var(--soft); flex-shrink: 0; }
-  .temp-grad .mid-label { position: absolute; top: calc(100% + 3px); left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: 700; color: var(--soft); white-space: nowrap; }
+  .temp-grad .boundary { position: absolute; bottom: calc(100% + 2px); transform: translateX(-50%); font-size: 8px; font-weight: 700; color: var(--soft); white-space: nowrap; }
   /* Grayscales just the radar map's OWN base tile layer (Leaflet's
      tileLayer className option tags each of that layer's own <img>
      tiles with this class) -- the NEXRAD overlay tiles and the beach
@@ -612,7 +623,7 @@
       <span class="day-dot active" data-day="today"></span>
       <span class="day-dot" data-day="tomorrow"></span>
     </div>
-    <div class="bar-legend"><span><i class="rain"></i>Rain</span><span><i class="cloud"></i>Cloudy</span><span><i class="sun"></i>Sun</span><div class="temp-grad"><span class="cap">40&deg;</span><div class="temp-grad-mid"><div class="temp-grad-bar"><div style="background:#1e3a8a"></div><div style="background:#1d4ed8"></div><div style="background:#3b82f6"></div><div style="background:#60a5fa"></div><div style="background:#f87171"></div><div style="background:#ef4444"></div><div style="background:#b91c1c"></div><div style="background:#7f1d1d"></div></div><span class="mid-label">70&deg;</span></div><span class="cap">90&deg;</span></div></div>
+    <div class="bar-legend"><span><i class="rain"></i>Rain</span><span><i class="cloud"></i>Cloudy</span><span><i class="sun"></i>Sun</span><div class="temp-grad"><div class="temp-grad-bar"><div style="background:#1e3a8a"></div><div style="background:#1d4ed8"></div><div style="background:#3b82f6"></div><div style="background:#60a5fa"></div><div style="background:#f87171"></div><div style="background:#ef4444"></div><div style="background:#b91c1c"></div><div style="background:#7f1d1d"></div></div><span class="boundary" style="left:12.5%">40&deg;</span><span class="boundary" style="left:25%">50&deg;</span><span class="boundary" style="left:37.5%">60&deg;</span><span class="boundary" style="left:50%">70&deg;</span><span class="boundary" style="left:62.5%">80&deg;</span><span class="boundary" style="left:75%">85&deg;</span><span class="boundary" style="left:87.5%">90&deg;</span></div></div>
   </section>
 
   <!-- A 4th screen that only exists for ONE specific beach -- unlike the
