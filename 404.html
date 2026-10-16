@@ -344,11 +344,18 @@
      normal spacing. */
   #radarPanel .wind-title { margin-bottom: 6px; }
   #radarCap { margin-bottom: 2px; }
-  /* Only TODAY's own header gets the tighter margin -- tomorrow's pane
-     has its own "Tomorrow" label (see .day-label) sitting in that same
-     margin, and it needs the shared .chart-header's full 18px to clear
-     without crowding "Rain & Sky" underneath it. */
-  #radarPanel .day-page[data-day="today"] .chart-header { margin-top: 8px; }
+  /* Both panes get the tighter margin -- unlike Waves & Wind, neither of
+     this panel's own day-pages has a floating .day-label sharing that
+     top margin (each pane's own chart-header title already says
+     "Today"/"Tomorrow"), so there's nothing either one needs the full
+     18px to clear. */
+  #radarPanel .day-page .chart-header { margin-top: 8px; }
+  /* A plain-language summary of the day's own weather (see
+     describeDayWeather), riding right after the high/low temp on the
+     same line -- same small, muted treatment as the title next to it,
+     just not uppercase, so it reads as a description rather than a
+     label. */
+  .chart-header-desc { font-size: 13px; font-weight: 600; color: var(--soft); }
   /* Real clearance for the temperature legend's own boundary labels,
      which float above the gradient bar via absolute positioning (see
      .temp-grad .boundary) and so add nothing to normal flow on their
@@ -613,21 +620,25 @@
          own today/tomorrow swipe pager" in the script), not a shared
          one, so each panel's pager state can't leak into the other's.
          The radar MAP above is live/current-only (there's no "tomorrow"
-         radar), so only the chart below swipes. -->
+         radar), so only the chart below swipes. Each pane's own title
+         IS "Today"/"Tomorrow" (unlike Waves & Wind's shared title +
+         floating .day-label), so there's no separate day-label here
+         fighting it for the same line. -->
     <div id="radarDayPagerViewport">
       <div id="radarDayPager">
         <div class="day-page" data-day="today">
           <div class="chart-header">
-            <span class="chart-header-title">Rain &amp; Sky</span>
+            <span class="chart-header-title">Today</span>
             <span class="chart-header-stat" id="radarTempStat"></span>
+            <span class="chart-header-desc" id="radarWeatherDesc"></span>
           </div>
           <div class="curve"><svg id="rainChart" viewBox="0 0 360 150" role="img" aria-label="Hourly rainfall amount, and cloud cover vs. sun for hours it isn't raining, with a surfer marking the current hour"></svg></div>
         </div>
         <div class="day-page" data-day="tomorrow">
-          <div class="day-label">Tomorrow</div>
           <div class="chart-header">
-            <span class="chart-header-title">Rain &amp; Sky</span>
+            <span class="chart-header-title">Tomorrow</span>
             <span class="chart-header-stat" id="radarTempStatTomorrow"></span>
+            <span class="chart-header-desc" id="radarWeatherDescTomorrow"></span>
           </div>
           <div class="curve"><svg id="rainChartTomorrow" viewBox="0 0 360 150" role="img" aria-label="Tomorrow's hourly rainfall amount, and cloud cover vs. sun for hours it isn't raining"></svg></div>
         </div>
@@ -1850,13 +1861,45 @@
   }
 
   // "72°/58°" -- today's (or tomorrow's) own high/low, next to the
-  // Rain & Sky title, same spot the wave/wind headers put their own
-  // live stat. Blank (not "--") when there's no temperature data for
+  // "Today"/"Tomorrow" title, same spot the wave/wind headers put their
+  // own live stat. Blank (not "--") when there's no temperature data for
   // that day at all, rather than claiming a reading that doesn't exist.
   function setRadarTempStat(el, points) {
     const temps = points.map(p => p.tempF).filter(v => v != null);
     if (!temps.length) { el.textContent = ''; return; }
     el.textContent = Math.round(Math.max(...temps)) + '°/' + Math.round(Math.min(...temps)) + '°';
+  }
+
+  // "Sunny" / "Partly Cloudy" / "Rainy" -- a plain-language summary of
+  // the WHOLE day, riding right after the high/low temp on that same
+  // line. Rain takes priority over sky, since a day that also rains
+  // isn't "Sunny" no matter how little cloud cover the dry hours had.
+  // "Rainy" needs rain across at least half the day's hours -- fewer
+  // than that reads as "Scattered Showers" instead, same distinction
+  // the radar title's own rain-status pill already draws via
+  // RAIN_THRESHOLD_IN. Once it's down to sky alone, only DAYLIGHT hours'
+  // cloud cover counts -- night-time cloud cover doesn't tell you
+  // anything about how "sunny" the day actually looked -- falling back
+  // to every hour with cloud data if sunrise/sunset can't be computed
+  // (no location on record yet), same fallback drawRainChart's own
+  // night-shading makes.
+  function describeDayWeather(points, windowStart) {
+    const pts = points.filter(p => p.precipIn != null || p.cloudPct != null);
+    if (!pts.length) return '';
+    const rainHours = pts.filter(p => p.precipIn != null && p.precipIn >= RAIN_THRESHOLD_IN).length;
+    if (rainHours) return rainHours >= pts.length / 2 ? 'Rainy' : 'Scattered Showers';
+    let sunrise = null, sunset = null;
+    if (current && Number.isFinite(current.lat) && Number.isFinite(current.lon)) {
+      const sun = sunriseSunset(new Date(windowStart.getTime() + 12 * 3600e3), current.lat, current.lon);
+      if (Number.isFinite(sun.sunrise.getTime()) && Number.isFinite(sun.sunset.getTime())) { sunrise = sun.sunrise; sunset = sun.sunset; }
+    }
+    const cloudPts = pts.filter(p => p.cloudPct != null && (!sunrise || !sunset || (p.t >= sunrise && p.t <= sunset)));
+    if (!cloudPts.length) return '';
+    const avgCloud = cloudPts.reduce((sum, p) => sum + p.cloudPct, 0) / cloudPts.length;
+    if (avgCloud < 20) return 'Sunny';
+    if (avgCloud < 50) return 'Mostly Sunny';
+    if (avgCloud < 80) return 'Partly Cloudy';
+    return 'Cloudy';
   }
 
   async function renderRadarPanel(st) {
@@ -1899,6 +1942,7 @@
     // thing" principle every other screen here already follows.
     $('rainChart').innerHTML = ''; $('rainChartTomorrow').innerHTML = '';
     $('radarTempStat').textContent = ''; $('radarTempStatTomorrow').textContent = '';
+    $('radarWeatherDesc').textContent = ''; $('radarWeatherDescTomorrow').textContent = '';
     if (!Number.isFinite(st.lat) || !Number.isFinite(st.lon)) return;
     try {
       // A second, independent fetchWindWave call -- renderWindWave (the
@@ -1914,6 +1958,7 @@
       if (status) { $('radarRainStatus').textContent = status; $('radarRainStatus').classList.remove('hidden'); }
       drawRainChart($('rainChart'), todayPoints, dayWindow.start, dayWindow.end, true);
       setRadarTempStat($('radarTempStat'), todayPoints);
+      $('radarWeatherDesc').textContent = describeDayWeather(todayPoints, dayWindow.start);
 
       // Tomorrow's own pane, for the swipe-left pager -- same `series`
       // already fetched above (forecast_hours reaches comfortably past
@@ -1923,6 +1968,7 @@
       const tomorrowPoints = series.filter(p => p.t >= tomorrowWin.start && p.t <= tomorrowWin.end);
       drawRainChart($('rainChartTomorrow'), tomorrowPoints, tomorrowWin.start, tomorrowWin.end, false);
       setRadarTempStat($('radarTempStatTomorrow'), tomorrowPoints);
+      $('radarWeatherDescTomorrow').textContent = describeDayWeather(tomorrowPoints, tomorrowWin.start);
       resetRadarDayPager(); // a fresh render (new beach, periodic refresh) always lands back on "today"
     } catch (e) {
       console.error('Radar forecast failed to load:', e);
