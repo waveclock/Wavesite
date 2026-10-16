@@ -7,10 +7,17 @@ name: Deploy Firebase Functions
 # mobile web UI, or via the Actions API), for a deploy that isn't tied to
 # a fresh push -- e.g. re-running after a transient failure.
 #
-# Needs one repo secret to work: FIREBASE_SERVICE_ACCOUNT, a Google Cloud
-# service account key (JSON) with permission to deploy Cloud Functions
-# for the waveclock Firebase project. See functions/README.md for how to
-# create it.
+# Needs two repo secrets to work:
+# - FIREBASE_SERVICE_ACCOUNT, a Google Cloud service account key (JSON)
+#   with permission to deploy Cloud Functions for the waveclock Firebase
+#   project. See functions/README.md for how to create it.
+# - WAVECLOCK_MINT_SECRET, the value mintTideTagBatch (see functions/
+#   index.js) checks against -- written out to functions/.env.waveclock
+#   (gitignored, never committed) right before deploying, which Firebase
+#   auto-loads as a plain runtime env var for every function in this
+#   codebase. Deliberately NOT a Secret Manager-backed secret (see that
+#   same comment in index.js for why) -- a repo secret here gives the
+#   exact same "never in the repo" guarantee without it.
 on:
   push:
     branches: [main]
@@ -44,15 +51,13 @@ jobs:
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
-      # TEMP diagnostic: deploy is failing with "secretmanager.secrets.get
-      # denied" even after granting github-deploy@waveclock.iam... Secret
-      # Accessor on WAVECLOCK_MINT_SECRET directly -- this prints ONLY the
-      # client_email field (never the private key) from the credentials
-      # file google-github-actions/auth@v2 just wrote, to confirm FIREBASE_
-      # SERVICE_ACCOUNT's actual identity rather than assuming it matches
-      # the account that was just granted access. Remove once resolved.
-      - name: TEMP -- show which service account this deploy is using
-        run: node -e "console.log('Deploying as:', require(process.env.GOOGLE_APPLICATION_CREDENTIALS).client_email)"
+      # Written fresh on every run, from the repo secret -- never committed
+      # (functions/.env.waveclock is gitignored). GitHub automatically masks
+      # this value in logs wherever it would otherwise appear, same as any
+      # other ${{ secrets.* }} reference.
+      - name: Write the mint secret's env file
+        working-directory: functions
+        run: echo "WAVECLOCK_MINT_SECRET=${{ secrets.WAVECLOCK_MINT_SECRET }}" > .env.waveclock
 
       - name: Deploy to Firebase
         run: npx firebase-tools@13 deploy --only functions --project waveclock --non-interactive

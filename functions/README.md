@@ -1584,16 +1584,27 @@ without a secret configured yet).
 
 **`mintTideTagBatch`** (`index.js`): admin-only `POST {ids: [...]}`,
 called only by `scripts/generateTagIds.js` above, never by the tide app
-itself. Requires an `x-mint-secret` header matching the
-`WAVECLOCK_MINT_SECRET` secret -- set it once with `firebase
-functions:secrets:set WAVECLOCK_MINT_SECRET` (prompts for a value you
-choose; store the same value wherever you run `generateTagIds.js` from,
-e.g. as a local env var, never committed). Unlike `tideTagProxy`'s own
-endpoints (safe to leave key-less, since an unguessable `tagId` is
-itself the access control for any ONE tag), this one isn't scoped to a
-single tag at all -- it's the one operation that can make ANY new ID
-registerable, so it gets its own secret rather than relying on
-unguessability. Marking an ID that's already minted is a no-op (not an
+itself. Requires an `x-mint-secret` header matching
+`WAVECLOCK_MINT_SECRET` -- a plain runtime env var, not a Secret
+Manager-backed `defineSecret()` (it started as one; deploying a
+codebase with ANY declared secret requires the deploying identity to
+hold `secretmanager.secrets.get` on it, and that grant -- confirmed
+correct via Cloud IAM's own Policy Troubleshooter, including its
+"Remediate" flow -- still wasn't being honored after multiple
+propagation windows, blocking every deploy of this whole codebase, not
+just this one endpoint; worth revisiting if that ever gets root-caused).
+Set it as a **GitHub repository secret** (`Settings -> Secrets and
+variables -> Actions -> New repository secret`, name it
+`WAVECLOCK_MINT_SECRET`) -- `deploy-functions.yml` writes it out to
+`functions/.env.waveclock` (gitignored, never committed) right before
+every deploy, which Firebase auto-loads. Store that same value wherever
+you run `generateTagIds.js` from too (e.g. as a local env var, never
+committed). Unlike `tideTagProxy`'s own endpoints (safe to leave
+key-less, since an unguessable `tagId` is itself the access control for
+any ONE tag), this one isn't scoped to a single tag at all -- it's the
+one operation that can make ANY new ID registerable, so it gets its own
+secret rather than relying on unguessability. Marking an ID that's
+already minted is a no-op (not an
 error), so re-running registration against the same batch is always
 safe.
 
@@ -1785,7 +1796,13 @@ This needs a one-time setup, done by a human with project access:
 4. In this GitHub repo: **Settings -> Secrets and variables -> Actions ->
    New repository secret**, name it `FIREBASE_SERVICE_ACCOUNT`, and paste
    the entire contents of that downloaded JSON file as the value.
-5. That's it -- the next push to `main` touching `functions/` (or a
+5. Also add a **`WAVECLOCK_MINT_SECRET`** repository secret (same
+   Settings page), any value you choose -- see `mintTideTagBatch`'s own
+   entry above for what it gates. Skippable if you don't need minting
+   to work yet; every OTHER function still deploys fine without it (an
+   empty env var just means `mintTideTagBatch` refuses every request,
+   same as having no secret configured at all).
+6. That's it -- the next push to `main` touching `functions/` (or a
    manual run of the workflow) will deploy using that key. All of the
    above can be done from a phone browser; no local terminal needed
    for this one-time setup either.
