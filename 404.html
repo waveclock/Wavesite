@@ -147,7 +147,21 @@
   .state.rising { color: var(--rise); } .state.falling { color: var(--fall); }
   .next-label { font-size: clamp(44px, 14vw, 72px); font-weight: 900; letter-spacing: -0.02em; line-height: 1; margin-top: 18px; text-transform: uppercase; }
   .next-in { font-size: clamp(40px, 12.5vw, 64px); font-weight: 800; line-height: 1.05; margin-top: 6px; }
-  .next-at { font-size: clamp(26px, 8vw, 36px); font-weight: 600; color: var(--soft); margin-top: 6px; }
+  .next-at-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+  .next-at { font-size: clamp(26px, 8vw, 36px); font-weight: 600; color: var(--soft); }
+  /* Rip risk's own green/amber/red traffic-light tiers -- deliberately
+     NOT the same three colors as .chart-header-badge's Clean/Fair/
+     Choppy (var(--rise)/var(--fair)/var(--fall), whose middle tier is
+     blue), since "amber = caution" is the universal rip-current-risk
+     convention and a blue middle tier would read as "fine" here. Reuses
+     --rise/--fall for the two tiers that already match, and adds one
+     new gold (#a16207, chosen for ~5:1 contrast with the white badge
+     text, matching the other tiers' own contrast -- a true bright
+     yellow can't hit that contrast with white text at all) for the one
+     that doesn't. */
+  .chart-header-badge.risk-low { background: var(--rise); }
+  .chart-header-badge.risk-mid { background: #a16207; }
+  .chart-header-badge.risk-high { background: var(--fall); }
 
   /* curve */
   /* White by default -- the real day/night split (sunrise to sunset)
@@ -411,7 +425,17 @@
       <div class="state" id="state"><span class="arrow" id="arrow"></span><span id="stateText"></span></div>
       <div class="next-label" id="nextLabel"></div>
       <div class="next-in" id="nextIn"></div>
-      <div class="next-at" id="nextAt"></div>
+      <div class="next-at-row">
+        <div class="next-at" id="nextAt"></div>
+        <!-- This beach's own current rip current risk -- same colored-pill
+             format as the Waves chart's Clean/Fair/Choppy badge (literally
+             the same .chart-header-badge class), just its own green/amber/
+             red tiers instead of that badge's green/blue/red ones (see
+             .risk-low/.risk-mid/.risk-high below). Hidden whenever there's
+             no swell reading yet (or at all) for this beach, same as every
+             other badge here. -->
+        <span class="chart-header-badge hidden" id="ripRiskBadge"></span>
+      </div>
 
       <div class="curve" id="curveWrap">
         <svg id="curve" viewBox="0 0 360 175" role="img" aria-label="Tide curve for today"></svg>
@@ -1092,6 +1116,52 @@
 
   function showMsg(t) { $('tideBody').classList.add('hidden'); const m = $('tideMsg'); m.textContent = t; m.classList.remove('hidden'); }
 
+  // ---------- rip current risk (tide screen's own badge) ----------
+  // The EXACT same formula the backend already uses (see ripCurrentRisk
+  // in functions/lib/astro.js) -- ported rather than reinvented, so the
+  // two surfaces never quietly disagree about what counts as HIGH risk.
+  // swell is {heightFt, periodS} or null; a long-period swell (>=10s)
+  // bumps the tier up even at a modest height, since that's what
+  // actually drives a strong rip, not height alone.
+  function ripCurrentRisk(swell) {
+    if (!swell || swell.heightFt == null) return null;
+    const h = swell.heightFt;
+    const longPeriod = swell.periodS != null && swell.periodS >= 10;
+    if (h >= 4 || (h >= 2.5 && longPeriod)) return 'HIGH';
+    if (h >= 2 || longPeriod) return 'MODERATE';
+    return 'LOW';
+  }
+  const RIP_RISK_META = { LOW: { label: 'Low', cls: 'risk-low' }, MODERATE: { label: 'Mid', cls: 'risk-mid' }, HIGH: { label: 'High', cls: 'risk-high' } };
+
+  // Independent of (and never blocking) the tide curve itself -- same
+  // "degrade the extra, not the core thing" principle as renderSurfQuality
+  // on the Waves & Wind panel. Needs only this beach's current swell
+  // (height + period), which is exactly what fetchWindWave's own marine
+  // call already returns -- a THIRD independent fetchWindWave call (the
+  // Waves & Wind and Radar panels each already make their own), not
+  // shared state with either of those, same self-contained-screen
+  // reasoning as both of them.
+  let ripRiskRenderToken = 0;
+  async function renderRipRiskBadge(st) {
+    const myToken = ++ripRiskRenderToken;
+    const badge = $('ripRiskBadge');
+    if (!st || !Number.isFinite(st.lat) || !Number.isFinite(st.lon)) { badge.classList.add('hidden'); return; }
+    try {
+      const series = await fetchWindWave(st.lat, st.lon);
+      if (myToken !== ripRiskRenderToken) return; // superseded by a newer call (see windWaveRenderToken's own comment on why this can happen)
+      const now = nearestWindWave(series, Date.now());
+      const swell = now && now.waveHeightFt != null ? { heightFt: now.waveHeightFt, periodS: now.wavePeriodS } : null;
+      const risk = ripCurrentRisk(swell);
+      if (!risk) { badge.classList.add('hidden'); return; }
+      const meta = RIP_RISK_META[risk];
+      badge.textContent = 'Rip Risk ' + meta.label;
+      badge.className = 'chart-header-badge ' + meta.cls;
+    } catch (e) {
+      if (myToken !== ripRiskRenderToken) return;
+      badge.classList.add('hidden');
+    }
+  }
+
   // ---------- screen registry ----------
   // Each entry is an independent beach screen: given the active beach
   // (st), it renders its own panel and touches nothing else. Originally
@@ -1118,6 +1188,7 @@
     showMsg('Getting the tide…');
     try { events = await fetchTides(st.id); render(); }
     catch (e) { showMsg('Couldn’t reach the tide service. Check your signal and try again.'); }
+    renderRipRiskBadge(st); // fire-and-forget -- see its own comment
   }
 
   async function openTide(st) {
