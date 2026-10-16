@@ -44,5 +44,15 @@ jobs:
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
+      # TEMP diagnostic: deploy is failing with "secretmanager.secrets.get
+      # denied" even after granting github-deploy@waveclock.iam... Secret
+      # Accessor on WAVECLOCK_MINT_SECRET directly -- this prints ONLY the
+      # client_email field (never the private key) from the credentials
+      # file google-github-actions/auth@v2 just wrote, to confirm FIREBASE_
+      # SERVICE_ACCOUNT's actual identity rather than assuming it matches
+      # the account that was just granted access. Remove once resolved.
+      - name: TEMP -- show which service account this deploy is using
+        run: node -e "console.log('Deploying as:', require(process.env.GOOGLE_APPLICATION_CREDENTIALS).client_email)"
+
       - name: Deploy to Firebase
         run: npx firebase-tools@13 deploy --only functions --project waveclock --non-interactive
