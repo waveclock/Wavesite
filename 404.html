@@ -355,6 +355,19 @@
   .bar-legend i.rain { background: #0b2d6b; }
   .bar-legend i.cloud { background: #9aa3bf; }
   .bar-legend i.sun { background: #f0b429; }
+  /* The Rain & Sky chart's own temperature-line key -- fills whatever
+     room is left in the shared legend row after Rain/Cloudy/Sun, as a
+     compact gradient bar (8 fixed color steps, see TEMP_COLOR_STOPS)
+     rather than one swatch per step, which wouldn't fit this row at
+     all. One legend for both today's and tomorrow's charts, same as
+     Rain/Cloudy/Sun already is -- the color scale means the same thing
+     either day. */
+  .temp-grad { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0; }
+  .temp-grad-mid { position: relative; flex: 1 1 auto; min-width: 24px; }
+  .temp-grad-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; }
+  .temp-grad-bar div { flex: 1; }
+  .temp-grad .cap { font-size: 10px; font-weight: 700; color: var(--soft); flex-shrink: 0; }
+  .temp-grad .mid-label { position: absolute; top: calc(100% + 3px); left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: 700; color: var(--soft); white-space: nowrap; }
   /* Grayscales just the radar map's OWN base tile layer (Leaflet's
      tileLayer className option tags each of that layer's own <img>
      tiles with this class) -- the NEXRAD overlay tiles and the beach
@@ -599,7 +612,7 @@
       <span class="day-dot active" data-day="today"></span>
       <span class="day-dot" data-day="tomorrow"></span>
     </div>
-    <div class="bar-legend"><span><i class="rain"></i>Rain</span><span><i class="cloud"></i>Cloudy</span><span><i class="sun"></i>Sun</span></div>
+    <div class="bar-legend"><span><i class="rain"></i>Rain</span><span><i class="cloud"></i>Cloudy</span><span><i class="sun"></i>Sun</span><div class="temp-grad"><span class="cap">40&deg;</span><div class="temp-grad-mid"><div class="temp-grad-bar"><div style="background:#1e3a8a"></div><div style="background:#1d4ed8"></div><div style="background:#3b82f6"></div><div style="background:#60a5fa"></div><div style="background:#f87171"></div><div style="background:#ef4444"></div><div style="background:#b91c1c"></div><div style="background:#7f1d1d"></div></div><span class="mid-label">70&deg;</span></div><span class="cap">90&deg;</span></div></div>
   </section>
 
   <!-- A 4th screen that only exists for ONE specific beach -- unlike the
@@ -1694,6 +1707,42 @@
   // the chart's full height, there's no naturally-shorter neighboring
   // bar to float the surfer above the way the wave chart can; the room
   // has to be reserved on purpose.
+
+  // 8-step blue (cold) -> red (hot) scale for the chart's own
+  // temperature line -- FIXED thresholds, not scaled to today's own
+  // high/low, so "red" always means genuinely hot regardless of the
+  // day (a 60°F day's warmest hour shouldn't look as hot as a 95°F
+  // day's). Narrower 5° bands from 70-90° than the 10° bands below it,
+  // since that's the range that actually matters for "beach day or
+  // not." Hex twins of the legend's own gradient-bar divs below --
+  // same "kept in sync by hand" reason QUALITY_BAR_COLOR documents,
+  // since these are SVG fill attributes, not real CSS rules.
+  const TEMP_COLOR_STOPS = [
+    { max: 40, color: '#1e3a8a' },
+    { max: 50, color: '#1d4ed8' },
+    { max: 60, color: '#3b82f6' },
+    { max: 70, color: '#60a5fa' },
+    { max: 80, color: '#f87171' },
+    { max: 85, color: '#ef4444' },
+    { max: 90, color: '#b91c1c' },
+    { max: Infinity, color: '#7f1d1d' }
+  ];
+  function tempColor(f) {
+    for (let i = 0; i < TEMP_COLOR_STOPS.length; i++) if (f < TEMP_COLOR_STOPS[i].max) return TEMP_COLOR_STOPS[i].color;
+    return TEMP_COLOR_STOPS[TEMP_COLOR_STOPS.length - 1].color;
+  }
+  // Same fixed-scale reasoning for the line's own vertical position --
+  // 20-100°F covers the real year-round range at the Jersey Shore, so a
+  // given reading sits at roughly the same height on the chart whether
+  // it's a January or a July day, instead of just stretching to fill
+  // the chart every time. Clamped at either end rather than letting a
+  // rare outlier run off the chart.
+  const TEMP_SCALE_MIN = 20, TEMP_SCALE_MAX = 100;
+  function tempY(f, padT, plotH) {
+    const clamped = Math.min(TEMP_SCALE_MAX, Math.max(TEMP_SCALE_MIN, f));
+    return padT + (1 - (clamped - TEMP_SCALE_MIN) / (TEMP_SCALE_MAX - TEMP_SCALE_MIN)) * plotH;
+  }
+
   function drawRainChart(svgEl, points, windowStart, windowEnd, showNow) {
     if (showNow == null) showNow = true;
     const W = 360, H = svgEl.viewBox.baseVal.height || 150, padT = NOW_ICON_HEAD_REACH + 14, padB = 22;
@@ -1747,11 +1796,27 @@
         nowMarker = surferMarker(x + barW / 2, cy, 0, NOW_ICON_SCALE);
       }
     });
+    // Drawn OVER the bars -- each SEGMENT (not each point) gets its own
+    // color, from that segment's own average of its two endpoint
+    // temperatures, so the line's color genuinely tracks temperature
+    // along its own length instead of picking one color for the whole
+    // line. Hours with no temperature reading are simply skipped (not
+    // interpolated across), same "don't draw a guess" principle the
+    // bars themselves already follow.
+    let tempLine = '';
+    const tempPts = pts.filter(p => p.tempF != null);
+    for (let i = 0; i < tempPts.length - 1; i++) {
+      const a = tempPts[i], b = tempPts[i + 1];
+      const ax = X(a.t), ay = tempY(a.tempF, padT, plotH);
+      const bx = X(b.t), by = tempY(b.tempF, padT, plotH);
+      const color = tempColor((a.tempF + b.tempF) / 2);
+      tempLine += '<line x1="' + ax.toFixed(1) + '" y1="' + ay.toFixed(1) + '" x2="' + bx.toFixed(1) + '" y2="' + by.toFixed(1) + '" stroke="' + color + '" stroke-width="3" stroke-linecap="round"/>';
+    }
     const hourLabels = [6, 12, 18].map(h => {
       const t = new Date(windowStart.getTime() + h * 3600e3);
       return '<text x="' + (W * h / 24).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="11" fill="#4a5675">' + (h === 12 ? 'noon' : (h % 12) + (h < 12 ? 'am' : 'pm')) + '</text>';
     }).join('');
-    svgEl.innerHTML = nightBands + bars + hourLabels + nowMarker;
+    svgEl.innerHTML = nightBands + bars + tempLine + hourLabels + nowMarker;
     // Read by the press-and-hold scrub tooltip (see setupChartScrub
     // below) -- Yrain/plotH/sunrise/sunset are the same values the bars
     // above were just drawn with, so the tooltip's own rain-vs-sky split
