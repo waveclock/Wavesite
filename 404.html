@@ -363,6 +363,12 @@
      OSM's green parks/forests would otherwise read as the radar
      overlay's own green (light-to-moderate rain). */
   .radar-base-tile { filter: grayscale(1) brightness(1.05); }
+  /* Beach Cam panel's own live video embed -- same rounded-card
+     treatment as .radar-map/.station-map, just a 16:9 aspect box
+     instead of a fixed height, since a video (unlike a map) has one
+     correct shape to stay undistorted in. */
+  .beach-cam-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; margin-top: 14px; border: 2px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--wave-pale); }
+  .beach-cam-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   .town-marker svg { display: block; filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff); }
   .station-marker span { display: block; width: 13px; height: 13px; border-radius: 50%; background: var(--wave); border: 2px solid #fff; box-shadow: 0 0 0 1.5px var(--ink); cursor: pointer; }
   /* The one pin that's actually been picked -- a distinct color (not
@@ -583,6 +589,21 @@
       <span class="day-dot" data-day="tomorrow"></span>
     </div>
     <div class="bar-legend"><span><i class="rain"></i>Rain</span><span><i class="cloud"></i>Cloudy</span><span><i class="sun"></i>Sun</span></div>
+  </section>
+
+  <!-- A 4th screen that only exists for ONE specific beach -- unlike the
+       other three panels (always present, driven by whatever lat/lon is
+       registered), there's no live camera for most beaches. Starts
+       hidden and only ever un-hides itself (see renderBeachCam) for the
+       one town name it actually has a camera for, same "degrade
+       gracefully, don't show a dead end" principle as every other
+       optional piece of this app. -->
+  <section class="snap-panel hidden" id="beachCamPanel">
+    <h1 class="wind-title">Beach Cam</h1>
+    <div class="curve-cap">Live from 14th Street Fishing Pier</div>
+    <div class="beach-cam-frame">
+      <iframe id="beachCamIframe" src="" title="Live beach camera at 14th Street Fishing Pier, Ocean City, NJ" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+    </div>
   </section>
 
   <!-- Location/WaveClock live OUTSIDE all three snap-panels, as a fixed
@@ -1174,8 +1195,30 @@
   const SCREENS = [
     { id: 'tide', label: 'Tide', render: renderTidePanel },
     { id: 'windwave', label: 'Waves & Wind', render: renderWindWave },
-    { id: 'radar', label: 'Radar', render: renderRadarPanel }
+    { id: 'radar', label: 'Radar', render: renderRadarPanel },
+    { id: 'beachCam', label: 'Beach Cam', render: renderBeachCam }
   ];
+
+  // Exactly the town-name string buildTownLabel produces for this one
+  // beach ("<shortName>, <2-letter state>") -- see its own comment. Only
+  // this one beach gets a 4th screen; everyone else's st.name just
+  // won't match, same as any other beach that isn't this one.
+  const BEACH_CAM_TOWN = 'Ocean City, NJ';
+  const BEACH_CAM_YT_ID = 'EZkrTj5WfSE';
+  async function renderBeachCam(st) {
+    const panel = $('beachCamPanel'), frame = $('beachCamIframe');
+    const isCamBeach = !!(st && st.name === BEACH_CAM_TOWN);
+    panel.classList.toggle('hidden', !isCamBeach);
+    if (isCamBeach) {
+      // Only point the iframe at the real embed once this screen can
+      // actually show -- never loads/buffers a live stream in the
+      // background for a beach that doesn't even have this screen.
+      const wantedSrc = 'https://www.youtube.com/embed/' + BEACH_CAM_YT_ID + '?playsinline=1&rel=0&modestbranding=1';
+      if (frame.src !== wantedSrc) frame.src = wantedSrc; // avoid restarting playback on every periodic re-render (see the 3-hourly openTide refresh)
+    } else if (frame.src) {
+      frame.src = ''; // "Change beach" away from here -- stop playback/buffering, don't just hide it
+    }
+  }
 
   async function renderTidePanel(st) {
     events = null;
