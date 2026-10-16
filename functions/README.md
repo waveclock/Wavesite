@@ -1539,7 +1539,13 @@ user-supplied and gets interpolated straight into one.
 409 otherwise) / `PUT {tagId, stationId, stationName}` (overwrite
 regardless, for "Change beach") / `DELETE ?tagId=` (unlink) --
 CORS-enabled HTTP function the client pages below call directly from
-the browser.
+the browser. POST and PUT both also require `tagId` to already be
+minted (see `isTagIdMinted` in `lib/tideTag.js`) -- 403 otherwise, even
+for an otherwise perfectly well-formed ID. This is the only thing that
+actually requires a real, physical tag to exist: `TAG_ID_PATTERN`'s own
+16-32 char length makes an ID unguessable, but says nothing about
+whether any given string was ever minted onto one, and nothing stops a
+browser's own address bar from just typing a brand-new one otherwise.
 
 **Client pages** (plain static HTML, no build step, same duplication
 convention as everything else on this site):
@@ -1568,9 +1574,28 @@ The tide curve's "now" marker is a small line-art stick-figure surfer
 
 **Minting tags**: `scripts/generateTagIds.js` (repo root, not deployed)
 -- a local CLI run by hand before programming a new batch of physical
-keychains with NFC Tools: `node scripts/generateTagIds.js 50 >
-batch.csv`. Charset/length must match `TAG_ID_PATTERN` exactly (enforced
-by a cross-check in... well, by eye -- see that script's own comment).
+keychains with NFC Tools: `WAVECLOCK_MINT_SECRET=... node
+scripts/generateTagIds.js 50 > batch.csv`. Charset/length must match
+`TAG_ID_PATTERN` exactly (enforced by a cross-check in... well, by eye
+-- see that script's own comment). As well as writing the CSV, it POSTs
+the new batch to `mintTideTagBatch` (below) so the IDs actually work on
+a real tag -- `--no-register` skips that (e.g. to preview the CSV
+without a secret configured yet).
+
+**`mintTideTagBatch`** (`index.js`): admin-only `POST {ids: [...]}`,
+called only by `scripts/generateTagIds.js` above, never by the tide app
+itself. Requires an `x-mint-secret` header matching the
+`WAVECLOCK_MINT_SECRET` secret -- set it once with `firebase
+functions:secrets:set WAVECLOCK_MINT_SECRET` (prompts for a value you
+choose; store the same value wherever you run `generateTagIds.js` from,
+e.g. as a local env var, never committed). Unlike `tideTagProxy`'s own
+endpoints (safe to leave key-less, since an unguessable `tagId` is
+itself the access control for any ONE tag), this one isn't scoped to a
+single tag at all -- it's the one operation that can make ANY new ID
+registerable, so it gets its own secret rather than relying on
+unguessability. Marking an ID that's already minted is a no-op (not an
+error), so re-running registration against the same batch is always
+safe.
 
 **Deferred** (per the original product handoff, not built yet): Wave
 Clock device linking (verify via order number + email against Stripe,

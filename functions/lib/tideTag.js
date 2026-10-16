@@ -18,11 +18,26 @@ const TIDE_TAGS_PREFIX = "tide-tags/";
 
 // Same character set scripts/generateTagIds.js draws IDs from -- excludes
 // 0/O/1/I so a tag etched small, printed, or read off a phone screen in
-// bright sun can't be misread into a DIFFERENT valid-looking ID.
+// bright sun can't be misread into a DIFFERENT valid-looking ID. (Kept
+// even though nothing about this project prints or hand-types an ID
+// anymore -- it's still harmless, and still helps if an ID is ever read
+// aloud for support purposes.)
+//
+// 16-32 chars, not the original 4-6 -- a short ID only needs to be
+// *typeable*, which stopped mattering once IDs became NFC-only (never
+// printed, never manually entered). At 4-6 chars the entire ID space
+// (as few as 32^4 =~ 1 million) was cheap to sweep end-to-end against
+// the open GET endpoint below with no auth and no rate limiting,
+// `registered:true` revealing exactly which ones were real, live
+// customer tags -- turning "learn a tagId" from "tap a specific
+// physical tag" into "run a script," with no physical access needed at
+// all. At 16+ chars (32^16 =~ 1.2e24) that sweep is computationally
+// infeasible, so possessing a tag (or knowing its ID through some other
+// leak) becomes the only realistic way to ever learn it again.
 // Re-validated here (not just trusted from the URL) because tagId gets
 // interpolated straight into a Cloud Storage object path below -- a
 // malformed or path-traversal-shaped value must never reach that call.
-const TAG_ID_PATTERN = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{4,6}$/;
+const TAG_ID_PATTERN = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{16,32}$/;
 
 function isValidTagId(tagId) {
   return typeof tagId === "string" && TAG_ID_PATTERN.test(tagId);
@@ -30,6 +45,68 @@ function isValidTagId(tagId) {
 
 function tagFile(bucket, tagId) {
   return bucket.file(TIDE_TAGS_PREFIX + tagId + ".json");
+}
+
+// A SEPARATE record from tide-tags/ above: this one just marks "a real,
+// physical tag with this ID actually exists" (written once, in a batch,
+// by mintTagIds -- see scripts/generateTagIds.js's own POST to
+// mintTideTagBatch at mint time), vs. tide-tags/ which marks "this ID
+// has been tapped and a beach picked for it." An unguessable ID alone
+// (see TAG_ID_PATTERN's own comment) stops anyone from ever landing on
+// a REAL tag's ID by chance, but doesn't stop anyone from simply
+// inventing their OWN brand-new one and registering it -- nothing about
+// length makes up a string any harder, just makes guessing an EXISTING
+// one astronomically unlikely. This allowlist is what actually closes
+// that gap: the HTTP handler's own POST/PUT-as-create paths (see
+// index.js) check membership here BEFORE ever calling saveTideTag/
+// updateTideTag, so a tagId that was never minted onto a real tag can
+// never successfully register, no matter how well-formed or how long.
+const TAG_ALLOWLIST_PREFIX = "tide-tag-allowlist/";
+
+function allowlistFile(bucket, tagId) {
+  return bucket.file(TAG_ALLOWLIST_PREFIX + tagId + ".json");
+}
+
+// Mirrors fetchTideTag's own "malformed input never even touches
+// storage" contract.
+async function isTagIdMinted(bucket, tagId) {
+  if (!isValidTagId(tagId)) return false;
+  try {
+    await allowlistFile(bucket, tagId).download();
+    return true;
+  } catch (err) {
+    if (err && err.code === 404) return false;
+    throw err;
+  }
+}
+
+// Marks a whole batch of IDs as real/mintable in one call -- the write
+// side of isTagIdMinted above, called once per batch at mint time (see
+// scripts/generateTagIds.js). Each marker write is itself idempotent
+// (ifGenerationMatch: 0, same atomic create-only guard saveTideTag
+// uses) so re-running this against a batch that was already minted is
+// harmless -- already-minted entries are just reported back separately,
+// not an error, the same way saveTideTag's own "already-registered"
+// isn't treated as a failure. Every ID is shape-validated BEFORE any
+// writes start, so one malformed entry can't leave a batch half-minted.
+async function mintTagIds(bucket, tagIds) {
+  for (const tagId of tagIds) {
+    if (!isValidTagId(tagId)) throw new Error("invalid tagId in batch: " + tagId);
+  }
+  let minted = 0, alreadyMinted = 0;
+  for (const tagId of tagIds) {
+    try {
+      await allowlistFile(bucket, tagId).save(JSON.stringify({ mintedAt: new Date().toISOString() }), {
+        contentType: "application/json",
+        preconditionOpts: { ifGenerationMatch: 0 }
+      });
+      minted++;
+    } catch (err) {
+      if (err && err.code === 412) { alreadyMinted++; continue; }
+      throw err;
+    }
+  }
+  return { minted, alreadyMinted };
 }
 
 // Returns the saved {stationId, stationName, createdAt} for a registered
@@ -186,4 +263,4 @@ async function deleteTideTag(bucket, tagId) {
   }
 }
 
-module.exports = { TAG_ID_PATTERN, isValidTagId, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, COAST_FACING_DIRECTIONS, ZONE_ID_PATTERN, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag };
+module.exports = { TAG_ID_PATTERN, isValidTagId, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, COAST_FACING_DIRECTIONS, ZONE_ID_PATTERN, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds };

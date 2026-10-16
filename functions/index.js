@@ -16,6 +16,7 @@
 
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onRequest } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const { renderDynamicDesign, espnTeamsUrl, espnScheduleUrl, espnTeamUrl, espnSummaryUrl, fetchHeadlines, isSafeFetchUrl, MAX_NEWS_HEADLINES, OUTBOUND_FETCH_HEADERS } = require("./lib/dynamic");
@@ -27,7 +28,7 @@ const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
-const { isValidTagId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag } = require("./lib/tideTag");
+const { isValidTagId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds } = require("./lib/tideTag");
 const { fetchCoastlineNear } = require("./lib/coastline");
 const { fetchCachedCoastline, saveCachedCoastline } = require("./lib/coastlineCache");
 
@@ -951,7 +952,16 @@ exports.teamsnapProxy = onRequest({ cors: true, region: "us-central1" }, teamsna
 // `bucketImpl`, when given, replaces admin.storage().bucket() -- same
 // injectable-dependency convention as imagenProxyHandler's getArtImpl,
 // used only by tests (a fully in-memory fake bucket, no live GCS call).
-const TAG_ID_HINT = "tagId must be 4-6 characters (A-Z, 2-9, excluding the easily-misread 0/O/1/I)";
+const TAG_ID_HINT = "tagId must be 16-32 characters (A-Z, 2-9, excluding the easily-misread 0/O/1/I)";
+
+// Gates mintTideTagBatch below -- set once via
+// `firebase functions:secrets:set WAVECLOCK_MINT_SECRET` (see
+// functions/README.md), never checked into the repo. Only the person
+// running scripts/generateTagIds.js to mint a real batch should ever
+// have this value; it's the one thing standing between "a batch of IDs
+// scripts/generateTagIds.js just drew" and "IDs the live registration
+// endpoint below will actually accept."
+const MINT_SECRET = defineSecret("WAVECLOCK_MINT_SECRET");
 
 // Shared response shape for GET/POST/PUT -- lat/lon are only included
 // when the record actually has them (an older registration, or one
@@ -1028,6 +1038,22 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
     // fail or be skipped, so a missing/malformed value here just means
     // those enrichments aren't available for this tag yet, not a
     // rejected registration.
+    //
+    // Checked AFTER shape/stationId/stationName validation (so a
+    // malformed request still gets the more specific 400 above) but
+    // BEFORE ever touching the tide-tags/ record itself -- see
+    // isTagIdMinted's own comment for why a well-formed, even
+    // unguessable tagId still isn't enough on its own.
+    try {
+      if (!(await isTagIdMinted(bucket, tagId))) {
+        res.status(403).json({ error: "This tag hasn't been issued yet" });
+        return;
+      }
+    } catch (err) {
+      logger.error("Tide tag proxy POST mint check failed for " + tagId + ":", err);
+      res.status(502).json({ error: "Couldn't verify that tag right now" });
+      return;
+    }
     try {
       const result = await saveTideTag(bucket, tagId, stationId, stationName.trim(), lat, lon, townName, coastFacingDirection, srfZone, marineZone);
       if (result.status === "already-registered") {
@@ -1058,6 +1084,20 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
     }
     if (typeof stationName !== "string" || !stationName.trim()) {
       res.status(400).json({ error: "stationName is required" });
+      return;
+    }
+    // Same mint check POST makes -- PUT can ALSO create a brand-new
+    // registration (see this handler's own comment above), so without
+    // this it would be a second, un-gated path to the exact thing the
+    // POST check exists to prevent.
+    try {
+      if (!(await isTagIdMinted(bucket, tagId))) {
+        res.status(403).json({ error: "This tag hasn't been issued yet" });
+        return;
+      }
+    } catch (err) {
+      logger.error("Tide tag proxy PUT mint check failed for " + tagId + ":", err);
+      res.status(502).json({ error: "Couldn't verify that tag right now" });
       return;
     }
     try {
@@ -1091,7 +1131,62 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
 
 exports.tideTagProxy = onRequest({ cors: true, region: "us-central1" }, tideTagProxyHandler);
 
+// Admin-only: marks a freshly-minted batch of tag IDs as real (see
+// isTagIdMinted/mintTagIds in lib/tideTag.js for why this exists at
+// all) -- called once per batch by scripts/generateTagIds.js right
+// after it draws the batch, never by the tide app itself. Gated by
+// MINT_SECRET rather than left open the way the read/write-your-own-tag
+// endpoints above are -- those are fine to leave key-less because an
+// unguessable tagId is itself the access control (see TAG_ID_PATTERN's
+// own comment), but minting isn't scoped to one tag at all: it's the
+// one operation that can make ANY new tagId registerable, so it needs
+// its own, separate secret rather than relying on that.
+const MINT_BATCH_MAX = 1000;
+async function mintTideTagBatchHandler(req, res, bucketImpl) {
+  const bucket = bucketImpl || admin.storage().bucket();
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "POST only" });
+    return;
+  }
+
+  const providedSecret = req.headers && req.headers["x-mint-secret"];
+  const realSecret = MINT_SECRET.value();
+  // realSecret itself empty (never configured) must still refuse every
+  // request, not silently accept an empty providedSecret as a match.
+  if (!realSecret || providedSecret !== realSecret) {
+    res.status(403).json({ error: "Invalid or missing mint secret" });
+    return;
+  }
+
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) {
+    res.status(400).json({ error: "ids must be a non-empty array" });
+    return;
+  }
+  if (ids.length > MINT_BATCH_MAX) {
+    res.status(400).json({ error: "Batch too large (max " + MINT_BATCH_MAX + " at a time)" });
+    return;
+  }
+  for (const id of ids) {
+    if (!isValidTagId(id)) {
+      res.status(400).json({ error: "Invalid tag ID in batch: " + id });
+      return;
+    }
+  }
+
+  try {
+    const result = await mintTagIds(bucket, ids);
+    res.status(200).json(result);
+  } catch (err) {
+    logger.error("Mint tag batch failed:", err);
+    res.status(502).json({ error: "Couldn't mint that batch right now" });
+  }
+}
+
+exports.mintTideTagBatch = onRequest({ cors: false, region: "us-central1", secrets: [MINT_SECRET] }, mintTideTagBatchHandler);
+
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, mintTideTagBatchHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
