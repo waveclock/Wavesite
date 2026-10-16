@@ -604,6 +604,12 @@
     <div class="beach-cam-frame">
       <iframe id="beachCamIframe" src="" title="Live beach camera at 14th Street Fishing Pier, Ocean City, NJ" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
     </div>
+    <!-- A second camera, same beach, no caption of its own (unlabeled by
+         request) -- just another .beach-cam-frame stacked below the
+         first, same muted-autoplay treatment (see renderBeachCam). -->
+    <div class="beach-cam-frame">
+      <iframe id="beachCamIframe2" src="" title="Live beach camera 2, Ocean City, NJ" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+    </div>
   </section>
 
   <!-- Location/WaveClock live OUTSIDE all three snap-panels, as a fixed
@@ -1204,20 +1210,30 @@
   // this one beach gets a 4th screen; everyone else's st.name just
   // won't match, same as any other beach that isn't this one.
   const BEACH_CAM_TOWN = 'Ocean City, NJ';
-  const BEACH_CAM_YT_ID = 'EZkrTj5WfSE';
+  // Both cameras for this one beach -- autoplay+mute (not plain
+  // autoplay) because every mobile/desktop browser blocks unmuted
+  // autoplay outright; this is the one combination that's actually
+  // allowed to play without the visitor tapping play themselves first.
+  const BEACH_CAM_IDS = [
+    { frameId: 'beachCamIframe', ytId: 'EZkrTj5WfSE' },
+    { frameId: 'beachCamIframe2', ytId: '9S4VUEFfo_g' }
+  ];
   async function renderBeachCam(st) {
-    const panel = $('beachCamPanel'), frame = $('beachCamIframe');
+    const panel = $('beachCamPanel');
     const isCamBeach = !!(st && st.name === BEACH_CAM_TOWN);
     panel.classList.toggle('hidden', !isCamBeach);
-    if (isCamBeach) {
-      // Only point the iframe at the real embed once this screen can
-      // actually show -- never loads/buffers a live stream in the
-      // background for a beach that doesn't even have this screen.
-      const wantedSrc = 'https://www.youtube.com/embed/' + BEACH_CAM_YT_ID + '?playsinline=1&rel=0&modestbranding=1';
-      if (frame.src !== wantedSrc) frame.src = wantedSrc; // avoid restarting playback on every periodic re-render (see the 3-hourly openTide refresh)
-    } else if (frame.src) {
-      frame.src = ''; // "Change beach" away from here -- stop playback/buffering, don't just hide it
-    }
+    BEACH_CAM_IDS.forEach(cam => {
+      const frame = $(cam.frameId);
+      if (isCamBeach) {
+        // Only point each iframe at its real embed once this screen can
+        // actually show -- never loads/buffers a live stream in the
+        // background for a beach that doesn't even have this screen.
+        const wantedSrc = 'https://www.youtube.com/embed/' + cam.ytId + '?autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1';
+        if (frame.src !== wantedSrc) frame.src = wantedSrc; // avoid restarting playback on every periodic re-render (see the 3-hourly openTide refresh)
+      } else if (frame.src) {
+        frame.src = ''; // "Change beach" away from here -- stop playback/buffering, don't just hide it
+      }
+    });
   }
 
   async function renderTidePanel(st) {
