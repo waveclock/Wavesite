@@ -33,8 +33,27 @@
      picker. apple-touch-icon stays static here because iOS reads it
      directly from the HTML for "Add to Home Screen" regardless of the
      JSON manifest. -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Leaflet's own CSS+JS are NOT loaded here -- loading ~160KB from a
+     third-party CDN render-blocking, in <head>, on EVERY visit (even a
+     returning tag-scan that lands straight on the tide screen and may
+     never even reach a map) used to force the browser to finish that
+     fetch before it could start parsing the tide display below. Every
+     L.* callsite already has its own loadLeaflet() call (see the script
+     below) that fetches it lazily, right before the first map that
+     actually needs it. -->
+<!-- Early connections to the hosts this page's very first boot() call
+     actually hits (the registration lookup, then the tide/forecast
+     fetches it kicks off) -- preconnect does just the DNS+TLS handshake
+     ahead of time, not a real request, so there's no render-blocking
+     cost, just a head start on the round trips boot() is about to make
+     anyway. unpkg.com (Leaflet) is deliberately NOT included here -- it
+     isn't needed this early, and preconnecting to it would just spend
+     part of the browser's limited early-connection budget on a host
+     that may not even get used this visit. -->
+<link rel="preconnect" href="https://us-central1-waveclock.cloudfunctions.net">
+<link rel="preconnect" href="https://api.tidesandcurrents.noaa.gov">
+<link rel="preconnect" href="https://api.open-meteo.com">
+<link rel="preconnect" href="https://marine-api.open-meteo.com">
 <style>
   /*
     This file is GitHub Pages' site-wide 404 fallback -- but it's also
@@ -848,6 +867,35 @@
     window.scrollTo(0, 1);
   }
 
+  // Leaflet (CSS + JS) fetched lazily, the first time any map actually
+  // needs it (the station-picker map, the confirm-location map, or the
+  // radar panel's own map) -- see the <head> comment explaining why this
+  // isn't just a static <link>/<script> tag loaded up front on every
+  // visit instead. Cached in one shared promise so three different maps
+  // calling this within the same page load only ever trigger one real
+  // fetch; already-loaded (a second tide lookup reusing the same page
+  // session) resolves instantly. Every L.* callsite already has its own
+  // `typeof L === 'undefined'` guard (built for "the CDN request
+  // failed"), so a load error here just resolves anyway and leaves that
+  // existing fallback to skip the map, same as it already would.
+  let leafletPromise = null;
+  function loadLeaflet() {
+    if (leafletPromise) return leafletPromise;
+    leafletPromise = new Promise(resolve => {
+      if (typeof L !== 'undefined') { resolve(); return; }
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      script.onload = () => resolve();
+      script.onerror = () => resolve();
+      document.head.appendChild(script);
+    });
+    return leafletPromise;
+  }
+
   // ---------- which tag is this? ----------
   // Matches scripts/generateTagIds.js's own charset/length (4-6 chars,
   // A-Z/2-9, no 0/O/1/I) -- see lib/tideTag.js's TAG_ID_PATTERN on the
@@ -1637,9 +1685,11 @@
   function stationMarkerIcon(selected) {
     return L.divIcon({ className: 'station-marker' + (selected ? ' selected' : ''), html: '<span></span>', iconSize: [13, 13] });
   }
-  function renderStationMap(town, stations) {
+  async function renderStationMap(town, stations) {
     clearStationMap();
-    if (typeof L === 'undefined' || !stations.length) return;
+    if (!stations.length) return;
+    await loadLeaflet();
+    if (typeof L === 'undefined') return;
     try {
       const el = $('stationMap');
       el.style.display = 'block';
@@ -1679,8 +1729,9 @@
     if (confirmMap) { confirmMap.remove(); confirmMap = null; }
     $('confirmMap').style.display = 'none';
   }
-  function renderConfirmMap(town) {
+  async function renderConfirmMap(town) {
     clearConfirmMap();
+    await loadLeaflet();
     if (typeof L === 'undefined') return;
     try {
       const el = $('confirmMap');
@@ -1906,6 +1957,7 @@
     $('radarTownName').textContent = st.name;
     $('radarRainStatus').classList.add('hidden');
     if (radarMap) { radarMap.remove(); radarMap = null; }
+    if (Number.isFinite(st.lat) && Number.isFinite(st.lon)) await loadLeaflet();
     if (typeof L !== 'undefined' && Number.isFinite(st.lat) && Number.isFinite(st.lon)) {
       try {
         const el = $('radarMap');
