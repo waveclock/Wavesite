@@ -878,19 +878,36 @@
   // `typeof L === 'undefined'` guard (built for "the CDN request
   // failed"), so a load error here just resolves anyway and leaves that
   // existing fallback to skip the map, same as it already would.
+  //
+  // Waits for BOTH the script AND the stylesheet to finish, not just the
+  // script -- a real report showed the radar map rendering gray/blank on
+  // first load but fine after a refresh, which is exactly this race: the
+  // two requests load independently, and Leaflet's own CSS is what gives
+  // every pane its real layout (.leaflet-pane/.leaflet-tile-pane/... {
+  // position: absolute; left: 0; top: 0 }). If the map gets created
+  // before that CSS has actually applied, the tile pane falls back to
+  // the browser default (position: static) and stacks in normal
+  // document flow instead of overlaying the map -- the tiles are still
+  // there, just laid out nowhere anyone would see them. A refresh "fixes"
+  // it only because the CSS is warm in cache by then, winning the race
+  // the script already was.
   let leafletPromise = null;
   function loadLeaflet() {
     if (leafletPromise) return leafletPromise;
     leafletPromise = new Promise(resolve => {
       if (typeof L !== 'undefined') { resolve(); return; }
+      let pending = 2;
+      const settle = () => { if (--pending === 0) resolve(); };
       const link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      link.onload = settle;
+      link.onerror = settle;
       document.head.appendChild(link);
       const script = document.createElement('script');
       script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-      script.onload = () => resolve();
-      script.onerror = () => resolve();
+      script.onload = settle;
+      script.onerror = settle;
       document.head.appendChild(script);
     });
     return leafletPromise;
