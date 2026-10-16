@@ -181,6 +181,12 @@
   .chart-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 18px 0 6px; }
   .chart-header-title { font-size: 14px; font-weight: 700; color: var(--soft); text-transform: uppercase; letter-spacing: .03em; }
   .chart-header-stat { font-size: 20px; font-weight: 800; display: inline-flex; align-items: center; gap: 3px; }
+  /* Water temp rides after the Clean/Fair/Choppy badge, same line, same
+     chart-header-stat sizing as the wave height/wind stats -- just its
+     own smaller droplet icon (var(--wave) blue) in place of a label,
+     since "68°" alone would read as air temperature otherwise. */
+  .water-temp-stat { color: var(--wave); }
+  .water-drop-icon { flex-shrink: 0; }
   /* Positioned OVER the first chart-header's own top margin (18px, see
      .chart-header above) instead of adding a new line above it -- a
      normal-flow label here would push tomorrow's whole pane (charts
@@ -469,6 +475,7 @@
                 <span class="chart-header-title">Waves</span>
                 <span class="chart-header-stat"><span id="waveHeight">—</span> <span id="wavePeriod"></span></span>
                 <span class="chart-header-badge hidden" id="waveHeaderBadge"></span>
+                <span class="chart-header-stat water-temp-stat hidden" id="waterTempStat"><svg class="water-drop-icon" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M12 2.5c0 0 6 7.5 6 12.5a6 6 0 1 1-12 0c0-5 6-12.5 6-12.5z" fill="currentColor"/></svg><span id="waterTemp"></span></span>
               </div>
               <div class="curve"><svg id="waveChart" viewBox="0 0 360 150" role="img" aria-label="Wave height forecast, bars colored by predicted surf quality"></svg></div>
               <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
@@ -491,6 +498,7 @@
                 <span class="chart-header-title">Waves</span>
                 <span class="chart-header-stat"><span id="waveHeightTomorrow">—</span> <span id="wavePeriodTomorrow"></span></span>
                 <span class="chart-header-badge hidden" id="waveHeaderBadgeTomorrow"></span>
+                <span class="chart-header-stat water-temp-stat hidden" id="waterTempStatTomorrow"><svg class="water-drop-icon" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M12 2.5c0 0 6 7.5 6 12.5a6 6 0 1 1-12 0c0-5 6-12.5 6-12.5z" fill="currentColor"/></svg><span id="waterTempTomorrow"></span></span>
               </div>
               <div class="curve"><svg id="waveChartTomorrow" viewBox="0 0 360 150" role="img" aria-label="Tomorrow's wave height forecast, bars colored by predicted surf quality"></svg></div>
               <div class="bar-legend"><span><i class="clean"></i>Clean</span><span><i class="fair"></i>Fair</span><span><i class="choppy"></i>Choppy</span></div>
@@ -2191,8 +2199,8 @@
       wind_speed_unit: 'mph', precipitation_unit: 'inch', temperature_unit: 'fahrenheit', timezone: 'UTC', past_hours: '36', forecast_hours: '72'
     });
     const marineParams = new URLSearchParams({
-      latitude: lat, longitude: lon, hourly: 'wave_height,wave_period',
-      length_unit: 'imperial', timezone: 'UTC', past_hours: '36', forecast_hours: '72'
+      latitude: lat, longitude: lon, hourly: 'wave_height,wave_period,sea_surface_temperature',
+      length_unit: 'imperial', temperature_unit: 'fahrenheit', timezone: 'UTC', past_hours: '36', forecast_hours: '72'
     });
     const [weatherResult, marineResult] = await Promise.allSettled([
       fetch(OPEN_METEO_WEATHER + '?' + weatherParams).then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status))),
@@ -2209,7 +2217,11 @@
     const mh = marineResult.status === 'fulfilled' ? (marineResult.value.hourly || {}) : null;
     const marineByTime = {};
     if (mh) (mh.time || []).forEach((t, i) => {
-      marineByTime[t] = { waveHeightFt: mh.wave_height ? mh.wave_height[i] : null, wavePeriodS: mh.wave_period ? mh.wave_period[i] : null };
+      // sea_surface_temperature coverage is patchy very close to shore --
+      // same gap the backend's own fetchOpenMeteoMarine already tolerates
+      // (see functions/lib/astro.js), so a null here just means "no water
+      // temp for this beach," not a fetch problem.
+      marineByTime[t] = { waveHeightFt: mh.wave_height ? mh.wave_height[i] : null, wavePeriodS: mh.wave_period ? mh.wave_period[i] : null, waterTempF: mh.sea_surface_temperature ? mh.sea_surface_temperature[i] : null };
     });
     return times.map((t, i) => {
       const mv = marineByTime[t] || {};
@@ -2221,7 +2233,8 @@
         cloudPct: wh.cloud_cover ? wh.cloud_cover[i] : null,
         tempF: wh.temperature_2m ? wh.temperature_2m[i] : null,
         waveHeightFt: mv.waveHeightFt != null ? mv.waveHeightFt : null,
-        wavePeriodS: mv.wavePeriodS != null ? mv.wavePeriodS : null
+        wavePeriodS: mv.wavePeriodS != null ? mv.wavePeriodS : null,
+        waterTempF: mv.waterTempF != null ? mv.waterTempF : null
       };
     });
   }
@@ -2882,6 +2895,7 @@
   function applyWindWaveStat(point, suffix) {
     const windMphEl = $('windMph' + suffix), windDirEl = $('windDirLabel' + suffix), windArrowEl = $('windArrow' + suffix);
     const waveHeightEl = $('waveHeight' + suffix), wavePeriodEl = $('wavePeriod' + suffix);
+    const waterTempStatEl = $('waterTempStat' + suffix), waterTempEl = $('waterTemp' + suffix);
     if (point && point.windMph != null) {
       windMphEl.textContent = Math.round(point.windMph) + ' mph';
       windDirEl.textContent = degreesToCompass(point.windDir) || '';
@@ -2899,6 +2913,17 @@
       wavePeriodEl.textContent = point.wavePeriodS != null ? ('@ ' + Math.round(point.wavePeriodS) + 's') : '';
     } else {
       waveHeightEl.textContent = '—'; wavePeriodEl.textContent = '';
+    }
+    // No "F" suffix -- this app only ever shows Fahrenheit, same as the
+    // air-temp stat on the Radar panel, so the unit is implied rather
+    // than spelled out on every reading. Hidden (not a dash) when this
+    // beach's own coordinate has no sea_surface_temperature coverage --
+    // see fetchWindWave's own comment on that gap.
+    if (point && point.waterTempF != null) {
+      waterTempEl.textContent = Math.round(point.waterTempF) + '°';
+      waterTempStatEl.classList.remove('hidden');
+    } else {
+      waterTempStatEl.classList.add('hidden');
     }
   }
 
