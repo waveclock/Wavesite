@@ -1970,12 +1970,29 @@
     return 'Cloudy';
   }
 
+  // boot() can fire TWO full applyRegistration -> openTide -> renderRadarPanel
+  // passes in quick succession on an ordinary revisit (the cached pick,
+  // painted instantly, then the server-confirmed one once checkRegistration
+  // resolves) -- same race windWaveRenderToken's own comment explains, now
+  // reachable here too since loadLeaflet() gave this function a real await
+  // to interleave across for the first time. Without this guard, both
+  // passes' own L.map(el, ...) calls can land on the SAME #radarMap element
+  // once the shared Leaflet-load promise resolves for both -- Leaflet
+  // throws "Map container is already initialized" on the second one, caught
+  // and logged, but leaving that attempt's #radarMap empty (just its own
+  // CSS background, no map content at all) -- the exact "radar map stays
+  // gray/blank on first load, a refresh fixes it" report this closes,
+  // refreshing "fixing" it only because it starts the race over with a
+  // real chance of not losing it this time, not because anything was
+  // actually resolved.
+  let radarRenderToken = 0;
   async function renderRadarPanel(st) {
+    const myRenderToken = ++radarRenderToken;
     $('radarTownName').textContent = st.name;
     $('radarRainStatus').classList.add('hidden');
     if (radarMap) { radarMap.remove(); radarMap = null; }
     if (Number.isFinite(st.lat) && Number.isFinite(st.lon)) await loadLeaflet();
-    if (typeof L !== 'undefined' && Number.isFinite(st.lat) && Number.isFinite(st.lon)) {
+    if (myRenderToken === radarRenderToken && typeof L !== 'undefined' && Number.isFinite(st.lat) && Number.isFinite(st.lon)) {
       try {
         const el = $('radarMap');
         // attributionControl: false here, then built manually below with
@@ -2021,6 +2038,7 @@
       // screen's local state) is worth one extra free, keyless Open-
       // Meteo request per beach load.
       const series = await fetchWindWave(st.lat, st.lon);
+      if (myRenderToken !== radarRenderToken) return; // superseded by a newer renderRadarPanel call while this fetch was in flight
       const dayWindow = todayWindow(new Date());
       const todayPoints = series.filter(p => p.t >= dayWindow.start && p.t <= dayWindow.end);
       const status = computeRainStatus(todayPoints, Date.now());
@@ -2040,6 +2058,7 @@
       $('radarWeatherDescTomorrow').textContent = describeDayWeather(tomorrowPoints, tomorrowWin.start);
       resetRadarDayPager(); // a fresh render (new beach, periodic refresh) always lands back on "today"
     } catch (e) {
+      if (myRenderToken !== radarRenderToken) return;
       console.error('Radar forecast failed to load:', e);
     }
   }
