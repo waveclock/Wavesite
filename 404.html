@@ -324,10 +324,16 @@
   /* radar panel's own map (Leaflet) -- always visible (unlike
      .station-map, which starts hidden and only appears mid-picker-flow),
      so it's shown by default. Shorter than a typical full-panel map (was
-     min(58vh, 440px)) to leave real room below for the rain/sky chart --
-     the radar itself only needs to be big enough to read the
-     precipitation shape near the beach, not fill the whole screen. */
-  .radar-map { display: block; height: min(32vh, 260px); border: 2px solid var(--line); border-radius: 14px; margin: 4px 0 3px; overflow: hidden; background: var(--wave-pale); }
+     min(58vh, 440px), then min(32vh, 260px)) to leave real room below
+     for the rain/sky chart -- the radar itself only needs to be big
+     enough to read the precipitation shape near the beach, not fill the
+     whole screen. Trimmed again (to min(28vh, 220px)) alongside the
+     attribution-control fix below, since a live report showed the
+     legend still getting clipped on Safari's own real browser chrome
+     (address bar + bottom toolbar eat more height than this sandbox can
+     simulate), and the map is the one piece of real estate here that
+     can still afford to give some up. */
+  .radar-map { display: block; height: min(28vh, 220px); border: 2px solid var(--line); border-radius: 14px; margin: 4px 0 3px; overflow: hidden; background: var(--wave-pale); }
   /* Tighter spacing than the shared .wind-title/.curve-cap/.chart-header
      rules give other panels -- the radar panel stacks a title, a caption,
      a map, AND a whole second chart below all of that, so it needs to
@@ -411,6 +417,14 @@
      at a glance against the rest, which stay the plain brand blue. */
   .station-marker.selected span { background: #e8821a; }
   .leaflet-container { font-family: inherit; }
+  /* The radar map's own attribution credit (OSM + IEM, required; see
+     renderRadarPanel's own comment on why Leaflet's own "Leaflet |"
+     prefix is dropped) -- small enough to sit as Leaflet's normal
+     compact corner overlay instead of wrapping to its own 2-line block
+     and eating into the map's visible height, which is exactly what it
+     did at the default ~11px size on a narrow phone. Still a real,
+     visible credit, just a smaller one. */
+  #radarMap .leaflet-control-attribution { font-size: 9px; line-height: 1.3; padding: 1px 4px; }
 
   /* genuine site 404 (anything NOT /t/:id) */
   .notfound { text-align: center; margin-top: 60px; }
@@ -1852,7 +1866,19 @@
     if (typeof L !== 'undefined' && Number.isFinite(st.lat) && Number.isFinite(st.lon)) {
       try {
         const el = $('radarMap');
-        radarMap = L.map(el, { zoomControl: true, attributionControl: true }).setView([st.lat, st.lon], 7);
+        // attributionControl: false here, then built manually below with
+        // prefix: false -- the map's own attributionControl option is a
+        // strict Boolean (confirmed against Leaflet's own source: it
+        // only ever gates whether a DEFAULT-OPTIONS control gets
+        // created, nothing passed through it reaches Control.Attribution
+        // itself), so dropping Leaflet's own "Leaflet |" self-credit
+        // needs its own L.control.attribution call instead. Not required
+        // by anyone (OSM/IEM's own attribution strings below are the
+        // actual requirement) -- just Leaflet's default branding, and
+        // dropping it is what keeps the credit line short enough to fit
+        // on one compact corner line instead of wrapping to two.
+        radarMap = L.map(el, { zoomControl: true, attributionControl: false }).setView([st.lat, st.lon], 7);
+        L.control.attribution({ prefix: false }).addTo(radarMap);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19, className: 'radar-base-tile',
           attribution: '&copy; OpenStreetMap contributors'
