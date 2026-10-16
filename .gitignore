@@ -1,3 +1,6 @@
 functions/node_modules/
 firebase-debug.log
 .firebase/
+# Written fresh by deploy-functions.yml from a GitHub Actions secret, never
+# committed -- see WAVECLOCK_MINT_SECRET's own comment in functions/index.js.
+functions/.env.waveclock
