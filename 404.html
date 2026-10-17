@@ -2735,6 +2735,17 @@
   // forecast. forecast_hours reaches far enough past that to also cover
   // the whole of TOMORROW (for the swipe-right pager), with real margin
   // either side for timezone offset.
+  // One retry after a short pause -- same reasoning as
+  // fetchCoastFacingBearing's own WIND_WAVE_RETRY_DELAY_MS twin: a live
+  // report showed the whole Waves & Wind screen failing outright
+  // ("Couldn't reach the wind & wave forecast") on a connection the
+  // person confirmed was otherwise fine -- Open-Meteo is a free,
+  // keyless API with no real SLA, so a single dropped/slow/5xx request
+  // is a real, if occasional, possibility, not a sign anything's
+  // actually broken. This call already has nothing else racing it (no
+  // shared in-flight cache to dedupe against, unlike the coastline
+  // lookup), so a plain retry loop is enough.
+  const WIND_WAVE_RETRY_DELAY_MS = 2500;
   async function fetchWindWave(lat, lon) {
     const weatherParams = new URLSearchParams({
       latitude: lat, longitude: lon, hourly: 'wind_speed_10m,wind_direction_10m,precipitation,cloud_cover,temperature_2m',
@@ -2744,41 +2755,49 @@
       latitude: lat, longitude: lon, hourly: 'wave_height,wave_period,sea_surface_temperature',
       length_unit: 'imperial', temperature_unit: 'fahrenheit', timezone: 'UTC', past_hours: '36', forecast_hours: '72'
     });
-    const [weatherResult, marineResult] = await Promise.allSettled([
-      fetch(OPEN_METEO_WEATHER + '?' + weatherParams).then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status))),
-      fetch(OPEN_METEO_MARINE + '?' + marineParams).then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status)))
-    ]);
-    // Wind is the must-have here (same role NOAA's tide curve plays on
-    // the other panel) -- a weather-API failure fails the whole screen.
-    // The marine model doesn't cover every coordinate (inland water,
-    // some near-shore spots), so ITS failure just means no wave data,
-    // not a failed screen -- wind alone still renders.
-    if (weatherResult.status !== 'fulfilled') throw new Error('wind forecast unavailable');
-    const wh = weatherResult.value.hourly || {};
-    const times = wh.time || [];
-    const mh = marineResult.status === 'fulfilled' ? (marineResult.value.hourly || {}) : null;
-    const marineByTime = {};
-    if (mh) (mh.time || []).forEach((t, i) => {
-      // sea_surface_temperature coverage is patchy very close to shore --
-      // same gap the backend's own fetchOpenMeteoMarine already tolerates
-      // (see functions/lib/astro.js), so a null here just means "no water
-      // temp for this beach," not a fetch problem.
-      marineByTime[t] = { waveHeightFt: mh.wave_height ? mh.wave_height[i] : null, wavePeriodS: mh.wave_period ? mh.wave_period[i] : null, waterTempF: mh.sea_surface_temperature ? mh.sea_surface_temperature[i] : null };
-    });
-    return times.map((t, i) => {
-      const mv = marineByTime[t] || {};
-      return {
-        t: parseOpenMeteoTime(t),
-        windMph: wh.wind_speed_10m ? wh.wind_speed_10m[i] : null,
-        windDir: wh.wind_direction_10m ? wh.wind_direction_10m[i] : null,
-        precipIn: wh.precipitation ? wh.precipitation[i] : null,
-        cloudPct: wh.cloud_cover ? wh.cloud_cover[i] : null,
-        tempF: wh.temperature_2m ? wh.temperature_2m[i] : null,
-        waveHeightFt: mv.waveHeightFt != null ? mv.waveHeightFt : null,
-        wavePeriodS: mv.wavePeriodS != null ? mv.wavePeriodS : null,
-        waterTempF: mv.waterTempF != null ? mv.waterTempF : null
-      };
-    });
+    let lastError = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await sleep(WIND_WAVE_RETRY_DELAY_MS);
+      try {
+        const [weatherResult, marineResult] = await Promise.allSettled([
+          fetch(OPEN_METEO_WEATHER + '?' + weatherParams).then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status))),
+          fetch(OPEN_METEO_MARINE + '?' + marineParams).then(r => r.ok ? r.json() : Promise.reject(new Error('http ' + r.status)))
+        ]);
+        // Wind is the must-have here (same role NOAA's tide curve plays on
+        // the other panel) -- a weather-API failure fails this attempt
+        // (and gets a retry, see above). The marine model doesn't cover
+        // every coordinate (inland water, some near-shore spots), so ITS
+        // failure just means no wave data on an otherwise-successful
+        // attempt, not a retry-worthy one -- wind alone still renders.
+        if (weatherResult.status !== 'fulfilled') throw new Error('wind forecast unavailable');
+        const wh = weatherResult.value.hourly || {};
+        const times = wh.time || [];
+        const mh = marineResult.status === 'fulfilled' ? (marineResult.value.hourly || {}) : null;
+        const marineByTime = {};
+        if (mh) (mh.time || []).forEach((t, i) => {
+          // sea_surface_temperature coverage is patchy very close to shore --
+          // same gap the backend's own fetchOpenMeteoMarine already tolerates
+          // (see functions/lib/astro.js), so a null here just means "no water
+          // temp for this beach," not a fetch problem.
+          marineByTime[t] = { waveHeightFt: mh.wave_height ? mh.wave_height[i] : null, wavePeriodS: mh.wave_period ? mh.wave_period[i] : null, waterTempF: mh.sea_surface_temperature ? mh.sea_surface_temperature[i] : null };
+        });
+        return times.map((t, i) => {
+          const mv = marineByTime[t] || {};
+          return {
+            t: parseOpenMeteoTime(t),
+            windMph: wh.wind_speed_10m ? wh.wind_speed_10m[i] : null,
+            windDir: wh.wind_direction_10m ? wh.wind_direction_10m[i] : null,
+            precipIn: wh.precipitation ? wh.precipitation[i] : null,
+            cloudPct: wh.cloud_cover ? wh.cloud_cover[i] : null,
+            tempF: wh.temperature_2m ? wh.temperature_2m[i] : null,
+            waveHeightFt: mv.waveHeightFt != null ? mv.waveHeightFt : null,
+            wavePeriodS: mv.wavePeriodS != null ? mv.wavePeriodS : null,
+            waterTempF: mv.waterTempF != null ? mv.waterTempF : null
+          };
+        });
+      } catch (e) { lastError = e; }
+    }
+    throw lastError;
   }
 
   function nearestWindWave(series, atMs) {
