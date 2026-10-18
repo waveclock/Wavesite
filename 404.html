@@ -413,7 +413,7 @@
   .temp-grad .boundary { position: absolute; bottom: calc(100% + 2px); transform: translateX(-50%); font-size: 8px; font-weight: 700; color: var(--soft); white-space: nowrap; }
   /* Grayscales just the radar map's OWN base tile layer (Leaflet's
      tileLayer className option tags each of that layer's own <img>
-     tiles with this class) -- the NEXRAD overlay tiles and the beach
+     tiles with this class) -- the radar overlay tiles and the beach
      marker sit in their own, untagged layers, so they stay in full
      color. See renderRadarPanel's own comment on why this exists:
      OSM's green parks/forests would otherwise read as the radar
@@ -1766,13 +1766,27 @@
   }
 
   // Radar screen -- a live precipitation map centered on the active
-  // beach, with a NEXRAD overlay from the Iowa Environmental Mesonet's
-  // public radar tile service (free, no API key, reprocessed NOAA NEXRAD
-  // data -- the same public-domain source most weather sites' "free"
-  // radar embeds use). Re-rendered on every openTide (not just the first
-  // time), same as the tide/wind-&-wave screens, so "Change beach"
-  // re-centers it on the new location instead of leaving the old beach's
-  // radar showing.
+  // beach, with an MRMS overlay from the Iowa Environmental Mesonet's
+  // public radar tile service (free, no API key -- same host/attribution
+  // convention as the base OSM tiles below, no third-party terms beyond
+  // that). Specifically the "q2-hsr" layer (MRMS Hybrid-Scan Reflectivity
+  // Composite), not the simpler "nexrad-n0q" raw single-elevation
+  // composite this used to show -- a live report (coastal beaches,
+  // repeatedly) showed n0q reading as light green "rain" with nothing on
+  // the other radars nearby, a known raw-NEXRAD failure mode right at
+  // the coast (temperature inversions bend the beam down near the
+  // surface, picking up false returns off waves/humidity). MRMS's hybrid
+  // scan specifically picks each pixel's lowest UNBLOCKED elevation
+  // angle across the whole CONUS mosaic rather than one fixed low tilt,
+  // engineered against exactly this kind of ground/sea clutter. Verified
+  // directly (not just documentation) against a real tile before
+  // switching: https://mesonet.agron.iastate.edu/ogc/ lists "q2-hsr" as
+  // a live TMS layer, and a live fetch of
+  // /cache/tile.py/1.0.0/q2-hsr/7/37/48.png returned a genuine (if blank
+  // -- no echo in the area at the time) 256x256 transparent PNG, not an
+  // error. Re-rendered on every openTide (not just the first time), same
+  // as the tide/wind-&-wave screens, so "Change beach" re-centers it on
+  // the new location instead of leaving the old beach's radar showing.
   //
   // Base tiles are the SAME OSM tiles the picker's own maps use (CARTO's
   // "Positron" style was tried here instead -- it turned out to need a
@@ -1780,7 +1794,7 @@
   // didn't ship) -- but desaturated via the 'radar-base-tile' CSS class
   // below, grayscaling just this base layer's own tiles (not the radar
   // overlay or the marker) so OSM's green parks/forests can't be
-  // mistaken for the NEXRAD overlay's own green (light-to-moderate
+  // mistaken for the radar overlay's own green (light-to-moderate
   // rain), while staying on a tile source that's actually free with no
   // key required, same as every other map already on this page.
   let radarMap = null;
@@ -2012,7 +2026,7 @@
           maxZoom: 19, className: 'radar-base-tile',
           attribution: '&copy; OpenStreetMap contributors'
         }).addTo(radarMap);
-        L.tileLayer('https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/{z}/{x}/{y}.png', {
+        L.tileLayer('https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/q2-hsr/{z}/{x}/{y}.png', {
           maxZoom: 12, opacity: 0.65, attribution: 'Radar &copy; Iowa Environmental Mesonet'
         }).addTo(radarMap);
         const townIcon = L.divIcon({ className: 'town-marker', html: TOWN_MARKER_HTML, iconSize: [20, 20] });
