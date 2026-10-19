@@ -133,6 +133,7 @@
   }
   .save-btn:active { transform: translateY(1px); box-shadow: 2px 2px 0 var(--ink); }
   .save-btn:disabled { background: var(--driftwood); cursor: default; box-shadow: none; opacity: 0.6; }
+  .save-btn.ghost-btn { background: none; color: var(--coral-dark); border-color: var(--coral-dark); box-shadow: none; }
 
   .status-msg {
     text-align: center;
@@ -189,6 +190,20 @@
     <p class="status-msg" id="statusMsg"></p>
   </div>
 
+  <!-- Shown INSTEAD of pairStep once deviceLinkStatus confirms a
+       keychain is already paired -- without this, "Pair a Keychain"
+       always showed the blank code form with no memory that pairing
+       already happened, which is exactly what prompted this: pairing
+       again felt broken (the form disables itself right after a
+       success, until refreshed) and there was no way to detach a
+       keychain at all from this side. -->
+  <div class="step" id="pairedStep" style="display:none;">
+    <p>A keychain is already paired to this Wave Clock. Its tide page shows whatever's set here.</p>
+    <button type="button" class="save-btn" id="pairDifferentBtn">Pair a Different Keychain</button>
+    <button type="button" class="save-btn ghost-btn" id="unpairBtn">Unpair This Keychain</button>
+    <p class="status-msg" id="pairedMsg"></p>
+  </div>
+
   <p><a href="../manage/" id="backToManageLink" class="back-to-manage-btn">Back to device menu</a></p>
 
 </div>
@@ -200,6 +215,8 @@
 <script type="module">
   const PAIR_CODE_PATTERN = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
   const REDEEM_PAIR_CODE_URL = "https://us-central1-waveclock.cloudfunctions.net/redeemPairCode";
+  const DEVICE_LINK_STATUS_URL = "https://us-central1-waveclock.cloudfunctions.net/deviceLinkStatus";
+  const UNPAIR_DEVICE_URL = "https://us-central1-waveclock.cloudfunctions.net/unpairDevice";
 
   const params = new URLSearchParams(window.location.search);
   const deviceId = params.get("id");
@@ -209,6 +226,10 @@
   const codeInput = document.getElementById("code");
   const pairBtn = document.getElementById("pairBtn");
   const statusMsg = document.getElementById("statusMsg");
+  const pairedStep = document.getElementById("pairedStep");
+  const pairDifferentBtn = document.getElementById("pairDifferentBtn");
+  const unpairBtn = document.getElementById("unpairBtn");
+  const pairedMsg = document.getElementById("pairedMsg");
   const backToManageLink = document.getElementById("backToManageLink");
 
   if (!deviceId) {
@@ -219,7 +240,80 @@
   } else {
     deviceTag.textContent = "Pairing for " + deviceId;
     backToManageLink.href = "../manage/?id=" + encodeURIComponent(deviceId);
+    checkPairedStatus();
   }
+
+  // Resets pairStep back to a fresh, usable form -- shared by three
+  // entry points into this view: the ordinary not-paired case, "Pair a
+  // Different Keychain" (which may be re-entering this view after an
+  // earlier pairing already disabled the form in THIS same page load),
+  // and a just-completed unpair.
+  function showUnpairedView() {
+    pairedStep.style.display = "none";
+    pairStep.style.display = "block";
+    codeInput.disabled = false;
+    codeInput.value = "";
+    pairBtn.style.display = "block";
+    pairBtn.disabled = true;
+    statusMsg.textContent = "";
+    statusMsg.className = "status-msg";
+  }
+  function showPairedView() {
+    pairStep.style.display = "none";
+    pairedStep.style.display = "block";
+    unpairBtn.disabled = false;
+    pairDifferentBtn.disabled = false;
+    pairedMsg.textContent = "";
+    pairedMsg.className = "status-msg";
+  }
+
+  // Defaults to the ordinary pairing form on any failure here -- never
+  // reveals the real tagId either way (see deviceLinkStatusHandler's
+  // own comment), just whether one's paired, so there's nothing more
+  // sensitive to protect by failing closed instead.
+  async function checkPairedStatus() {
+    try {
+      const resp = await fetch(DEVICE_LINK_STATUS_URL + "?deviceId=" + encodeURIComponent(deviceId));
+      const body = await resp.json().catch(() => null);
+      if (resp.ok && body && body.paired) showPairedView();
+    } catch (err) {
+      console.error("Couldn't check pairing status (defaulting to the pairing form):", err);
+    }
+  }
+
+  pairDifferentBtn.addEventListener("click", () => { showUnpairedView(); });
+
+  unpairBtn.addEventListener("click", async () => {
+    if (!window.confirm("Unpair this keychain? It'll go back to picking its own beach next time it's tapped.")) return;
+    unpairBtn.disabled = true;
+    pairDifferentBtn.disabled = true;
+    pairedMsg.textContent = "Unpairing…";
+    pairedMsg.className = "status-msg";
+    try {
+      const resp = await fetch(UNPAIR_DEVICE_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ deviceId })
+      });
+      const body = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        pairedMsg.textContent = (body && body.error) || "Couldn't unpair that right now -- try again in a bit.";
+        pairedMsg.className = "status-msg error";
+        unpairBtn.disabled = false;
+        pairDifferentBtn.disabled = false;
+        return;
+      }
+      showUnpairedView();
+      statusMsg.textContent = "Keychain unpaired.";
+      statusMsg.className = "status-msg success";
+    } catch (err) {
+      console.error("Unpair device failed:", err);
+      pairedMsg.textContent = "Couldn't reach the server right now -- try again in a bit.";
+      pairedMsg.className = "status-msg error";
+      unpairBtn.disabled = false;
+      pairDifferentBtn.disabled = false;
+    }
+  });
 
   // Same unmistakable charset (no 0/O/1/I) and uppercasing the keychain's
   // own code display already uses -- typing lowercase or a stray space
