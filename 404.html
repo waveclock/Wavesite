@@ -283,6 +283,24 @@
   .bigbtn.go { background: var(--rise); }
   .bigbtn + .bigbtn { margin-top: 10px; }
 
+  /* "Pair with your WaveClock" -- the keychain-to-device link flow.
+     pair-code-display is deliberately large/spaced-out: it's read off
+     one screen and typed into another, so it needs to survive a quick
+     glance across a room, not just be technically legible up close. */
+  .pair-code-display {
+    font-family: inherit;
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: 0.25em;
+    text-align: center;
+    background: var(--wave-pale);
+    border: 2px solid var(--wave);
+    border-radius: 14px;
+    padding: 18px 10px;
+    margin: 14px 0 6px;
+    color: var(--ink);
+  }
+
   /* Picker's "confirm, then save" overlay -- blocks on resolving
      coastFacingDirection/srfZone/marineZone before registering (see
      confirmAndSave), mirroring location/index.html's own device wizard
@@ -764,6 +782,34 @@
     <ul class="results" id="results"></ul>
   </div>
 
+  <!-- Alternative to picking a beach here directly -- for a keychain
+       that belongs WITH an existing WaveClock rather than being set up
+       standalone. Always offered (never gated on hasExisting) since
+       this is reachable both from a brand-new tag's first-ever tap
+       AND from "Change beach" on an already-registered one -- pairing
+       doesn't care which. Once a tag IS linked, this whole picker
+       becomes unreachable (the bottom bar's "My WaveClock" replaces
+       "Location" -- see showMyWaveClockBottomBar), so there's no case
+       where this needs to hide itself. -->
+  <button class="bigbtn ghost" id="pairWithDeviceBtn" type="button">Already have a WaveClock? Pair this keychain to it</button>
+
+  <div class="hidden" id="pairWithDeviceStep">
+    <!-- Populated with one button per WaveClock this browser already
+         recognizes (see rememberDevice in manage/index.html) -- tapping
+         one pairs immediately, no code needed. Empty when nothing's
+         remembered here, which is also when getPairCodeBtn below is
+         the only option offered. -->
+    <div id="rememberedDeviceList"></div>
+    <button class="bigbtn" id="getPairCodeBtn" type="button">Get a pairing code</button>
+    <div class="hidden" id="pairCodeResult">
+      <p class="sub">On your Wave Clock, press the button in the bottom right, choose Update Online, and scan the QR code. Open Pair a Keychain and enter this code there:</p>
+      <div class="pair-code-display" id="pairCodeValue"></div>
+      <p class="hint" id="pairCodeExpiry"></p>
+    </div>
+    <p class="msg hidden" id="pairMsg"></p>
+    <button class="bigbtn ghost" id="pairWithDeviceBackBtn" type="button">Back</button>
+  </div>
+
   <!-- Step 2 of the picker wizard: once a town's picked from search,
        confirm it on its own (the city alone, not yet the tide station
        list) before moving on -- shows where it landed on a map, and lets
@@ -853,6 +899,10 @@
   const STATIONS = 'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions';
   const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
   const TAG_PROXY = 'https://us-central1-waveclock.cloudfunctions.net/tideTagProxy';
+  const PAIR_TIDE_TAG = 'https://us-central1-waveclock.cloudfunctions.net/pairTideTag';
+  const REQUEST_PAIR_CODE = 'https://us-central1-waveclock.cloudfunctions.net/requestPairCode';
+  const STORAGE_BUCKET = 'waveclock.firebasestorage.app';
+  const REMEMBERED_DEVICES_KEY = 'wc_my_devices'; // same key manage/index.html's own rememberDevice writes
   const $ = id => document.getElementById(id);
 
   // Nudges the page into a scrolled state so the mobile browser's own
@@ -1017,6 +1067,13 @@
   // instead of POST (create-only). Cleared the moment a pick is made, so
   // it never lingers into a later, unrelated pick.
   let isChanging = false;
+  // Set once boot() (or a just-completed pairing) confirms this tag is
+  // linked to a WaveClock device -- null for an ordinary standalone
+  // keychain. Once set, the tide page is sourced from that device's own
+  // locations/{id}.json instead of this tag's own tide-tags fields (see
+  // completeLinking), and the bottom bar's "Location" becomes "My
+  // WaveClock" (see showMyWaveClockBottomBar) for the rest of this load.
+  let linkedDeviceId = null;
 
   // ---------- sunrise/sunset (for the curve's day/night background) ----------
   // A compact reimplementation of the standard solar-position algorithm
@@ -1584,7 +1641,14 @@
     // (enrichment still in flight, or predates this field) just gets
     // undefined here, and renderSurfQuality falls back to the live
     // lookup exactly as it always has.
-    return j.registered ? { id: j.stationId, stationName: j.stationName, name: j.townName || j.stationName, lat: j.lat, lon: j.lon, coastFacingDirection: j.coastFacingDirection } : null;
+    //
+    // linkedDeviceId rides alongside, independent of registered -- a tag
+    // can be linked to a WaveClock with no station of its own at all
+    // (paired before ever being tapped), so the two are reported
+    // separately rather than linkedDeviceId only mattering when
+    // registered is true.
+    const station = j.registered ? { id: j.stationId, stationName: j.stationName, name: j.townName || j.stationName, lat: j.lat, lon: j.lon, coastFacingDirection: j.coastFacingDirection } : null;
+    return { station, linkedDeviceId: j.linkedDeviceId || null };
   }
   // Registers st against this tag for the FIRST time. If another tap
   // already won the race (409), defers to whatever's actually
@@ -1600,7 +1664,7 @@
     });
     if (r.status === 409) {
       const existing = await checkRegistration();
-      if (existing) return existing;
+      if (existing.station) return existing.station;
     }
     if (!r.ok && r.status !== 409) throw new Error('http ' + r.status);
     return st;
@@ -1616,6 +1680,79 @@
     });
     if (!r.ok) throw new Error('http ' + r.status);
     return st;
+  }
+
+  // ---------- pairing this tag to a WaveClock device ----------
+  // Once linked, the tide page stops using this tag's OWN tide-tags
+  // fields entirely and instead reads straight from the device's own
+  // locations/{deviceId}.json -- the same public Storage REST read
+  // location/settings/manage already use, so editing the WaveClock's
+  // settings there is what updates this keychain too, with nothing to
+  // keep in sync.
+  function loadRememberedDevices() {
+    try {
+      const list = JSON.parse(localStorage.getItem(REMEMBERED_DEVICES_KEY) || '[]');
+      return Array.isArray(list) ? list : [];
+    } catch (e) { return []; }
+  }
+  // Returns null for a device with no saved location yet (a real,
+  // expected state -- pairing can happen before a WaveClock is ever set
+  // up), never for a malformed/unreachable fetch, which throws instead
+  // so callers can tell "not set up yet" apart from "couldn't check
+  // right now" and react differently to each.
+  async function fetchDeviceLocation(deviceId) {
+    const path = encodeURIComponent('locations/' + deviceId + '.json');
+    const url = 'https://firebasestorage.googleapis.com/v0/b/' + STORAGE_BUCKET + '/o/' + path + '?alt=media';
+    const r = await fetch(url);
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error('http ' + r.status);
+    return await r.json();
+  }
+  // Maps locations/{deviceId}.json's own field names onto the shape
+  // openTide/applyRegistration already expect -- "name" there is the
+  // short on-device nickname (location/index.html's displayName), which
+  // doubles here as this keychain's own town label; "cwfZone" is just
+  // locations/'s own name for what tide-tags calls marineZone.
+  // stationName has no equivalent at all (the device never stores the
+  // NOAA station's own name, only its ID) -- omitted entirely, same
+  // graceful degrade as a legacy tag that predates townName.
+  function deviceLocationToStation(j) {
+    return { id: j.stationId, name: j.name, lat: j.lat, lon: j.lon, coastFacingDirection: j.coastFacingDirection, srfZone: j.srfZone, marineZone: j.cwfZone };
+  }
+  // Swaps the bottom bar's "Location" (which opens this tag's own
+  // standalone beach picker -- no longer the right action once linked)
+  // into "My WaveClock", pointing at the device's own Manage page
+  // instead. The click handler itself (see $('changeBtn')'s own
+  // listener) branches on linkedDeviceId being set, which this is
+  // always called alongside.
+  function showMyWaveClockBottomBar(deviceId) {
+    const btn = $('changeBtn');
+    btn.querySelector('.action-label').textContent = 'My WaveClock';
+    btn.querySelector('.action-icon').outerHTML = '<svg class="action-icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+  // Shared by both the just-tapped-boot path (checkRegistration already
+  // reported this tag as linked) and the just-paired-from-the-picker
+  // path (pairing succeeded just now, in this same page load) -- either
+  // way, the next step is the same: start sourcing the tide page from
+  // this device, and send them to finish its own setup if it doesn't
+  // have one yet.
+  async function completeLinking(deviceId) {
+    linkedDeviceId = deviceId;
+    showMyWaveClockBottomBar(deviceId);
+    try {
+      const j = await fetchDeviceLocation(deviceId);
+      if (!j) {
+        window.location.href = '../location/?id=' + encodeURIComponent(deviceId);
+        return;
+      }
+      applyRegistration(deviceLocationToStation(j));
+    } catch (e) {
+      // Couldn't reach Storage to check right now -- leave whatever's
+      // already on screen (a stale cached paint from earlier in boot(),
+      // if any) rather than bouncing to Location on a transient
+      // network hiccup; the next visit (or a manual refresh) tries
+      // again from scratch.
+    }
   }
 
   // ================= picker: free-text town search + map =================
@@ -2386,9 +2523,23 @@
     clearStationMap();
     pendingPick = null;
     $('saveOverlay').classList.add('hidden');
+    // Always reopens on the main picker view, never mid-way into the
+    // "pair with your WaveClock" side step (see pairWithDeviceBtn's own
+    // handler below, and its Back button, which both just reopen the
+    // picker to get back here).
+    $('pairWithDeviceBtn').classList.remove('hidden');
+    $('pairWithDeviceStep').classList.add('hidden');
     maximizeViewport();
   }
+  // This tag is never linked to a WaveClock by the time this picker
+  // could possibly be showing -- once linked, this button instead jumps
+  // straight to that device's own Manage page (see completeLinking/
+  // showMyWaveClockBottomBar), so the picker itself becomes unreachable.
   $('changeBtn').addEventListener('click', () => {
+    if (linkedDeviceId) {
+      window.location.href = '../manage/?id=' + encodeURIComponent(linkedDeviceId);
+      return;
+    }
     isChanging = true;
     openPicker();
   });
@@ -2408,6 +2559,109 @@
     $('searchStep').classList.remove('hidden');
     $('search').focus();
     maximizeViewport();
+  });
+
+  // ================= pairing: "Already have a WaveClock?" =================
+  // An alternative to everything above -- instead of picking a beach
+  // for THIS tag directly, link it to a WaveClock device and let that
+  // device's own location drive the tide page from here on (see
+  // completeLinking). Reachable both from a brand-new tag's first tap
+  // and from "Change beach" on an already-registered one; pairing
+  // doesn't care which.
+  function renderPairWithDeviceStep() {
+    const list = $('rememberedDeviceList');
+    list.innerHTML = '';
+    // One button per WaveClock this browser already recognizes (see
+    // manage/index.html's own rememberDevice) -- tapping one pairs
+    // immediately, the "one-tap shortcut" this whole list exists for.
+    // Disambiguates by letting them pick WHICH one rather than ever
+    // guessing silently (see rememberDevice's own comment on why this
+    // is a list, not a single remembered value).
+    loadRememberedDevices().forEach(d => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'bigbtn go';
+      btn.textContent = 'Pair with ' + (d && d.label && d.label !== d.id ? d.label : (d && d.id));
+      btn.addEventListener('click', () => pairWithRememberedDevice(d.id));
+      list.appendChild(btn);
+    });
+    $('pairCodeResult').classList.add('hidden');
+    $('pairCodeValue').textContent = '';
+    $('pairMsg').classList.add('hidden');
+    $('pairMsg').textContent = '';
+    $('getPairCodeBtn').disabled = false;
+    $('getPairCodeBtn').classList.remove('hidden');
+  }
+  $('pairWithDeviceBtn').addEventListener('click', () => {
+    $('pickerIntro').classList.add('hidden');
+    $('keepBtn').classList.add('hidden');
+    $('changeLocationBtn').classList.add('hidden');
+    $('searchStep').classList.add('hidden');
+    $('pairWithDeviceBtn').classList.add('hidden');
+    $('pairWithDeviceStep').classList.remove('hidden');
+    renderPairWithDeviceStep();
+    maximizeViewport();
+  });
+  // Re-running openPicker() is the simplest correct "back" here -- it
+  // already resets the pairing step's own visibility (see its own
+  // comment) alongside everything else a fresh picker view needs.
+  $('pairWithDeviceBackBtn').addEventListener('click', () => { openPicker(); });
+
+  function showPairMsg(text) {
+    $('pairMsg').textContent = text;
+    $('pairMsg').classList.remove('hidden');
+  }
+  // Both already known to THIS browser -- no code exchange needed. See
+  // pairTideTagHandler's own comment for why that's an acceptable
+  // bearer of trust here (same level every other tagId-scoped write on
+  // this endpoint already relies on).
+  async function pairWithRememberedDevice(deviceId) {
+    showPairMsg('Pairing…');
+    try {
+      const r = await fetch(PAIR_TIDE_TAG, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId, deviceId })
+      });
+      const body = await r.json().catch(() => null);
+      if (!r.ok) {
+        showPairMsg((body && body.error) || "Couldn't pair that right now — try again in a bit.");
+        return;
+      }
+      await completeLinking(deviceId);
+    } catch (e) {
+      showPairMsg("Couldn't reach the server right now — try again in a bit.");
+    }
+  }
+  // The cross-device fallback -- when nothing's remembered on this
+  // browser (or none of the remembered ones are the right one), issue a
+  // short, disposable code to type in on the WaveClock's own Manage
+  // page instead. See requestPairCodeHandler's own comment for why the
+  // real tagId is never shown on screen for this.
+  $('getPairCodeBtn').addEventListener('click', async () => {
+    $('getPairCodeBtn').disabled = true;
+    showPairMsg('Getting a code…');
+    try {
+      const r = await fetch(REQUEST_PAIR_CODE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId })
+      });
+      const body = await r.json().catch(() => null);
+      if (!r.ok) {
+        showPairMsg((body && body.error) || "Couldn't get a code right now — try again in a bit.");
+        $('getPairCodeBtn').disabled = false;
+        return;
+      }
+      $('pairMsg').classList.add('hidden');
+      $('pairCodeValue').textContent = body.code;
+      $('pairCodeExpiry').textContent = 'Expires in ' + body.expiresInMinutes + ' minutes.';
+      $('pairCodeResult').classList.remove('hidden');
+      $('getPairCodeBtn').classList.add('hidden');
+    } catch (e) {
+      showPairMsg("Couldn't reach the server right now — try again in a bit.");
+      $('getPairCodeBtn').disabled = false;
+    }
   });
 
   // ================= wind & waves (second scroll-snap panel) =================
@@ -3586,15 +3840,20 @@
   setInterval(() => { if (current) openTide(current); }, 3 * 3600e3);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 
-  // ---------- boot: is this tag already registered? ----------
+  // ---------- boot: is this tag already registered (or linked)? ----------
   async function boot() {
     const cached = loadTagCache();
     if (cached) applyRegistration(cached); // instant paint from last time, while we confirm with the server below
 
     try {
-      const server = await checkRegistration();
-      if (server) {
-        applyRegistration(server);
+      const { station, linkedDeviceId: serverLinkedDeviceId } = await checkRegistration();
+      if (serverLinkedDeviceId) {
+        // Linked to a WaveClock -- this tag's own station (if it even
+        // has one from before being linked) is no longer the active
+        // source, see completeLinking's own comment.
+        await completeLinking(serverLinkedDeviceId);
+      } else if (station) {
+        applyRegistration(station);
       } else if (cached) {
         // The server disagrees with our local cache (e.g. this tag was
         // unlinked) -- the server is authoritative, so drop the stale
