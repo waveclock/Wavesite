@@ -341,6 +341,35 @@
     background: var(--foam);
   }
   .town-preview-map { margin-top: 12px; margin-bottom: 0; height: 160px; }
+
+  /* ---------- manual coast-direction picker ---------- */
+  .direction-map-wrap { position: relative; }
+  .direction-overlay {
+    position: absolute;
+    inset: 0;
+    cursor: grab;
+    touch-action: none;
+  }
+  .direction-overlay:active { cursor: grabbing; }
+  .direction-arrow {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 40px;
+    height: 40px;
+    margin-left: -20px;
+    margin-top: -20px;
+    transform-origin: 50% 50%;
+    pointer-events: none;
+    filter: drop-shadow(0 1px 2px rgba(31,51,71,0.5));
+  }
+  .direction-label {
+    text-align: center;
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 16px;
+    margin: 10px 0 4px;
+  }
   .town-marker svg {
     display: block;
     filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
@@ -613,9 +642,45 @@
     <p class="marine-warning" id="zoneNoneWarning" style="display:none;">You won&rsquo;t see wave, swell, or rip current data on your Wave Clock until you come back and pick a real forecast zone above. Your tide station and town nickname are unaffected.</p>
   </div>
 
-  <div class="step disabled" id="stepReview">
+  <!-- Which way the beach faces -- resolved automatically in the
+       background from real OpenStreetMap coastline data as soon as a
+       town's picked (see loadCoastFacingDirection), but that lookup can
+       fail (falls back to a coarser, occasionally wrong zone-centroid
+       estimate) or -- for a town near both bay and ocean water -- can
+       succeed while still finding the wrong body of water. Either way,
+       "point it yourself" is the ground truth: only a person looking at
+       the real map can always tell which side is actually the beach. -->
+  <div class="step disabled" id="stepCoastDirection">
     <div class="step-head">
       <span class="step-num">5</span>
+      <h3>Which way does your beach face?</h3>
+      <span class="step-check">&#10003; Picked</span>
+    </div>
+
+    <p class="zone-help">This tells your Wave Clock which way is offshore, for wind and wave readings. We try to figure it out automatically from map data below &mdash; if it doesn&rsquo;t look right, point it yourself instead.</p>
+
+    <p class="station-status" id="coastDirectionStatus">Figuring out which way your beach faces&hellip;</p>
+
+    <div class="direction-picker" id="directionPicker" style="display:none;">
+      <div class="direction-map-wrap">
+        <div class="station-map" id="directionMap"></div>
+        <div class="direction-overlay" id="directionOverlay">
+          <div class="direction-arrow" id="directionArrow">
+            <svg viewBox="0 0 40 40" width="40" height="40"><path d="M20 4 L28 24 L20 19 L12 24 Z" fill="#C97456" stroke="#1F3347" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+      </div>
+      <p class="direction-label" id="directionLabel">Facing: &mdash;</p>
+      <p class="zone-help">Drag anywhere on the map to point the arrow toward the open water.</p>
+      <button type="button" class="save-btn-small" id="confirmDirectionBtn">Confirm This Direction</button>
+    </div>
+
+    <button type="button" class="change-btn" id="pointDirectionBtn">Point it yourself</button>
+  </div>
+
+  <div class="step disabled" id="stepReview">
+    <div class="step-head">
+      <span class="step-num">6</span>
       <h3>Review &amp; confirm</h3>
     </div>
 
@@ -868,6 +933,7 @@
   const stepTown = document.getElementById("stepTown");
   const stepStation = document.getElementById("stepStation");
   const stepZone = document.getElementById("stepZone");
+  const stepCoastDirection = document.getElementById("stepCoastDirection");
 
   let selectedTown = null;
   let selectedStation = null;
@@ -934,6 +1000,9 @@
     stepStation.classList.add("disabled");
     stepZone.classList.remove("done");
     stepZone.classList.add("disabled");
+    stepCoastDirection.classList.remove("done");
+    stepCoastDirection.classList.add("disabled");
+    hideDirectionPicker();
     clearMap();
     clearZoneMap();
     stationListWrap.innerHTML = '<p class="station-status" id="stationStatus">Pick your location above to see nearby stations.</p>';
@@ -1011,6 +1080,7 @@
     stepName.classList.add("done");
     stepStation.classList.remove("disabled");
     stepZone.classList.remove("disabled");
+    stepCoastDirection.classList.remove("disabled");
     renderSaveState();
   }
 
@@ -1563,6 +1633,147 @@
     renderSaveState();
   }
 
+  // ================= manual coast-direction picker =================
+  // The ground-truth override: neither the OSM-coastline method above
+  // nor its zone-centroid fallback can reliably tell "this nearby water
+  // is the ocean" from "this nearby water is the back bay" -- both just
+  // find the closest tagged coastline/zone edge, which for a barrier-
+  // island town can legitimately be the bay side. Only a person looking
+  // at the real map can always get that right, so this lets them drag
+  // an arrow, anchored on the town's own pin, directly against the real
+  // coastline shown underneath -- not a geocoded guess at all.
+  const coastDirectionStatus = document.getElementById("coastDirectionStatus");
+  const directionPicker = document.getElementById("directionPicker");
+  const directionMapEl = document.getElementById("directionMap");
+  const directionOverlay = document.getElementById("directionOverlay");
+  const directionArrow = document.getElementById("directionArrow");
+  const directionLabel = document.getElementById("directionLabel");
+  const pointDirectionBtn = document.getElementById("pointDirectionBtn");
+  const confirmDirectionBtn = document.getElementById("confirmDirectionBtn");
+
+  function compassToBearing(dir) {
+    const idx = COMPASS_DIRECTIONS.indexOf(dir);
+    return idx === -1 ? null : idx * 45;
+  }
+
+  // Mirrors loadCoastFacingDirection's own three outcomes (osm/fallback/
+  // none), plus the new fourth: a person-confirmed manual pick, which
+  // -- unlike "fallback" -- is never flagged as an estimate, since it's
+  // no longer a guess at all once a person has looked at the real map
+  // and confirmed it.
+  function renderCoastDirectionStatus() {
+    if (!selectedTown) {
+      coastDirectionStatus.textContent = "Pick your location above first.";
+      return;
+    }
+    if (!coastFacingDirectionChecked) {
+      coastDirectionStatus.textContent = "Figuring out which way your beach faces…";
+      return;
+    }
+    if (!coastFacingDirectionResult) {
+      coastDirectionStatus.textContent = "Couldn't figure out which way your beach faces — point it yourself below.";
+      return;
+    }
+    const sourceLabel =
+      coastFacingDirectionSource === "osm" ? "" :
+      coastFacingDirectionSource === "fallback" ? " (estimated — double-check this)" :
+      coastFacingDirectionSource === "manual" ? " (set by you)" : "";
+    coastDirectionStatus.textContent = "Coast faces " + coastFacingDirectionResult + sourceLabel + ".";
+    stepCoastDirection.classList.toggle("done", coastFacingDirectionSource != null);
+  }
+
+  let directionMapInstance = null;
+  function clearDirectionMap() {
+    if (directionMapInstance) {
+      directionMapInstance.remove();
+      directionMapInstance = null;
+    }
+    directionMapEl.style.display = "none";
+  }
+
+  function hideDirectionPicker() {
+    directionPicker.style.display = "none";
+    clearDirectionMap();
+  }
+
+  function setArrowRotation(deg) {
+    directionArrow.style.transform = "rotate(" + deg + "deg)";
+    directionLabel.textContent = "Facing: " + bearingToCompass(deg);
+  }
+
+  // The arrow's anchor is always the exact center of the map (the town
+  // pin is centered there by setView below, and the map itself never
+  // pans or zooms -- see its own L.map options), so the drag angle is
+  // just the overlay's own on-screen geometry, no map projection math
+  // needed. Up = screen angle 0 = compass North, since Leaflet's default
+  // CRS is always north-up.
+  let pendingManualDegrees = null;
+  function angleFromOverlay(clientX, clientY) {
+    const rect = directionOverlay.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+    const dx = clientX - cx, dy = clientY - cy;
+    return (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+  }
+  function updateFromPointer(clientX, clientY) {
+    const snapped = Math.round(angleFromOverlay(clientX, clientY) / 45) * 45 % 360;
+    pendingManualDegrees = snapped;
+    setArrowRotation(snapped);
+  }
+  let directionDragging = false;
+  directionOverlay.addEventListener("pointerdown", (e) => {
+    directionDragging = true;
+    directionOverlay.setPointerCapture(e.pointerId);
+    updateFromPointer(e.clientX, e.clientY);
+  });
+  directionOverlay.addEventListener("pointermove", (e) => {
+    if (directionDragging) updateFromPointer(e.clientX, e.clientY);
+  });
+  directionOverlay.addEventListener("pointerup", () => { directionDragging = false; });
+  directionOverlay.addEventListener("pointercancel", () => { directionDragging = false; });
+
+  function openDirectionPicker() {
+    if (!selectedTown || typeof L === "undefined") return;
+    clearDirectionMap();
+    directionMapEl.style.display = "block";
+    directionPicker.style.display = "block";
+    try {
+      // Non-interactive and fixed on the town, closer-zoomed than the
+      // town preview map (16 vs 14) -- this is for reading the local
+      // shoreline shape, not exploring the wider area, and letting it
+      // pan/zoom would break the "arrow anchored at map center" math.
+      directionMapInstance = L.map(directionMapEl, {
+        zoomControl: false, attributionControl: true, dragging: false,
+        touchZoom: false, scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false, keyboard: false
+      }).setView([selectedTown.lat, selectedTown.lon], 16);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(directionMapInstance);
+      const icon = L.divIcon({ className: "town-marker", html: TOWN_MARKER_HTML, iconSize: [20, 20] });
+      L.marker([selectedTown.lat, selectedTown.lon], { icon: icon }).addTo(directionMapInstance);
+    } catch (err) {
+      console.error("Direction picker map failed to load:", err);
+    }
+    // Starts from whatever's already been resolved (even an estimate),
+    // if anything -- nudging a close-but-wrong guess into place is
+    // easier than starting from nothing, and it's still only committed
+    // once they tap Confirm below.
+    const startDeg = coastFacingDirectionResult != null ? compassToBearing(coastFacingDirectionResult) : 90;
+    pendingManualDegrees = startDeg != null ? startDeg : 90;
+    setArrowRotation(pendingManualDegrees);
+  }
+  pointDirectionBtn.addEventListener("click", openDirectionPicker);
+
+  confirmDirectionBtn.addEventListener("click", () => {
+    if (pendingManualDegrees == null) return;
+    coastFacingDirectionResult = bearingToCompass(pendingManualDegrees);
+    coastFacingDirectionSource = "manual";
+    coastFacingDirectionChecked = true;
+    hideDirectionPicker();
+    renderCoastDirectionStatus();
+    renderSaveState();
+  });
+
   const MARINE_ZONE_ID_PATTERN = /^[A-Z]{2,3}Z\d{3}$/;
   // Distances to try, in km, at each compass bearing below.
   const MARINE_ZONE_SEARCH_KM = [5, 15, 35];
@@ -2057,6 +2268,7 @@
     const ready = deviceId && selectedTown && selectedStation && nameOk && effectiveSrfZone() && effectiveMarineZone() && (zoneSkipped || coastFacingDirectionChecked);
     saveBtn.disabled = !ready;
     renderReviewTable(ready);
+    renderCoastDirectionStatus();
   }
 
   function setStatus(text, kind) {
