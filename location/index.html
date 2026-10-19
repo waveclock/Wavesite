@@ -1605,6 +1605,7 @@
   // Add an entry any time; it never needs touching the lookup logic
   // itself, just one more line here.
   const KNOWN_ZONE_COAST_DIRECTIONS = {
+    ANZ452: "SE",
     ANZ453: "SE"
   };
 
@@ -1694,6 +1695,13 @@
   // no longer a guess at all once a person has looked at the real map
   // and confirmed it.
   function renderCoastDirectionStatus() {
+    // A curated zone-table entry is trusted ground truth (a human
+    // looked at this exact zone and recorded it) -- unlike OSM/fallback,
+    // which can legitimately be wrong (bay vs. ocean ambiguity), so
+    // there's nothing for a manual override to usefully second-guess.
+    const hideManualOption = coastFacingDirectionSource === "zone-table";
+    pointDirectionBtn.style.display = hideManualOption ? "none" : "";
+    if (hideManualOption) hideDirectionPicker();
     if (!selectedTown) {
       coastDirectionStatus.textContent = "Pick your location above first.";
       return;
