@@ -8,7 +8,7 @@
 // own copy of this fake for why).
 
 const assert = require("assert");
-const { tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, mintTideTagBatchHandler } = require("../index.js")._internal;
+const { tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler } = require("../index.js")._internal;
 
 // A valid, in-charset tagId at the new 20-char default length -- used
 // everywhere a test just needs SOME real tagId, same role "A7K2" played
@@ -502,6 +502,86 @@ async function test(name, fn) {
     const res = fakeRes();
     await redeemPairCodeHandler(req, res, makeFakeBucket({}));
     assert.strictEqual(res.statusCode, 405);
+  });
+
+  console.log("deviceLinkStatus (never reveals the real tagId -- see its own comment)");
+  await test("reports paired:false for a device with nothing linked", async () => {
+    const req = fakeReq({ method: "GET", query: { deviceId: "WC-1" } });
+    const res = fakeRes();
+    await deviceLinkStatusHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { paired: false });
+  });
+  await test("reports paired:true once a tag is linked -- and nothing else, no tagId in the body", async () => {
+    const bucket = mintedBucket(T1);
+    const pairReq = fakeReq({ method: "POST", body: { tagId: T1, deviceId: "WC-1" } });
+    await pairTideTagHandler(pairReq, fakeRes(), bucket);
+    const req = fakeReq({ method: "GET", query: { deviceId: "WC-1" } });
+    const res = fakeRes();
+    await deviceLinkStatusHandler(req, res, bucket);
+    assert.deepStrictEqual(res.body, { paired: true });
+  });
+  await test("rejects a malformed deviceId", async () => {
+    const req = fakeReq({ method: "GET", query: { deviceId: "../x" } });
+    const res = fakeRes();
+    await deviceLinkStatusHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 400);
+  });
+  await test("rejects any method other than GET", async () => {
+    const req = fakeReq({ method: "POST", body: { deviceId: "WC-1" } });
+    const res = fakeRes();
+    await deviceLinkStatusHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 405);
+  });
+  await test("a genuine storage failure returns 502, not a crash", async () => {
+    const req = fakeReq({ method: "GET", query: { deviceId: "WC-1" } });
+    const res = fakeRes();
+    const bucket = { file: () => ({ async download() { const e = new Error("down"); e.code = 500; throw e; } }) };
+    await deviceLinkStatusHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 502);
+  });
+
+  console.log("unpairDevice");
+  await test("unpairs a device that has a keychain linked", async () => {
+    const bucket = mintedBucket(T1);
+    const pairReq = fakeReq({ method: "POST", body: { tagId: T1, deviceId: "WC-1" } });
+    await pairTideTagHandler(pairReq, fakeRes(), bucket);
+    const req = fakeReq({ method: "POST", body: { deviceId: "WC-1" } });
+    const res = fakeRes();
+    await unpairDeviceHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { unpaired: true });
+    assert.strictEqual("linkedDeviceId" in JSON.parse(bucket._store.get("tide-tags/" + T1 + ".json")), false);
+    const statusReq = fakeReq({ method: "GET", query: { deviceId: "WC-1" } });
+    const statusRes = fakeRes();
+    await deviceLinkStatusHandler(statusReq, statusRes, bucket);
+    assert.deepStrictEqual(statusRes.body, { paired: false }, "deviceLinkStatus must reflect the unpair immediately");
+  });
+  await test("unpairing a device with nothing linked reports unpaired:false, not an error", async () => {
+    const req = fakeReq({ method: "POST", body: { deviceId: "WC-1" } });
+    const res = fakeRes();
+    await unpairDeviceHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { unpaired: false });
+  });
+  await test("rejects a malformed deviceId", async () => {
+    const req = fakeReq({ method: "POST", body: { deviceId: "../x" } });
+    const res = fakeRes();
+    await unpairDeviceHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 400);
+  });
+  await test("rejects any method other than POST", async () => {
+    const req = fakeReq({ method: "GET", query: { deviceId: "WC-1" } });
+    const res = fakeRes();
+    await unpairDeviceHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 405);
+  });
+  await test("a genuine storage failure returns 502, not a crash", async () => {
+    const req = fakeReq({ method: "POST", body: { deviceId: "WC-1" } });
+    const res = fakeRes();
+    const bucket = { file: () => ({ async download() { const e = new Error("down"); e.code = 500; throw e; } }) };
+    await unpairDeviceHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 502);
   });
 
   console.log("mintTideTagBatch: auth");

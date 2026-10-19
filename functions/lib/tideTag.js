@@ -269,26 +269,127 @@ async function updateTideTag(bucket, tagId, stationId, stationName, lat, lon, to
   return record;
 }
 
+// Reverse index -- "which tag (if any) is linked to this device" --
+// kept as its OWN small record rather than ever scanning tide-tags/ by
+// deviceId, since that's unbounded and these are append-only objects,
+// not a queryable database. Deliberately holds ONLY tagId + linkedAt:
+// a device's own pages (Manage/Pair) are trusted with nothing more
+// secret than "a keychain is paired" -- the tagId itself is a bearer
+// credential for a DIFFERENT trust scope (see TAG_ID_PATTERN's own
+// comment on why it's never shown on screen for the pairing-code flow
+// either), so nothing that reads this file is allowed to hand the raw
+// tagId back to a client; see deviceLinkStatusHandler in index.js.
+const DEVICE_TAG_LINKS_PREFIX = "device-tag-links/";
+
+function deviceTagLinkFile(bucket, deviceId) {
+  return bucket.file(DEVICE_TAG_LINKS_PREFIX + deviceId + ".json");
+}
+
+// Returns null for a device with nothing paired (the default, expected
+// state) or a malformed deviceId, never for a genuine storage failure,
+// which throws -- same null-vs-throw contract as fetchTideTag.
+async function fetchDeviceTagLink(bucket, deviceId) {
+  if (!isValidDeviceId(deviceId)) return null;
+  try {
+    const [buf] = await deviceTagLinkFile(bucket, deviceId).download();
+    return JSON.parse(buf.toString("utf8"));
+  } catch (err) {
+    if (err && err.code === 404) return null;
+    throw err;
+  }
+}
+
+// Only clears the pointer if it STILL points at tagId -- guards against
+// an unlink (triggered by a newer, different pairing superseding this
+// one -- see linkTideTagToDevice below) racing past a pairing that's
+// already replaced it, which would otherwise delete the NEWER link
+// instead of the stale one it was actually meant to clear.
+async function clearDeviceTagLinkIfMatching(bucket, deviceId, tagId) {
+  const current = await fetchDeviceTagLink(bucket, deviceId);
+  if (!current || current.tagId !== tagId) return;
+  try {
+    await deviceTagLinkFile(bucket, deviceId).delete();
+  } catch (err) {
+    if (err && err.code === 404) return;
+    throw err;
+  }
+}
+
 // Links a tag to a WaveClock device -- once a tag's record carries this,
 // the tide page stops using its OWN stationId/stationName/etc. fields
 // (left in place, not deleted, in case they're ever useful again) and
 // instead reads straight from that device's own locations/{deviceId}.json,
 // so editing the WaveClock's settings is what updates the keychain too.
 //
-// Always overwrites, same as updateTideTag -- re-pairing an
-// already-linked tag to a different device just moves it, no
-// "already linked" case to guard against. Works on a tag that's never
-// been tapped/registered at all (fetchTideTag returns null, so the
-// merge below just starts from an empty record) -- pairing a brand-new
-// keychain to an existing WaveClock before its first tap is a real,
-// expected path, not an edge case.
+// One keychain per WaveClock, enforced here rather than left as just a
+// UI convention: if this DEVICE already has a DIFFERENT tag linked,
+// that tag is unlinked first (falls back to standalone, same as an
+// explicit unpair); if this TAG was already linked to a DIFFERENT
+// device, that old device's own reverse pointer is cleared so it stops
+// claiming a keychain it no longer has. Either way this always
+// succeeds and moves the link -- re-pairing (to the same device, a
+// different device, or a device that already had a different tag) is
+// never an error case. Works on a tag that's never been tapped/
+// registered at all (fetchTideTag returns null, so the merge below
+// just starts from an empty record) -- pairing a brand-new keychain to
+// an existing WaveClock before its first tap is a real, expected path,
+// not an edge case.
 async function linkTideTagToDevice(bucket, tagId, deviceId) {
   if (!isValidTagId(tagId)) throw new Error("invalid tagId");
   if (!isValidDeviceId(deviceId)) throw new Error("invalid deviceId");
+
   const existing = await fetchTideTag(bucket, tagId);
-  const record = Object.assign({}, existing, { linkedDeviceId: deviceId, linkedAt: new Date().toISOString() });
+  if (existing && existing.linkedDeviceId && existing.linkedDeviceId !== deviceId) {
+    await clearDeviceTagLinkIfMatching(bucket, existing.linkedDeviceId, tagId);
+  }
+
+  const existingLink = await fetchDeviceTagLink(bucket, deviceId);
+  if (existingLink && existingLink.tagId !== tagId) {
+    await unlinkTideTagFromDevice(bucket, existingLink.tagId);
+  }
+
+  const linkedAt = new Date().toISOString();
+  const record = Object.assign({}, existing, { linkedDeviceId: deviceId, linkedAt });
   await tagFile(bucket, tagId).save(JSON.stringify(record), { contentType: "application/json" });
+  await deviceTagLinkFile(bucket, deviceId).save(JSON.stringify({ tagId, linkedAt }), { contentType: "application/json" });
   return record;
+}
+
+// The explicit "Unpair" action's own write, also reused internally by
+// linkTideTagToDevice above whenever a NEW pairing supersedes an older
+// one. Clears just the linking fields, keeping whatever standalone
+// station data (if any) the tag had before being linked, so unpairing
+// hands it back exactly as it was -- same "nothing erased, just no
+// longer the active source" principle linking itself already follows.
+// A no-op (not an error) for a tag that was never linked in the first
+// place; returns the deviceId it was unlinked FROM (or null) so a
+// caller can report what actually happened.
+async function unlinkTideTagFromDevice(bucket, tagId) {
+  if (!isValidTagId(tagId)) throw new Error("invalid tagId");
+  const existing = await fetchTideTag(bucket, tagId);
+  if (!existing || existing.linkedDeviceId == null) return null;
+  const deviceId = existing.linkedDeviceId;
+  const record = Object.assign({}, existing);
+  delete record.linkedDeviceId;
+  delete record.linkedAt;
+  await tagFile(bucket, tagId).save(JSON.stringify(record), { contentType: "application/json" });
+  await clearDeviceTagLinkIfMatching(bucket, deviceId, tagId);
+  return deviceId;
+}
+
+// Device-side counterpart to unlinkTideTagFromDevice -- the Manage
+// page's own "Unpair" action knows only deviceId (same trust token
+// every other device-scoped action there already relies on), never the
+// actual tagId, so it has to go through the reverse index to find out
+// what to unlink. A device with nothing paired is a no-op, not an
+// error -- same "already in the state you wanted" contract as
+// deleteTideTag.
+async function unpairDevice(bucket, deviceId) {
+  if (!isValidDeviceId(deviceId)) throw new Error("invalid deviceId");
+  const link = await fetchDeviceTagLink(bucket, deviceId);
+  if (!link) return false;
+  await unlinkTideTagFromDevice(bucket, link.tagId);
+  return true;
 }
 
 // ---------- short-lived pairing codes ----------
@@ -397,4 +498,4 @@ async function deleteTideTag(bucket, tagId) {
   }
 }
 
-module.exports = { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, COAST_FACING_DIRECTIONS, ZONE_ID_PATTERN, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode };
+module.exports = { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, COAST_FACING_DIRECTIONS, ZONE_ID_PATTERN, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unlinkTideTagFromDevice, unpairDevice };

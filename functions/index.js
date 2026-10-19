@@ -27,7 +27,7 @@ const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
-const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode } = require("./lib/tideTag");
+const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unpairDevice } = require("./lib/tideTag");
 const { fetchCoastlineNear } = require("./lib/coastline");
 const { fetchCachedCoastline, saveCachedCoastline } = require("./lib/coastlineCache");
 
@@ -1280,6 +1280,63 @@ async function redeemPairCodeHandler(req, res, bucketImpl) {
 
 exports.redeemPairCode = onRequest({ cors: true, region: "us-central1" }, redeemPairCodeHandler);
 
+// Lets a device's own pages (Manage/Pair) know whether a keychain is
+// currently paired, WITHOUT ever handing back the real tagId -- that's
+// a bearer credential for a different trust scope (see
+// DEVICE_TAG_LINKS_PREFIX's own comment in lib/tideTag.js), and this
+// endpoint's whole job is to answer "is one paired?" without crossing
+// that boundary. deviceId alone is the same trust token every other
+// device-scoped action (Location/Settings/Design) already relies on --
+// no separate secret needed here either.
+async function deviceLinkStatusHandler(req, res, bucketImpl) {
+  const bucket = bucketImpl || admin.storage().bucket();
+  if (req.method !== "GET") {
+    res.status(405).json({ error: "GET only" });
+    return;
+  }
+  const deviceId = req.query.deviceId;
+  if (typeof deviceId !== "string" || !isValidDeviceId(deviceId)) {
+    res.status(400).json({ error: DEVICE_ID_HINT });
+    return;
+  }
+  try {
+    const link = await fetchDeviceTagLink(bucket, deviceId);
+    res.status(200).json({ paired: !!link });
+  } catch (err) {
+    logger.error("Device link status failed for " + deviceId + ":", err);
+    res.status(502).json({ error: "Couldn't check that right now" });
+  }
+}
+
+exports.deviceLinkStatus = onRequest({ cors: true, region: "us-central1" }, deviceLinkStatusHandler);
+
+// The Manage page's own "Unpair" action -- resolves deviceId to
+// whichever tag is currently linked (if any) via the reverse index,
+// then clears that tag's own link. A device with nothing paired
+// reports unpaired:false rather than erroring -- already in the state
+// they wanted.
+async function unpairDeviceHandler(req, res, bucketImpl) {
+  const bucket = bucketImpl || admin.storage().bucket();
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "POST only" });
+    return;
+  }
+  const { deviceId } = req.body || {};
+  if (typeof deviceId !== "string" || !isValidDeviceId(deviceId)) {
+    res.status(400).json({ error: DEVICE_ID_HINT });
+    return;
+  }
+  try {
+    const unpaired = await unpairDevice(bucket, deviceId);
+    res.status(200).json({ unpaired });
+  } catch (err) {
+    logger.error("Unpair device failed for " + deviceId + ":", err);
+    res.status(502).json({ error: "Couldn't unpair that right now" });
+  }
+}
+
+exports.unpairDevice = onRequest({ cors: true, region: "us-central1" }, unpairDeviceHandler);
+
 // Admin-only: marks a freshly-minted batch of tag IDs as real (see
 // isTagIdMinted/mintTagIds in lib/tideTag.js for why this exists at
 // all) -- called once per batch by scripts/generateTagIds.js right
@@ -1338,4 +1395,4 @@ exports.mintTideTagBatch = onRequest({ cors: false, region: "us-central1" }, min
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, mintTideTagBatchHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };

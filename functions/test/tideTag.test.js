@@ -8,7 +8,7 @@
 // that's the exact atomicity saveTideTag/mintTagIds both depend on.
 
 const assert = require("assert");
-const { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode } = require("../lib/tideTag");
+const { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unlinkTideTagFromDevice, unpairDevice } = require("../lib/tideTag");
 
 // A valid, in-charset tagId at the new 20-char default length -- used
 // everywhere a test just needs SOME real tagId, same role "A7K2" played
@@ -468,6 +468,104 @@ async function test(name, fn) {
     bucket.file = () => { throw new Error("should never be called for an invalid code/deviceId"); };
     await assert.rejects(() => redeemPairCode(bucket, "bad", D1), /invalid code/);
     await assert.rejects(() => redeemPairCode(bucket, "AB2345", "../x"), /invalid deviceId/);
+  });
+
+  console.log("fetchDeviceTagLink (the reverse index -- 'which tag is paired to this device')");
+  await test("returns null for a device with nothing paired", async () => {
+    assert.strictEqual(await fetchDeviceTagLink(makeFakeBucket({}), D1), null);
+  });
+  await test("returns the linked tagId after linkTideTagToDevice", async () => {
+    const bucket = makeFakeBucket({});
+    await linkTideTagToDevice(bucket, T1, D1);
+    const link = await fetchDeviceTagLink(bucket, D1);
+    assert.strictEqual(link.tagId, T1);
+    assert.ok(link.linkedAt);
+  });
+  await test("a malformed deviceId reads as null, without ever touching storage", async () => {
+    const bucket = makeFakeBucket({});
+    bucket.file = () => { throw new Error("should never be called for an invalid deviceId"); };
+    assert.strictEqual(await fetchDeviceTagLink(bucket, "../x"), null);
+  });
+  await test("a genuine storage failure still throws, not swallowed as null", async () => {
+    const bucket = { file: () => ({ async download() { const e = new Error("network down"); e.code = 500; throw e; } }) };
+    await assert.rejects(() => fetchDeviceTagLink(bucket, D1), /network down/);
+  });
+
+  console.log("linkTideTagToDevice: one keychain per WaveClock (supersede/clear-stale-pointer behavior)");
+  await test("pairing a SECOND, different tag to a device that already has one unlinks the first tag", async () => {
+    const bucket = makeFakeBucket({});
+    await linkTideTagToDevice(bucket, T1, D1);
+    await linkTideTagToDevice(bucket, T2, D1);
+    const t1Record = JSON.parse(bucket._store.get("tide-tags/" + T1 + ".json"));
+    assert.strictEqual("linkedDeviceId" in t1Record, false, "the superseded tag must no longer claim this device");
+    const link = await fetchDeviceTagLink(bucket, D1);
+    assert.strictEqual(link.tagId, T2, "the device's own reverse pointer now points at the NEW tag");
+  });
+  await test("re-linking the SAME tag to the device it's already linked to is a harmless no-op, not a self-unlink", async () => {
+    const bucket = makeFakeBucket({});
+    await linkTideTagToDevice(bucket, T1, D1);
+    await linkTideTagToDevice(bucket, T1, D1);
+    const t1Record = JSON.parse(bucket._store.get("tide-tags/" + T1 + ".json"));
+    assert.strictEqual(t1Record.linkedDeviceId, D1);
+    const link = await fetchDeviceTagLink(bucket, D1);
+    assert.strictEqual(link.tagId, T1);
+  });
+  await test("moving a tag from device D1 to device D2 clears D1's own stale reverse pointer", async () => {
+    const bucket = makeFakeBucket({});
+    await linkTideTagToDevice(bucket, T1, D1);
+    await linkTideTagToDevice(bucket, T1, D2);
+    assert.strictEqual(await fetchDeviceTagLink(bucket, D1), null, "D1 must stop claiming a keychain it no longer has");
+    const link = await fetchDeviceTagLink(bucket, D2);
+    assert.strictEqual(link.tagId, T1);
+  });
+  await test("moving T1 away from D1 does NOT clear D1's pointer if D1 was already re-paired to a different tag in the meantime", async () => {
+    const bucket = makeFakeBucket({});
+    await linkTideTagToDevice(bucket, T1, D1); // T1 -> D1
+    await linkTideTagToDevice(bucket, T2, D1); // D1 now points at T2 (T1 superseded)
+    await linkTideTagToDevice(bucket, T1, D2); // T1 moves to D2 -- its OWN stale D1 pointer logic must not clobber D1's CURRENT (T2) pointer
+    const link = await fetchDeviceTagLink(bucket, D1);
+    assert.strictEqual(link.tagId, T2, "D1's pointer, already correctly pointing at T2, must survive T1's unrelated move");
+  });
+
+  console.log("unlinkTideTagFromDevice / unpairDevice");
+  await test("unlinkTideTagFromDevice clears the tag's own link and the device's reverse pointer, returning the deviceId", async () => {
+    const bucket = makeFakeBucket({});
+    await linkTideTagToDevice(bucket, T1, D1);
+    const deviceId = await unlinkTideTagFromDevice(bucket, T1);
+    assert.strictEqual(deviceId, D1);
+    assert.strictEqual("linkedDeviceId" in JSON.parse(bucket._store.get("tide-tags/" + T1 + ".json")), false);
+    assert.strictEqual(await fetchDeviceTagLink(bucket, D1), null);
+  });
+  await test("unlinking keeps the tag's own prior standalone station data, if it had any", async () => {
+    const bucket = makeFakeBucket({ ["tide-tags/" + T1 + ".json"]: JSON.stringify({ stationId: "8536110", stationName: "Wildwood Crest, NJ", createdAt: "x", linkedDeviceId: D1, linkedAt: "x" }) });
+    await unlinkTideTagFromDevice(bucket, T1);
+    const record = JSON.parse(bucket._store.get("tide-tags/" + T1 + ".json"));
+    assert.strictEqual(record.stationId, "8536110", "unpairing must hand the tag back exactly as it was before being linked");
+    assert.strictEqual("linkedDeviceId" in record, false);
+  });
+  await test("unlinking a tag that was never linked is a no-op, returning null -- not an error", async () => {
+    const bucket = makeFakeBucket({});
+    assert.strictEqual(await unlinkTideTagFromDevice(bucket, T1), null);
+  });
+  await test("throws on an invalid tagId rather than touching storage", async () => {
+    const bucket = makeFakeBucket({});
+    bucket.file = () => { throw new Error("should never be called for an invalid tagId"); };
+    await assert.rejects(() => unlinkTideTagFromDevice(bucket, "bad id"), /invalid tagId/);
+  });
+  await test("unpairDevice resolves deviceId to its linked tag via the reverse index and unlinks it, reporting true", async () => {
+    const bucket = makeFakeBucket({});
+    await linkTideTagToDevice(bucket, T1, D1);
+    const result = await unpairDevice(bucket, D1);
+    assert.strictEqual(result, true);
+    assert.strictEqual("linkedDeviceId" in JSON.parse(bucket._store.get("tide-tags/" + T1 + ".json")), false);
+  });
+  await test("unpairing a device with nothing paired reports false, not an error", async () => {
+    assert.strictEqual(await unpairDevice(makeFakeBucket({}), D1), false);
+  });
+  await test("throws on an invalid deviceId rather than touching storage", async () => {
+    const bucket = makeFakeBucket({});
+    bucket.file = () => { throw new Error("should never be called for an invalid deviceId"); };
+    await assert.rejects(() => unpairDevice(bucket, "../x"), /invalid deviceId/);
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");

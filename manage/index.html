@@ -229,8 +229,8 @@
         </svg>
       </span>
       <span class="hub-text">
-        <span class="hub-title">Pair a Keychain</span>
-        <span class="hub-desc">Link a Wave Clock keychain to this device</span>
+        <span class="hub-title" id="pairCardTitle">Pair a Keychain</span>
+        <span class="hub-desc" id="pairCardDesc">Link a Wave Clock keychain to this device</span>
       </span>
       <svg class="hub-chevron" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </a>
@@ -330,6 +330,29 @@
     }
   }
 
+  // Reflects whether a keychain is already paired on the card itself --
+  // without this, "Pair a Keychain" always read the same regardless of
+  // state, which is exactly what made it confusing once one actually
+  // was paired (see /pair/'s own fuller UI for the paired/unpaired/
+  // unpair flow this just links through to). Only ever reads a
+  // paired:true/false flag, never the actual keychain's own id -- see
+  // deviceLinkStatusHandler's own comment on why that's never exposed.
+  const DEVICE_LINK_STATUS_URL = "https://us-central1-waveclock.cloudfunctions.net/deviceLinkStatus";
+  const pairCardTitle = document.getElementById("pairCardTitle");
+  const pairCardDesc = document.getElementById("pairCardDesc");
+  async function loadPairingStatus() {
+    try {
+      const resp = await withTimeout(fetch(DEVICE_LINK_STATUS_URL + "?deviceId=" + encodeURIComponent(deviceId)), 8000);
+      const body = await resp.json().catch(() => null);
+      if (resp.ok && body && body.paired) {
+        pairCardTitle.textContent = "Keychain Paired";
+        pairCardDesc.textContent = "Manage or unpair your keychain";
+      }
+    } catch (err) {
+      console.error("Couldn't check pairing status (non-critical):", err);
+    }
+  }
+
   if (!deviceId) {
     deviceTag.textContent = "No device ID found in link";
     deviceTag.classList.add("error");
@@ -346,6 +369,7 @@
     });
     rememberDevice(deviceId);
     loadDeviceStatus();
+    loadPairingStatus();
   }
 </script>
 
