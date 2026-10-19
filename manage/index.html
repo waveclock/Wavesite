@@ -221,6 +221,19 @@
       </span>
       <svg class="hub-chevron" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </a>
+
+    <a class="hub-card" id="pairCard" href="../pair/">
+      <span class="hub-icon">
+        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M16 24l8-8M14 18l-3 3a5 5 0 007 7l3-3M26 22l3-3a5 5 0 00-7-7l-3 3" stroke="#1F3347" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="hub-text">
+        <span class="hub-title">Pair a Keychain</span>
+        <span class="hub-desc">Link a Wave Clock keychain to this device</span>
+      </span>
+      <svg class="hub-chevron" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
   </div>
 
 </div>
@@ -237,8 +250,38 @@
   const cards = [
     document.getElementById("locationCard"),
     document.getElementById("settingsCard"),
-    document.getElementById("designCard")
+    document.getElementById("designCard"),
+    document.getElementById("pairCard")
   ];
+
+  // ================= Remember this WaveClock (for the keychain's own
+  // one-tap pairing shortcut) =================
+  // A keychain's page offers a one-tap "pair with your WaveClock?"
+  // shortcut ONLY when this same browser already recognizes a
+  // deviceId -- this is where that recognition gets planted, since
+  // Manage is the page every real owner reaches the same way (the QR
+  // code on the device itself), per how this hub page already works.
+  // A small list, not a single value: one browser can easily have
+  // visited more than one WaveClock's Manage page (a second unit, or
+  // helping someone else set theirs up), and silently remembering only
+  // the LAST one visited risks the shortcut quietly offering to pair a
+  // keychain to the wrong device. Capped at REMEMBERED_DEVICES_MAX so a
+  // browser that's touched many devices over time doesn't grow this
+  // list forever; least-recently-seen entries are dropped first.
+  const REMEMBERED_DEVICES_KEY = "wc_my_devices";
+  const REMEMBERED_DEVICES_MAX = 10;
+  function rememberDevice(id, label) {
+    try {
+      let list = JSON.parse(localStorage.getItem(REMEMBERED_DEVICES_KEY) || "[]");
+      if (!Array.isArray(list)) list = [];
+      list = list.filter((d) => d && d.id !== id);
+      list.unshift({ id, label: label || id, lastSeen: new Date().toISOString() });
+      if (list.length > REMEMBERED_DEVICES_MAX) list.length = REMEMBERED_DEVICES_MAX;
+      localStorage.setItem(REMEMBERED_DEVICES_KEY, JSON.stringify(list));
+    } catch (err) {
+      console.error("Couldn't remember this WaveClock locally (non-critical):", err);
+    }
+  }
 
   // ================= Device status (optional, best-effort) =================
   // device-status/{id}.json is written by the device itself (firmware,
@@ -272,6 +315,13 @@
       if (status && status.settings && CYCLE_LABELS[status.settings.cycleMode]) {
         parts.push(CYCLE_LABELS[status.settings.cycleMode]);
       }
+      // A real location name is a much friendlier label for the
+      // remembered-device list (see rememberDevice's own comment) than
+      // the bare deviceId this was first stamped with -- re-stamping
+      // here just upgrades that same entry's label in place.
+      if (status && status.location && status.location.name) {
+        rememberDevice(deviceId, status.location.name);
+      }
       if (!parts.length) return;
       statusCardValue.textContent = parts.join(" · ");
       statusCard.style.display = "block";
@@ -294,6 +344,7 @@
     cards.forEach((card) => {
       card.href = card.getAttribute("href") + "?id=" + encodeURIComponent(deviceId);
     });
+    rememberDevice(deviceId);
     loadDeviceStatus();
   }
 </script>

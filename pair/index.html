@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Pair a Keychain</title>
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<meta name="description" content="Link a Wave Clock keychain to this device.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://us-central1-waveclock.cloudfunctions.net">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+    --good: #3E7A5C;
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 40px;
+  }
+
+  .wrap { max-width: 480px; margin: 0 auto; padding: 0 20px; }
+
+  header.top {
+    text-align: center;
+    padding: 28px 20px 22px;
+    background:
+      radial-gradient(ellipse 500px 260px at 50% -20%, rgba(44,74,99,0.14), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 100%);
+  }
+  .brand-mark { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }
+  h1.brand {
+    font-family: var(--display);
+    font-size: 22px;
+    margin: 0;
+    color: var(--ink);
+    text-shadow: 2px 2px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+  .device-tag {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    background: #fff;
+    border: 1.5px solid var(--line);
+    border-radius: 999px;
+    padding: 5px 14px;
+  }
+  .device-tag.error { color: var(--coral-dark); border-color: var(--coral); }
+
+  .intro { text-align: center; padding: 4px 8px 20px; }
+  .intro h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: 24px;
+    margin: 0 0 8px;
+  }
+  .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0 auto; max-width: 38ch; }
+
+  .step {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 4px 4px 0 rgba(20,48,45,0.10);
+    padding: 20px 18px;
+    margin-top: 6px;
+  }
+  .step.disabled { opacity: 0.5; pointer-events: none; }
+  .step p { font-size: 14px; color: var(--ink-soft); margin: 0 0 16px; }
+
+  .code-field label {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+  }
+  .code-field input {
+    width: 100%;
+    font-family: var(--display);
+    font-size: 26px;
+    letter-spacing: 0.3em;
+    text-align: center;
+    text-transform: uppercase;
+    padding: 14px 10px;
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    background: var(--foam);
+    color: var(--ink);
+  }
+  .code-field input:focus { outline: 3px solid var(--coral); outline-offset: 1px; }
+
+  .save-btn {
+    display: block;
+    width: 100%;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 16px;
+    padding: 16px;
+    border-radius: 999px;
+    border: 2px solid var(--ink);
+    background: var(--coral);
+    color: #fff;
+    box-shadow: 3px 3px 0 var(--ink);
+    cursor: pointer;
+    margin-top: 18px;
+  }
+  .save-btn:active { transform: translateY(1px); box-shadow: 2px 2px 0 var(--ink); }
+  .save-btn:disabled { background: var(--driftwood); cursor: default; box-shadow: none; opacity: 0.6; }
+
+  .status-msg {
+    text-align: center;
+    margin-top: 14px;
+    font-size: 14.5px;
+    min-height: 20px;
+    color: var(--ink-soft);
+  }
+  .status-msg.success { color: var(--good); font-weight: 700; }
+  .status-msg.error { color: var(--coral-dark); font-weight: 700; }
+
+  .back-to-manage-btn {
+    display: block;
+    text-align: center;
+    margin-top: 22px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--navy);
+  }
+
+  footer {
+    text-align: center;
+    padding: 30px 20px 10px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  footer a { color: var(--navy); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <img src="../logo.png" alt="WaveClock.net logo" class="brand-mark">
+  <h1 class="brand">WAVE CLOCK</h1>
+  <span class="device-tag" id="deviceTag">Checking your device&hellip;</span>
+</header>
+
+<div class="wrap">
+
+  <div class="intro">
+    <h2>Pair a Keychain</h2>
+    <p>Tap your new keychain, choose &ldquo;Get a pairing code,&rdquo; and type that code in below.</p>
+  </div>
+
+  <p class="status-msg error" id="noDeviceMsg" style="display:none;">This link is missing your device ID, so there&rsquo;s nothing to pair it to &mdash; scan the QR code on your Wave Clock to get a working link.</p>
+
+  <div class="step" id="pairStep">
+    <p>Codes expire after 15 minutes and only work once.</p>
+    <div class="code-field">
+      <label for="code">Pairing code</label>
+      <input type="text" id="code" maxlength="6" autocomplete="off" autocapitalize="characters" inputmode="text" placeholder="------">
+    </div>
+    <button type="button" class="save-btn" id="pairBtn" disabled>Pair Keychain</button>
+    <p class="status-msg" id="statusMsg"></p>
+  </div>
+
+  <p><a href="../manage/" id="backToManageLink" class="back-to-manage-btn">Back to device menu</a></p>
+
+</div>
+
+<footer>
+  <p><a href="../index.html">waveclock.net</a></p>
+</footer>
+
+<script type="module">
+  const PAIR_CODE_PATTERN = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
+  const REDEEM_PAIR_CODE_URL = "https://us-central1-waveclock.cloudfunctions.net/redeemPairCode";
+
+  const params = new URLSearchParams(window.location.search);
+  const deviceId = params.get("id");
+  const deviceTag = document.getElementById("deviceTag");
+  const noDeviceMsg = document.getElementById("noDeviceMsg");
+  const pairStep = document.getElementById("pairStep");
+  const codeInput = document.getElementById("code");
+  const pairBtn = document.getElementById("pairBtn");
+  const statusMsg = document.getElementById("statusMsg");
+  const backToManageLink = document.getElementById("backToManageLink");
+
+  if (!deviceId) {
+    deviceTag.textContent = "No device ID found in link";
+    deviceTag.classList.add("error");
+    noDeviceMsg.style.display = "block";
+    pairStep.classList.add("disabled");
+  } else {
+    deviceTag.textContent = "Pairing for " + deviceId;
+    backToManageLink.href = "../manage/?id=" + encodeURIComponent(deviceId);
+  }
+
+  // Same unmistakable charset (no 0/O/1/I) and uppercasing the keychain's
+  // own code display already uses -- typing lowercase or a stray space
+  // (easy to do on a phone keyboard) shouldn't be treated as "invalid",
+  // just normalized before the shape check runs.
+  codeInput.addEventListener("input", () => {
+    codeInput.value = codeInput.value.toUpperCase().replace(/[^23456789ABCDEFGHJKLMNPQRSTUVWXYZ]/g, "").slice(0, 6);
+    pairBtn.disabled = !PAIR_CODE_PATTERN.test(codeInput.value);
+    statusMsg.textContent = "";
+    statusMsg.className = "status-msg";
+  });
+
+  pairBtn.addEventListener("click", async () => {
+    const code = codeInput.value;
+    if (!PAIR_CODE_PATTERN.test(code) || !deviceId) return;
+    pairBtn.disabled = true;
+    statusMsg.textContent = "Pairing…";
+    statusMsg.className = "status-msg";
+    try {
+      const resp = await fetch(REDEEM_PAIR_CODE_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code, deviceId })
+      });
+      const body = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        statusMsg.textContent = (body && body.error) || "Couldn't pair that right now -- try again in a bit.";
+        statusMsg.className = "status-msg error";
+        pairBtn.disabled = false;
+        return;
+      }
+      statusMsg.textContent = "Your keychain is now linked! It'll show this Wave Clock's tide info from now on.";
+      statusMsg.className = "status-msg success";
+      codeInput.value = "";
+      codeInput.disabled = true;
+      pairBtn.style.display = "none";
+    } catch (err) {
+      console.error("Redeem pair code failed:", err);
+      statusMsg.textContent = "Couldn't reach the server right now -- try again in a bit.";
+      statusMsg.className = "status-msg error";
+      pairBtn.disabled = false;
+    }
+  });
+</script>
+
+</body>
+</html>
