@@ -8,7 +8,7 @@
 // that's the exact atomicity saveTideTag/mintTagIds both depend on.
 
 const assert = require("assert");
-const { TAG_ID_PATTERN, isValidTagId, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds } = require("../lib/tideTag");
+const { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode } = require("../lib/tideTag");
 
 // A valid, in-charset tagId at the new 20-char default length -- used
 // everywhere a test just needs SOME real tagId, same role "A7K2" played
@@ -358,6 +358,116 @@ async function test(name, fn) {
   await test("a genuine storage failure part-way through still throws", async () => {
     const bucket = { file: () => ({ async save() { const e = new Error("quota exceeded"); e.code = 500; throw e; } }) };
     await assert.rejects(() => mintTagIds(bucket, [T1]), /quota exceeded/);
+  });
+
+  const D1 = "WC-1";
+  const D2 = "WC-2";
+
+  console.log("isValidDeviceId");
+  await test("accepts the short alphanumeric-plus-hyphen style real device IDs already use", () => {
+    assert.ok(isValidDeviceId(D1));
+    assert.ok(isValidDeviceId("a_b-C9"));
+  });
+  await test("rejects a path-traversal shape, slashes, and non-string input", () => {
+    assert.strictEqual(isValidDeviceId("../../etc/passwd"), false);
+    assert.strictEqual(isValidDeviceId("WC-1/x"), false);
+    assert.strictEqual(isValidDeviceId(""), false);
+    assert.strictEqual(isValidDeviceId(null), false);
+    assert.strictEqual(isValidDeviceId(undefined), false);
+    assert.strictEqual(isValidDeviceId(123), false);
+  });
+  await test("rejects an unreasonably long value", () => {
+    assert.strictEqual(isValidDeviceId("x".repeat(65)), false);
+    assert.ok(isValidDeviceId("x".repeat(64)));
+  });
+  await test("DEVICE_ID_PATTERN is the single source of truth isValidDeviceId actually uses", () => {
+    assert.ok(DEVICE_ID_PATTERN.test(D1));
+    assert.strictEqual(DEVICE_ID_PATTERN.test("bad/id"), false);
+  });
+
+  console.log("linkTideTagToDevice (pairing a keychain to a WaveClock)");
+  await test("links a brand-new, never-tapped tag -- no prior record required", async () => {
+    const bucket = makeFakeBucket({});
+    const record = await linkTideTagToDevice(bucket, T1, D1);
+    assert.strictEqual(record.linkedDeviceId, D1);
+    assert.ok(record.linkedAt);
+    const saved = JSON.parse(bucket._store.get("tide-tags/" + T1 + ".json"));
+    assert.strictEqual(saved.linkedDeviceId, D1);
+  });
+  await test("links a tag that already has its own standalone station, WITHOUT erasing that station data", async () => {
+    const bucket = makeFakeBucket({ ["tide-tags/" + T1 + ".json"]: JSON.stringify({ stationId: "8536110", stationName: "Wildwood Crest, NJ", createdAt: "x" }) });
+    const record = await linkTideTagToDevice(bucket, T1, D1);
+    assert.strictEqual(record.linkedDeviceId, D1);
+    assert.strictEqual(record.stationId, "8536110", "the tag's own prior pick is kept, just no longer the active source once linked");
+  });
+  await test("re-linking an already-linked tag to a DIFFERENT device always moves it (no rejection)", async () => {
+    const bucket = makeFakeBucket({ ["tide-tags/" + T1 + ".json"]: JSON.stringify({ linkedDeviceId: D1, linkedAt: "x" }) });
+    const record = await linkTideTagToDevice(bucket, T1, D2);
+    assert.strictEqual(record.linkedDeviceId, D2);
+  });
+  await test("throws on an invalid tagId", async () => {
+    await assert.rejects(() => linkTideTagToDevice(makeFakeBucket({}), "bad id", D1), /invalid tagId/);
+  });
+  await test("throws on an invalid deviceId", async () => {
+    await assert.rejects(() => linkTideTagToDevice(makeFakeBucket({}), T1, "../x"), /invalid deviceId/);
+  });
+
+  console.log("isValidPairCode");
+  await test("accepts a 6-char code in the same unmistakable charset tagIds use", () => {
+    assert.ok(isValidPairCode("AB2345"));
+    assert.strictEqual(PAIR_CODE_PATTERN.test("AB2345"), true);
+  });
+  await test("rejects the excluded lookalikes, wrong length, and non-string input", () => {
+    assert.strictEqual(isValidPairCode("AB234O"), false);
+    assert.strictEqual(isValidPairCode("AB23"), false);
+    assert.strictEqual(isValidPairCode("AB234567"), false);
+    assert.strictEqual(isValidPairCode(""), false);
+    assert.strictEqual(isValidPairCode(null), false);
+  });
+
+  console.log("createPairCode / redeemPairCode (short-lived cross-device pairing)");
+  await test("issues a valid-shaped code for a real tagId", async () => {
+    const bucket = makeFakeBucket({});
+    const code = await createPairCode(bucket, T1);
+    assert.ok(isValidPairCode(code));
+    assert.ok(bucket._store.has("tide-tag-pair-codes/" + code + ".json"));
+  });
+  await test("throws on an invalid tagId rather than issuing a code", async () => {
+    await assert.rejects(() => createPairCode(makeFakeBucket({}), "bad id"), /invalid tagId/);
+  });
+  await test("redeeming a fresh code links the tag it was issued for, and burns the code", async () => {
+    const bucket = makeFakeBucket({});
+    const code = await createPairCode(bucket, T1);
+    const result = await redeemPairCode(bucket, code, D1);
+    assert.strictEqual(result.status, "linked");
+    assert.strictEqual(result.tagId, T1);
+    assert.strictEqual(JSON.parse(bucket._store.get("tide-tags/" + T1 + ".json")).linkedDeviceId, D1);
+    assert.strictEqual(bucket._store.has("tide-tag-pair-codes/" + code + ".json"), false, "a redeemed code must not still be usable");
+  });
+  await test("redeeming the same code twice only succeeds once", async () => {
+    const bucket = makeFakeBucket({});
+    const code = await createPairCode(bucket, T1);
+    await redeemPairCode(bucket, code, D1);
+    const second = await redeemPairCode(bucket, code, D2);
+    assert.strictEqual(second.status, "invalid-or-expired");
+    assert.strictEqual(JSON.parse(bucket._store.get("tide-tags/" + T1 + ".json")).linkedDeviceId, D1, "the second (replay) redeem must not re-link it to a different device");
+  });
+  await test("a made-up code that was never issued is invalid-or-expired, not a crash", async () => {
+    const bucket = makeFakeBucket({});
+    const result = await redeemPairCode(bucket, "ZZ9999", D1);
+    assert.strictEqual(result.status, "invalid-or-expired");
+  });
+  await test("an expired code (older than the TTL) is invalid-or-expired, and is left unconsumed to report so, not silently linked", async () => {
+    const bucket = makeFakeBucket({ ["tide-tag-pair-codes/AB2345.json"]: JSON.stringify({ tagId: T1, createdAt: new Date(Date.now() - 16 * 60 * 1000).toISOString() }) });
+    const result = await redeemPairCode(bucket, "AB2345", D1);
+    assert.strictEqual(result.status, "invalid-or-expired");
+    assert.strictEqual(bucket._store.has("tide-tags/" + T1 + ".json"), false, "an expired code must never link anything");
+  });
+  await test("throws on a malformed code or deviceId rather than touching storage", async () => {
+    const bucket = makeFakeBucket({});
+    bucket.file = () => { throw new Error("should never be called for an invalid code/deviceId"); };
+    await assert.rejects(() => redeemPairCode(bucket, "bad", D1), /invalid code/);
+    await assert.rejects(() => redeemPairCode(bucket, "AB2345", "../x"), /invalid deviceId/);
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");

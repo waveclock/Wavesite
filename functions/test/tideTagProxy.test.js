@@ -8,7 +8,7 @@
 // own copy of this fake for why).
 
 const assert = require("assert");
-const { tideTagProxyHandler, mintTideTagBatchHandler } = require("../index.js")._internal;
+const { tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, mintTideTagBatchHandler } = require("../index.js")._internal;
 
 // A valid, in-charset tagId at the new 20-char default length -- used
 // everywhere a test just needs SOME real tagId, same role "A7K2" played
@@ -101,6 +101,19 @@ async function test(name, fn) {
     await tideTagProxyHandler(req, res, makeFakeBucket({ ["tide-tags/" + T1 + ".json"]: JSON.stringify({ stationId: "8536110", stationName: "Atlantic City, NJ", createdAt: "2026-01-01T00:00:00.000Z" }) }));
     assert.strictEqual(res.statusCode, 200);
     assert.deepStrictEqual(res.body, { registered: true, stationId: "8536110", stationName: "Atlantic City, NJ" });
+  });
+  await test("a tag that's linked to a WaveClock but never separately registered returns registered:false plus linkedDeviceId", async () => {
+    const req = fakeReq({ method: "GET", query: { tagId: T1 } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, makeFakeBucket({ ["tide-tags/" + T1 + ".json"]: JSON.stringify({ linkedDeviceId: "WC-1", linkedAt: "x" }) }));
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { registered: false, linkedDeviceId: "WC-1" });
+  });
+  await test("a tag with its own standalone station that's ALSO linked returns both -- the client is expected to prefer the link", async () => {
+    const req = fakeReq({ method: "GET", query: { tagId: T1 } });
+    const res = fakeRes();
+    await tideTagProxyHandler(req, res, makeFakeBucket({ ["tide-tags/" + T1 + ".json"]: JSON.stringify({ stationId: "8536110", stationName: "Wildwood Crest, NJ", createdAt: "x", linkedDeviceId: "WC-1", linkedAt: "x" }) }));
+    assert.deepStrictEqual(res.body, { registered: true, stationId: "8536110", stationName: "Wildwood Crest, NJ", linkedDeviceId: "WC-1" });
   });
   await test("includes lat/lon when the stored record has them", async () => {
     const req = fakeReq({ method: "GET", query: { tagId: T1 } });
@@ -373,6 +386,121 @@ async function test(name, fn) {
     const req = fakeReq({ method: "PATCH", query: { tagId: T1 } });
     const res = fakeRes();
     await tideTagProxyHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 405);
+  });
+
+  console.log("pairTideTag (direct link -- the one-tap shortcut, same browser already knows both IDs)");
+  await test("links an already-minted tag directly, no code involved", async () => {
+    const bucket = mintedBucket(T1);
+    const req = fakeReq({ method: "POST", body: { tagId: T1, deviceId: "WC-1" } });
+    const res = fakeRes();
+    await pairTideTagHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { linked: true, deviceId: "WC-1" });
+    assert.strictEqual(JSON.parse(bucket._store.get("tide-tags/" + T1 + ".json")).linkedDeviceId, "WC-1");
+  });
+  await test("refuses an unminted tagId -- 403, nothing written", async () => {
+    const bucket = makeFakeBucket({});
+    const req = fakeReq({ method: "POST", body: { tagId: T1, deviceId: "WC-1" } });
+    const res = fakeRes();
+    await pairTideTagHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 403);
+    assert.strictEqual(bucket._store.size, 0);
+  });
+  await test("rejects a malformed tagId", async () => {
+    const req = fakeReq({ method: "POST", body: { tagId: "bad id", deviceId: "WC-1" } });
+    const res = fakeRes();
+    await pairTideTagHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 400);
+  });
+  await test("rejects a malformed deviceId without ever writing to storage", async () => {
+    const bucket = mintedBucket(T1);
+    const req = fakeReq({ method: "POST", body: { tagId: T1, deviceId: "../x" } });
+    const res = fakeRes();
+    await pairTideTagHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 400);
+    assert.strictEqual(bucket._store.has("tide-tags/" + T1 + ".json"), false);
+  });
+  await test("rejects any method other than POST", async () => {
+    const req = fakeReq({ method: "GET", body: { tagId: T1, deviceId: "WC-1" } });
+    const res = fakeRes();
+    await pairTideTagHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 405);
+  });
+  await test("a genuine storage failure returns 502, not a crash", async () => {
+    const bucket = { file: () => ({ async download() { return [Buffer.from(JSON.stringify({ mintedAt: "x" }))]; }, async save() { const e = new Error("quota"); e.code = 500; throw e; } }) };
+    const req = fakeReq({ method: "POST", body: { tagId: T1, deviceId: "WC-1" } });
+    const res = fakeRes();
+    await pairTideTagHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 502);
+  });
+
+  console.log("requestPairCode (the cross-device fallback -- issuing a disposable code)");
+  await test("issues a code for an already-minted tag", async () => {
+    const bucket = mintedBucket(T1);
+    const req = fakeReq({ method: "POST", body: { tagId: T1 } });
+    const res = fakeRes();
+    await requestPairCodeHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.expiresInMinutes, 15);
+    assert.match(res.body.code, /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/);
+  });
+  await test("refuses an unminted tagId -- 403, no code issued", async () => {
+    const bucket = makeFakeBucket({});
+    const req = fakeReq({ method: "POST", body: { tagId: T1 } });
+    const res = fakeRes();
+    await requestPairCodeHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 403);
+    assert.strictEqual(bucket._store.size, 0);
+  });
+  await test("rejects a malformed tagId", async () => {
+    const req = fakeReq({ method: "POST", body: { tagId: "bad id" } });
+    const res = fakeRes();
+    await requestPairCodeHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 400);
+  });
+  await test("rejects any method other than POST", async () => {
+    const req = fakeReq({ method: "GET", body: { tagId: T1 } });
+    const res = fakeRes();
+    await requestPairCodeHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 405);
+  });
+
+  console.log("redeemPairCode (the Manage-page side of the cross-device fallback)");
+  await test("redeems a freshly-issued code and links the right tag", async () => {
+    const bucket = mintedBucket(T1);
+    const codeReq = fakeReq({ method: "POST", body: { tagId: T1 } });
+    const codeRes = fakeRes();
+    await requestPairCodeHandler(codeReq, codeRes, bucket);
+    const req = fakeReq({ method: "POST", body: { code: codeRes.body.code, deviceId: "WC-1" } });
+    const res = fakeRes();
+    await redeemPairCodeHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { linked: true });
+    assert.strictEqual(JSON.parse(bucket._store.get("tide-tags/" + T1 + ".json")).linkedDeviceId, "WC-1");
+  });
+  await test("a made-up or already-used code returns 404, not a crash", async () => {
+    const req = fakeReq({ method: "POST", body: { code: "ZZ9999", deviceId: "WC-1" } });
+    const res = fakeRes();
+    await redeemPairCodeHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 404);
+  });
+  await test("rejects a malformed code", async () => {
+    const req = fakeReq({ method: "POST", body: { code: "bad", deviceId: "WC-1" } });
+    const res = fakeRes();
+    await redeemPairCodeHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 400);
+  });
+  await test("rejects a malformed deviceId", async () => {
+    const req = fakeReq({ method: "POST", body: { code: "AB2345", deviceId: "../x" } });
+    const res = fakeRes();
+    await redeemPairCodeHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 400);
+  });
+  await test("rejects any method other than POST", async () => {
+    const req = fakeReq({ method: "GET", body: { code: "AB2345", deviceId: "WC-1" } });
+    const res = fakeRes();
+    await redeemPairCodeHandler(req, res, makeFakeBucket({}));
     assert.strictEqual(res.statusCode, 405);
   });
 

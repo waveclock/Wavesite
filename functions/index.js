@@ -27,7 +27,7 @@ const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
-const { isValidTagId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds } = require("./lib/tideTag");
+const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode } = require("./lib/tideTag");
 const { fetchCoastlineNear } = require("./lib/coastline");
 const { fetchCachedCoastline, saveCachedCoastline } = require("./lib/coastlineCache");
 
@@ -980,8 +980,24 @@ function mintSecretValue() {
 // explicit `undefined` keys, which would otherwise round-trip through
 // res.json() and change the response's own key set for every existing
 // client parsing it.
+//
+// `registered` reflects whether THIS record has its own station picked
+// -- no longer a given just because a record file exists, now that
+// linkTideTagToDevice can create one with nothing but a linkedDeviceId
+// (a keychain paired to a WaveClock before ever being tapped). A linked
+// tag's own stationId/stationName are omitted entirely rather than sent
+// as undefined -- the tide page is expected to ignore them in favor of
+// the linked device's own data whenever linkedDeviceId is present, but
+// there's no reason to hand over stale fields it shouldn't be reading.
 function tagResponseBody(record) {
-  const body = { registered: true, stationId: record.stationId, stationName: record.stationName };
+  const body = { registered: record.stationId != null };
+  if (body.registered) {
+    body.stationId = record.stationId;
+    body.stationName = record.stationName;
+  }
+  if (record.linkedDeviceId != null) {
+    body.linkedDeviceId = record.linkedDeviceId;
+  }
   if (record.lat != null && record.lon != null) {
     body.lat = record.lat;
     body.lon = record.lon;
@@ -1142,6 +1158,128 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
 
 exports.tideTagProxy = onRequest({ cors: true, region: "us-central1" }, tideTagProxyHandler);
 
+const DEVICE_ID_HINT = "deviceId doesn't look right";
+
+// Direct link -- used by the one-tap shortcut on the keychain's own
+// page, when that browser already knows a WaveClock's deviceId (it
+// previously visited that device's Manage/Location/Settings page on
+// this same browser). Both IDs are already in hand on the one
+// requesting this, which is the same trust level every other
+// tagId-scoped write on this endpoint already relies on (an
+// unguessable tagId, or here a remembered deviceId, is itself the
+// access control) -- no separate proof is collected beyond that.
+async function pairTideTagHandler(req, res, bucketImpl) {
+  const bucket = bucketImpl || admin.storage().bucket();
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "POST only" });
+    return;
+  }
+  const { tagId, deviceId } = req.body || {};
+  if (typeof tagId !== "string" || !isValidTagId(tagId)) {
+    res.status(400).json({ error: TAG_ID_HINT });
+    return;
+  }
+  if (typeof deviceId !== "string" || !isValidDeviceId(deviceId)) {
+    res.status(400).json({ error: DEVICE_ID_HINT });
+    return;
+  }
+  try {
+    if (!(await isTagIdMinted(bucket, tagId))) {
+      res.status(403).json({ error: "This tag hasn't been issued yet" });
+      return;
+    }
+  } catch (err) {
+    logger.error("Pair tide tag mint check failed for " + tagId + ":", err);
+    res.status(502).json({ error: "Couldn't verify that tag right now" });
+    return;
+  }
+  try {
+    await linkTideTagToDevice(bucket, tagId, deviceId);
+    res.status(200).json({ linked: true, deviceId });
+  } catch (err) {
+    logger.error("Pair tide tag failed for " + tagId + ":", err);
+    res.status(502).json({ error: "Couldn't pair that right now" });
+  }
+}
+
+exports.pairTideTag = onRequest({ cors: true, region: "us-central1" }, pairTideTagHandler);
+
+// Issues a short-lived pairing code for a tag -- the keychain's own
+// page calls this when the browser DOESN'T already know a WaveClock's
+// deviceId (see pairTideTagHandler's own comment for that case), so the
+// person instead carries a short code over to their WaveClock's Manage
+// page. Gated by the same mint check as every other tag-id-creating
+// path here -- a code is only ever worth issuing for a tag that's
+// actually real.
+async function requestPairCodeHandler(req, res, bucketImpl) {
+  const bucket = bucketImpl || admin.storage().bucket();
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "POST only" });
+    return;
+  }
+  const { tagId } = req.body || {};
+  if (typeof tagId !== "string" || !isValidTagId(tagId)) {
+    res.status(400).json({ error: TAG_ID_HINT });
+    return;
+  }
+  try {
+    if (!(await isTagIdMinted(bucket, tagId))) {
+      res.status(403).json({ error: "This tag hasn't been issued yet" });
+      return;
+    }
+  } catch (err) {
+    logger.error("Request pair code mint check failed for " + tagId + ":", err);
+    res.status(502).json({ error: "Couldn't verify that tag right now" });
+    return;
+  }
+  try {
+    const code = await createPairCode(bucket, tagId);
+    res.status(200).json({ code, expiresInMinutes: 15 });
+  } catch (err) {
+    logger.error("Request pair code failed for " + tagId + ":", err);
+    res.status(502).json({ error: "Couldn't create a pairing code right now" });
+  }
+}
+
+exports.requestPairCode = onRequest({ cors: true, region: "us-central1" }, requestPairCodeHandler);
+
+// The Manage-page counterpart to requestPairCodeHandler above -- trades
+// a short code back for the tagId it was issued for, and links that tag
+// to deviceId (the WaveClock whose Manage page this is, same as every
+// other action there). An invalid, already-used, or expired code is
+// reported the same way (there's no reason to distinguish them for
+// whoever's typing a code in) -- see redeemPairCode's own comment for
+// why those three collapse into one case.
+async function redeemPairCodeHandler(req, res, bucketImpl) {
+  const bucket = bucketImpl || admin.storage().bucket();
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "POST only" });
+    return;
+  }
+  const { code, deviceId } = req.body || {};
+  if (typeof code !== "string" || !isValidPairCode(code)) {
+    res.status(400).json({ error: "That code doesn't look right -- double-check it" });
+    return;
+  }
+  if (typeof deviceId !== "string" || !isValidDeviceId(deviceId)) {
+    res.status(400).json({ error: DEVICE_ID_HINT });
+    return;
+  }
+  try {
+    const result = await redeemPairCode(bucket, code, deviceId);
+    if (result.status === "invalid-or-expired") {
+      res.status(404).json({ error: "That code is invalid or has expired -- get a new one from the keychain" });
+      return;
+    }
+    res.status(200).json({ linked: true });
+  } catch (err) {
+    logger.error("Redeem pair code failed:", err);
+    res.status(502).json({ error: "Couldn't pair that right now" });
+  }
+}
+
+exports.redeemPairCode = onRequest({ cors: true, region: "us-central1" }, redeemPairCodeHandler);
+
 // Admin-only: marks a freshly-minted batch of tag IDs as real (see
 // isTagIdMinted/mintTagIds in lib/tideTag.js for why this exists at
 // all) -- called once per batch by scripts/generateTagIds.js right
@@ -1200,4 +1338,4 @@ exports.mintTideTagBatch = onRequest({ cors: false, region: "us-central1" }, min
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, mintTideTagBatchHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, mintTideTagBatchHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };

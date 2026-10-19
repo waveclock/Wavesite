@@ -14,6 +14,8 @@
 // and a delete. No new infrastructure, same deploy pipeline.
 "use strict";
 
+const crypto = require("crypto");
+
 const TIDE_TAGS_PREFIX = "tide-tags/";
 
 // Same character set scripts/generateTagIds.js draws IDs from -- excludes
@@ -45,6 +47,23 @@ function isValidTagId(tagId) {
 
 function tagFile(bucket, tagId) {
   return bucket.file(TIDE_TAGS_PREFIX + tagId + ".json");
+}
+
+// A WaveClock device's own ID -- assigned by a completely separate
+// process from tagId above (device provisioning, not tag minting), so
+// this can't reuse TAG_ID_PATTERN's exact shape or its allowlist.
+// Existing device IDs already in use (see functions/test/orchestration.test.js,
+// e.g. "WC-1") are short alphanumeric-plus-hyphen strings, and nothing
+// elsewhere in this codebase validates their shape at all -- every other
+// place a deviceId is used (location/, settings/, manage/) just trusts
+// it as a path segment. This pattern is intentionally permissive enough
+// not to reject any real device ID in that style, while still being
+// strict enough that a deviceId handed to linkTideTagToDevice below
+// can't smuggle a path-traversal shape into the stored record.
+const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+function isValidDeviceId(deviceId) {
+  return typeof deviceId === "string" && DEVICE_ID_PATTERN.test(deviceId);
 }
 
 // A SEPARATE record from tide-tags/ above: this one just marks "a real,
@@ -250,6 +269,121 @@ async function updateTideTag(bucket, tagId, stationId, stationName, lat, lon, to
   return record;
 }
 
+// Links a tag to a WaveClock device -- once a tag's record carries this,
+// the tide page stops using its OWN stationId/stationName/etc. fields
+// (left in place, not deleted, in case they're ever useful again) and
+// instead reads straight from that device's own locations/{deviceId}.json,
+// so editing the WaveClock's settings is what updates the keychain too.
+//
+// Always overwrites, same as updateTideTag -- re-pairing an
+// already-linked tag to a different device just moves it, no
+// "already linked" case to guard against. Works on a tag that's never
+// been tapped/registered at all (fetchTideTag returns null, so the
+// merge below just starts from an empty record) -- pairing a brand-new
+// keychain to an existing WaveClock before its first tap is a real,
+// expected path, not an edge case.
+async function linkTideTagToDevice(bucket, tagId, deviceId) {
+  if (!isValidTagId(tagId)) throw new Error("invalid tagId");
+  if (!isValidDeviceId(deviceId)) throw new Error("invalid deviceId");
+  const existing = await fetchTideTag(bucket, tagId);
+  const record = Object.assign({}, existing, { linkedDeviceId: deviceId, linkedAt: new Date().toISOString() });
+  await tagFile(bucket, tagId).save(JSON.stringify(record), { contentType: "application/json" });
+  return record;
+}
+
+// ---------- short-lived pairing codes ----------
+//
+// The one-tap shortcut (same browser that set up the WaveClock taps a
+// new keychain) calls linkTideTagToDevice directly -- both IDs are
+// already known to that single browser. This section covers the OTHER
+// case: pairing from a different device than the one that tapped the
+// keychain (someone else's phone did the tap, or they're pairing from a
+// computer). The keychain's own page requests a short, disposable code;
+// the WaveClock's Manage page redeems it. The real tagId is never shown
+// on screen for this -- only this short-lived stand-in is, so a glance
+// at someone's screen (or a screenshot) can't hand over the tag's own
+// permanent, otherwise-never-displayed ID.
+//
+// Same unmistakable charset TAG_ID_PATTERN already draws from (no
+// 0/O/1/I) -- a code meant to be read off one screen and typed into
+// another has the exact same misread risk a tagId would, just over a
+// much shorter string.
+const PAIR_CODE_CHARSET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+const PAIR_CODE_LENGTH = 6;
+const PAIR_CODE_PATTERN = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
+const PAIR_CODE_PREFIX = "tide-tag-pair-codes/";
+const PAIR_CODE_TTL_MS = 15 * 60 * 1000;
+
+function isValidPairCode(code) {
+  return typeof code === "string" && PAIR_CODE_PATTERN.test(code);
+}
+
+function pairCodeFile(bucket, code) {
+  return bucket.file(PAIR_CODE_PREFIX + code + ".json");
+}
+
+function randomPairCode() {
+  let code = "";
+  for (let i = 0; i < PAIR_CODE_LENGTH; i++) {
+    code += PAIR_CODE_CHARSET[crypto.randomInt(PAIR_CODE_CHARSET.length)];
+  }
+  return code;
+}
+
+// A fresh code per call, retried on the astronomically rare chance of
+// colliding with another still-live code -- ifGenerationMatch: 0 is the
+// same atomic create-only guard saveTideTag uses, so two concurrent
+// requests can never silently clobber each other's code.
+const PAIR_CODE_MAX_ATTEMPTS = 5;
+async function createPairCode(bucket, tagId) {
+  if (!isValidTagId(tagId)) throw new Error("invalid tagId");
+  for (let attempt = 0; attempt < PAIR_CODE_MAX_ATTEMPTS; attempt++) {
+    const code = randomPairCode();
+    try {
+      await pairCodeFile(bucket, code).save(JSON.stringify({ tagId, createdAt: new Date().toISOString() }), {
+        contentType: "application/json",
+        preconditionOpts: { ifGenerationMatch: 0 }
+      });
+      return code;
+    } catch (err) {
+      if (err && err.code === 412) continue;
+      throw err;
+    }
+  }
+  throw new Error("couldn't generate a unique pairing code");
+}
+
+// Resolves a code back to the tag it was issued for, links that tag to
+// deviceId, and burns the code so it can't be reused -- the delete
+// happens AFTER a successful read but BEFORE the link, and a delete
+// that 404s (someone else redeemed it a moment earlier) is treated the
+// same as "expired," not a crash, which is what makes this safe against
+// two concurrent redemptions of the same code.
+async function redeemPairCode(bucket, code, deviceId) {
+  if (!isValidPairCode(code)) throw new Error("invalid code");
+  if (!isValidDeviceId(deviceId)) throw new Error("invalid deviceId");
+  let entry;
+  try {
+    const [buf] = await pairCodeFile(bucket, code).download();
+    entry = JSON.parse(buf.toString("utf8"));
+  } catch (err) {
+    if (err && err.code === 404) return { status: "invalid-or-expired" };
+    throw err;
+  }
+  const age = Date.now() - new Date(entry.createdAt).getTime();
+  if (!(age >= 0) || age > PAIR_CODE_TTL_MS) {
+    return { status: "invalid-or-expired" };
+  }
+  try {
+    await pairCodeFile(bucket, code).delete();
+  } catch (err) {
+    if (err && err.code === 404) return { status: "invalid-or-expired" };
+    throw err;
+  }
+  const record = await linkTideTagToDevice(bucket, entry.tagId, deviceId);
+  return { status: "linked", tagId: entry.tagId, record };
+}
+
 // Unlinks a tag (lost/gifted keychain, or re-registering after a support
 // request clears it) -- best-effort delete, same "already gone isn't an
 // error" contract as index.js's own deleteIfExists.
@@ -263,4 +397,4 @@ async function deleteTideTag(bucket, tagId) {
   }
 }
 
-module.exports = { TAG_ID_PATTERN, isValidTagId, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, COAST_FACING_DIRECTIONS, ZONE_ID_PATTERN, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds };
+module.exports = { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, COAST_FACING_DIRECTIONS, ZONE_ID_PATTERN, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode };
