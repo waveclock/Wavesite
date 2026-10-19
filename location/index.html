@@ -1592,11 +1592,45 @@
     return centroid ? bearingToCompass(bearingDeg(selectedTown.lat, selectedTown.lon, centroid.lat, centroid.lon)) : null;
   }
 
+  // Hand-curated, zone -> direction ground truth, entered by someone who
+  // actually knows the area, rather than inferred from geometry at all.
+  // Takes priority over BOTH automated methods below: neither OSM-
+  // coastline proximity nor the zone-centroid fallback can reliably tell
+  // open ocean from a back bay (see this field's own history), while
+  // this is simply correct by construction for any zone it covers. A
+  // zone spans a real stretch of coast, so this is necessarily a
+  // per-ZONE default, not a hyper-local value -- a specific town within
+  // a listed zone can still differ slightly from its zone's general
+  // trend; the manual picker (further down) is there to fine-tune that.
+  // Add an entry any time; it never needs touching the lookup logic
+  // itself, just one more line here.
+  const KNOWN_ZONE_COAST_DIRECTIONS = {
+    ANZ453: "SE"
+  };
+
   async function loadCoastFacingDirection(town) {
     coastFacingDirectionResult = null;
     coastFacingDirectionChecked = false;
     coastFacingDirectionSource = null;
     renderSaveState();
+
+    // Awaited first (not run in parallel with the OSM attempt below, the
+    // way this used to work before the curated table existed) so a
+    // known zone can short-circuit straight past the OSM round trip
+    // entirely -- instant AND more trustworthy than a network lookup,
+    // not just a fallback for when OSM fails.
+    if (zonesLoadPromise) {
+      try { await zonesLoadPromise; } catch (err) { /* loadZones() doesn't itself throw, but guard anyway */ }
+    }
+    const knownZoneDirection = selectedMarineZoneId ? KNOWN_ZONE_COAST_DIRECTIONS[selectedMarineZoneId] : null;
+    if (knownZoneDirection) {
+      coastFacingDirectionResult = knownZoneDirection;
+      coastFacingDirectionSource = "zone-table";
+      console.log("coastFacingDirection from the curated zone table: " + knownZoneDirection + " (zone " + selectedMarineZoneId + ")");
+      coastFacingDirectionChecked = true;
+      renderSaveState();
+      return;
+    }
 
     try {
       const osmData = await fetchOverpassCoastline(town.lat, town.lon);
@@ -1616,11 +1650,9 @@
       console.error("OSM coastline lookup failed:", err);
     }
 
-    // Wait for the marine zone lookup to settle before falling back to
-    // it -- see the zonesLoadPromise comment above for why.
-    if (zonesLoadPromise) {
-      try { await zonesLoadPromise; } catch (err) { /* loadZones() doesn't itself throw, but guard anyway */ }
-    }
+    // zonesLoadPromise is already settled by now -- awaited up front
+    // (see this function's own opening) so the curated table could be
+    // checked before ever starting the OSM attempt above.
     const fallback = coastFacingDirectionFallback();
     coastFacingDirectionResult = fallback;
     coastFacingDirectionSource = fallback ? "fallback" : null;
@@ -1676,6 +1708,7 @@
     }
     const sourceLabel =
       coastFacingDirectionSource === "osm" ? "" :
+      coastFacingDirectionSource === "zone-table" ? " (known for this area)" :
       coastFacingDirectionSource === "fallback" ? " (estimated — double-check this)" :
       coastFacingDirectionSource === "manual" ? " (set by you)" : "";
     coastDirectionStatus.textContent = "Coast faces " + coastFacingDirectionResult + sourceLabel + ".";
