@@ -1453,41 +1453,35 @@
   let coastFacingDirectionChecked = false;
   let coastFacingDirectionSource = null; // "osm" | "fallback" | null
 
-  const OVERPASS_ENDPOINTS = [
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
-    "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
-  ];
-  // Tried in order: a tight radius first (accurate local shape), then a
-  // wider one only if nothing useful came back at all.
-  const COASTLINE_SEARCH_RADII_KM = [3, 8];
+  // Routed through our own backend rather than hitting Overpass directly
+  // from the browser -- Overpass's public mirrors are unreliable when hit
+  // from browser JS specifically (CORS preflight failures and occasional
+  // 406 responses some mirrors return to browser-originated requests,
+  // never observed from a plain server-to-server fetch -- see
+  // functions/lib/coastline.js's own comment). 404.html's identical
+  // coastline lookup hit this exact failure mode (reported live as the
+  // wind/wave bars losing their color and Clean/Offshore badges
+  // disappearing) and was switched to this same coastlineProxy Cloud
+  // Function to fix it; this wizard's own, separate copy of the lookup
+  // just never got the same fix applied, which is what was producing
+  // wrong (fallback-estimated) coast directions here.
+  //
+  // coastlineProxy already tries both search radii (3km, then 8km) and
+  // all 3 Overpass mirrors server-side, so this is a single call, not a
+  // client-side radius ladder like the old direct-to-Overpass version
+  // needed. 45s: the proxy's own worst case (one mirror tried alone,
+  // then the rest raced in parallel, at each of 2 radii) is up to ~32s
+  // server-side, before network round-trip or a Cloud Function cold
+  // start on top of that -- same reasoning as 404.html's own identical
+  // timeout on the same endpoint.
+  const COASTLINE_PROXY = "https://us-central1-waveclock.cloudfunctions.net/coastlineProxy";
 
-  async function fetchOverpassCoastline(lat, lon, radiusKm) {
-    const dLat = radiusKm / 111.32;
-    const dLon = radiusKm / (111.32 * Math.cos((lat * Math.PI) / 180));
-    const south = lat - dLat, north = lat + dLat, west = lon - dLon, east = lon + dLon;
-    const query = `[out:json][timeout:20];way["natural"="coastline"](${south},${west},${north},${east});out body;>;out skel qt;`;
-
-    let lastError = null;
-    for (const url of OVERPASS_ENDPOINTS) {
-      try {
-        const resp = await withTimeout(
-          fetch(url, {
-            method: "POST",
-            body: "data=" + encodeURIComponent(query),
-            headers: { "Content-Type": "application/x-www-form-urlencoded" }
-          }),
-          8000
-        );
-        if (!resp.ok) { lastError = new Error("HTTP " + resp.status); continue; }
-        const data = await resp.json();
-        if (data && Array.isArray(data.elements) && data.elements.length) return data;
-        lastError = new Error("no coastline elements in range");
-      } catch (err) {
-        lastError = err;
-      }
-    }
-    throw lastError || new Error("all Overpass mirrors failed");
+  async function fetchOverpassCoastline(lat, lon) {
+    const resp = await withTimeout(fetch(COASTLINE_PROXY + "?lat=" + lat + "&lon=" + lon), 45000);
+    if (!resp.ok) throw new Error("http " + resp.status);
+    const data = await resp.json();
+    if (!(data && Array.isArray(data.elements) && data.elements.length)) throw new Error("no coastline elements in range");
+    return data;
   }
 
   // Length-weighted circular mean of each segment's own seaward bearing
@@ -1534,24 +1528,22 @@
     coastFacingDirectionSource = null;
     renderSaveState();
 
-    for (const radiusKm of COASTLINE_SEARCH_RADII_KM) {
-      try {
-        const osmData = await fetchOverpassCoastline(town.lat, town.lon, radiusKm);
-        const result = coastlineBearingFromOsm(osmData);
-        if (result) {
-          coastFacingDirectionResult = bearingToCompass(result.bearing);
-          coastFacingDirectionSource = "osm";
-          console.log(
-            "coastFacingDirection from OSM coastline: " + coastFacingDirectionResult +
-            " (" + result.segmentCount + " segments, " + result.totalLengthKm.toFixed(2) + "km, search radius " + radiusKm + "km)"
-          );
-          coastFacingDirectionChecked = true;
-          renderSaveState();
-          return;
-        }
-      } catch (err) {
-        console.error("OSM coastline lookup failed at radius " + radiusKm + "km:", err);
+    try {
+      const osmData = await fetchOverpassCoastline(town.lat, town.lon);
+      const result = coastlineBearingFromOsm(osmData);
+      if (result) {
+        coastFacingDirectionResult = bearingToCompass(result.bearing);
+        coastFacingDirectionSource = "osm";
+        console.log(
+          "coastFacingDirection from OSM coastline: " + coastFacingDirectionResult +
+          " (" + result.segmentCount + " segments, " + result.totalLengthKm.toFixed(2) + "km)"
+        );
+        coastFacingDirectionChecked = true;
+        renderSaveState();
+        return;
       }
+    } catch (err) {
+      console.error("OSM coastline lookup failed:", err);
     }
 
     // Wait for the marine zone lookup to settle before falling back to
