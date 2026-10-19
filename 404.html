@@ -1397,11 +1397,26 @@
     { id: 'beachCam', label: 'OCNJ Fishing Pier Live', render: renderBeachCam }
   ];
 
-  // Exactly the town-name string buildTownLabel produces for this one
-  // beach ("<shortName>, <2-letter state>") -- see its own comment. Only
-  // this one beach gets a 4th screen; everyone else's st.name just
-  // won't match, same as any other beach that isn't this one.
-  const BEACH_CAM_TOWN = 'Ocean City, NJ';
+  // This one beach's own known center -- a distance gate, not a
+  // town-name string match. st.name used to always be the free-text
+  // townName buildTownLabel produces for a standalone keychain pick
+  // ("<shortName>, <2-letter state>"), which an exact match against
+  // 'Ocean City, NJ' worked fine against. That assumption broke once a
+  // keychain could also be linked to a WaveClock device (see
+  // deviceLocationToStation): a device's own st.name is its short,
+  // ALL-CAPS, state-less on-screen nickname (e.g. "OCEAN CITY", no
+  // ", NJ" at all) -- never equal to the old constant even for the
+  // exact right beach, which silently hid this panel for every
+  // device-linked keychain regardless of location. Coordinates don't
+  // have that format dependency: both paths already carry real lat/lon,
+  // so this just checks proximity to the beach's own point instead. 5
+  // miles comfortably covers in-town geocoding/station variance while
+  // staying far short of Ocean City, MD (roughly 65 miles away) -- the
+  // same false-positive the old name match was built to avoid in the
+  // first place (see its own test), which a coordinate check avoids
+  // just as well, for either path, regardless of naming format.
+  const BEACH_CAM_COORD = { lat: 39.2776, lon: -74.5746 };
+  const BEACH_CAM_RADIUS_MI = 5;
   // Both cameras for this one beach -- autoplay+mute (not plain
   // autoplay) because every mobile/desktop browser blocks unmuted
   // autoplay outright; this is the one combination that's actually
@@ -1491,7 +1506,8 @@
 
   async function renderBeachCam(st) {
     const panel = $('beachCamPanel');
-    const isCamBeach = !!(st && st.name === BEACH_CAM_TOWN);
+    const isCamBeach = !!(st && st.lat != null && st.lon != null &&
+      haversineMiles(st.lat, st.lon, BEACH_CAM_COORD.lat, BEACH_CAM_COORD.lon) <= BEACH_CAM_RADIUS_MI);
     panel.classList.toggle('hidden', !isCamBeach);
     BEACH_CAM_IDS.forEach(cam => {
       if (isCamBeach) {
