@@ -8,7 +8,7 @@
 // that's the exact atomicity saveTideTag/mintTagIds both depend on.
 
 const assert = require("assert");
-const { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unlinkTideTagFromDevice, unpairDevice, backfillDeviceTagLinks } = require("../lib/tideTag");
+const { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unlinkTideTagFromDevice, unpairDevice, backfillDeviceTagLinks, fetchDeviceTagLinkSelfHealing } = require("../lib/tideTag");
 
 // A valid, in-charset tagId at the new 20-char default length -- used
 // everywhere a test just needs SOME real tagId, same role "A7K2" played
@@ -632,6 +632,44 @@ async function test(name, fn) {
     const result = await backfillDeviceTagLinks(bucket);
     assert.strictEqual(result.scanned, 2);
     assert.deepStrictEqual(result.backfilled, [D2]);
+  });
+
+  console.log("fetchDeviceTagLinkSelfHealing");
+  await test("returns the reverse link directly when it already exists -- no scan needed", async () => {
+    const bucket = makeFakeBucket({});
+    await linkTideTagToDevice(bucket, T1, D1);
+    bucket.getFiles = () => { throw new Error("should never scan when the direct lookup already found it"); };
+    const link = await fetchDeviceTagLinkSelfHealing(bucket, D1);
+    assert.deepStrictEqual(link, { tagId: T1, linkedAt: JSON.parse(bucket._store.get("device-tag-links/" + D1 + ".json")).linkedAt });
+  });
+  await test("self-heals a legacy pairing (linked on the tag, but no reverse index yet) and returns it", async () => {
+    const bucket = makeFakeBucket({
+      ["tide-tags/" + T1 + ".json"]: JSON.stringify({ linkedDeviceId: D1, linkedAt: "2026-01-01T00:00:00.000Z" })
+    });
+    const link = await fetchDeviceTagLinkSelfHealing(bucket, D1);
+    assert.deepStrictEqual(link, { tagId: T1, linkedAt: "2026-01-01T00:00:00.000Z" });
+    // And it's actually written now, not just returned -- the NEXT call
+    // (e.g. a second page load) takes the fast direct path.
+    assert.deepStrictEqual(JSON.parse(bucket._store.get("device-tag-links/" + D1 + ".json")), { tagId: T1, linkedAt: "2026-01-01T00:00:00.000Z" });
+  });
+  await test("a genuinely unpaired device still correctly returns null after scanning and finding nothing", async () => {
+    const bucket = makeFakeBucket({
+      ["tide-tags/" + T2 + ".json"]: JSON.stringify({ linkedDeviceId: D2 })
+    });
+    assert.strictEqual(await fetchDeviceTagLinkSelfHealing(bucket, D1), null);
+  });
+  await test("an invalid deviceId returns null without ever scanning storage", async () => {
+    const bucket = makeFakeBucket({});
+    bucket.getFiles = () => { throw new Error("should never scan for an invalid deviceId"); };
+    assert.strictEqual(await fetchDeviceTagLinkSelfHealing(bucket, "../x"), null);
+  });
+  await test("unpairDevice itself self-heals a legacy pairing, not just deviceLinkStatus", async () => {
+    const bucket = makeFakeBucket({
+      ["tide-tags/" + T1 + ".json"]: JSON.stringify({ linkedDeviceId: D1 })
+    });
+    const result = await unpairDevice(bucket, D1);
+    assert.strictEqual(result, true);
+    assert.strictEqual("linkedDeviceId" in JSON.parse(bucket._store.get("tide-tags/" + T1 + ".json")), false);
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");

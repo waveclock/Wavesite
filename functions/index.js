@@ -27,7 +27,7 @@ const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
-const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unpairDevice, backfillDeviceTagLinks } = require("./lib/tideTag");
+const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLinkSelfHealing, unpairDevice, backfillDeviceTagLinks } = require("./lib/tideTag");
 const { fetchCoastlineNear } = require("./lib/coastline");
 const { fetchCachedCoastline, saveCachedCoastline } = require("./lib/coastlineCache");
 
@@ -1300,7 +1300,11 @@ async function deviceLinkStatusHandler(req, res, bucketImpl) {
     return;
   }
   try {
-    const link = await fetchDeviceTagLink(bucket, deviceId);
+    // Self-healing (see its own comment in lib/tideTag.js) -- repairs a
+    // pairing made before device-tag-links/ existed the moment its
+    // owner next loads this check, with no admin secret and no action
+    // of their own beyond that.
+    const link = await fetchDeviceTagLinkSelfHealing(bucket, deviceId);
     res.status(200).json({ paired: !!link });
   } catch (err) {
     logger.error("Device link status failed for " + deviceId + ":", err);

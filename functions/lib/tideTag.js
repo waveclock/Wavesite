@@ -386,7 +386,10 @@ async function unlinkTideTagFromDevice(bucket, tagId) {
 // deleteTideTag.
 async function unpairDevice(bucket, deviceId) {
   if (!isValidDeviceId(deviceId)) throw new Error("invalid deviceId");
-  const link = await fetchDeviceTagLink(bucket, deviceId);
+  // Self-healing (see its own comment) rather than the plain lookup --
+  // without it, a device paired before device-tag-links/ existed would
+  // report "nothing to unpair" even though a keychain really is linked.
+  const link = await fetchDeviceTagLinkSelfHealing(bucket, deviceId);
   if (!link) return false;
   await unlinkTideTagFromDevice(bucket, link.tagId);
   return true;
@@ -525,6 +528,40 @@ async function backfillDeviceTagLinks(bucket) {
   return { scanned, backfilled, skipped };
 }
 
+// Same contract as fetchDeviceTagLink (null for "nothing paired"), but
+// additionally self-heals the SAME legacy gap backfillDeviceTagLinks
+// repairs in bulk -- used by the two places a device itself asks "is a
+// keychain paired to me" (Manage's status card, and Unpair), so an
+// owner who paired before device-tag-links/ existed sees the correct
+// state the very next time they load either page, with no admin secret
+// and no action of their own beyond that. Only falls back to a scan of
+// tide-tags/ when the direct reverse-index lookup comes up empty --
+// once backfilled (here, or by the bulk admin repair), every later call
+// for this same device takes the fast, no-scan path again, same as any
+// other device that was always paired after the fix shipped.
+async function fetchDeviceTagLinkSelfHealing(bucket, deviceId) {
+  const direct = await fetchDeviceTagLink(bucket, deviceId);
+  if (direct) return direct;
+  if (!isValidDeviceId(deviceId)) return null;
+  const [files] = await bucket.getFiles({ prefix: TIDE_TAGS_PREFIX });
+  for (const file of files) {
+    const tagId = file.name.slice(TIDE_TAGS_PREFIX.length, -".json".length);
+    if (!isValidTagId(tagId)) continue;
+    let record;
+    try {
+      const [buf] = await file.download();
+      record = JSON.parse(buf.toString("utf8"));
+    } catch (err) {
+      continue; // unreadable/corrupt entry -- not this lookup's job to fix
+    }
+    if (!record || record.linkedDeviceId !== deviceId) continue;
+    const link = { tagId, linkedAt: record.linkedAt || new Date().toISOString() };
+    await deviceTagLinkFile(bucket, deviceId).save(JSON.stringify(link), { contentType: "application/json" });
+    return link;
+  }
+  return null;
+}
+
 // Unlinks a tag (lost/gifted keychain, or re-registering after a support
 // request clears it) -- best-effort delete, same "already gone isn't an
 // error" contract as index.js's own deleteIfExists.
@@ -538,4 +575,4 @@ async function deleteTideTag(bucket, tagId) {
   }
 }
 
-module.exports = { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, COAST_FACING_DIRECTIONS, ZONE_ID_PATTERN, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unlinkTideTagFromDevice, unpairDevice, backfillDeviceTagLinks };
+module.exports = { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, COAST_FACING_DIRECTIONS, ZONE_ID_PATTERN, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unlinkTideTagFromDevice, unpairDevice, backfillDeviceTagLinks, fetchDeviceTagLinkSelfHealing };
