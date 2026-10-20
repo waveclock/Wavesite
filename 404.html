@@ -442,6 +442,14 @@
      instead of a fixed height, since a video (unlike a map) has one
      correct shape to stay undistorted in. */
   .beach-cam-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; margin-top: 14px; border: 2px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--wave-pale); }
+
+  /* Custom Screens panel -- each frame mirrors the exact 792x272
+     aspect ratio of the Wave Clock's own physical display (see
+     .current-board-frame in design/index.html), so the preview is
+     never stretched/distorted relative to what's really on the device. */
+  .custom-screen-frame { width: 100%; max-width: 400px; margin: 14px auto 0; aspect-ratio: 792 / 272; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
+  .custom-screen-frame img { width: 100%; height: 100%; display: block; object-fit: contain; }
+  #customScreensList .custom-screen-frame:first-child { margin-top: 0; }
   /* Zoomed 3.5x and pannable (see setupCamPan) -- sized/positioned in %
      of .beach-cam-frame's own box, not measured pixels, so it's always
      correct at any container width with no resize listener needed.
@@ -717,6 +725,20 @@
       <div class="beach-cam-pan-layer" id="beachCamLayer2"><div id="beachCamIframe2"></div></div>
       <div class="beach-cam-pan-overlay" id="beachCamOverlay2"></div>
     </div>
+  </section>
+
+  <!-- A screen that only exists for keychains linked to a WaveClock --
+       mirrors whatever's actually published on that device's own 3
+       Custom Screens (see design/index.html), right below the video
+       feed above. Same "only show if there's something real to show"
+       rule as beachCamPanel: starts hidden, and only ever shows whichever
+       of the 3 slots the owner has actually published -- a brand new
+       device that hasn't designed any of them yet keeps this panel
+       hidden entirely, not three empty boxes. -->
+  <section class="snap-panel hidden" id="customScreensPanel">
+    <h1 class="wind-title">Your Custom Screens</h1>
+    <div class="curve-cap">What&rsquo;s on your Wave Clock right now</div>
+    <div id="customScreensList"></div>
   </section>
 
   <!-- Location/WaveClock live OUTSIDE all three snap-panels, as a fixed
@@ -1394,7 +1416,8 @@
     { id: 'tide', label: 'Tide', render: renderTidePanel },
     { id: 'windwave', label: 'Waves & Wind', render: renderWindWave },
     { id: 'radar', label: 'Radar', render: renderRadarPanel },
-    { id: 'beachCam', label: 'OCNJ Fishing Pier Live', render: renderBeachCam }
+    { id: 'beachCam', label: 'OCNJ Fishing Pier Live', render: renderBeachCam },
+    { id: 'customScreens', label: 'Your Custom Screens', render: renderCustomScreens }
   ];
 
   // This one beach's own known center -- a distance gate, not a
@@ -1543,6 +1566,61 @@
     new IntersectionObserver(entries => {
       entries.forEach(entry => { if (entry.isIntersecting) BEACH_CAM_IDS.forEach(ensureCamPlaying); });
     }, { threshold: 0.5 }).observe($('beachCamPanel'));
+  }
+
+  // ---------- Custom Screens panel (device-linked keychains only) ----------
+  // Same file layout design/index.html's own publish flow already
+  // writes (see its primaryPreviewPath/screenDesignPaths) -- screen 1
+  // at the legacy unsuffixed path, screens 2/3 at their own "_N" path.
+  // Read-only here: this just mirrors whatever's already published,
+  // never writes anything.
+  function customScreenImagePath(deviceId, n) {
+    return n === 1 ? ('designs/' + deviceId + '.png') : ('designs/' + deviceId + '_' + n + '.png');
+  }
+  // A missing screen (never designed, or designed but never published)
+  // is a normal, expected state -- same "404 just means nothing there
+  // yet" treatment fetchDeviceLocation already uses -- so this resolves
+  // to null rather than throwing, letting renderCustomScreens skip it
+  // silently instead of surfacing a spurious error for every owner who
+  // simply hasn't filled in all 3 slots.
+  async function fetchCustomScreenBlob(deviceId, n) {
+    const path = encodeURIComponent(customScreenImagePath(deviceId, n));
+    const url = 'https://firebasestorage.googleapis.com/v0/b/' + STORAGE_BUCKET + '/o/' + path + '?alt=media';
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    return await r.blob();
+  }
+  // Takes `st` only to match every other SCREENS entry's render(st)
+  // signature -- the real key here is linkedDeviceId (module-level,
+  // set by completeLinking), not anything about the active beach, since
+  // a Wave Clock's custom screens are a property of the device, not
+  // the location it happens to be set to.
+  async function renderCustomScreens(st) {
+    const panel = $('customScreensPanel');
+    if (!linkedDeviceId) { panel.classList.add('hidden'); return; }
+    try {
+      const blobs = await Promise.all([1, 2, 3].map(n => fetchCustomScreenBlob(linkedDeviceId, n)));
+      const published = blobs.filter(Boolean);
+      if (!published.length) { panel.classList.add('hidden'); return; }
+      const list = $('customScreensList');
+      list.innerHTML = '';
+      published.forEach(blob => {
+        const frame = document.createElement('div');
+        frame.className = 'custom-screen-frame';
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(blob);
+        img.alt = 'Custom screen on your Wave Clock';
+        frame.appendChild(img);
+        list.appendChild(frame);
+      });
+      panel.classList.remove('hidden');
+    } catch (err) {
+      // Couldn't reach Storage right now -- same graceful degrade as
+      // every other optional screen here: leave it hidden rather than
+      // showing a broken panel. The next visit (or the periodic
+      // openTide re-render) tries again from scratch.
+      panel.classList.add('hidden');
+    }
   }
 
   // ---------- each beach cam's own 3.5x zoom + pan ----------
