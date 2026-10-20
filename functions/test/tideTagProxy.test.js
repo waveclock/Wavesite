@@ -549,6 +549,17 @@ async function test(name, fn) {
     await deviceLinkStatusHandler(req, res, bucket);
     assert.strictEqual(res.statusCode, 502);
   });
+  await test("self-heals a legacy pairing (made before device-tag-links/ existed) and reports paired:true, no admin secret needed", async () => {
+    // Mirrors the real live report exactly: the tag's OWN record already
+    // carries linkedDeviceId (an old pairTideTagHandler call, before this
+    // reverse index existed), but nothing lives at device-tag-links/ yet.
+    const bucket = makeFakeBucket({ ["tide-tags/" + T1 + ".json"]: JSON.stringify({ linkedDeviceId: "WC-1", linkedAt: "2026-01-01T00:00:00.000Z" }) });
+    const req = fakeReq({ method: "GET", query: { deviceId: "WC-1" } });
+    const res = fakeRes();
+    await deviceLinkStatusHandler(req, res, bucket);
+    assert.deepStrictEqual(res.body, { paired: true });
+    assert.ok(bucket._store.has("device-tag-links/WC-1.json"), "the check itself should have repaired the missing reverse link");
+  });
 
   console.log("unpairDevice");
   await test("unpairs a device that has a keychain linked", async () => {
