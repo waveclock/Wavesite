@@ -147,6 +147,22 @@
   .hub-desc { display: block; font-size: 13px; color: var(--ink-soft); margin: 0; }
   .hub-chevron { flex-shrink: 0; width: 18px; height: 18px; color: var(--ink-soft); }
 
+  .preview-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    background: var(--foam);
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    text-decoration: none;
+    color: var(--navy);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .preview-link.hidden { display: none; }
+  .preview-link svg { flex-shrink: 0; width: 16px; height: 16px; }
+
   footer {
     text-align: center;
     padding: 30px 20px 10px;
@@ -233,6 +249,17 @@
         <span class="hub-desc" id="pairCardDesc">Link a Wave Clock keychain to this device</span>
       </span>
       <svg class="hub-chevron" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+
+    <!-- Only shown once loadPairingStatus() confirms a keychain is
+         actually paired -- a device-scoped preview of what it shows
+         (see /t/preview in 404.html), so an owner can check it without
+         the physical keychain in hand. Deliberately never links to the
+         keychain's own real /t/{tagId} URL -- that's a credential this
+         page (no-auth, deviceId-only) must never learn or expose. -->
+    <a class="preview-link hidden" id="previewLink" href="#">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/></svg>
+      <span>Preview your keychain &rarr;</span>
     </a>
   </div>
 
@@ -340,6 +367,7 @@
   const DEVICE_LINK_STATUS_URL = "https://us-central1-waveclock.cloudfunctions.net/deviceLinkStatus";
   const pairCardTitle = document.getElementById("pairCardTitle");
   const pairCardDesc = document.getElementById("pairCardDesc");
+  const previewLink = document.getElementById("previewLink");
   async function loadPairingStatus() {
     try {
       const resp = await withTimeout(fetch(DEVICE_LINK_STATUS_URL + "?deviceId=" + encodeURIComponent(deviceId)), 8000);
@@ -347,6 +375,10 @@
       if (resp.ok && body && body.paired) {
         pairCardTitle.textContent = "Keychain Paired";
         pairCardDesc.textContent = "Manage or unpair your keychain";
+        // deviceId only -- see this link's own HTML comment on why it
+        // never carries the keychain's real tagId.
+        previewLink.href = "../t/preview?id=" + encodeURIComponent(deviceId);
+        previewLink.classList.remove("hidden");
       }
     } catch (err) {
       console.error("Couldn't check pairing status (non-critical):", err);
