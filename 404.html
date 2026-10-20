@@ -1826,6 +1826,25 @@
     if (!r.ok) throw new Error('http ' + r.status);
     return await r.json();
   }
+  // device-status/{id}.json is written by the device itself and reflects
+  // what's actually applied right now -- preferred over locations/{id}.json
+  // (only ever what the website last *submitted*) for the same reason
+  // location/index.html's own loadExistingSettings already prefers it
+  // there: a WaveClock can have a real, working location that was only
+  // ever set up some other way (on-device provisioning, a support
+  // action, firmware defaults) and never actually saved through this
+  // website at all, in which case locations/{id}.json genuinely never
+  // existed even though the device works fine. Same null-vs-throw
+  // contract as fetchDeviceLocation.
+  async function fetchDeviceStatusLocation(deviceId) {
+    const path = encodeURIComponent('device-status/' + deviceId + '.json');
+    const url = 'https://firebasestorage.googleapis.com/v0/b/' + STORAGE_BUCKET + '/o/' + path + '?alt=media';
+    const r = await fetch(url);
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error('http ' + r.status);
+    const j = await r.json();
+    return (j && j.location && typeof j.location === 'object') ? j.location : null;
+  }
   // Maps locations/{deviceId}.json's own field names onto the shape
   // openTide/applyRegistration already expect -- "name" there is the
   // short on-device nickname (location/index.html's displayName), which
@@ -1858,7 +1877,11 @@
     linkedDeviceId = deviceId;
     showMyWaveClockBottomBar(deviceId);
     try {
-      const j = await fetchDeviceLocation(deviceId);
+      // device-status checked first (see fetchDeviceStatusLocation's own
+      // comment) -- any failure there (404 or otherwise) just means try
+      // the next source, same as location/index.html's own precedent.
+      let j = await fetchDeviceStatusLocation(deviceId).catch(() => null);
+      if (!j) j = await fetchDeviceLocation(deviceId);
       if (!j) {
         window.location.href = '../location/?id=' + encodeURIComponent(deviceId);
         return;
