@@ -27,7 +27,7 @@ const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
-const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unpairDevice } = require("./lib/tideTag");
+const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unpairDevice, backfillDeviceTagLinks } = require("./lib/tideTag");
 const { fetchCoastlineNear } = require("./lib/coastline");
 const { fetchCachedCoastline, saveCachedCoastline } = require("./lib/coastlineCache");
 
@@ -1392,7 +1392,44 @@ async function mintTideTagBatchHandler(req, res, bucketImpl) {
 
 exports.mintTideTagBatch = onRequest({ cors: false, region: "us-central1" }, mintTideTagBatchHandler);
 
+// Admin-only, one-time repair: a pairing made before device-tag-links/
+// existed (added alongside linkTideTagToDevice's own write of it) is
+// still correctly linked on the tag's own side, but has no reverse-index
+// file for deviceLinkStatusHandler to find -- so Manage's "Pair a
+// Keychain" card never learned it was already paired. This scans every
+// tide-tags/ record and backfills whichever ones are missing their
+// reverse link; see backfillDeviceTagLinks's own comment for exactly
+// what it does and doesn't touch. Gated by the same WAVECLOCK_MINT_SECRET
+// as mintTideTagBatch above -- not scoped to one tag/device either, so
+// it gets the same admin-only treatment rather than the key-less
+// single-tag trust model the rest of this file uses.
+async function backfillDeviceTagLinksHandler(req, res, bucketImpl) {
+  const bucket = bucketImpl || admin.storage().bucket();
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "POST only" });
+    return;
+  }
+
+  const providedSecret = req.headers && req.headers["x-mint-secret"];
+  const realSecret = mintSecretValue();
+  if (!realSecret || providedSecret !== realSecret) {
+    res.status(403).json({ error: "Invalid or missing mint secret" });
+    return;
+  }
+
+  try {
+    const result = await backfillDeviceTagLinks(bucket);
+    res.status(200).json(result);
+  } catch (err) {
+    logger.error("Backfill device-tag-links failed:", err);
+    res.status(502).json({ error: "Couldn't backfill right now" });
+  }
+}
+
+exports.backfillDeviceTagLinks = onRequest({ cors: false, region: "us-central1" }, backfillDeviceTagLinksHandler);
+
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler, backfillDeviceTagLinksHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };

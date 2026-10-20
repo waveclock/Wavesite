@@ -8,7 +8,7 @@
 // that's the exact atomicity saveTideTag/mintTagIds both depend on.
 
 const assert = require("assert");
-const { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unlinkTideTagFromDevice, unpairDevice } = require("../lib/tideTag");
+const { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unlinkTideTagFromDevice, unpairDevice, backfillDeviceTagLinks } = require("../lib/tideTag");
 
 // A valid, in-charset tagId at the new 20-char default length -- used
 // everywhere a test just needs SOME real tagId, same role "A7K2" played
@@ -21,6 +21,7 @@ function makeFakeBucket(initialFiles) {
   function fileHandle(path) {
     return {
       path,
+      name: path, // mirrors the real @google-cloud/storage File's own .name -- the full object path, which backfillDeviceTagLinks reads straight off a getFiles() result
       async download() {
         if (!store.has(path)) {
           const err = new Error("not found");
@@ -48,7 +49,16 @@ function makeFakeBucket(initialFiles) {
       }
     };
   }
-  return { file: fileHandle, _store: store };
+  return {
+    file: fileHandle,
+    // Real @google-cloud/storage shape: resolves to a [files] tuple.
+    async getFiles(opts) {
+      const prefix = (opts && opts.prefix) || "";
+      const names = Array.from(store.keys()).filter((k) => k.startsWith(prefix));
+      return [names.map(fileHandle)];
+    },
+    _store: store
+  };
 }
 
 let passed = 0, failed = 0;
@@ -566,6 +576,62 @@ async function test(name, fn) {
     const bucket = makeFakeBucket({});
     bucket.file = () => { throw new Error("should never be called for an invalid deviceId"); };
     await assert.rejects(() => unpairDevice(bucket, "../x"), /invalid deviceId/);
+  });
+
+  console.log("backfillDeviceTagLinks");
+  await test("writes the missing reverse link for a tag that was linked before device-tag-links/ existed", async () => {
+    const bucket = makeFakeBucket({
+      ["tide-tags/" + T1 + ".json"]: JSON.stringify({ linkedDeviceId: D1, linkedAt: "2026-01-01T00:00:00.000Z" })
+    });
+    const result = await backfillDeviceTagLinks(bucket);
+    assert.deepStrictEqual(result, { scanned: 1, backfilled: [D1], skipped: 0 });
+    assert.deepStrictEqual(JSON.parse(bucket._store.get("device-tag-links/" + D1 + ".json")), { tagId: T1, linkedAt: "2026-01-01T00:00:00.000Z" });
+  });
+  await test("never touches a device that already has a reverse link", async () => {
+    const bucket = makeFakeBucket({
+      ["tide-tags/" + T1 + ".json"]: JSON.stringify({ linkedDeviceId: D1 }),
+      ["device-tag-links/" + D1 + ".json"]: JSON.stringify({ tagId: T2, linkedAt: "2026-02-02T00:00:00.000Z" })
+    });
+    const result = await backfillDeviceTagLinks(bucket);
+    assert.deepStrictEqual(result, { scanned: 1, backfilled: [], skipped: 1 });
+    // Untouched -- still T2, not overwritten with T1 from the scanned record.
+    assert.deepStrictEqual(JSON.parse(bucket._store.get("device-tag-links/" + D1 + ".json")), { tagId: T2, linkedAt: "2026-02-02T00:00:00.000Z" });
+  });
+  await test("skips a tag record with no linkedDeviceId at all -- nothing to backfill for a standalone keychain", async () => {
+    const bucket = makeFakeBucket({
+      ["tide-tags/" + T1 + ".json"]: JSON.stringify({ stationId: "8534720" })
+    });
+    const result = await backfillDeviceTagLinks(bucket);
+    assert.deepStrictEqual(result, { scanned: 1, backfilled: [], skipped: 0 });
+    assert.strictEqual(bucket._store.has("device-tag-links/" + D1 + ".json"), false);
+  });
+  await test("a repeat run over the same data is a cheap no-op the second time", async () => {
+    const bucket = makeFakeBucket({
+      ["tide-tags/" + T1 + ".json"]: JSON.stringify({ linkedDeviceId: D1, linkedAt: "2026-01-01T00:00:00.000Z" })
+    });
+    await backfillDeviceTagLinks(bucket);
+    const second = await backfillDeviceTagLinks(bucket);
+    assert.deepStrictEqual(second, { scanned: 1, backfilled: [], skipped: 1 });
+  });
+  await test("backfills multiple tags/devices in one pass, independently", async () => {
+    const bucket = makeFakeBucket({
+      ["tide-tags/" + T1 + ".json"]: JSON.stringify({ linkedDeviceId: D1 }),
+      ["tide-tags/" + T2 + ".json"]: JSON.stringify({ linkedDeviceId: D2 })
+    });
+    const result = await backfillDeviceTagLinks(bucket);
+    assert.strictEqual(result.scanned, 2);
+    assert.deepStrictEqual(result.backfilled.sort(), [D1, D2].sort());
+    assert.ok(bucket._store.has("device-tag-links/" + D1 + ".json"));
+    assert.ok(bucket._store.has("device-tag-links/" + D2 + ".json"));
+  });
+  await test("an unreadable/corrupt tag record is skipped, not a crash for the whole batch", async () => {
+    const bucket = makeFakeBucket({
+      ["tide-tags/" + T1 + ".json"]: "{ not valid json",
+      ["tide-tags/" + T2 + ".json"]: JSON.stringify({ linkedDeviceId: D2 })
+    });
+    const result = await backfillDeviceTagLinks(bucket);
+    assert.strictEqual(result.scanned, 2);
+    assert.deepStrictEqual(result.backfilled, [D2]);
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");
