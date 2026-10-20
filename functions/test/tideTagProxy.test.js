@@ -8,7 +8,7 @@
 // own copy of this fake for why).
 
 const assert = require("assert");
-const { tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler } = require("../index.js")._internal;
+const { tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler, backfillDeviceTagLinksHandler } = require("../index.js")._internal;
 
 // A valid, in-charset tagId at the new 20-char default length -- used
 // everywhere a test just needs SOME real tagId, same role "A7K2" played
@@ -21,6 +21,7 @@ function makeFakeBucket(initialFiles) {
   function fileHandle(path) {
     return {
       path,
+      name: path, // mirrors the real @google-cloud/storage File's own .name, which backfillDeviceTagLinks reads off a getFiles() result
       async download() {
         if (!store.has(path)) {
           const err = new Error("not found");
@@ -48,7 +49,15 @@ function makeFakeBucket(initialFiles) {
       }
     };
   }
-  return { file: fileHandle, _store: store };
+  return {
+    file: fileHandle,
+    async getFiles(opts) {
+      const prefix = (opts && opts.prefix) || "";
+      const names = Array.from(store.keys()).filter((k) => k.startsWith(prefix));
+      return [names.map(fileHandle)];
+    },
+    _store: store
+  };
 }
 
 // A bucket that already has tagId on the mint allowlist -- the
@@ -698,6 +707,58 @@ async function test(name, fn) {
     const res = fakeRes();
     await mintTideTagBatchHandler(req, res, makeFakeBucket({}));
     assert.strictEqual(res.statusCode, 405);
+  }));
+
+  console.log("backfillDeviceTagLinks: auth (same WAVECLOCK_MINT_SECRET gate as mintTideTagBatch -- not scoped to one tag/device either)");
+  await test("rejects a request with no secret at all", async () => {
+    const req = fakeReq({ method: "POST" });
+    const res = fakeRes();
+    await backfillDeviceTagLinksHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 403);
+  });
+  await test("rejects a request with the wrong secret", () => withSecret(async () => {
+    const req = fakeReq({ method: "POST", headers: { "x-mint-secret": "guessed-wrong" } });
+    const res = fakeRes();
+    const bucket = makeFakeBucket({ ["tide-tags/" + T1 + ".json"]: JSON.stringify({ linkedDeviceId: "WC-1" }) });
+    await backfillDeviceTagLinksHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 403);
+    assert.strictEqual(bucket._store.has("device-tag-links/WC-1.json"), false, "a wrong secret must never backfill anything");
+  }));
+  await test("refuses every request when no secret is configured at all", async () => {
+    const prev = process.env.WAVECLOCK_MINT_SECRET;
+    delete process.env.WAVECLOCK_MINT_SECRET;
+    try {
+      const req = fakeReq({ method: "POST", headers: {} });
+      const res = fakeRes();
+      await backfillDeviceTagLinksHandler(req, res, makeFakeBucket({}));
+      assert.strictEqual(res.statusCode, 403);
+    } finally {
+      if (prev === undefined) delete process.env.WAVECLOCK_MINT_SECRET; else process.env.WAVECLOCK_MINT_SECRET = prev;
+    }
+  });
+  await test("rejects any method other than POST", () => withSecret(async () => {
+    const req = fakeReq({ method: "GET", headers: { "x-mint-secret": "the-real-secret" } });
+    const res = fakeRes();
+    await backfillDeviceTagLinksHandler(req, res, makeFakeBucket({}));
+    assert.strictEqual(res.statusCode, 405);
+  }));
+
+  console.log("backfillDeviceTagLinks: backfilling (secret valid for the rest of these)");
+  await test("backfills a pre-existing link's missing reverse index and reports what it did", () => withSecret(async () => {
+    const req = fakeReq({ method: "POST", headers: { "x-mint-secret": "the-real-secret" } });
+    const res = fakeRes();
+    const bucket = makeFakeBucket({ ["tide-tags/" + T1 + ".json"]: JSON.stringify({ linkedDeviceId: "WC-1", linkedAt: "2026-01-01T00:00:00.000Z" }) });
+    await backfillDeviceTagLinksHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { scanned: 1, backfilled: ["WC-1"], skipped: 0 });
+    assert.ok(bucket._store.has("device-tag-links/WC-1.json"));
+  }));
+  await test("a genuine storage failure returns 502, not a crash", () => withSecret(async () => {
+    const req = fakeReq({ method: "POST", headers: { "x-mint-secret": "the-real-secret" } });
+    const res = fakeRes();
+    const bucket = { getFiles: async () => { const e = new Error("down"); e.code = 500; throw e; } };
+    await backfillDeviceTagLinksHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 502);
   }));
 
   console.log("\n" + passed + " passed, " + failed + " failed");

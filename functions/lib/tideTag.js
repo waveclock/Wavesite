@@ -485,6 +485,46 @@ async function redeemPairCode(bucket, code, deviceId) {
   return { status: "linked", tagId: entry.tagId, record };
 }
 
+// One-time repair for pairings made before device-tag-links/ existed at
+// all (it was added alongside linkTideTagToDevice's own write of it,
+// later than pairing itself) -- those tags were correctly linked on
+// their own tide-tags/ record, but have no reverse-index file for
+// deviceLinkStatusHandler to find, so Manage's own pairing card never
+// learned about them. Scans every tide-tags/ record for a
+// linkedDeviceId with no matching reverse link yet, and writes the
+// missing one. Never touches a device that already has a reverse link
+// (whether from this same tag or a newer pairing since) -- a repeat run
+// is a cheap no-op, and this never overwrites a link that's already
+// pointing somewhere else.
+async function backfillDeviceTagLinks(bucket) {
+  const [files] = await bucket.getFiles({ prefix: TIDE_TAGS_PREFIX });
+  let scanned = 0;
+  let skipped = 0;
+  const backfilled = [];
+  for (const file of files) {
+    scanned++;
+    const tagId = file.name.slice(TIDE_TAGS_PREFIX.length, -".json".length);
+    if (!isValidTagId(tagId)) continue; // not a real tag record (shouldn't happen, but never worth crashing the whole batch over)
+    let record;
+    try {
+      const [buf] = await file.download();
+      record = JSON.parse(buf.toString("utf8"));
+    } catch (err) {
+      continue; // unreadable/corrupt entry -- not this repair's job to fix
+    }
+    const deviceId = record && record.linkedDeviceId;
+    if (!deviceId || !isValidDeviceId(deviceId)) continue;
+    const existingLink = await fetchDeviceTagLink(bucket, deviceId);
+    if (existingLink) { skipped++; continue; }
+    await deviceTagLinkFile(bucket, deviceId).save(
+      JSON.stringify({ tagId, linkedAt: record.linkedAt || new Date().toISOString() }),
+      { contentType: "application/json" }
+    );
+    backfilled.push(deviceId);
+  }
+  return { scanned, backfilled, skipped };
+}
+
 // Unlinks a tag (lost/gifted keychain, or re-registering after a support
 // request clears it) -- best-effort delete, same "already gone isn't an
 // error" contract as index.js's own deleteIfExists.
@@ -498,4 +538,4 @@ async function deleteTideTag(bucket, tagId) {
   }
 }
 
-module.exports = { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, COAST_FACING_DIRECTIONS, ZONE_ID_PATTERN, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unlinkTideTagFromDevice, unpairDevice };
+module.exports = { TAG_ID_PATTERN, isValidTagId, DEVICE_ID_PATTERN, isValidDeviceId, PAIR_CODE_PATTERN, isValidPairCode, sanitizeCoords, sanitizeTownName, sanitizeCoastFacingDirection, sanitizeZoneId, COAST_FACING_DIRECTIONS, ZONE_ID_PATTERN, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLink, unlinkTideTagFromDevice, unpairDevice, backfillDeviceTagLinks };
