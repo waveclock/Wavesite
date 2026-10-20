@@ -49,42 +49,36 @@
   .wrap { max-width: 480px; margin: 0 auto; padding: 0 20px; }
 
   header.top {
-    text-align: center;
-    padding: 28px 20px 22px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px;
     background:
       radial-gradient(ellipse 500px 260px at 50% -20%, rgba(44,74,99,0.14), transparent 60%),
       linear-gradient(180deg, var(--sand) 0%, var(--sand) 100%);
   }
-  .brand-mark { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }
+  .brand-mark { width: 42px; height: 42px; display: block; flex-shrink: 0; }
   h1.brand {
-    font-family: var(--display);
-    font-size: 22px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 25px;
     margin: 0;
     color: var(--ink);
-    text-shadow: 2px 2px 0 var(--navy);
-    letter-spacing: 0.01em;
   }
-  .device-tag {
-    display: inline-block;
-    margin-top: 10px;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--ink-soft);
-    background: #fff;
-    border: 1.5px solid var(--line);
-    border-radius: 999px;
-    padding: 5px 14px;
-  }
-  .device-tag.error { color: var(--coral-dark); border-color: var(--coral); }
+  .device-tag { display: none; }
 
-  .intro { text-align: center; padding: 4px 8px 20px; }
+  /* Still the live confirmation headline after a successful save (see
+     introHeading.textContent = "Your location is set" further down) --
+     only the BEFORE-save content shrinks/condenses here, the element
+     itself has to stay real and visible for that to keep working. */
+  .intro { text-align: left; padding: 0 0 14px; }
   .intro h2 {
     font-family: var(--heading);
     font-weight: 700;
-    font-size: 24px;
-    margin: 0 0 8px;
+    font-size: 21px;
+    margin: 0;
   }
-  .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0; max-width: 38ch; margin: 0 auto; }
+  .intro p { display: none; }
 
   .current-location-card {
     display: none;
@@ -533,14 +527,14 @@
 
 <header class="top">
   <img src="../logo.png" alt="WaveClock.net logo" class="brand-mark">
-  <h1 class="brand">WAVE CLOCK</h1>
+  <h1 class="brand">My WaveClock</h1>
   <span class="device-tag" id="deviceTag">Checking your device&hellip;</span>
 </header>
 
 <div class="wrap">
 
   <div class="intro">
-    <h2 id="introHeading">Set your location</h2>
+    <h2 id="introHeading">Location &amp; Tide</h2>
     <p id="introSub">Pick your spot and your tide station &mdash; it'll show up on your Wave Clock in a minute or two.</p>
   </div>
 
