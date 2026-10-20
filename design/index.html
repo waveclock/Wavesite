@@ -48,43 +48,38 @@
 
   .wrap { max-width: 560px; margin: 0 auto; padding: 24px 20px 0; }
 
-  header { text-align: center; margin-bottom: 18px; }
+  header { text-align: center; margin-bottom: 14px; }
+  .brand-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+  }
+  .brand-mark { width: 42px; height: 42px; display: block; flex-shrink: 0; }
 
   h1 {
-    font-family: var(--display);
-    font-size: clamp(28px, 7vw, 38px);
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 25px;
     color: var(--ink);
-    text-shadow: 2px 2px 0 var(--navy);
-    margin: 0 0 8px;
-    letter-spacing: 0.01em;
-  }
-
-  .subtitle {
-    font-family: var(--heading);
-    font-style: italic;
-    font-size: 15px;
-    color: var(--ink-soft);
     margin: 0;
   }
+
+  .subtitle { display: none; }
 
   .feature-callout {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin: 14px auto 0;
+    gap: 10px;
+    margin: 10px auto 0;
     max-width: 420px;
-    padding: 10px 14px;
+    padding: 9px 14px;
     background: var(--foam);
     border: 2px dashed var(--coral);
-    border-radius: 14px;
+    border-radius: 10px;
     text-align: left;
   }
-  .feature-callout-icons {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    flex-shrink: 0;
-  }
+  .feature-callout-icons { display: none; }
   .feature-callout-icon {
     width: 30px;
     height: 30px;
@@ -100,7 +95,7 @@
     font-family: var(--body);
     font-weight: 700;
     font-size: 13.5px;
-    margin: 0 0 2px;
+    margin: 0;
     color: var(--ink);
   }
   .feature-callout-title .badge-pill {
@@ -116,11 +111,7 @@
     margin-right: 6px;
     transform: translateY(-1px);
   }
-  .feature-callout-desc {
-    font-size: 12px;
-    color: var(--ink-soft);
-    margin: 0;
-    line-height: 1.35;
+  .feature-callout-desc { display: none;
   }
 
   /* ---------- Collapsible tool guide -- what each toolbar button's
@@ -808,7 +799,10 @@
 
 <div class="wrap">
   <header>
-    <h1>DESIGN YOUR<br>WAVE CLOCK</h1>
+    <div class="brand-row">
+      <img src="../logo.png" alt="WaveClock.net logo" class="brand-mark">
+      <h1>My WaveClock</h1>
+    </div>
     <p class="subtitle">Draw something, write something, upload a picture &mdash; whatever you want to see every time it cycles by.</p>
     <div class="feature-callout">
       <div class="feature-callout-icons">
@@ -906,7 +900,7 @@
       </ul>
     </details>
 
-    <p class="screen-nav-caption" id="screenNavCaption" style="display:none;">Every Wave Clock has 3 custom screens &mdash; tap a number below to design each one.</p>
+    <p class="screen-nav-caption" id="screenNavCaption" style="display:none;"></p>
     <div class="screen-nav" id="screenNav" style="display:none;"></div>
     <label class="rotation-toggle-row" id="rotationToggleRow" style="display:none;">
       <input type="checkbox" id="rotationCheckbox">
