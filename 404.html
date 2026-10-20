@@ -994,7 +994,23 @@
   const TAG_MATCH = location.pathname.match(/^\/t\/([2-9A-Za-z]{16,32})\/?$/);
   const tagId = TAG_MATCH ? TAG_MATCH[1].toUpperCase() : null;
 
-  if (!tagId) {
+  // A device-scoped PREVIEW of this screen -- reachable only from a
+  // WaveClock's own Manage page (../manage/?id=...) once it has a
+  // keychain paired, so an owner can see what their keychain actually
+  // shows without the physical tag in hand. Deliberately never touches
+  // a real tagId at all: unlike a keychain's own /t/{tagId} link (an
+  // unguessable bearer credential -- see DEVICE_TAG_LINKS_PREFIX's own
+  // comment in lib/tideTag.js for why that's never exposed), deviceId
+  // is already the same no-secret trust token every other device-scoped
+  // page here (Location/Settings/Design/Manage) relies on, so this
+  // exposes nothing a visitor to Manage couldn't already see. Not
+  // validated beyond "present" -- same trust model those other pages
+  // already use for their own ?id=, a bad value just 404s on the fetch.
+  const previewDeviceId = (!tagId && location.pathname === '/t/preview')
+    ? new URLSearchParams(location.search).get('id')
+    : null;
+
+  if (!tagId && !previewDeviceId) {
     $('notfound').classList.remove('hidden');
     return;
   }
@@ -1008,8 +1024,10 @@
   // <head>, same spirit as everything else on this page being derived
   // from the current tagId. A failure here (e.g. third-party cookies/
   // storage blocked) just means no install prompt -- the tide itself
-  // doesn't depend on it.
-  try {
+  // doesn't depend on it. Skipped entirely for a preview -- it has no
+  // tagId identity of its own to install, and the raw pathname (with no
+  // ?id= attached) would be a broken start_url anyway.
+  if (tagId) try {
     const manifest = {
       id: location.pathname,
       name: 'WaveClock Tide',
@@ -1036,11 +1054,17 @@
     navigator.serviceWorker.register('/sw.js', { scope: '/t/' }).catch(() => {});
   }
 
-  const CACHE_KEY = 'wc_tide_tag_' + tagId;
+  // Both guarded on tagId -- a preview has none, and caching under a
+  // single shared 'wc_tide_tag_null' key would be both pointless (a
+  // preview is never meant to be revisited offline) and liable to
+  // collide across different previews/visitors sharing a browser.
+  const CACHE_KEY = tagId ? ('wc_tide_tag_' + tagId) : null;
   function loadTagCache() {
+    if (!CACHE_KEY) return null;
     try { return JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); } catch (e) { return null; }
   }
   function saveTagCache(st) {
+    if (!CACHE_KEY) return;
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(st)); } catch (e) {}
   }
 
@@ -3965,7 +3989,11 @@
       if (!cached) openPicker();
     }
   }
-  boot();
+  // A preview never has a tagId to register/check -- it goes straight
+  // through the exact same device-linked path a real paired keychain
+  // takes (completeLinking), just entered directly instead of via
+  // checkRegistration() reporting a linkedDeviceId.
+  if (previewDeviceId) { completeLinking(previewDeviceId); } else { boot(); }
 })();
 </script>
 </body>
