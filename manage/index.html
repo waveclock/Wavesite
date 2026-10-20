@@ -46,42 +46,29 @@
   .wrap { max-width: 480px; margin: 0 auto; padding: 0 20px; }
 
   header.top {
-    text-align: center;
-    padding: 28px 20px 22px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px;
     background:
       radial-gradient(ellipse 500px 260px at 50% -20%, rgba(44,74,99,0.14), transparent 60%),
       linear-gradient(180deg, var(--sand) 0%, var(--sand) 100%);
   }
-  .brand-mark { width: 56px; height: 56px; margin: 0 auto 10px; display: block; }
+  .brand-mark { width: 42px; height: 42px; display: block; flex-shrink: 0; }
   h1.brand {
-    font-family: var(--display);
-    font-size: 22px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 25px;
     margin: 0;
     color: var(--ink);
-    text-shadow: 2px 2px 0 var(--navy);
-    letter-spacing: 0.01em;
   }
-  .device-tag {
-    display: inline-block;
-    margin-top: 10px;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--ink-soft);
-    background: #fff;
-    border: 1.5px solid var(--line);
-    border-radius: 999px;
-    padding: 5px 14px;
-  }
-  .device-tag.error { color: var(--coral-dark); border-color: var(--coral); }
-
-  .intro { text-align: center; padding: 4px 8px 20px; }
-  .intro h2 {
-    font-family: var(--heading);
-    font-weight: 700;
-    font-size: 24px;
-    margin: 0 0 8px;
-  }
-  .intro p { color: var(--ink-soft); font-size: 14.5px; margin: 0 auto; max-width: 38ch; }
+  /* The deviceId pill and the "Manage your Wave Clock" intro both just
+     restated what the brand header + hub cards already make obvious --
+     dropped rather than shrunk, see this session's own design pass. The
+     no-device-msg below still covers the one case the pill's error state
+     used to (a link with no deviceId at all), so nothing is lost. */
+  .device-tag { display: none; }
+  .intro { display: none; }
 
   .no-device-msg {
     display: none;
@@ -143,8 +130,8 @@
   }
   .hub-icon svg { width: 26px; height: 26px; display: block; }
   .hub-text { flex: 1; min-width: 0; }
-  .hub-title { display: block; font-family: var(--heading); font-weight: 700; font-size: 17px; margin: 0 0 3px; }
-  .hub-desc { display: block; font-size: 13px; color: var(--ink-soft); margin: 0; }
+  .hub-title { display: block; font-family: var(--heading); font-weight: 700; font-size: 17px; margin: 0; }
+  .hub-desc { display: none; }
   .hub-chevron { flex-shrink: 0; width: 18px; height: 18px; color: var(--ink-soft); }
 
   .preview-link {
@@ -176,7 +163,7 @@
 
 <header class="top">
   <img src="../logo.png" alt="WaveClock.net logo" class="brand-mark">
-  <h1 class="brand">WAVE CLOCK</h1>
+  <h1 class="brand">My WaveClock</h1>
   <span class="device-tag" id="deviceTag">Checking your device&hellip;</span>
 </header>
 
@@ -203,7 +190,7 @@
         </svg>
       </span>
       <span class="hub-text">
-        <span class="hub-title">Location</span>
+        <span class="hub-title">Location &amp; Tide Station</span>
         <span class="hub-desc">Town, tide station &amp; forecast zone</span>
       </span>
       <svg class="hub-chevron" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
