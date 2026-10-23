@@ -1433,7 +1433,134 @@ async function backfillDeviceTagLinksHandler(req, res, bucketImpl) {
 
 exports.backfillDeviceTagLinks = onRequest({ cors: false, region: "us-central1" }, backfillDeviceTagLinksHandler);
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Admin-only, read-only: every device that already has a srfZone +
+// coastFacingDirection on file, grouped by zone, so a canonical
+// per-zone direction can be picked once (going into
+// KNOWN_ZONE_COAST_DIRECTIONS in location/index.html) and reused for
+// every future device in that zone instead of re-deriving it each
+// time. Reads device-status/{id}.json first and only falls back to
+// locations/{id}.json for a device missing there, same precedence
+// fetchDeviceStatusLocation/fetchDeviceLocation already use in
+// 404.html, so this reflects what's actually applied rather than
+// whatever the website last submitted. A GET with a query-string
+// secret, not a POST with a header like mintTideTagBatch/
+// backfillDeviceTagLinks above, since this is meant to be opened
+// straight in a browser as a page -- same WAVECLOCK_MINT_SECRET as
+// those, just read from req.query instead.
+async function coastOrientationReportHandler(req, res, bucketImpl) {
+  const bucket = bucketImpl || admin.storage().bucket();
+
+  const providedSecret = req.query && req.query.secret;
+  const realSecret = mintSecretValue();
+  if (!realSecret || providedSecret !== realSecret) {
+    res.status(403).send("Invalid or missing secret");
+    return;
+  }
+
+  const STATUS_PREFIX = "device-status/";
+  const LOCATIONS_PREFIX = "locations/";
+  const idFrom = (prefix, name) => (name.startsWith(prefix) && name.endsWith(".json")) ? name.slice(prefix.length, -5) : null;
+
+  const [statusFiles] = await bucket.getFiles({ prefix: STATUS_PREFIX });
+  const [locationFiles] = await bucket.getFiles({ prefix: LOCATIONS_PREFIX });
+  const statusIds = new Set(statusFiles.map((f) => idFrom(STATUS_PREFIX, f.name)).filter(Boolean));
+  const locationIds = new Set(locationFiles.map((f) => idFrom(LOCATIONS_PREFIX, f.name)).filter(Boolean));
+  const allIds = Array.from(new Set([...statusIds, ...locationIds])).filter(isValidDeviceId).sort();
+
+  async function readJson(path) {
+    try {
+      const [buf] = await bucket.file(path).download();
+      return JSON.parse(buf.toString("utf8"));
+    } catch (err) {
+      return null; // missing or malformed -- treat the same as "nothing on file"
+    }
+  }
+
+  const rows = await Promise.all(allIds.map(async (deviceId) => {
+    let srfZone = null, coastFacingDirection = null, source = null;
+    if (statusIds.has(deviceId)) {
+      const j = await readJson(STATUS_PREFIX + deviceId + ".json");
+      const loc = j && j.location;
+      if (loc && loc.srfZone) {
+        srfZone = loc.srfZone;
+        coastFacingDirection = loc.coastFacingDirection || null;
+        source = "device-status";
+      }
+    }
+    if (!srfZone && locationIds.has(deviceId)) {
+      const j = await readJson(LOCATIONS_PREFIX + deviceId + ".json");
+      if (j && j.srfZone) {
+        srfZone = j.srfZone;
+        coastFacingDirection = j.coastFacingDirection || null;
+        source = "locations";
+      }
+    }
+    return { deviceId, srfZone, coastFacingDirection, source };
+  }));
+
+  const byZone = new Map();
+  for (const row of rows) {
+    const zone = row.srfZone || "(none on file)";
+    if (!byZone.has(zone)) byZone.set(zone, []);
+    byZone.get(zone).push(row);
+  }
+  const zones = Array.from(byZone.keys()).sort();
+
+  function directionTally(devices) {
+    const counts = new Map();
+    for (const d of devices) {
+      const key = d.coastFacingDirection || "(none)";
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }
+
+  let html = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Coast orientation by surf zone</title><style>" +
+    "body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px;color:#222;}" +
+    "h1{font-size:20px;}" +
+    "table{border-collapse:collapse;width:100%;margin:8px 0 28px;}" +
+    "th,td{border:1px solid #ccc;padding:6px 10px;font-size:13px;text-align:left;}" +
+    "th{background:#f3f3f3;}" +
+    ".zone-header{font-size:16px;font-weight:700;margin:22px 0 4px;}" +
+    ".mixed{color:#a65900;font-weight:600;}" +
+    ".muted{color:#666;font-size:12px;}" +
+    ".summary td,.summary th{font-size:13px;}" +
+    "</style></head><body>" +
+    "<h1>Coast orientation by surf zone</h1>" +
+    "<p class=\"muted\">" + rows.length + " device(s) with a location on file, across " + zones.length + " zone(s). Generated " + escapeHtml(new Date().toISOString()) + ".</p>";
+
+  html += "<table class=\"summary\"><tr><th>Zone</th><th>Devices</th><th>Directions seen (device count)</th></tr>";
+  for (const zone of zones) {
+    const devices = byZone.get(zone);
+    const tally = directionTally(devices);
+    const mixed = tally.length > 1;
+    const tallyText = tally.map(([dir, n]) => dir + " (" + n + ")").join(", ");
+    html += "<tr><td>" + escapeHtml(zone) + "</td><td>" + devices.length + "</td><td class=\"" + (mixed ? "mixed" : "") + "\">" + escapeHtml(tallyText) + "</td></tr>";
+  }
+  html += "</table>";
+
+  for (const zone of zones) {
+    const devices = byZone.get(zone);
+    const mixed = directionTally(devices).length > 1;
+    html += "<div class=\"zone-header\">" + escapeHtml(zone) + (mixed ? " &mdash; <span class=\"mixed\">mixed directions, pick one</span>" : "") + "</div>";
+    html += "<table><tr><th>Device</th><th>Coast faces</th><th>Source</th></tr>";
+    for (const d of devices) {
+      html += "<tr><td>" + escapeHtml(d.deviceId) + "</td><td>" + escapeHtml(d.coastFacingDirection || "(none)") + "</td><td>" + escapeHtml(d.source || "(none)") + "</td></tr>";
+    }
+    html += "</table>";
+  }
+
+  html += "</body></html>";
+  res.status(200).set("Content-Type", "text/html; charset=utf-8").send(html);
+}
+
+exports.coastOrientationReport = onRequest({ cors: false, region: "us-central1" }, coastOrientationReportHandler);
+
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler, backfillDeviceTagLinksHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler, backfillDeviceTagLinksHandler, coastOrientationReportHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
