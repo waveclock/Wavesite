@@ -1437,12 +1437,19 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// Admin-only, read-only: every device that already has a srfZone +
-// coastFacingDirection on file, grouped by zone, so a canonical
+// Admin-only, read-only: every device that already has a cwfZone +
+// coastFacingDirection on file, grouped by cwfZone, so a canonical
 // per-zone direction can be picked once (going into
 // KNOWN_ZONE_COAST_DIRECTIONS in location/index.html) and reused for
 // every future device in that zone instead of re-deriving it each
-// time. Reads device-status/{id}.json first and only falls back to
+// time. Grouped by cwfZone specifically, NOT srfZone -- despite the
+// similar-looking names, these are two different NWS zone systems for
+// the same stretch of coast (srfZone is the inland-reaching public
+// land zone, e.g. "NJZ025"; cwfZone is the coastal-waters/marine zone,
+// e.g. "ANZ452"), and KNOWN_ZONE_COAST_DIRECTIONS is looked up by
+// selectedMarineZoneId, which holds the latter. srfZone is still shown
+// per device as context, just not used for grouping. Reads
+// device-status/{id}.json first and only falls back to
 // locations/{id}.json for a device missing there, same precedence
 // fetchDeviceStatusLocation/fetchDeviceLocation already use in
 // 404.html, so this reflects what's actually applied rather than
@@ -1481,30 +1488,32 @@ async function coastOrientationReportHandler(req, res, bucketImpl) {
   }
 
   const rows = await Promise.all(allIds.map(async (deviceId) => {
-    let srfZone = null, coastFacingDirection = null, source = null;
+    let cwfZone = null, srfZone = null, coastFacingDirection = null, source = null;
     if (statusIds.has(deviceId)) {
       const j = await readJson(STATUS_PREFIX + deviceId + ".json");
       const loc = j && j.location;
-      if (loc && loc.srfZone) {
-        srfZone = loc.srfZone;
+      if (loc && loc.cwfZone) {
+        cwfZone = loc.cwfZone;
+        srfZone = loc.srfZone || null;
         coastFacingDirection = loc.coastFacingDirection || null;
         source = "device-status";
       }
     }
-    if (!srfZone && locationIds.has(deviceId)) {
+    if (!cwfZone && locationIds.has(deviceId)) {
       const j = await readJson(LOCATIONS_PREFIX + deviceId + ".json");
-      if (j && j.srfZone) {
-        srfZone = j.srfZone;
+      if (j && j.cwfZone) {
+        cwfZone = j.cwfZone;
+        srfZone = j.srfZone || null;
         coastFacingDirection = j.coastFacingDirection || null;
         source = "locations";
       }
     }
-    return { deviceId, srfZone, coastFacingDirection, source };
+    return { deviceId, cwfZone, srfZone, coastFacingDirection, source };
   }));
 
   const byZone = new Map();
   for (const row of rows) {
-    const zone = row.srfZone || "(none on file)";
+    const zone = row.cwfZone || "(none on file)";
     if (!byZone.has(zone)) byZone.set(zone, []);
     byZone.get(zone).push(row);
   }
@@ -1519,7 +1528,7 @@ async function coastOrientationReportHandler(req, res, bucketImpl) {
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }
 
-  let html = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Coast orientation by surf zone</title><style>" +
+  let html = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Coast orientation by marine zone</title><style>" +
     "body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:24px;color:#222;}" +
     "h1{font-size:20px;}" +
     "table{border-collapse:collapse;width:100%;margin:8px 0 28px;}" +
@@ -1530,10 +1539,11 @@ async function coastOrientationReportHandler(req, res, bucketImpl) {
     ".muted{color:#666;font-size:12px;}" +
     ".summary td,.summary th{font-size:13px;}" +
     "</style></head><body>" +
-    "<h1>Coast orientation by surf zone</h1>" +
+    "<h1>Coast orientation by marine zone (cwfZone)</h1>" +
+    "<p class=\"muted\">This is the zone KNOWN_ZONE_COAST_DIRECTIONS is actually keyed by -- not the land/public zone (srfZone), shown alongside each device only for context.</p>" +
     "<p class=\"muted\">" + rows.length + " device(s) with a location on file, across " + zones.length + " zone(s). Generated " + escapeHtml(new Date().toISOString()) + ".</p>";
 
-  html += "<table class=\"summary\"><tr><th>Zone</th><th>Devices</th><th>Directions seen (device count)</th></tr>";
+  html += "<table class=\"summary\"><tr><th>Marine zone (cwfZone)</th><th>Devices</th><th>Directions seen (device count)</th></tr>";
   for (const zone of zones) {
     const devices = byZone.get(zone);
     const tally = directionTally(devices);
@@ -1547,9 +1557,9 @@ async function coastOrientationReportHandler(req, res, bucketImpl) {
     const devices = byZone.get(zone);
     const mixed = directionTally(devices).length > 1;
     html += "<div class=\"zone-header\">" + escapeHtml(zone) + (mixed ? " &mdash; <span class=\"mixed\">mixed directions, pick one</span>" : "") + "</div>";
-    html += "<table><tr><th>Device</th><th>Coast faces</th><th>Source</th></tr>";
+    html += "<table><tr><th>Device</th><th>Coast faces</th><th>Land zone (srfZone)</th><th>Source</th></tr>";
     for (const d of devices) {
-      html += "<tr><td>" + escapeHtml(d.deviceId) + "</td><td>" + escapeHtml(d.coastFacingDirection || "(none)") + "</td><td>" + escapeHtml(d.source || "(none)") + "</td></tr>";
+      html += "<tr><td>" + escapeHtml(d.deviceId) + "</td><td>" + escapeHtml(d.coastFacingDirection || "(none)") + "</td><td>" + escapeHtml(d.srfZone || "(none)") + "</td><td>" + escapeHtml(d.source || "(none)") + "</td></tr>";
     }
     html += "</table>";
   }

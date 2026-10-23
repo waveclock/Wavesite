@@ -114,8 +114,8 @@ async function test(name, fn) {
 
   await test("device-status takes precedence over locations/ for the same device", async () => {
     const bucket = makeFakeBucket({
-      "device-status/WC-AAA.json": deviceStatusFile({ srfZone: "NJZ025", coastFacingDirection: "E" }),
-      "locations/WC-AAA.json": locationsFile({ srfZone: "NJZ025", coastFacingDirection: "SW" })
+      "device-status/WC-AAA.json": deviceStatusFile({ cwfZone: "ANZ452", srfZone: "NJZ025", coastFacingDirection: "E" }),
+      "locations/WC-AAA.json": locationsFile({ cwfZone: "ANZ452", srfZone: "NJZ025", coastFacingDirection: "SW" })
     });
     const req = fakeReq({ query: { secret: SECRET } });
     const res = fakeRes();
@@ -126,10 +126,10 @@ async function test(name, fn) {
     assert.ok(!res.body.includes(">SW<"));
   });
 
-  await test("falls back to locations/ when device-status has no srfZone", async () => {
+  await test("falls back to locations/ when device-status has no cwfZone", async () => {
     const bucket = makeFakeBucket({
       "device-status/WC-BBB.json": deviceStatusFile({}),
-      "locations/WC-BBB.json": locationsFile({ srfZone: "NJZ024", coastFacingDirection: "SE" })
+      "locations/WC-BBB.json": locationsFile({ cwfZone: "ANZ452", srfZone: "NJZ024", coastFacingDirection: "SE" })
     });
     const req = fakeReq({ query: { secret: SECRET } });
     const res = fakeRes();
@@ -141,7 +141,7 @@ async function test(name, fn) {
 
   await test("falls back to locations/ when device-status/ is missing entirely", async () => {
     const bucket = makeFakeBucket({
-      "locations/WC-CCC.json": locationsFile({ srfZone: "NJZ024", coastFacingDirection: "SE" })
+      "locations/WC-CCC.json": locationsFile({ cwfZone: "ANZ452", srfZone: "NJZ024", coastFacingDirection: "SE" })
     });
     const req = fakeReq({ query: { secret: SECRET } });
     const res = fakeRes();
@@ -150,10 +150,10 @@ async function test(name, fn) {
     assert.ok(res.body.includes("WC-CCC"));
   });
 
-  await test("agreeing devices in the same zone are not flagged mixed", async () => {
+  await test("agreeing devices in the same marine zone are not flagged mixed", async () => {
     const bucket = makeFakeBucket({
-      "device-status/WC-D1.json": deviceStatusFile({ srfZone: "NJZ025", coastFacingDirection: "E" }),
-      "device-status/WC-D2.json": deviceStatusFile({ srfZone: "NJZ025", coastFacingDirection: "E" })
+      "device-status/WC-D1.json": deviceStatusFile({ cwfZone: "ANZ452", srfZone: "NJZ025", coastFacingDirection: "E" }),
+      "device-status/WC-D2.json": deviceStatusFile({ cwfZone: "ANZ452", srfZone: "NJZ025", coastFacingDirection: "E" })
     });
     const req = fakeReq({ query: { secret: SECRET } });
     const res = fakeRes();
@@ -162,10 +162,10 @@ async function test(name, fn) {
     assert.ok(!res.body.includes("mixed directions"));
   });
 
-  await test("disagreeing devices in the same zone are flagged mixed", async () => {
+  await test("disagreeing devices in the same marine zone are flagged mixed", async () => {
     const bucket = makeFakeBucket({
-      "device-status/WC-D1.json": deviceStatusFile({ srfZone: "NJZ025", coastFacingDirection: "E" }),
-      "device-status/WC-D2.json": deviceStatusFile({ srfZone: "NJZ025", coastFacingDirection: "SW" })
+      "device-status/WC-D1.json": deviceStatusFile({ cwfZone: "ANZ452", srfZone: "NJZ025", coastFacingDirection: "E" }),
+      "device-status/WC-D2.json": deviceStatusFile({ cwfZone: "ANZ452", srfZone: "NJZ025", coastFacingDirection: "SW" })
     });
     const req = fakeReq({ query: { secret: SECRET } });
     const res = fakeRes();
@@ -174,9 +174,49 @@ async function test(name, fn) {
     assert.ok(res.body.includes("mixed directions"));
   });
 
+  // Guards specifically against the bug this report shipped with once
+  // already: grouping by the land zone (srfZone) instead of the marine
+  // zone (cwfZone) that KNOWN_ZONE_COAST_DIRECTIONS is actually keyed by.
+  await test("groups by cwfZone, not srfZone -- two devices sharing a srfZone but in different cwfZones land in separate zone sections", async () => {
+    const bucket = makeFakeBucket({
+      "device-status/WC-E1.json": deviceStatusFile({ cwfZone: "ANZ452", srfZone: "NJZ025", coastFacingDirection: "E" }),
+      "device-status/WC-E2.json": deviceStatusFile({ cwfZone: "ANZ453", srfZone: "NJZ025", coastFacingDirection: "SE" })
+    });
+    const req = fakeReq({ query: { secret: SECRET } });
+    const res = fakeRes();
+    await coastOrientationReportHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+    assert.ok(res.body.includes("ANZ452"));
+    assert.ok(res.body.includes("ANZ453"));
+    assert.ok(!res.body.includes("mixed directions"), "different cwfZones must not be merged into one 'mixed' group");
+  });
+
+  await test("a device's srfZone is shown as context but is never used as a zone heading", async () => {
+    const bucket = makeFakeBucket({
+      "device-status/WC-F1.json": deviceStatusFile({ cwfZone: "ANZ452", srfZone: "NJZ025", coastFacingDirection: "E" })
+    });
+    const req = fakeReq({ query: { secret: SECRET } });
+    const res = fakeRes();
+    await coastOrientationReportHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+    assert.ok(res.body.includes(">NJZ025<"), "srfZone should still appear somewhere, as context");
+    assert.ok(res.body.includes("ANZ452"));
+  });
+
+  await test("a device missing cwfZone (but with srfZone) on both sources falls into the 'none on file' group", async () => {
+    const bucket = makeFakeBucket({
+      "device-status/WC-G1.json": deviceStatusFile({ srfZone: "NJZ025", coastFacingDirection: "E" })
+    });
+    const req = fakeReq({ query: { secret: SECRET } });
+    const res = fakeRes();
+    await coastOrientationReportHandler(req, res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+    assert.ok(res.body.includes("(none on file)"));
+  });
+
   await test("a malformed device filename (path-traversal shape) is skipped", async () => {
     const bucket = makeFakeBucket({
-      "device-status/../../etc/passwd.json": deviceStatusFile({ srfZone: "NJZ025", coastFacingDirection: "E" })
+      "device-status/../../etc/passwd.json": deviceStatusFile({ cwfZone: "ANZ452", srfZone: "NJZ025", coastFacingDirection: "E" })
     });
     const req = fakeReq({ query: { secret: SECRET } });
     const res = fakeRes();
