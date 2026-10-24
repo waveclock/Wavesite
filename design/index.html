@@ -15,6 +15,15 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
+  /* Beach Day's preview self-hosts the exact same FreeSansBold.ttf the
+     device itself renders with, rather than a Google Fonts approximation
+     (see drawBeachDayCardClient's own comment below for why). */
+  @font-face {
+    font-family: "WC Beach Day FreeSans";
+    src: url("../assets/beach-day/FreeSansBold.ttf") format("truetype");
+    font-weight: normal;
+    font-style: normal;
+  }
   :root {
     --sand: #F1E6CF;
     --foam: #F8F2E4;
@@ -2208,8 +2217,14 @@
         const drawFn = isMusic ? drawMusicCardClient
           : obj.subType === "ocnjEvents" ? drawOcnjEventsCardClient
           : obj.subType === "hurricaneTracker" ? drawHurricaneTrackerCardClient
+          : obj.subType === "beachDay" ? drawBeachDayCardClient
           : drawBeachFlagCardClient;
-        drawFn(ctx, obj.cardData);
+        // Beach Day alone needs a third (icons) argument -- fetchData
+        // below stashes the already-loaded icon images on cardData.icons
+        // itself so this dispatch doesn't need its own subType branch for
+        // it. Every other subtype's draw function just ignores a third
+        // argument it was never written to take.
+        drawFn(ctx, obj.cardData, obj.cardData.icons || {});
       } else {
         drawText(ctx, obj.previewContent || "LOADING…", obj);
       }
@@ -4993,9 +5008,215 @@
     hurricaneDrawMapPanel(ctx, mapPanel, Object.assign({ townLat: data.townLat, townLon: data.townLon }, data));
   }
 
+  // ================= Beach Day (client preview) =================
+  // Direct port of drawBeachDayCard in functions/lib/dynamic.js -- same
+  // duplicated-per-file convention as every other full-bleed card here
+  // (see that file's own header comment on why duplicated, not shared:
+  // no build step between this page and the functions codebase). Uses
+  // the real icon PNGs and the real FreeSansBold font (self-hosted at
+  // ../assets/beach-day/, copied from the same files functions/icons/
+  // and functions/fonts/ bundle server-side) rather than an
+  // approximate substitute -- unlike this file's Bungee/PT Serif
+  // approximations (Google Fonts stand-ins for the server's own .ttf),
+  // Beach Day's whole point is to look like the device's own screen, so
+  // an approximate font would defeat that even in preview.
+  const BEACHDAY_FONT = "WC Beach Day FreeSans";
+  const BEACHDAY_ICON_BASE = "../assets/beach-day/";
+  const BEACHDAY_ICON_NAMES = [
+    "icon_wave", "icon_wave_small", "icon_water", "icon_wind", "icon_air", "icon_air_small",
+    "icon_uv", "icon_humidity", "icon_fly",
+    "skyIconLarge_sunny", "skyIconLarge_clear", "skyIconLarge_partly_cloudy", "skyIconLarge_cloudy",
+    "skyIconLarge_rainy", "skyIconLarge_snowy", "skyIconLarge_thunderstorm"
+  ];
+  let beachDayIconsPromise = null;
+  function loadBeachDayIconsClient() {
+    if (beachDayIconsPromise) return beachDayIconsPromise;
+    beachDayIconsPromise = Promise.all(BEACHDAY_ICON_NAMES.map((name) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve([name, img]);
+      img.onerror = () => resolve([name, null]); // a missing icon degrades to "just don't draw it", not a broken preview
+      img.src = BEACHDAY_ICON_BASE + name + ".png";
+    }))).then((pairs) => Object.fromEntries(pairs));
+    return beachDayIconsPromise;
+  }
+  const BEACHDAY_PT_TO_PX = 141 / 72;
+  const BEACHDAY_F9 = 9 * BEACHDAY_PT_TO_PX, BEACHDAY_F12 = 12 * BEACHDAY_PT_TO_PX, BEACHDAY_F18 = 18 * BEACHDAY_PT_TO_PX, BEACHDAY_F24 = 24 * BEACHDAY_PT_TO_PX;
+  function beachDaySetFont(ctx, px) { ctx.font = px + 'px "' + BEACHDAY_FONT + '"'; }
+  function beachDayInkBBox(ctx, s, px) {
+    beachDaySetFont(ctx, px);
+    const m = ctx.measureText(s);
+    return { x0: -m.actualBoundingBoxLeft, y0: -m.actualBoundingBoxAscent, x1: m.actualBoundingBoxRight, y1: m.actualBoundingBoxDescent };
+  }
+  function beachDayInkWidth(ctx, s, px) { const b = beachDayInkBBox(ctx, s, px); return b.x1 - b.x0; }
+  function beachDayPut(ctx, s, x, y, px) { beachDaySetFont(ctx, px); ctx.textAlign = "left"; ctx.fillText(s, x, y); }
+  function beachDayPutC(ctx, s, cx, y, px) {
+    const b = beachDayInkBBox(ctx, s, px);
+    const x = cx - Math.floor((b.x1 - b.x0) / 2) - b.x0;
+    ctx.textAlign = "left";
+    ctx.fillText(s, x, y);
+  }
+  function beachDayDegreeRing(ctx, x, y, r) {
+    ctx.lineWidth = 1; ctx.strokeStyle = "#000";
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, r - 1, 0, Math.PI * 2); ctx.stroke();
+  }
+  function beachDayFillTriangle(ctx, a, b, c) {
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]); ctx.closePath(); ctx.fill();
+  }
+  const BEACHDAY_COMPASS_DEG = { N: 0, NE: 45, E: 90, SE: 135, S: 180, SW: 225, W: 270, NW: 315 };
+  function beachDayDrawWindArrow(ctx, cx, cy, r, compass) {
+    const deg = BEACHDAY_COMPASS_DEG[compass] != null ? BEACHDAY_COMPASS_DEG[compass] : 0;
+    const rad = (deg * Math.PI) / 180;
+    const dx = -Math.sin(rad), dy = Math.cos(rad);
+    const px = -dy, py = dx;
+    const tip = [cx + Math.trunc(r * dx), cy + Math.trunc(r * dy)];
+    const tail = [cx - Math.trunc(r * dx), cy - Math.trunc(r * dy)];
+    const hw = r * 0.182;
+    const ah = Math.trunc(r * 0.5);
+    const shaftEnd = [tip[0] - Math.trunc(ah * 0.6 * dx), tip[1] - Math.trunc(ah * 0.6 * dy)];
+    const rnd = (v) => Math.floor(v + 0.5);
+    const s1 = [rnd(tail[0] + px * hw), rnd(tail[1] + py * hw)];
+    const s2 = [rnd(tail[0] - px * hw), rnd(tail[1] - py * hw)];
+    const s3 = [rnd(shaftEnd[0] + px * hw), rnd(shaftEnd[1] + py * hw)];
+    const s4 = [rnd(shaftEnd[0] - px * hw), rnd(shaftEnd[1] - py * hw)];
+    ctx.fillStyle = "#000";
+    beachDayFillTriangle(ctx, s1, s2, s3);
+    beachDayFillTriangle(ctx, s2, s3, s4);
+    const base = [tip[0] - Math.trunc(ah * dx), tip[1] - Math.trunc(ah * dy)];
+    const hh = r * 0.545;
+    const h1 = [rnd(base[0] + px * hh), rnd(base[1] + py * hh)];
+    const h2 = [rnd(base[0] - px * hh), rnd(base[1] - py * hh)];
+    beachDayFillTriangle(ctx, tip, h1, h2);
+  }
+  const BEACHDAY_SKY_ICON_BY_WORD = {
+    Sunny: "skyIconLarge_sunny", Clear: "skyIconLarge_clear", "Partly Cloudy": "skyIconLarge_partly_cloudy",
+    Cloudy: "skyIconLarge_cloudy", Rainy: "skyIconLarge_rainy", Snowy: "skyIconLarge_snowy", Thunderstorm: "skyIconLarge_thunderstorm"
+  };
+  function drawBeachDayCardClient(ctx, data, icons) {
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, 792, 272);
+    ctx.fillStyle = "#000"; ctx.textBaseline = "alphabetic";
+
+    // No usable device location/station on file -- unlike the full card
+    // below, there's nothing real to draw yet (every field needs lat/lon
+    // and a tide station), so this just explains what to do instead of
+    // attempting a blank/bogus render.
+    if (data.noLocation) {
+      ctx.textAlign = "center";
+      ctx.font = BEACHDAY_F18 + 'px "' + BEACHDAY_FONT + '"';
+      ctx.fillText("BEACH DAY", 396, 110);
+      ctx.font = BEACHDAY_F12 + 'px "' + BEACHDAY_FONT + '"';
+      ctx.fillText("Set a device location with a tide station (see Manage)", 396, 150);
+      ctx.fillText("so this card knows what beach and tide station to use.", 396, 175);
+      ctx.textAlign = "left";
+      return;
+    }
+
+    beachDayPut(ctx, data.town, 20, 20, BEACHDAY_F12);
+    const dayLabel = "BEACH DAY - " + data.weekday.toUpperCase();
+    beachDayPut(ctx, dayLabel, 746 - beachDayInkWidth(ctx, dayLabel, BEACHDAY_F12), 20, BEACHDAY_F12);
+    if (data.subtitle) {
+      const townW = beachDayInkWidth(ctx, data.town, BEACHDAY_F12);
+      beachDayPut(ctx, data.subtitle, 20 + townW + 12, 20, BEACHDAY_F9);
+    }
+
+    const cond = data.sky_condition;
+    const iconName = BEACHDAY_SKY_ICON_BY_WORD[cond] || "skyIconLarge_cloudy";
+    if (icons[iconName]) ctx.drawImage(icons[iconName], 396 - 50, 52 - 50);
+    let condPx = BEACHDAY_F18;
+    if (beachDayInkWidth(ctx, cond, BEACHDAY_F18) > 260) condPx = BEACHDAY_F12;
+    const condBBox = beachDayInkBBox(ctx, cond, condPx);
+    const condBase = 52 - Math.floor((condBBox.y0 + condBBox.y1) / 2);
+    beachDayPut(ctx, cond, 461, condBase, condPx);
+    if (data.rain_note) beachDayPut(ctx, data.rain_note, 461, condBase + 18, BEACHDAY_F9);
+
+    beachDayPutC(ctx, "Rip Risk", 90, 50, BEACHDAY_F12);
+    beachDayPutC(ctx, data.rip_risk || "--", 90, 90, BEACHDAY_F24);
+    if (data.tide_label) {
+      beachDayPutC(ctx, data.tide_label, 250, 50, BEACHDAY_F12);
+      beachDayPutC(ctx, data.tide_time, 250, 90, BEACHDAY_F24);
+      if (data.tide_then) beachDayPutC(ctx, data.tide_then, 250, 108, BEACHDAY_F9);
+    }
+
+    const labels = ["WAVE", "WATER", "WIND", "AIR", "UV", "HUMIDITY", "FLY RISK"];
+    const values = [data.wave, data.water, data.wind, data.air, data.uv, data.humidity, data.fly_risk];
+    const bigIcon = ["icon_wave", "icon_water", null, "icon_air", "icon_uv", "icon_humidity", "icon_fly"];
+    const iconSize = [70, 100, null, 70, 100, 100, 100];
+    const slotW = Math.floor(752 / 7);
+    for (let i = 0; i < 7; i++) {
+      const cx = 20 + slotW * i + Math.floor(slotW / 2);
+      const val = values[i];
+      const tempSlot = (i === 1 || i === 3) && val !== "--";
+
+      let px = BEACHDAY_F24;
+      let ringAllow = tempSlot ? 14 : 0;
+      if (i !== 6 && beachDayInkWidth(ctx, val, px) + ringAllow > slotW - 10) {
+        px = BEACHDAY_F18; ringAllow = tempSlot ? 12 : 0;
+        if (beachDayInkWidth(ctx, val, px) + ringAllow > slotW - 10) { px = BEACHDAY_F12; ringAllow = tempSlot ? 10 : 0; }
+      }
+      const bb = beachDayInkBBox(ctx, val, px);
+      const tw = bb.x1 - bb.x0;
+      const x = cx - Math.floor((tw + ringAllow) / 2) - bb.x0;
+      beachDayPut(ctx, val, x, 145, px);
+      if (tempSlot) beachDayDegreeRing(ctx, x + bb.x1 + 7, 145 + bb.y0 + 5, 5);
+
+      if (i === 0) {
+        beachDayPutC(ctx, data.wave_quality || "--", cx, 163, BEACHDAY_F9);
+        if (icons.icon_wave_small) ctx.drawImage(icons.icon_wave_small, cx - 35, 170);
+      } else if (i === 2) {
+        beachDayDrawWindArrow(ctx, cx, 154 + 50, 46, data.wind_dir);
+      } else if (i === 3) {
+        if (data.air_high != null && data.air_low != null) {
+          const hi = String(data.air_high), lo = String(data.air_low);
+          const ring = 9;
+          const hiW = beachDayInkWidth(ctx, hi, BEACHDAY_F9);
+          const barW = beachDayInkWidth(ctx, "|", BEACHDAY_F9);
+          const loW = beachDayInkWidth(ctx, lo, BEACHDAY_F9);
+          const total = hiW + ring + barW + loW + ring;
+          let sx = cx - Math.floor(total / 2);
+          beachDayPut(ctx, hi, sx, 163, BEACHDAY_F9); sx += hiW;
+          beachDayDegreeRing(ctx, sx + 4, 163 - 10, 3); sx += ring;
+          beachDayPut(ctx, "|", sx, 163, BEACHDAY_F9); sx += barW;
+          beachDayPut(ctx, lo, sx, 163, BEACHDAY_F9); sx += loW;
+          beachDayDegreeRing(ctx, sx + 4, 163 - 10, 3);
+        }
+        if (icons.icon_air_small) ctx.drawImage(icons.icon_air_small, cx - 35, 170);
+      } else if (icons[bigIcon[i]]) {
+        const s = iconSize[i];
+        ctx.drawImage(icons[bigIcon[i]], cx - s / 2, 154, s, s);
+      }
+      beachDayPutC(ctx, labels[i], cx, 270, BEACHDAY_F9);
+      if (i > 0) {
+        ctx.strokeStyle = "#000"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(20 + slotW * i, 126); ctx.lineTo(20 + slotW * i, 270); ctx.stroke();
+      }
+    }
+  }
+
+  // design.net's own Local Info proxy for Beach Day -- same shape as
+  // astroProxy/astroTimelineProxy above, just pointed at beachDayProxy
+  // and carrying the extra srf* fields that only this card reads (see
+  // the comment above meta.type === "beachDay" in functions/lib/
+  // dynamic.js for why those are harmless/ignored by every other
+  // Local Info subtype).
+  const BEACHDAY_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/beachDayProxy";
+  async function fetchBeachDayCardDataClient(location) {
+    const params = new URLSearchParams({ lat: String(location.lat), lon: String(location.lon), stationId: String(location.stationId), townName: location.name || "" });
+    if (location.srfZone) params.set("srfZone", location.srfZone);
+    if (location.srfOffice) params.set("srfOffice", location.srfOffice);
+    if (location.srfProductPrefix) params.set("srfProductPrefix", location.srfProductPrefix);
+    if (location.coastFacingDirection) params.set("coastFacingDirection", location.coastFacingDirection);
+    const resp = await fetch(BEACHDAY_PROXY_BASE + "?" + params.toString());
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("Beach Day data fetch failed: " + resp.status));
+    return data;
+  }
+
   // One entry per Local Info gallery option -- adding a new one (see
-  // local-info-gallery.html's OPTIONS array) means adding it here too,
-  // nothing else in loadLocalInfoLayer below needs to change.
+  // local-info-gallery.html's OPTIONS array) means adding it here too.
+  // loadLocalInfoLayer below only needs further changes if the new
+  // subtype's publish-time dynamicMeta needs fields beyond lat/lon/
+  // stationId/townName (Beach Day's srfZone/srfOffice/srfProductPrefix/
+  // coastFacingDirection are the one example today).
   // needsLocation: false skips resolveTideLocation entirely (an extra
   // Firebase Storage read this subType would never use anyway -- Live
   // Music covers the whole 30A corridor from one API call, same as Beach
@@ -5075,6 +5296,30 @@
         const data = Object.assign({ townLat: location.lat, townLon: location.lon }, raw);
         return { data, successText: "This is the real card — it updates itself hourly after you publish." };
       }
+    },
+    // A built-once-each-morning picture, not a live card -- see lib/
+    // beachDay.js's own header comment. Needs a real lat/lon AND a tide
+    // station (unlike Beach Flag, there's no useful partial render
+    // without one -- almost every field on this screen comes from the
+    // tide/weather/marine fetches that need it), so a device with no
+    // location saved yet gets an explanatory placeholder instead of a
+    // broken/blank fetch attempt.
+    beachDay: {
+      needsLocation: true,
+      loadingText: "Loading today's beach day forecast…",
+      errorLabel: "today's beach day forecast",
+      async fetchData(location) {
+        const hasLocation = location && typeof location.lat === "number" && typeof location.lon === "number" && location.stationId;
+        if (!hasLocation) {
+          return {
+            data: { noLocation: true },
+            successText: "Set a device location with a tide station (see Manage) so this card can show today's surf, tide, and weather."
+          };
+        }
+        const [data, icons] = await Promise.all([fetchBeachDayCardDataClient(location), loadBeachDayIconsClient()]);
+        data.icons = icons;
+        return { data, successText: "This is the real card — it updates itself once each morning after you publish." };
+      }
     }
   };
 
@@ -5101,7 +5346,9 @@
         kind: "localInfo", id: nextLayerId++, subType,
         x: baseCanvas.width / 2, y: baseCanvas.height / 2, size: 64,
         font: "Georgia, serif", outline: false,
-        lat: null, lon: null, stationId: null, townName: null, cardData: null, previewContent: "LOADING…"
+        lat: null, lon: null, stationId: null, townName: null,
+        srfZone: null, srfOffice: null, srfProductPrefix: null, coastFacingDirection: null,
+        cardData: null, previewContent: "LOADING…"
       };
       layers.push(layer);
     } else {
@@ -5128,6 +5375,13 @@
         layer.lon = location.lon;
         layer.stationId = location.stationId || null;
         layer.townName = location.name || null;
+        // Only Beach Day reads these today (see the comment above
+        // meta.type === "beachDay" in functions/lib/dynamic.js) --
+        // harmless to carry for every other subtype too.
+        layer.srfZone = location.srfZone || null;
+        layer.srfOffice = location.srfOffice || null;
+        layer.srfProductPrefix = location.srfProductPrefix || null;
+        layer.coastFacingDirection = location.coastFacingDirection || null;
       }
 
       const { data, successText } = await config.fetchData(location);
@@ -7185,15 +7439,22 @@
           } else if (dynamicLayer.kind === "localInfo") {
             // dynamicLayer.subType is whichever option was picked on the
             // gallery page (local-info-gallery.html) -- "beachFlag",
-            // "liveMusic", or "liveMusicMore" today, matching
-            // renderDynamicDesign's meta.type check in
-            // functions/lib/dynamic.js exactly. lat/lon/stationId/townName
-            // are only ever read by the beachFlag branch there; both Live
-            // Music subTypes ignore them (see fetchMusicEventsCardData's
-            // own comment), so harmlessly sending them along either way
+            // "liveMusic", "liveMusicMore", "ocnjEvents", "hurricaneTracker",
+            // or "beachDay" today, matching renderDynamicDesign's meta.type
+            // check in functions/lib/dynamic.js exactly. lat/lon/stationId/
+            // townName are only read by the beachFlag and beachDay branches
+            // there; every other subtype ignores them (see each one's own
+            // fetch function), so harmlessly sending them along either way
             // keeps this assignment from needing an extra per-subType
             // branch.
-            dynamicMeta = Object.assign({ type: dynamicLayer.subType || "beachFlag", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId, townName: dynamicLayer.townName || "" }, shared);
+            dynamicMeta = Object.assign({
+              type: dynamicLayer.subType || "beachFlag", lat: dynamicLayer.lat, lon: dynamicLayer.lon, stationId: dynamicLayer.stationId, townName: dynamicLayer.townName || "",
+              // Only read by the beachDay branch there (see the comment
+              // above meta.type === "beachDay" in functions/lib/dynamic.js)
+              // -- harmlessly ignored by every other subtype.
+              srfZone: dynamicLayer.srfZone || null, srfOffice: dynamicLayer.srfOffice || null,
+              srfProductPrefix: dynamicLayer.srfProductPrefix || null, coastFacingDirection: dynamicLayer.coastFacingDirection || null
+            }, shared);
           } else {
             dynamicMeta = Object.assign({ type: "news", location: dynamicLayer.location || "", feedUrl: dynamicLayer.feedUrl || "" }, shared);
           }

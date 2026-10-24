@@ -27,8 +27,10 @@ const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
-const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLinkSelfHealing, unpairDevice, backfillDeviceTagLinks } = require("./lib/tideTag");
+const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLinkSelfHealing, unpairDevice, backfillDeviceTagLinks, sanitizeZoneId, sanitizeCoastFacingDirection } = require("./lib/tideTag");
 const { regenerateBeachDayCache } = require("./lib/beachDayCache");
+const { fetchBeachDayData } = require("./lib/beachDay");
+const tzlookup = require("tz-lookup");
 const { fetchCoastlineNear } = require("./lib/coastline");
 const { fetchCachedCoastline, saveCachedCoastline } = require("./lib/coastlineCache");
 
@@ -650,6 +652,50 @@ async function astroTimelineProxyHandler(req, res) {
 }
 
 exports.astroTimelineProxy = onRequest({ cors: true, region: "us-central1" }, astroTimelineProxyHandler);
+
+// ================= Beach Day proxy =================
+// design's and local-info-gallery's Beach Day live preview -- same
+// fetchBeachDayData call the per-device dynamic layer (dynamic.js) and
+// the shared cache job (beachDayCache.js) both already use, just
+// invoked directly with whatever location fields the picker/resolveTide
+// Location happened to resolve, same optional-enhancement degrading as
+// those two callers. lat/lon/stationId are required (fetchBeachDayData
+// can't run at all without them); srfZone/srfOffice/srfProductPrefix/
+// coastFacingDirection are all optional and separately sanitized, same
+// validation tideTag.js's own save path already applies to these fields.
+async function beachDayProxyHandler(req, res) {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  const stationId = typeof req.query.stationId === "string" ? req.query.stationId : "";
+  const townName = typeof req.query.townName === "string" ? req.query.townName : "";
+
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+    res.status(400).json({ error: "lat/lon must be valid coordinates" });
+    return;
+  }
+  if (!/^[0-9]{5,9}$/.test(stationId)) {
+    res.status(400).json({ error: "stationId must be a NOAA station number" });
+    return;
+  }
+
+  const srfZone = sanitizeZoneId(req.query.srfZone);
+  const coastFacingDirection = sanitizeCoastFacingDirection(req.query.coastFacingDirection);
+  const srfOffice = typeof req.query.srfOffice === "string" && /^[A-Z]{3}$/.test(req.query.srfOffice) ? req.query.srfOffice : null;
+  const srfProductPrefix = typeof req.query.srfProductPrefix === "string" && /^[A-Z]{3}$/.test(req.query.srfProductPrefix) ? req.query.srfProductPrefix : null;
+
+  try {
+    const fields = await fetchBeachDayData({ lat, lon, stationId, srfZone, srfOffice, srfProductPrefix, coastFacingDirection });
+    const timeZone = tzlookup(lat, lon);
+    const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long" }).format(new Date());
+    const data = Object.assign({ town: townName.toUpperCase(), weekday, subtitle: "1 PM conditions" }, fields);
+    res.status(200).json(data);
+  } catch (err) {
+    logger.error("beach day proxy request failed for lat=" + lat + " lon=" + lon + " stationId=" + stationId + ":", err);
+    res.status(502).json({ error: "Couldn't reach weather/tide data right now" });
+  }
+}
+
+exports.beachDayProxy = onRequest({ cors: true, region: "us-central1" }, beachDayProxyHandler);
 
 // ================= Beach flag proxy =================
 // design's Beach Flags tool live preview. Unlike astroProxy/
@@ -1595,4 +1641,4 @@ exports.coastOrientationReport = onRequest({ cors: false, region: "us-central1" 
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler, backfillDeviceTagLinksHandler, coastOrientationReportHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachDayProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler, backfillDeviceTagLinksHandler, coastOrientationReportHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
