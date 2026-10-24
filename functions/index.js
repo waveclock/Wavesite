@@ -28,6 +28,7 @@ const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
 const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLinkSelfHealing, unpairDevice, backfillDeviceTagLinks } = require("./lib/tideTag");
+const { regenerateBeachDayCache } = require("./lib/beachDayCache");
 const { fetchCoastlineNear } = require("./lib/coastline");
 const { fetchCachedCoastline, saveCachedCoastline } = require("./lib/coastlineCache");
 
@@ -150,6 +151,27 @@ exports.regenerateCountdownDesigns = onSchedule(
       }
     }
     logger.info("Done. updated=" + updated + " expired=" + expired + " skipped(beachBuddy/beachFlag/liveMusic)=" + skipped + " failed=" + failed);
+  }
+);
+
+// Beach Day's shared, location-keyed cache (see lib/beachDayCache.js's
+// own header comment for the full rationale) -- a SEPARATE daily job
+// from regenerateCountdownDesigns above, not a replacement for it: a
+// device that's actually enrolled Beach Day as one of its own custom
+// screens still gets its own designs/{deviceId}.bin/.png from that
+// job's normal per-device "beachDay" dynamic-layer handling (already
+// covered by DAILY_REGEN_TYPES not excluding "beachDay"). This job
+// instead builds the shared beach-day-cache/{key}.bin/.png entries the
+// keychain web view reads directly, one per unique town rather than one
+// per device, regardless of whether anyone's enrolled it on a clock at
+// all. Same 9am UTC slot as the other once-daily types, since this is
+// exactly that kind of "built once in the morning" screen too.
+exports.regenerateBeachDayCache = onSchedule(
+  { schedule: "0 9 * * *", timeZone: "Etc/UTC", retryCount: 1 },
+  async () => {
+    const bucket = admin.storage().bucket();
+    const result = await regenerateBeachDayCache(bucket, new Date());
+    logger.info("Beach Day cache: " + result.updated + " updated, " + result.failed + " failed, out of " + result.locationCount + " active location(s).");
   }
 );
 
