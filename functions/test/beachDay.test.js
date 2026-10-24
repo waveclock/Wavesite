@@ -341,6 +341,9 @@ function dispatchFetch({ weather, marine, noaaPredictions, ripBulletin, onCall }
     assert.strictEqual(parseRipRisk(bulletinBefore, "NONE"), "--");
     assert.strictEqual(parseRipRisk(null, "NJZ024"), "--");
   });
+  await test("srfZone 'none' (lowercase, what location/index.html actually saves) -> '--'", async () => {
+    assert.strictEqual(parseRipRisk(bulletinBefore, "none"), "--");
+  });
 
   console.log("computeTideLine (4.6)");
   await test("no events today -> empty (tide area left blank)", async () => {
@@ -478,6 +481,24 @@ function dispatchFetch({ weather, marine, noaaPredictions, ripBulletin, onCall }
     const data = await fetchBeachDayData({
       lat: 39.2776, lon: -74.5746, stationId: "8534720",
       srfZone: "NONE", srfOffice: null, srfProductPrefix: null, coastFacingDirection: "NONE"
+    }, NOW, fetchImpl);
+    assert.strictEqual(ripFetchCalled, false);
+    assert.strictEqual(data.rip_risk, "--");
+  });
+
+  await test("srfZone 'none' (lowercase, what location/index.html actually saves) also skips the bulletin fetch", async () => {
+    let ripFetchCalled = false;
+    const fetchImpl = async (url) => {
+      const u = new URL(url);
+      if (u.hostname === "tgftp.nws.noaa.gov") { ripFetchCalled = true; return textResp(happyRip); }
+      if (u.hostname === "api.open-meteo.com") return jsonResp(happyWeather);
+      if (u.hostname === "marine-api.open-meteo.com") return jsonResp(happyMarine);
+      if (u.hostname === "api.tidesandcurrents.noaa.gov") return jsonResp({ predictions: happyTide });
+      throw new Error("unexpected URL: " + url);
+    };
+    const data = await fetchBeachDayData({
+      lat: 39.2776, lon: -74.5746, stationId: "8534720",
+      srfZone: "none", srfOffice: "none", srfProductPrefix: "none", coastFacingDirection: "none"
     }, NOW, fetchImpl);
     assert.strictEqual(ripFetchCalled, false);
     assert.strictEqual(data.rip_risk, "--");

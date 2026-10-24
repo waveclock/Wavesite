@@ -680,8 +680,19 @@ async function beachDayProxyHandler(req, res) {
 
   const srfZone = sanitizeZoneId(req.query.srfZone);
   const coastFacingDirection = sanitizeCoastFacingDirection(req.query.coastFacingDirection);
-  const srfOffice = typeof req.query.srfOffice === "string" && /^[A-Z]{3}$/.test(req.query.srfOffice) ? req.query.srfOffice : null;
-  const srfProductPrefix = typeof req.query.srfProductPrefix === "string" && /^[A-Z]{3}$/.test(req.query.srfProductPrefix) ? req.query.srfProductPrefix : null;
+  // Lowercase, not the 3-letter uppercase shape -- matches exactly what
+  // location/index.html actually saves: srfOffice is "k" + the NWS
+  // office's 3-letter CWA code (e.g. "kphi", see fetchZoneForPoint
+  // there), srfProductPrefix is the office's live SRF product's 6-char
+  // WMO collective ID lowercased (e.g. "fzus51", see
+  // fetchSrfProductPrefix there). A skipped-zone device saves the
+  // literal string "none" for both, which fails these patterns and
+  // correctly becomes null here, same as sanitizeZoneId("NONE") already
+  // does for srfZone.
+  const srfOfficeRaw = typeof req.query.srfOffice === "string" ? req.query.srfOffice.toLowerCase() : "";
+  const srfOffice = /^[a-z]{4}$/.test(srfOfficeRaw) ? srfOfficeRaw : null;
+  const srfProductPrefixRaw = typeof req.query.srfProductPrefix === "string" ? req.query.srfProductPrefix.toLowerCase() : "";
+  const srfProductPrefix = /^[a-z]{4}[0-9]{2}$/.test(srfProductPrefixRaw) ? srfProductPrefixRaw : null;
 
   try {
     const fields = await fetchBeachDayData({ lat, lon, stationId, srfZone, srfOffice, srfProductPrefix, coastFacingDirection });
