@@ -240,7 +240,11 @@ function mapRipRiskWord(word) {
 // BEFORE the phrase first, and only falls back to AFTER when the before
 // word isn't a recognized risk word, per the spec.
 function parseRipRisk(bulletinText, srfZone) {
-  if (!bulletinText || !srfZone || srfZone === "NONE") return "--";
+  // Case-insensitive: location/index.html actually saves the literal
+  // lowercase "none" when a customer explicitly skips the forecast zone
+  // step (see effectiveSrfZone there) -- this accepts that real value as
+  // well as the uppercase "NONE" this module's own tests/callers use.
+  if (!bulletinText || !srfZone || String(srfZone).toUpperCase() === "NONE") return "--";
 
   const zoneIdx = bulletinText.indexOf(srfZone);
   if (zoneIdx === -1) return "--";
@@ -390,7 +394,7 @@ async function fetchBeachDayData({ lat, lon, stationId, srfZone, srfOffice, srfP
     fetchBeachDayWeather(lat, lon, fetchImpl),
     fetchBeachDayMarine(lat, lon, fetchImpl),
     fetchNoaaPredictions(stationId, dayStart, dayEnd, "hilo", timeZone, fetchImpl).catch(() => []),
-    (srfZone && srfZone !== "NONE" && srfOffice && srfProductPrefix)
+    (srfZone && String(srfZone).toUpperCase() !== "NONE" && srfOffice && srfProductPrefix)
       ? fetchRipRiskBulletin(srfOffice, srfProductPrefix, fetchImpl).catch(() => null)
       : Promise.resolve(null)
   ]);

@@ -56,11 +56,14 @@ const MARINE_RESPONSE = {
   }
 };
 
+const BULLETIN_TEXT = "NJZ024-241200-\nCoastal NJ\n...MODERATE RIP CURRENT RISK IN EFFECT THROUGH THIS EVENING...\nDetails here.\n$$\n";
+
 function stubFetch() {
   return async (url) => {
     const u = String(url);
     if (u.includes("marine-api.open-meteo.com")) return { ok: true, json: async () => MARINE_RESPONSE };
     if (u.includes("api.open-meteo.com")) return { ok: true, json: async () => WEATHER_RESPONSE };
+    if (u.includes("tgftp.nws.noaa.gov")) return { ok: true, text: async () => BULLETIN_TEXT };
     return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
   };
 }
@@ -119,6 +122,69 @@ function stubFetch() {
       await beachDayProxyHandler(fakeReq({ lat: "39.27", lon: "-74.57", stationId: "8534720", srfZone: "nope", coastFacingDirection: "sideways" }), res);
       assert.strictEqual(res.statusCode, 200);
       assert.strictEqual(res.body.rip_risk, "--"); // no valid srfOffice/srfProductPrefix -> no bulletin fetch -> unknown
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  // Regression for a real bug: srfOffice/srfProductPrefix are saved by
+  // location/index.html in the SHAPE it actually produces -- lowercase,
+  // "k"+3-letter CWA (e.g. "kphi") and a lowercase 6-char WMO collective
+  // ID (e.g. "fzus51"), NOT 3 uppercase letters. The original validation
+  // here rejected every real value, so rip_risk always came back "--" in
+  // the live preview even for a device whose actual published screen
+  // shows a real rip risk (it doesn't go through this proxy at all).
+  await test("a real srfOffice/srfProductPrefix (lowercase, their real shape) is accepted and produces a real rip_risk", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = stubFetch();
+    try {
+      const res = fakeRes();
+      await beachDayProxyHandler(fakeReq({
+        lat: "39.27", lon: "-74.57", stationId: "8534720",
+        srfZone: "NJZ024", srfOffice: "kphi", srfProductPrefix: "fzus51", coastFacingDirection: "E"
+      }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.rip_risk, "MID");
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  await test("srfOffice/srfProductPrefix are accepted case-insensitively (uppercase input still matches)", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = stubFetch();
+    try {
+      const res = fakeRes();
+      await beachDayProxyHandler(fakeReq({
+        lat: "39.27", lon: "-74.57", stationId: "8534720",
+        srfZone: "NJZ024", srfOffice: "KPHI", srfProductPrefix: "FZUS51", coastFacingDirection: "E"
+      }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.rip_risk, "MID");
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  // location/index.html saves the literal lowercase string "none" (not
+  // null) for a device that explicitly skipped the forecast zone step --
+  // this must degrade to "--", not attempt a bogus bulletin fetch.
+  await test("the 'none' sentinel (lowercase, what location/index.html actually saves) yields '--', not a fetch attempt", async () => {
+    const originalFetch = global.fetch;
+    let bulletinFetched = false;
+    global.fetch = async (url) => {
+      if (String(url).includes("tgftp.nws.noaa.gov")) bulletinFetched = true;
+      return stubFetch()(url);
+    };
+    try {
+      const res = fakeRes();
+      await beachDayProxyHandler(fakeReq({
+        lat: "39.27", lon: "-74.57", stationId: "8534720",
+        srfZone: "none", srfOffice: "none", srfProductPrefix: "none", coastFacingDirection: "none"
+      }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.rip_risk, "--");
+      assert.strictEqual(bulletinFetched, false);
     } finally {
       global.fetch = originalFetch;
     }
