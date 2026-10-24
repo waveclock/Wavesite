@@ -56,7 +56,12 @@ const {
   drawBeachBuddyCard,
   drawBeachBuddyArtCard,
   ditheredArtCoverCanvas,
-  STICK_POSES
+  STICK_POSES,
+  drawBeachDayCard,
+  loadBeachDayIcons,
+  beachDayInkBBox,
+  beachDayInkWidth,
+  beachDayDrawWindArrow
 } = require("../lib/dynamic");
 const BANNER_HEIGHT = 48; // matches the constant in lib/dynamic.js (not exported)
 const LOGO_MARGIN = 28; // matches the constant in lib/dynamic.js (not exported)
@@ -2615,6 +2620,165 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const result = await renderDynamicDesign(base, meta, now, fetchImpl, beachBuddyArtImpl);
     assert.ok(result);
     assert.strictEqual(result.usedArt, false);
+  });
+
+  console.log("Beach Day");
+  function hasInkIn(ctx, x, y, w, h, threshold) {
+    const data = ctx.getImageData(x, y, w, h).data;
+    for (let i = 0; i < data.length; i += 4) { if (data[i] < (threshold == null ? 200 : threshold)) return true; }
+    return false;
+  }
+  const SAMPLE_BEACHDAY_CARD = {
+    town: "OCEAN CITY", weekday: "Saturday", subtitle: "1 PM conditions",
+    sky_condition: "Partly Cloudy", rain_note: "Rain 3pm-5pm",
+    rip_risk: "MID", tide_label: "High Tide", tide_time: "12:42P", tide_then: "then Low 6:55P",
+    wave: "2ft", wave_quality: "Fair", water: "72", wind: "8-14", wind_dir: "SW",
+    air: "81", air_high: 84, air_low: 69, uv: "8", humidity: "62%", fly_risk: "MID"
+  };
+
+  await test("loadBeachDayIcons loads every committed icon without throwing, and caches across calls", async () => {
+    const icons = await loadBeachDayIcons();
+    for (const name of [
+      "icon_wave", "icon_wave_small", "icon_water", "icon_wind", "icon_air", "icon_air_small",
+      "icon_uv", "icon_humidity", "icon_fly",
+      "skyIconLarge_sunny", "skyIconLarge_clear", "skyIconLarge_partly_cloudy", "skyIconLarge_cloudy",
+      "skyIconLarge_rainy", "skyIconLarge_snowy", "skyIconLarge_thunderstorm"
+    ]) {
+      assert.ok(icons[name], "expected icon " + name + " to be loaded");
+      assert.ok(icons[name].width > 0 && icons[name].height > 0);
+    }
+    const second = await loadBeachDayIcons();
+    assert.strictEqual(second, icons, "expected the module-level cache to return the same object, not reload");
+  });
+
+  await test("beachDayInkWidth/beachDayInkBBox report real, non-zero ink extents", () => {
+    const c = whiteCanvas(100, 40);
+    const ctx = c.getContext("2d");
+    const w = beachDayInkWidth(ctx, "81", 23.5);
+    assert.ok(w > 0);
+    const b = beachDayInkBBox(ctx, "81", 23.5);
+    assert.ok(b.x1 > b.x0);
+    assert.ok(b.y1 >= b.y0);
+  });
+
+  await test("beachDayDrawWindArrow accepts all 8 compass points plus an unrecognized one without throwing, and draws real ink", () => {
+    for (const dir of ["N", "NE", "E", "SE", "S", "SW", "W", "NW", "garbage", null, undefined]) {
+      const c = whiteCanvas(200, 200);
+      const ctx = c.getContext("2d");
+      assert.doesNotThrow(() => beachDayDrawWindArrow(ctx, 100, 100, 46, dir));
+      assert.ok(hasInkIn(ctx, 40, 40, 120, 120), "expected the arrow for " + dir + " to draw ink somewhere near center");
+    }
+  });
+
+  await test("drawBeachDayCard renders the full sample card without throwing, with ink in every section", async () => {
+    const icons = await loadBeachDayIcons();
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    assert.doesNotThrow(() => drawBeachDayCard(ctx, SAMPLE_BEACHDAY_CARD, icons));
+    assert.ok(hasInkIn(ctx, 0, 0, 200, 30), "town name / title line");
+    assert.ok(hasInkIn(ctx, 346, 2, 100, 100), "sky icon");
+    assert.ok(hasInkIn(ctx, 20, 60, 140, 60), "Rip Risk box");
+    assert.ok(hasInkIn(ctx, 180, 60, 140, 60), "Tide box");
+    assert.ok(hasInkIn(ctx, 20, 120, 752, 150), "bottom row of seven");
+  });
+
+  await test("drawBeachDayCard does not throw when every optional field is absent and every value is '--'", async () => {
+    const icons = await loadBeachDayIcons();
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    const sparse = {
+      town: "OCEAN CITY", weekday: "Saturday", subtitle: null,
+      sky_condition: "Cloudy", rain_note: null,
+      rip_risk: "--", tide_label: null, tide_time: null, tide_then: null,
+      wave: "--", wave_quality: "--", water: "--", wind: "--", wind_dir: null,
+      air: "--", air_high: null, air_low: null, uv: "--", humidity: "--", fly_risk: "LOW"
+    };
+    assert.doesNotThrow(() => drawBeachDayCard(ctx, sparse, icons));
+  });
+
+  await test("drawBeachDayCard does not throw on a long sky condition (forces the 18pt->12pt step) or a long fly_risk value (always 24pt, never shrinks)", async () => {
+    const icons = await loadBeachDayIcons();
+    const c = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+    const ctx = c.getContext("2d");
+    const wide = Object.assign({}, SAMPLE_BEACHDAY_CARD, { sky_condition: "Thunderstorm", fly_risk: "HIGH" });
+    assert.doesNotThrow(() => drawBeachDayCard(ctx, wide, icons));
+  });
+
+  function fakeBeachDayFetch({ weather, marine, noaaPredictions, ripBulletin }) {
+    return async (url) => {
+      const u = new URL(url);
+      if (u.hostname === "api.open-meteo.com") return { ok: true, json: async () => weather };
+      if (u.hostname === "marine-api.open-meteo.com") return { ok: true, json: async () => marine };
+      if (u.hostname === "api.tidesandcurrents.noaa.gov") return { ok: true, json: async () => ({ predictions: noaaPredictions || [] }) };
+      if (u.hostname === "tgftp.nws.noaa.gov") return { ok: true, text: async () => ripBulletin || "" };
+      throw new Error("unexpected host in test: " + u.hostname);
+    };
+  }
+  function hourlyTimesFor(dateStr) {
+    const times = [];
+    for (let h = 0; h < 24; h++) times.push(dateStr + "T" + String(h).padStart(2, "0") + ":00");
+    return times;
+  }
+  function seriesWith(overrides) {
+    const arr = new Array(24).fill(null);
+    for (const [h, v] of Object.entries(overrides)) arr[Number(h)] = v;
+    return arr;
+  }
+
+  console.log("renderDynamicDesign (type: beachDay)");
+  await test("renders a Beach Day card end to end from (mocked) Open-Meteo + NOAA + NWS data", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    // 2026-07-15T16:00Z is noon EDT -- comfortably inside 2026-07-15 local.
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = {
+      type: "beachDay", lat: 39.2776, lon: -74.5746, stationId: "8534720",
+      srfZone: "NJZ024", srfOffice: "kphi", srfProductPrefix: "fzus51",
+      coastFacingDirection: "E", townName: "Ocean City, NJ"
+    };
+    const weather = {
+      hourly: {
+        time: hourlyTimesFor("2026-07-15"),
+        temperature_2m: seriesWith({ 13: 81 }),
+        wind_speed_10m: seriesWith({ 11: 10, 12: 12, 13: 14, 14: 13, 15: 11, 16: 8, 17: 9 }),
+        wind_direction_10m: seriesWith({ 13: 225 }),
+        precipitation: seriesWith({}),
+        relative_humidity_2m: seriesWith({ 13: 62 }),
+        weather_code: seriesWith({ 13: 2 })
+      },
+      daily: { temperature_2m_max: [84], temperature_2m_min: [69], uv_index_max: [8] }
+    };
+    const marine = {
+      hourly: {
+        time: hourlyTimesFor("2026-07-15"),
+        wave_height: seriesWith({ 13: 2.3 }),
+        wave_period: seriesWith({ 13: 7 }),
+        wave_direction: seriesWith({}),
+        sea_surface_temperature: seriesWith({ 13: 72.4 })
+      }
+    };
+    const fetchImpl = fakeBeachDayFetch({
+      weather, marine,
+      noaaPredictions: [{ t: "2026-07-15 12:42", v: "4.21", type: "H" }],
+      ripBulletin: "NJZ024-\n...MODERATE RIP CURRENT RISK IN EFFECT...\n$$\n"
+    });
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.ok(result);
+    assert.strictEqual(result.beachDayData.sky_condition, "Partly Cloudy");
+    assert.ok(result.content.startsWith("OCEAN CITY, NJ"));
+    assert.ok(result.binBuffer.some((b) => b !== 0));
+    const decoded = await loadImage(result.pngBuffer);
+    assert.strictEqual(decoded.width, CANVAS_WIDTH);
+    assert.strictEqual(decoded.height, CANVAS_HEIGHT);
+  });
+  await test("a weather fetch failure propagates (load-bearing, same as every other real-data type)", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-07-15T16:00:00Z");
+    const meta = {
+      type: "beachDay", lat: 39.2776, lon: -74.5746, stationId: "8534720",
+      srfZone: "NJZ024", srfOffice: "kphi", srfProductPrefix: "fzus51", coastFacingDirection: "E"
+    };
+    const fetchImpl = async () => { throw new Error("network down"); };
+    await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
   });
 
   console.log("\n" + passed + " passed, " + failed + " failed");

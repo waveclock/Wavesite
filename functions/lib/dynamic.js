@@ -25,10 +25,12 @@
 
 const { createCanvas, loadImage, registerFont } = require("canvas");
 const path = require("path");
+const tzlookup = require("tz-lookup");
 const { fetchTideCardData, fetchTideTimelineData, formatLongDate } = require("./astro");
 const { OUTBOUND_FETCH_HEADERS } = require("./http");
 const { generateBeachBuddyArt } = require("./imagen");
 const { fetchBeachFlagCardData, drawBeachFlagCard } = require("./beachflag");
+const { fetchBeachDayData, SKY_ICON_BY_WORD } = require("./beachDay");
 const { fetchMusicEventsCardData, drawMusicCard } = require("./liveMusic");
 const { fetchOcnjEventsCardData, drawOcnjEventsCard } = require("./ocnjCard");
 const { fetchHurricaneTrackerCardData, drawHurricaneTrackerCard } = require("./hurricaneTracker");
@@ -55,7 +57,14 @@ const BANNER_HEIGHT = 48;
 const FONT_FAMILY = {
   serif: "WC Countdown Serif",
   block: "WC Countdown Block",
-  pixel: "WC Countdown Pixel"
+  pixel: "WC Countdown Pixel",
+  // GNU FreeSans Bold -- NOT one of the three display fonts above (those
+  // are this app's own card aesthetic). This is the one face Beach Day
+  // uses, chosen specifically because it's what the device's own
+  // Adafruit GFX FreeSansBold fonts are generated from -- the point of
+  // this screen is to read as close as a desktop renderer can get to
+  // what the device itself would draw, not to look like the other cards.
+  freeSansBold: "WC Beach Day FreeSans"
 };
 
 let fontsRegistered = false;
@@ -66,6 +75,7 @@ function ensureFontsRegistered() {
   registerFont(path.join(fontsDir, "PTSerif-Bold.ttf"), { family: FONT_FAMILY.serif, weight: "bold" });
   registerFont(path.join(fontsDir, "Bungee-Regular.ttf"), { family: FONT_FAMILY.block });
   registerFont(path.join(fontsDir, "PressStart2P-Regular.ttf"), { family: FONT_FAMILY.pixel });
+  registerFont(path.join(fontsDir, "FreeSansBold.ttf"), { family: FONT_FAMILY.freeSansBold });
   fontsRegistered = true;
 }
 
@@ -2736,6 +2746,244 @@ function drawBeachBuddyArtCard(ctx, mood, artImage) {
   ctx.drawImage(dithered, 0, BANNER_HEIGHT);
 }
 
+// ---------------------------------------------------------------------
+// Beach Day: a from-scratch, full-bleed port of BEACH_DAY_SPEC.md's
+// reference Python/Pillow renderer -- NOT a "card" in the style of
+// everything else in this file (no banner, no FONT_FAMILY.block/serif).
+// This exists to look as close as a desktop renderer can get to what
+// the device's own Adafruit GFX FreeSansBold fonts would draw, so it
+// deliberately reproduces that reference renderer's own coordinates,
+// font-size-stepping, and ink-bbox-based centering rather than reaching
+// for this file's usual drawXCard conventions. Like every other
+// full-bleed dynamic layer (Tide, Timeline, Beach Flag, ...), the
+// canvas it draws onto is already blank white by the time it runs --
+// design/index.html clears every other layer the moment one of these is
+// added (see DYNAMIC_KINDS's own comment there), so there is nothing to
+// paint over.
+//
+// Pillow's `dr.fontmode = "1"` (fully disables text anti-aliasing) has
+// no direct canvas equivalent -- left as ordinary antialiased text here,
+// same as every other card in this file, since compositeAndPack's own
+// packTo1Bit threshold step already reduces every pixel to pure black
+// or white regardless; AA edges just resolve to whichever side of the
+// threshold they land on, not a visibly different outcome.
+//
+// Font-size math matches the spec's own "pixel size = pt * 141/72"
+// note (the device's fonts are generated at 141dpi): 9/12/18/24pt here
+// are genuinely fractional CSS pixel sizes (17.625, 23.5, 35.25, 47),
+// not rounded -- canvas (Cairo) handles fractional font sizes fine, and
+// rounding would just be one more unnecessary departure from the spec.
+const PT_TO_PX = 141 / 72;
+const BEACHDAY_F9 = 9 * PT_TO_PX;
+const BEACHDAY_F12 = 12 * PT_TO_PX;
+const BEACHDAY_F18 = 18 * PT_TO_PX;
+const BEACHDAY_F24 = 24 * PT_TO_PX;
+
+function beachDaySetFont(ctx, px) {
+  ctx.font = px + "px \"" + FONT_FAMILY.freeSansBold + "\"";
+}
+
+// Mirrors the reference script's text_bbox(): ink extents relative to
+// the left-baseline origin a plain ctx.fillText(s, 0, 0) would use --
+// x0/y0 negative (ink above/left of the pen), x1/y1 positive (ink
+// below/right), same sign convention Pillow's own getbbox(anchor="ls")
+// returns. Always sets ctx.font first (px), so every call site is
+// explicit about which size it's measuring at, the same way the
+// reference script always takes an explicit font parameter rather than
+// relying on some ambient "current font".
+function beachDayInkBBox(ctx, s, px) {
+  beachDaySetFont(ctx, px);
+  const m = ctx.measureText(s);
+  return { x0: -m.actualBoundingBoxLeft, y0: -m.actualBoundingBoxAscent, x1: m.actualBoundingBoxRight, y1: m.actualBoundingBoxDescent };
+}
+function beachDayInkWidth(ctx, s, px) {
+  const b = beachDayInkBBox(ctx, s, px);
+  return b.x1 - b.x0;
+}
+
+// put(): plain left-baseline draw -- Pillow's anchor="ls" places the
+// SAME pen-origin ctx.textAlign="left" does, so this needs no bbox
+// adjustment at all, unlike putC below.
+function beachDayPut(ctx, s, x, y, px) {
+  beachDaySetFont(ctx, px);
+  ctx.textAlign = "left";
+  ctx.fillText(s, x, y);
+}
+// put_c(): centers the text's INK (not its advance box) on cx, exactly
+// porting the reference script's `cx - (b[2]-b[0])//2 - b[0]`.
+function beachDayPutC(ctx, s, cx, y, px) {
+  const b = beachDayInkBBox(ctx, s, px);
+  const x = cx - Math.floor((b.x1 - b.x0) / 2) - b.x0;
+  ctx.textAlign = "left";
+  ctx.fillText(s, x, y);
+}
+
+// Two concentric circle OUTLINES (radius r and r-1) -- the small degree
+// mark next to WATER/AIR's numbers and their small hi/lo line.
+function beachDayDegreeRing(ctx, x, y, r) {
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "#000";
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y, r - 1, 0, Math.PI * 2); ctx.stroke();
+}
+
+function beachDayFillTriangle(ctx, a, b, c) {
+  ctx.beginPath();
+  ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// Direct port of draw_wind_arrow() in render_beach_day_reference.py --
+// same two-overlapping-triangles trick for the shaft (s1/s2/s3 then
+// s2/s3/s4, sharing an edge, rather than a single quad), same
+// deliberate mix of Math.trunc (Python's int(), truncates toward 0) for
+// the direction vector and Math.floor(v+0.5) (Python's own `rnd`
+// lambda, round-half-up) for the final polygon vertices -- kept exactly
+// as-is rather than "cleaned up" so this stays auditable against that
+// reference implementation.
+const BEACHDAY_COMPASS_DEG = { N: 0, NE: 45, E: 90, SE: 135, S: 180, SW: 225, W: 270, NW: 315 };
+function beachDayDrawWindArrow(ctx, cx, cy, r, compass) {
+  const deg = BEACHDAY_COMPASS_DEG[compass] != null ? BEACHDAY_COMPASS_DEG[compass] : 0;
+  const rad = (deg * Math.PI) / 180;
+  const dx = -Math.sin(rad), dy = Math.cos(rad);
+  const px = -dy, py = dx;
+  const tip = [cx + Math.trunc(r * dx), cy + Math.trunc(r * dy)];
+  const tail = [cx - Math.trunc(r * dx), cy - Math.trunc(r * dy)];
+  const hw = r * 0.182;
+  const ah = Math.trunc(r * 0.5);
+  const shaftEnd = [tip[0] - Math.trunc(ah * 0.6 * dx), tip[1] - Math.trunc(ah * 0.6 * dy)];
+  const rnd = (v) => Math.floor(v + 0.5);
+  const s1 = [rnd(tail[0] + px * hw), rnd(tail[1] + py * hw)];
+  const s2 = [rnd(tail[0] - px * hw), rnd(tail[1] - py * hw)];
+  const s3 = [rnd(shaftEnd[0] + px * hw), rnd(shaftEnd[1] + py * hw)];
+  const s4 = [rnd(shaftEnd[0] - px * hw), rnd(shaftEnd[1] - py * hw)];
+  ctx.fillStyle = "#000";
+  beachDayFillTriangle(ctx, s1, s2, s3);
+  beachDayFillTriangle(ctx, s2, s3, s4);
+  const base = [tip[0] - Math.trunc(ah * dx), tip[1] - Math.trunc(ah * dy)];
+  const hh = r * 0.545;
+  const h1 = [rnd(base[0] + px * hh), rnd(base[1] + py * hh)];
+  const h2 = [rnd(base[0] - px * hh), rnd(base[1] - py * hh)];
+  beachDayFillTriangle(ctx, tip, h1, h2);
+}
+
+const BEACHDAY_ICON_NAMES = [
+  "icon_wave", "icon_wave_small", "icon_water", "icon_wind", "icon_air", "icon_air_small",
+  "icon_uv", "icon_humidity", "icon_fly",
+  "skyIconLarge_sunny", "skyIconLarge_clear", "skyIconLarge_partly_cloudy", "skyIconLarge_cloudy",
+  "skyIconLarge_rainy", "skyIconLarge_snowy", "skyIconLarge_thunderstorm"
+];
+// Loaded once per warm instance (module-level cache, same spirit as
+// this file's other per-instance caches) -- these are static assets
+// committed to the repo, never regenerated, so there's no staleness
+// concern in caching them for the lifetime of the process.
+let beachDayIconsCache = null;
+async function loadBeachDayIcons() {
+  if (beachDayIconsCache) return beachDayIconsCache;
+  const iconsDir = path.join(__dirname, "..", "icons");
+  const entries = await Promise.all(BEACHDAY_ICON_NAMES.map(async (name) => [name, await loadImage(path.join(iconsDir, name + ".png"))]));
+  beachDayIconsCache = Object.fromEntries(entries);
+  return beachDayIconsCache;
+}
+
+// `data` is fetchBeachDayData's own output, with town/weekday/subtitle
+// merged in by the caller (see the "beachDay" branch in
+// renderDynamicDesign below) -- see BEACH_DAY_SPEC.md sections 5-6 for
+// the geometry this reproduces. `icons` is loadBeachDayIcons()'s
+// resolved map.
+function drawBeachDayCard(ctx, data, icons) {
+  ctx.fillStyle = "#000";
+  ctx.textBaseline = "alphabetic";
+
+  // ---- title line
+  beachDayPut(ctx, data.town, 20, 20, BEACHDAY_F12);
+  const dayLabel = "BEACH DAY - " + data.weekday.toUpperCase();
+  beachDayPut(ctx, dayLabel, 746 - beachDayInkWidth(ctx, dayLabel, BEACHDAY_F12), 20, BEACHDAY_F12);
+  if (data.subtitle) {
+    const townW = beachDayInkWidth(ctx, data.town, BEACHDAY_F12);
+    beachDayPut(ctx, data.subtitle, 20 + townW + 12, 20, BEACHDAY_F9);
+  }
+
+  // ---- sky icon (100x100 centered at 396,52) and condition text
+  const cond = data.sky_condition;
+  const iconName = SKY_ICON_BY_WORD[cond] || "skyIconLarge_cloudy";
+  if (icons[iconName]) ctx.drawImage(icons[iconName], 396 - 50, 52 - 50);
+  let condPx = BEACHDAY_F18;
+  if (beachDayInkWidth(ctx, cond, BEACHDAY_F18) > 260) condPx = BEACHDAY_F12;
+  const condBBox = beachDayInkBBox(ctx, cond, condPx);
+  const condBase = 52 - Math.floor((condBBox.y0 + condBBox.y1) / 2);
+  beachDayPut(ctx, cond, 461, condBase, condPx);
+  if (data.rain_note) beachDayPut(ctx, data.rain_note, 461, condBase + 18, BEACHDAY_F9);
+
+  // ---- Rip Risk (centered x=90) and Tide (centered x=250)
+  beachDayPutC(ctx, "Rip Risk", 90, 50, BEACHDAY_F12);
+  beachDayPutC(ctx, data.rip_risk || "--", 90, 90, BEACHDAY_F24);
+  if (data.tide_label) {
+    beachDayPutC(ctx, data.tide_label, 250, 50, BEACHDAY_F12);
+    beachDayPutC(ctx, data.tide_time, 250, 90, BEACHDAY_F24);
+    if (data.tide_then) beachDayPutC(ctx, data.tide_then, 250, 108, BEACHDAY_F9);
+  }
+
+  // ---- bottom row of seven
+  const labels = ["WAVE", "WATER", "WIND", "AIR", "UV", "HUMIDITY", "FLY RISK"];
+  const values = [data.wave, data.water, data.wind, data.air, data.uv, data.humidity, data.fly_risk];
+  const bigIcon = ["icon_wave", "icon_water", "icon_wind", "icon_air", "icon_uv", "icon_humidity", "icon_fly"];
+  const slotW = Math.floor(752 / 7);
+  for (let i = 0; i < 7; i++) {
+    const cx = 20 + slotW * i + Math.floor(slotW / 2);
+    const val = values[i];
+    const tempSlot = (i === 1 || i === 3) && val !== "--";
+
+    let px = BEACHDAY_F24;
+    let ringAllow = tempSlot ? 14 : 0;
+    if (i !== 6 && beachDayInkWidth(ctx, val, px) + ringAllow > slotW - 10) {
+      px = BEACHDAY_F18; ringAllow = tempSlot ? 12 : 0;
+      if (beachDayInkWidth(ctx, val, px) + ringAllow > slotW - 10) {
+        px = BEACHDAY_F12; ringAllow = tempSlot ? 10 : 0;
+      }
+    }
+    const bb = beachDayInkBBox(ctx, val, px);
+    const tw = bb.x1 - bb.x0;
+    const x = cx - Math.floor((tw + ringAllow) / 2) - bb.x0;
+    beachDayPut(ctx, val, x, 145, px);
+    if (tempSlot) beachDayDegreeRing(ctx, x + bb.x1 + 7, 145 + bb.y0 + 5, 5);
+
+    if (i === 0) {
+      beachDayPutC(ctx, data.wave_quality || "--", cx, 163, BEACHDAY_F9);
+      if (icons.icon_wave_small) ctx.drawImage(icons.icon_wave_small, cx - 35, 170);
+    } else if (i === 2) {
+      beachDayDrawWindArrow(ctx, cx, 154 + 50, 46, data.wind_dir);
+    } else if (i === 3) {
+      if (data.air_high != null && data.air_low != null) {
+        const hi = String(data.air_high), lo = String(data.air_low);
+        const ring = 9;
+        const hiW = beachDayInkWidth(ctx, hi, BEACHDAY_F9);
+        const barW = beachDayInkWidth(ctx, "|", BEACHDAY_F9);
+        const loW = beachDayInkWidth(ctx, lo, BEACHDAY_F9);
+        const total = hiW + ring + barW + loW + ring;
+        let sx = cx - Math.floor(total / 2);
+        beachDayPut(ctx, hi, sx, 163, BEACHDAY_F9); sx += hiW;
+        beachDayDegreeRing(ctx, sx + 4, 163 - 10, 3); sx += ring;
+        beachDayPut(ctx, "|", sx, 163, BEACHDAY_F9); sx += barW;
+        beachDayPut(ctx, lo, sx, 163, BEACHDAY_F9); sx += loW;
+        beachDayDegreeRing(ctx, sx + 4, 163 - 10, 3);
+      }
+      if (icons.icon_air_small) ctx.drawImage(icons.icon_air_small, cx - 35, 170);
+    } else if (icons[bigIcon[i]]) {
+      ctx.drawImage(icons[bigIcon[i]], cx - 50, 154);
+    }
+    beachDayPutC(ctx, labels[i], cx, 270, BEACHDAY_F9);
+    if (i > 0) {
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(20 + slotW * i, 126);
+      ctx.lineTo(20 + slotW * i, 270);
+      ctx.stroke();
+    }
+  }
+}
 
 async function compositeAndPack(basePngBuffer, drawFn, meta) {
   const baseImage = await loadImage(basePngBuffer);
@@ -2923,6 +3171,26 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
     });
   }
 
+  if (meta.type === "beachDay") {
+    const icons = await loadBeachDayIcons();
+    const fields = await fetchBeachDayData({
+      lat: meta.lat, lon: meta.lon, stationId: meta.stationId,
+      srfZone: meta.srfZone, srfOffice: meta.srfOffice, srfProductPrefix: meta.srfProductPrefix,
+      coastFacingDirection: meta.coastFacingDirection
+    }, now, fetchImpl);
+    // town/weekday/subtitle are the only fields fetchBeachDayData doesn't
+    // compute itself (see that function's own comment) -- weekday needs
+    // the device's own local calendar day, same tzlookup(lat,lon) idea
+    // fetchBeachDayData uses internally, not recomputed there since
+    // nothing else in that function's return value needs it.
+    const at = now || new Date();
+    const timeZone = tzlookup(meta.lat, meta.lon);
+    const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "long" }).format(at);
+    const data = Object.assign({ town: (meta.townName || "").toUpperCase(), weekday, subtitle: "1 PM conditions" }, fields);
+    const result = await compositeAndPack(basePngBuffer, (ctx) => drawBeachDayCard(ctx, data, icons), meta);
+    return Object.assign(result, { beachDayData: fields, content: data.town + " -- " + fields.sky_condition });
+  }
+
   if (meta.type === "beachFlag") {
     const data = await fetchBeachFlagCardData({ lat: meta.lat, lon: meta.lon, stationId: meta.stationId, townName: meta.townName }, now, fetchImpl);
     const result = await compositeAndPack(basePngBuffer, (ctx) => drawBeachFlagCard(ctx, data), meta);
@@ -3039,5 +3307,10 @@ module.exports = {
   moodForBeachData,
   drawBeachBuddyCard,
   drawBeachBuddyArtCard,
-  ditheredArtCoverCanvas
+  ditheredArtCoverCanvas,
+  drawBeachDayCard,
+  loadBeachDayIcons,
+  beachDayInkBBox,
+  beachDayInkWidth,
+  beachDayDrawWindArrow
 };
