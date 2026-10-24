@@ -741,6 +741,21 @@
     <div id="customScreensList"></div>
   </section>
 
+  <!-- Beach Day: a once-a-morning picture of what the beach will be
+       like today, shared by every device/keychain in the same town
+       (see beachDayCacheKey/renderBeachDayPanel) -- not gated on this
+       keychain's owner having added it to an actual WaveClock at all,
+       unlike customScreensPanel above. Same "only show if there's
+       something real to show" rule as every other optional panel here:
+       starts hidden, stays hidden if this beach has no srfZone on file
+       yet or the cache entry for it hasn't been generated (brand new
+       town, or tomorrow morning's run hasn't happened yet). -->
+  <section class="snap-panel hidden" id="beachDayPanel">
+    <h1 class="wind-title">Beach Day</h1>
+    <div class="curve-cap">What today looks like, from this morning&rsquo;s forecast</div>
+    <div class="custom-screen-frame" id="beachDayFrame"><img id="beachDayImg" alt="Today&rsquo;s Beach Day forecast"></div>
+  </section>
+
   <!-- Location/WaveClock live OUTSIDE all three snap-panels, as a fixed
        overlay -- not "whatever's pushed to the bottom of the panel
        currently in view" (which disappeared when swiping to Wind &
@@ -1441,7 +1456,8 @@
     { id: 'windwave', label: 'Waves & Wind', render: renderWindWave },
     { id: 'radar', label: 'Radar', render: renderRadarPanel },
     { id: 'beachCam', label: 'OCNJ Fishing Pier Live', render: renderBeachCam },
-    { id: 'customScreens', label: 'Your Custom Screens', render: renderCustomScreens }
+    { id: 'customScreens', label: 'Your Custom Screens', render: renderCustomScreens },
+    { id: 'beachDay', label: 'Beach Day', render: renderBeachDayPanel }
   ];
 
   // This one beach's own known center -- a distance gate, not a
@@ -1647,6 +1663,40 @@
     }
   }
 
+  // ---------- Beach Day panel (every beach, not just linked WaveClocks) ----------
+  // Mirrors beachDayCacheKey in functions/lib/beachDayCache.js EXACTLY --
+  // same deliberate client/server duplication convention dynamic.js's
+  // own header comment documents for Countdown/Team (" -- If any of
+  // these change here, they must change there too"). Lat/lon rounded to
+  // ~1km (2 decimal places) so this keychain lands on the SAME shared
+  // cache entry a WaveClock a few blocks away in the same town already
+  // produced, rather than requesting a key nothing ever wrote.
+  function beachDayCacheKey(st) {
+    const rlat = (Math.round(Number(st.lat) * 100) / 100).toFixed(2);
+    const rlon = (Math.round(Number(st.lon) * 100) / 100).toFixed(2);
+    return [st.id, st.srfZone || 'none', st.coastFacingDirection || 'none', rlat, rlon].join('_');
+  }
+  // 404 here means either a brand new town (tomorrow morning's
+  // regenerateBeachDayCache run hasn't covered it yet) or this beach
+  // genuinely has no srfZone/coastFacingDirection on file at all -- both
+  // real, expected, non-error states, same "just hide it" treatment as
+  // every other optional panel on this page.
+  async function renderBeachDayPanel(st) {
+    const panel = $('beachDayPanel');
+    if (!st || st.lat == null || st.lon == null || !st.id) { panel.classList.add('hidden'); return; }
+    try {
+      const path = encodeURIComponent('beach-day-cache/' + beachDayCacheKey(st) + '.png');
+      const url = 'https://firebasestorage.googleapis.com/v0/b/' + STORAGE_BUCKET + '/o/' + path + '?alt=media';
+      const r = await fetch(url);
+      if (!r.ok) { panel.classList.add('hidden'); return; }
+      const blob = await r.blob();
+      $('beachDayImg').src = URL.createObjectURL(blob);
+      panel.classList.remove('hidden');
+    } catch (err) {
+      panel.classList.add('hidden');
+    }
+  }
+
   // ---------- each beach cam's own 3.5x zoom + pan ----------
   const BEACH_CAM_ZOOM = 3.5;
   const BEACH_CAM_PAN_RANGE = (BEACH_CAM_ZOOM - 1) * 100; // 250 -- the % of the container either axis can be shifted, since the layer itself is 350% (see .beach-cam-pan-layer)
@@ -1765,7 +1815,13 @@
     // (paired before ever being tapped), so the two are reported
     // separately rather than linkedDeviceId only mattering when
     // registered is true.
-    const station = j.registered ? { id: j.stationId, stationName: j.stationName, name: j.townName || j.stationName, lat: j.lat, lon: j.lon, coastFacingDirection: j.coastFacingDirection } : null;
+    //
+    // srfZone rides along too (already in the server's own GET response
+    // -- see tideTagProxyHandler's body.srfZone -- just not previously
+    // read out here, since nothing on this page needed it before
+    // beachDayCacheKey below). Same graceful-degrade as every other
+    // optional field here: undefined for a tag that predates it.
+    const station = j.registered ? { id: j.stationId, stationName: j.stationName, name: j.townName || j.stationName, lat: j.lat, lon: j.lon, coastFacingDirection: j.coastFacingDirection, srfZone: j.srfZone } : null;
     return { station, linkedDeviceId: j.linkedDeviceId || null };
   }
   // Registers st against this tag for the FIRST time. If another tap
