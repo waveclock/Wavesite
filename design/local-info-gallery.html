@@ -10,6 +10,15 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  /* Beach Day's preview self-hosts the exact same FreeSansBold.ttf the
+     device itself renders with -- see drawBeachDayCardClient's own
+     comment below for why a Google Fonts approximation won't do here. */
+  @font-face {
+    font-family: "WC Beach Day FreeSans";
+    src: url("../assets/beach-day/FreeSansBold.ttf") format("truetype");
+    font-weight: normal;
+    font-style: normal;
+  }
   :root {
     --sand: #F1E6CF;
     --foam: #F8F2E4;
@@ -709,6 +718,201 @@
     return Object.assign({ townLat: useLocation.lat, townLon: useLocation.lon }, raw);
   }
 
+  // ================= Beach Day (gallery preview) =================
+  // Direct port of drawBeachDayCard in functions/lib/dynamic.js -- same
+  // duplicated-per-file convention as every other full-bleed card on
+  // this page (see design/index.html's own copy of this comment for why
+  // duplicated, not shared: no build step between any of these pages
+  // and the functions codebase). Uses the real icon PNGs and the real
+  // FreeSansBold font (self-hosted at ../assets/beach-day/, copied from
+  // the same files functions/icons/ and functions/fonts/ bundle
+  // server-side) rather than an approximate substitute -- Beach Day's
+  // whole point is to look like the device's own screen, so an
+  // approximate font would defeat that even in preview.
+  const BEACHDAY_FONT = "WC Beach Day FreeSans";
+  const BEACHDAY_ICON_BASE = "../assets/beach-day/";
+  const BEACHDAY_ICON_NAMES = [
+    "icon_wave", "icon_wave_small", "icon_water", "icon_wind", "icon_air", "icon_air_small",
+    "icon_uv", "icon_humidity", "icon_fly",
+    "skyIconLarge_sunny", "skyIconLarge_clear", "skyIconLarge_partly_cloudy", "skyIconLarge_cloudy",
+    "skyIconLarge_rainy", "skyIconLarge_snowy", "skyIconLarge_thunderstorm"
+  ];
+  let beachDayIconsPromise = null;
+  function loadBeachDayIconsClient() {
+    if (beachDayIconsPromise) return beachDayIconsPromise;
+    beachDayIconsPromise = Promise.all(BEACHDAY_ICON_NAMES.map((name) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve([name, img]);
+      img.onerror = () => resolve([name, null]); // a missing icon degrades to "just don't draw it", not a broken preview
+      img.src = BEACHDAY_ICON_BASE + name + ".png";
+    }))).then((pairs) => Object.fromEntries(pairs));
+    return beachDayIconsPromise;
+  }
+  const BEACHDAY_PT_TO_PX = 141 / 72;
+  const BEACHDAY_F9 = 9 * BEACHDAY_PT_TO_PX, BEACHDAY_F12 = 12 * BEACHDAY_PT_TO_PX, BEACHDAY_F18 = 18 * BEACHDAY_PT_TO_PX, BEACHDAY_F24 = 24 * BEACHDAY_PT_TO_PX;
+  function beachDaySetFont(ctx, px) { ctx.font = px + 'px "' + BEACHDAY_FONT + '"'; }
+  function beachDayInkBBox(ctx, s, px) {
+    beachDaySetFont(ctx, px);
+    const m = ctx.measureText(s);
+    return { x0: -m.actualBoundingBoxLeft, y0: -m.actualBoundingBoxAscent, x1: m.actualBoundingBoxRight, y1: m.actualBoundingBoxDescent };
+  }
+  function beachDayInkWidth(ctx, s, px) { const b = beachDayInkBBox(ctx, s, px); return b.x1 - b.x0; }
+  function beachDayPut(ctx, s, x, y, px) { beachDaySetFont(ctx, px); ctx.textAlign = "left"; ctx.fillText(s, x, y); }
+  function beachDayPutC(ctx, s, cx, y, px) {
+    const b = beachDayInkBBox(ctx, s, px);
+    const x = cx - Math.floor((b.x1 - b.x0) / 2) - b.x0;
+    ctx.textAlign = "left";
+    ctx.fillText(s, x, y);
+  }
+  function beachDayDegreeRing(ctx, x, y, r) {
+    ctx.lineWidth = 1; ctx.strokeStyle = "#000";
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, r - 1, 0, Math.PI * 2); ctx.stroke();
+  }
+  function beachDayFillTriangle(ctx, a, b, c) {
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]); ctx.closePath(); ctx.fill();
+  }
+  const BEACHDAY_COMPASS_DEG = { N: 0, NE: 45, E: 90, SE: 135, S: 180, SW: 225, W: 270, NW: 315 };
+  function beachDayDrawWindArrow(ctx, cx, cy, r, compass) {
+    const deg = BEACHDAY_COMPASS_DEG[compass] != null ? BEACHDAY_COMPASS_DEG[compass] : 0;
+    const rad = (deg * Math.PI) / 180;
+    const dx = -Math.sin(rad), dy = Math.cos(rad);
+    const px = -dy, py = dx;
+    const tip = [cx + Math.trunc(r * dx), cy + Math.trunc(r * dy)];
+    const tail = [cx - Math.trunc(r * dx), cy - Math.trunc(r * dy)];
+    const hw = r * 0.182;
+    const ah = Math.trunc(r * 0.5);
+    const shaftEnd = [tip[0] - Math.trunc(ah * 0.6 * dx), tip[1] - Math.trunc(ah * 0.6 * dy)];
+    const rnd = (v) => Math.floor(v + 0.5);
+    const s1 = [rnd(tail[0] + px * hw), rnd(tail[1] + py * hw)];
+    const s2 = [rnd(tail[0] - px * hw), rnd(tail[1] - py * hw)];
+    const s3 = [rnd(shaftEnd[0] + px * hw), rnd(shaftEnd[1] + py * hw)];
+    const s4 = [rnd(shaftEnd[0] - px * hw), rnd(shaftEnd[1] - py * hw)];
+    ctx.fillStyle = "#000";
+    beachDayFillTriangle(ctx, s1, s2, s3);
+    beachDayFillTriangle(ctx, s2, s3, s4);
+    const base = [tip[0] - Math.trunc(ah * dx), tip[1] - Math.trunc(ah * dy)];
+    const hh = r * 0.545;
+    const h1 = [rnd(base[0] + px * hh), rnd(base[1] + py * hh)];
+    const h2 = [rnd(base[0] - px * hh), rnd(base[1] - py * hh)];
+    beachDayFillTriangle(ctx, tip, h1, h2);
+  }
+  const BEACHDAY_SKY_ICON_BY_WORD = {
+    Sunny: "skyIconLarge_sunny", Clear: "skyIconLarge_clear", "Partly Cloudy": "skyIconLarge_partly_cloudy",
+    Cloudy: "skyIconLarge_cloudy", Rainy: "skyIconLarge_rainy", Snowy: "skyIconLarge_snowy", Thunderstorm: "skyIconLarge_thunderstorm"
+  };
+  function drawBeachDayCardClient(ctx, data) {
+    const icons = data.icons || {};
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = "#000"; ctx.textBaseline = "alphabetic";
+
+    beachDayPut(ctx, data.town, 20, 20, BEACHDAY_F12);
+    const dayLabel = "BEACH DAY - " + data.weekday.toUpperCase();
+    beachDayPut(ctx, dayLabel, 746 - beachDayInkWidth(ctx, dayLabel, BEACHDAY_F12), 20, BEACHDAY_F12);
+    if (data.subtitle) {
+      const townW = beachDayInkWidth(ctx, data.town, BEACHDAY_F12);
+      beachDayPut(ctx, data.subtitle, 20 + townW + 12, 20, BEACHDAY_F9);
+    }
+
+    const cond = data.sky_condition;
+    const iconName = BEACHDAY_SKY_ICON_BY_WORD[cond] || "skyIconLarge_cloudy";
+    if (icons[iconName]) ctx.drawImage(icons[iconName], 396 - 50, 52 - 50);
+    let condPx = BEACHDAY_F18;
+    if (beachDayInkWidth(ctx, cond, BEACHDAY_F18) > 260) condPx = BEACHDAY_F12;
+    const condBBox = beachDayInkBBox(ctx, cond, condPx);
+    const condBase = 52 - Math.floor((condBBox.y0 + condBBox.y1) / 2);
+    beachDayPut(ctx, cond, 461, condBase, condPx);
+    if (data.rain_note) beachDayPut(ctx, data.rain_note, 461, condBase + 18, BEACHDAY_F9);
+
+    beachDayPutC(ctx, "Rip Risk", 90, 50, BEACHDAY_F12);
+    beachDayPutC(ctx, data.rip_risk || "--", 90, 90, BEACHDAY_F24);
+    if (data.tide_label) {
+      beachDayPutC(ctx, data.tide_label, 250, 50, BEACHDAY_F12);
+      beachDayPutC(ctx, data.tide_time, 250, 90, BEACHDAY_F24);
+      if (data.tide_then) beachDayPutC(ctx, data.tide_then, 250, 108, BEACHDAY_F9);
+    }
+
+    const labels = ["WAVE", "WATER", "WIND", "AIR", "UV", "HUMIDITY", "FLY RISK"];
+    const values = [data.wave, data.water, data.wind, data.air, data.uv, data.humidity, data.fly_risk];
+    const bigIcon = ["icon_wave", "icon_water", null, "icon_air", "icon_uv", "icon_humidity", "icon_fly"];
+    const iconSize = [70, 100, null, 70, 100, 100, 100];
+    const slotW = Math.floor(752 / 7);
+    for (let i = 0; i < 7; i++) {
+      const cx = 20 + slotW * i + Math.floor(slotW / 2);
+      const val = values[i];
+      const tempSlot = (i === 1 || i === 3) && val !== "--";
+
+      let px = BEACHDAY_F24;
+      let ringAllow = tempSlot ? 14 : 0;
+      if (i !== 6 && beachDayInkWidth(ctx, val, px) + ringAllow > slotW - 10) {
+        px = BEACHDAY_F18; ringAllow = tempSlot ? 12 : 0;
+        if (beachDayInkWidth(ctx, val, px) + ringAllow > slotW - 10) { px = BEACHDAY_F12; ringAllow = tempSlot ? 10 : 0; }
+      }
+      const bb = beachDayInkBBox(ctx, val, px);
+      const tw = bb.x1 - bb.x0;
+      const x = cx - Math.floor((tw + ringAllow) / 2) - bb.x0;
+      beachDayPut(ctx, val, x, 145, px);
+      if (tempSlot) beachDayDegreeRing(ctx, x + bb.x1 + 7, 145 + bb.y0 + 5, 5);
+
+      if (i === 0) {
+        beachDayPutC(ctx, data.wave_quality || "--", cx, 163, BEACHDAY_F9);
+        if (icons.icon_wave_small) ctx.drawImage(icons.icon_wave_small, cx - 35, 170);
+      } else if (i === 2) {
+        beachDayDrawWindArrow(ctx, cx, 154 + 50, 46, data.wind_dir);
+      } else if (i === 3) {
+        if (data.air_high != null && data.air_low != null) {
+          const hi = String(data.air_high), lo = String(data.air_low);
+          const ring = 9;
+          const hiW = beachDayInkWidth(ctx, hi, BEACHDAY_F9);
+          const barW = beachDayInkWidth(ctx, "|", BEACHDAY_F9);
+          const loW = beachDayInkWidth(ctx, lo, BEACHDAY_F9);
+          const total = hiW + ring + barW + loW + ring;
+          let sx = cx - Math.floor(total / 2);
+          beachDayPut(ctx, hi, sx, 163, BEACHDAY_F9); sx += hiW;
+          beachDayDegreeRing(ctx, sx + 4, 163 - 10, 3); sx += ring;
+          beachDayPut(ctx, "|", sx, 163, BEACHDAY_F9); sx += barW;
+          beachDayPut(ctx, lo, sx, 163, BEACHDAY_F9); sx += loW;
+          beachDayDegreeRing(ctx, sx + 4, 163 - 10, 3);
+        }
+        if (icons.icon_air_small) ctx.drawImage(icons.icon_air_small, cx - 35, 170);
+      } else if (icons[bigIcon[i]]) {
+        const s = iconSize[i];
+        ctx.drawImage(icons[bigIcon[i]], cx - s / 2, 154, s, s);
+      }
+      beachDayPutC(ctx, labels[i], cx, 270, BEACHDAY_F9);
+      if (i > 0) {
+        ctx.strokeStyle = "#000"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(20 + slotW * i, 126); ctx.lineTo(20 + slotW * i, 270); ctx.stroke();
+      }
+    }
+  }
+
+  // No device-specific location at all in the common case, same reasoning
+  // as HURRICANE_FALLBACK_LOCATION above -- a real NJ shore town with a
+  // real tide station and surf zone, so the preview always shows a full,
+  // meaningful card instead of an empty one. Unlike Hurricane Tracker,
+  // Beach Day genuinely needs a tide station to do anything at all (see
+  // lib/beachDay.js's own header comment), so there's no useful
+  // partial/no-location render to fall back to the way Beach Flag has.
+  const BEACHDAY_FALLBACK_LOCATION = { lat: 39.2776, lon: -74.5746, stationId: "8534720", name: "Ocean City, NJ", srfZone: "NJZ024", coastFacingDirection: "E" };
+  const BEACHDAY_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/beachDayProxy";
+
+  async function fetchBeachDayCardDataClient() {
+    const location = await resolveTideLocation().catch(() => null);
+    const hasLocation = location && typeof location.lat === "number" && typeof location.lon === "number" && location.stationId;
+    const useLocation = hasLocation ? location : BEACHDAY_FALLBACK_LOCATION;
+    const query = new URLSearchParams({ lat: String(useLocation.lat), lon: String(useLocation.lon), stationId: String(useLocation.stationId), townName: useLocation.name || "" });
+    if (useLocation.srfZone) query.set("srfZone", useLocation.srfZone);
+    if (useLocation.srfOffice) query.set("srfOffice", useLocation.srfOffice);
+    if (useLocation.srfProductPrefix) query.set("srfProductPrefix", useLocation.srfProductPrefix);
+    if (useLocation.coastFacingDirection) query.set("coastFacingDirection", useLocation.coastFacingDirection);
+    const [resp, icons] = await Promise.all([fetch(BEACHDAY_PROXY_BASE + "?" + query.toString()), loadBeachDayIconsClient()]);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("Beach Day fetch failed: " + resp.status));
+    data.icons = icons;
+    return data;
+  }
+
   function hurricaneDrawStar(ctx, cx, cy, r) {
     ctx.beginPath();
     for (let i = 0; i < 10; i++) {
@@ -1229,6 +1433,13 @@
       description: "Tracks the nearest active storm from the National Hurricane Center relative to your saved location -- distance, direction, current strength, and how close it's forecast to get at its nearest approach, with a map showing the coastline and real forecast track points. Shows \"no active storms nearby\" the rest of the time. Uses your device's saved location if set, otherwise previews for 30A, FL. Updates automatically every hour.",
       load: fetchHurricaneTrackerCardDataClient,
       draw: drawHurricaneTrackerCardClient
+    },
+    {
+      subType: "beachDay",
+      title: "Beach Day",
+      description: "A once-a-day snapshot of what the beach will be like today -- rip current risk, high/low tide, wave height and quality, wind speed and direction, water and air temperature, UV index, humidity, and fly risk, all pinned to 1 PM local conditions so it reads right whenever you check it in the morning. Uses your device's saved location and tide station if set, otherwise previews for Ocean City, NJ. Updates automatically once each morning.",
+      load: fetchBeachDayCardDataClient,
+      draw: drawBeachDayCardClient
     }
   ];
 
