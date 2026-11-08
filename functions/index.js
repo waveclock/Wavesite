@@ -1300,7 +1300,20 @@ async function keychainScreensProxyHandler(req, res, bucketImpl) {
   res.status(405).json({ error: "GET or PUT only" });
 }
 
-exports.keychainScreensProxy = onRequest({ cors: true, region: "us-central1" }, keychainScreensProxyHandler);
+// invoker: "public" explicit here (no other function in this file needs
+// it -- Firebase grants public/unauthenticated access by default on a
+// clean create) because this function's FIRST deploy attempt (before
+// the Node 22/canvas fixes a few commits back) failed partway through,
+// leaving a Cloud Run service resource behind without ever completing
+// that one-time public-access IAM grant. Every later deploy saw the
+// resource already existed and only ever "updated" it -- which doesn't
+// redo that grant -- so the function ran fine but every browser request
+// to it was rejected at the IAM layer before ever reaching this code
+// (no CORS headers on that rejection either, since it never reaches the
+// cors:true middleware -- the browser just reports a bare network
+// failure). Declaring invoker explicitly makes Firebase re-apply it on
+// every deploy, create or update, closing this gap for good.
+exports.keychainScreensProxy = onRequest({ cors: true, region: "us-central1", invoker: "public" }, keychainScreensProxyHandler);
 
 const DEVICE_ID_HINT = "deviceId doesn't look right";
 
