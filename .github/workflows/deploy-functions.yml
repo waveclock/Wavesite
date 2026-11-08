@@ -38,6 +38,16 @@ jobs:
           cache: "npm"
           cache-dependency-path: functions/package-lock.json
 
+      # node-canvas (functions/'s drawing dependency) ships prebuilt
+      # binaries for specific Node ABI versions; none exists yet for
+      # Node 22 on this runner's platform, so npm ci falls back to
+      # compiling it from source, which needs these system libraries --
+      # see node-canvas's own "Compiling" docs
+      # (https://github.com/Automattic/node-canvas#compiling). Not
+      # needed before the Node 20 bump since a Node 20 prebuilt existed.
+      - name: Install node-canvas build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+
       - name: Install function dependencies
         working-directory: functions
         run: npm ci
