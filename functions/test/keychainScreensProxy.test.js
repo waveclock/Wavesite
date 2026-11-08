@@ -81,37 +81,53 @@ async function test(name, fn) {
 
   await test("PUT with an invalid screens entry is rejected with a 400 and a reason", async () => {
     const res = fakeRes();
-    await keychainScreensProxyHandler(fakeReq({ method: "PUT", body: { tagId: T1, screens: [{ type: "songList", playlistId: "not a link" }] } }), res, mintedBucket(T1));
+    await keychainScreensProxyHandler(fakeReq({ method: "PUT", body: { tagId: T1, screens: [{ type: "songList", kind: "playlist", id: "not a link" }] } }), res, mintedBucket(T1));
     assert.strictEqual(res.statusCode, 400);
     assert.ok(res.body.error);
   });
 
   await test("PUT against a tagId that was never minted is rejected even if well-formed", async () => {
     const res = fakeRes();
-    const body = { tagId: UNMINTED, screens: [{ type: "songList", playlistId: "PLabc123def456" }] };
+    const body = { tagId: UNMINTED, screens: [{ type: "songList", kind: "playlist", id: "PLabc123def456" }] };
     await keychainScreensProxyHandler(fakeReq({ method: "PUT", body }), res, makeFakeBucket());
     assert.strictEqual(res.statusCode, 403);
   });
 
-  await test("a valid PUT saves and echoes back the sanitized screens", async () => {
+  await test("a valid playlist PUT saves and echoes back the sanitized screens", async () => {
     const res = fakeRes();
     const bucket = mintedBucket(T1);
-    const body = { tagId: T1, screens: [{ type: "songList", playlistId: "https://youtube.com/playlist?list=PLabc123def456&si=xyz" }] };
+    const body = { tagId: T1, screens: [{ type: "songList", kind: "playlist", id: "PLabc123def456" }] };
     await keychainScreensProxyHandler(fakeReq({ method: "PUT", body }), res, bucket);
     assert.strictEqual(res.statusCode, 200);
-    assert.deepStrictEqual(res.body, { screens: [{ type: "songList", playlistId: "PLabc123def456" }] });
+    assert.deepStrictEqual(res.body, { screens: [{ type: "songList", kind: "playlist", id: "PLabc123def456" }] });
+  });
+
+  await test("a valid single-video PUT (the feature this adds) saves and echoes back the sanitized screens", async () => {
+    const res = fakeRes();
+    const bucket = mintedBucket(T1);
+    const body = { tagId: T1, screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }] };
+    await keychainScreensProxyHandler(fakeReq({ method: "PUT", body }), res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }] });
+  });
+
+  await test("a kind/id mismatch is rejected with a 400, not silently coerced", async () => {
+    const res = fakeRes();
+    const body = { tagId: T1, screens: [{ type: "songList", kind: "video", id: "PLabc123def456" }] };
+    await keychainScreensProxyHandler(fakeReq({ method: "PUT", body }), res, mintedBucket(T1));
+    assert.strictEqual(res.statusCode, 400);
   });
 
   await test("a GET after a successful PUT reads back exactly what was saved", async () => {
     const bucket = mintedBucket(T1);
     const putRes = fakeRes();
-    await keychainScreensProxyHandler(fakeReq({ method: "PUT", body: { tagId: T1, screens: [{ type: "songList", playlistId: "PLabc123def456" }] } }), putRes, bucket);
+    await keychainScreensProxyHandler(fakeReq({ method: "PUT", body: { tagId: T1, screens: [{ type: "songList", kind: "playlist", id: "PLabc123def456" }] } }), putRes, bucket);
     assert.strictEqual(putRes.statusCode, 200);
 
     const getRes = fakeRes();
     await keychainScreensProxyHandler(fakeReq({ query: { tagId: T1 } }), getRes, bucket);
     assert.strictEqual(getRes.statusCode, 200);
-    assert.deepStrictEqual(getRes.body, { screens: [{ type: "songList", playlistId: "PLabc123def456" }] });
+    assert.deepStrictEqual(getRes.body, { screens: [{ type: "songList", kind: "playlist", id: "PLabc123def456" }] });
   });
 
   await test("a PUT replaces the whole array -- adding a second valid screen type drops nothing else that's still valid", async () => {
@@ -120,10 +136,10 @@ async function test(name, fn) {
     // array is what ends up saved, not merged with the first.
     const bucket = mintedBucket(T1);
     const res1 = fakeRes();
-    await keychainScreensProxyHandler(fakeReq({ method: "PUT", body: { tagId: T1, screens: [{ type: "songList", playlistId: "PLabc123def456" }] } }), res1, bucket);
+    await keychainScreensProxyHandler(fakeReq({ method: "PUT", body: { tagId: T1, screens: [{ type: "songList", kind: "playlist", id: "PLabc123def456" }] } }), res1, bucket);
     const res2 = fakeRes();
-    await keychainScreensProxyHandler(fakeReq({ method: "PUT", body: { tagId: T1, screens: [{ type: "songList", playlistId: "PLxyz789uvw012" }] } }), res2, bucket);
-    assert.deepStrictEqual(res2.body, { screens: [{ type: "songList", playlistId: "PLxyz789uvw012" }] });
+    await keychainScreensProxyHandler(fakeReq({ method: "PUT", body: { tagId: T1, screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }] } }), res2, bucket);
+    assert.deepStrictEqual(res2.body, { screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }] });
   });
 
   await test("an unsupported method is rejected", async () => {
