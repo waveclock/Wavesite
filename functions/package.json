@@ -3,7 +3,7 @@
   "description": "Daily regeneration of Custom Screen countdown designs for WaveClock devices.",
   "type": "commonjs",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "main": "index.js",
   "scripts": {
