@@ -30,6 +30,7 @@ const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
 const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLinkSelfHealing, unpairDevice, backfillDeviceTagLinks, sanitizeZoneId, sanitizeCoastFacingDirection } = require("./lib/tideTag");
 const { regenerateBeachDayCache } = require("./lib/beachDayCache");
 const { fetchBeachDayData } = require("./lib/beachDay");
+const { sanitizeKeychainScreens, fetchKeychainScreens, saveKeychainScreens } = require("./lib/keychainScreens");
 const tzlookup = require("tz-lookup");
 const { fetchCoastlineNear } = require("./lib/coastline");
 const { fetchCachedCoastline, saveCachedCoastline } = require("./lib/coastlineCache");
@@ -1237,6 +1238,70 @@ async function tideTagProxyHandler(req, res, bucketImpl) {
 
 exports.tideTagProxy = onRequest({ cors: true, region: "us-central1" }, tideTagProxyHandler);
 
+// ================= Keychain Screens proxy =================
+// Backs the "More Screens" gallery (screens/index.html) and 404.html's
+// own read of whatever's been added there -- see lib/keychainScreens.js's
+// own header comment for the data model. Same GET-to-read/PUT-to-replace
+// shape as tideTagProxyHandler above, and the same isTagIdMinted gate on
+// any write (a well-formed but never-issued tagId still can't write
+// anything here, same reasoning as that handler's own POST/PUT).
+async function keychainScreensProxyHandler(req, res, bucketImpl) {
+  const bucket = bucketImpl || admin.storage().bucket();
+
+  if (req.method === "GET") {
+    const tagId = req.query.tagId;
+    if (typeof tagId !== "string" || !isValidTagId(tagId)) {
+      res.status(400).json({ error: TAG_ID_HINT });
+      return;
+    }
+    try {
+      const screens = await fetchKeychainScreens(bucket, tagId);
+      res.status(200).json({ screens });
+    } catch (err) {
+      logger.error("Keychain screens proxy GET failed for " + tagId + ":", err);
+      res.status(502).json({ error: "Couldn't reach storage right now" });
+    }
+    return;
+  }
+
+  if (req.method === "PUT") {
+    const { tagId, screens } = req.body || {};
+    if (typeof tagId !== "string" || !isValidTagId(tagId)) {
+      res.status(400).json({ error: TAG_ID_HINT });
+      return;
+    }
+    let sanitized;
+    try {
+      sanitized = sanitizeKeychainScreens(screens);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    try {
+      if (!(await isTagIdMinted(bucket, tagId))) {
+        res.status(403).json({ error: "This tag hasn't been issued yet" });
+        return;
+      }
+    } catch (err) {
+      logger.error("Keychain screens proxy PUT mint check failed for " + tagId + ":", err);
+      res.status(502).json({ error: "Couldn't verify that tag right now" });
+      return;
+    }
+    try {
+      await saveKeychainScreens(bucket, tagId, sanitized);
+      res.status(200).json({ screens: sanitized });
+    } catch (err) {
+      logger.error("Keychain screens proxy PUT failed for " + tagId + ":", err);
+      res.status(502).json({ error: "Couldn't save that right now" });
+    }
+    return;
+  }
+
+  res.status(405).json({ error: "GET or PUT only" });
+}
+
+exports.keychainScreensProxy = onRequest({ cors: true, region: "us-central1" }, keychainScreensProxyHandler);
+
 const DEVICE_ID_HINT = "deviceId doesn't look right";
 
 // Direct link -- used by the one-tap shortcut on the keychain's own
@@ -1652,4 +1717,4 @@ exports.coastOrientationReport = onRequest({ cors: false, region: "us-central1" 
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachDayProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler, backfillDeviceTagLinksHandler, coastOrientationReportHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachDayProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, keychainScreensProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler, backfillDeviceTagLinksHandler, coastOrientationReportHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };

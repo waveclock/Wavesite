@@ -140,7 +140,7 @@
      above more room, not just a shorter bar in the abstract. */
   .action-bar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-    display: flex; justify-content: center; gap: 56px;
+    display: flex; justify-content: center; gap: clamp(20px, 8vw, 56px);
     padding: 6px 16px calc(10px + env(safe-area-inset-bottom));
     background: #fff; border-top: 2px solid var(--line);
   }
@@ -450,6 +450,15 @@
   .custom-screen-frame { width: 100%; max-width: 400px; margin: 14px auto 0; aspect-ratio: 792 / 272; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
   .custom-screen-frame img { width: 100%; height: 100%; display: block; object-fit: contain; }
   #customScreensList .custom-screen-frame:first-child { margin-top: 0; }
+  /* Song List panel -- a YouTube playlist the visitor picked themselves
+     from the "More Screens" gallery (screens/index.html), not pushed to
+     any physical WaveClock. 16:9 (not .custom-screen-frame's 792x272)
+     since this is a real video player, not a mirror of the device's own
+     display. Native YouTube controls (no autoplay param) are the one
+     reliable way to get sound playing at all -- see renderSongListPanel's
+     own comment on why. */
+  .song-list-frame { width: 100%; max-width: 480px; margin: 14px auto 0; aspect-ratio: 16 / 9; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #000; }
+  .song-list-frame iframe { width: 100%; height: 100%; display: block; border: 0; }
   /* Zoomed 3.5x and pannable (see setupCamPan) -- sized/positioned in %
      of .beach-cam-frame's own box, not measured pixels, so it's always
      correct at any container width with no resize listener needed.
@@ -756,6 +765,17 @@
     <div class="custom-screen-frame" id="beachDayFrame"><img id="beachDayImg" alt="Today&rsquo;s Beach Day forecast"></div>
   </section>
 
+  <!-- Song List: an opt-in extra, picked from the "More Screens" gallery
+       (screens/index.html) and saved per-tag (see lib/keychainScreens.js) --
+       the only panel here that isn't a mirror of something set up
+       elsewhere. Starts hidden; renderSongListPanel only shows it once a
+       real playlist is on file for this tag. -->
+  <section class="snap-panel hidden" id="songListPanel">
+    <h1 class="wind-title">Song List</h1>
+    <div class="curve-cap">Tap play for some beach music</div>
+    <div class="song-list-frame"><iframe id="songListFrame" title="Beach playlist" allow="autoplay; encrypted-media" allowfullscreen loading="lazy"></iframe></div>
+  </section>
+
   <!-- Location/WaveClock live OUTSIDE all three snap-panels, as a fixed
        overlay -- not "whatever's pushed to the bottom of the panel
        currently in view" (which disappeared when swiping to Wind &
@@ -768,6 +788,10 @@
     <button type="button" class="action-btn" id="changeBtn">
       <svg class="action-icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5S10.62 6.5 12 6.5s2.5 1.12 2.5 2.5S13.38 11.5 12 11.5z" fill="currentColor"/></svg>
       <span class="action-label">Location</span>
+    </button>
+    <button type="button" class="action-btn" id="moreScreensBtn">
+      <svg class="action-icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor"/><rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor"/></svg>
+      <span class="action-label">More Screens</span>
     </button>
     <a class="action-btn" href="https://waveclock.net">
       <img class="action-icon" src="/logo.png" alt="" width="28" height="28">
@@ -936,6 +960,7 @@
   const STATIONS = 'https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions';
   const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
   const TAG_PROXY = 'https://us-central1-waveclock.cloudfunctions.net/tideTagProxy';
+  const KEYCHAIN_SCREENS_PROXY = 'https://us-central1-waveclock.cloudfunctions.net/keychainScreensProxy';
   const PAIR_TIDE_TAG = 'https://us-central1-waveclock.cloudfunctions.net/pairTideTag';
   const REQUEST_PAIR_CODE = 'https://us-central1-waveclock.cloudfunctions.net/requestPairCode';
   const STORAGE_BUCKET = 'waveclock.firebasestorage.app';
@@ -1457,7 +1482,8 @@
     { id: 'radar', label: 'Radar', render: renderRadarPanel },
     { id: 'beachCam', label: 'OCNJ Fishing Pier Live', render: renderBeachCam },
     { id: 'customScreens', label: 'Your Custom Screens', render: renderCustomScreens },
-    { id: 'beachDay', label: 'Beach Day', render: renderBeachDayPanel }
+    { id: 'beachDay', label: 'Beach Day', render: renderBeachDayPanel },
+    { id: 'songList', label: 'Song List', render: renderSongListPanel }
   ];
 
   // This one beach's own known center -- a distance gate, not a
@@ -1691,6 +1717,43 @@
       if (!r.ok) { panel.classList.add('hidden'); return; }
       const blob = await r.blob();
       $('beachDayImg').src = URL.createObjectURL(blob);
+      panel.classList.remove('hidden');
+    } catch (err) {
+      panel.classList.add('hidden');
+    }
+  }
+
+  // ---------- Song List panel (opt-in, added from the "More Screens" gallery) ----------
+  // Unlike every other panel here, this one isn't a mirror of something
+  // set up elsewhere (a device, a location, a fixed town) -- it's
+  // whatever this specific tag's own visitor added themselves via
+  // screens/index.html. Self-contained like every SCREENS entry: does
+  // its own fetch, ignores `st` entirely (only tagId matters here).
+  async function fetchKeychainScreensClient() {
+    const r = await fetch(KEYCHAIN_SCREENS_PROXY + '?tagId=' + encodeURIComponent(tagId));
+    if (!r.ok) throw new Error('http ' + r.status);
+    const j = await r.json();
+    return Array.isArray(j.screens) ? j.screens : [];
+  }
+  // No autoplay param at all -- YouTube's own native play button inside
+  // the iframe is what makes this playable WITH sound in the first
+  // place (autoplay is only ever allowed muted; see this feature's own
+  // product discussion). The one-time dataset guard stops the periodic
+  // re-render (openTide runs every few hours, see its own setInterval)
+  // from resetting src -- and restarting whatever's mid-playback -- when
+  // nothing has actually changed since the last render.
+  async function renderSongListPanel(st) {
+    const panel = $('songListPanel');
+    if (!tagId) { panel.classList.add('hidden'); return; } // preview visits have no tagId to look this up under (see moreScreensBtn's own comment)
+    try {
+      const screens = await fetchKeychainScreensClient();
+      const entry = screens.find(s => s.type === 'songList');
+      if (!entry || !entry.playlistId) { panel.classList.add('hidden'); return; }
+      const frame = $('songListFrame');
+      if (frame.dataset.playlistId !== entry.playlistId) {
+        frame.src = 'https://www.youtube.com/embed/videoseries?list=' + encodeURIComponent(entry.playlistId) + '&shuffle=1&rel=0';
+        frame.dataset.playlistId = entry.playlistId;
+      }
       panel.classList.remove('hidden');
     } catch (err) {
       panel.classList.add('hidden');
@@ -2740,6 +2803,16 @@
     isChanging = true;
     openPicker();
   });
+  // Song List (like every keychain-screens entry) is saved per-tagId --
+  // nothing to show/add for a device-scoped PREVIEW visit, which never
+  // has a real tagId at all (see previewDeviceId's own comment above).
+  if (!tagId) {
+    $('moreScreensBtn').classList.add('hidden');
+  } else {
+    $('moreScreensBtn').addEventListener('click', () => {
+      window.location.href = '../screens/?tagId=' + encodeURIComponent(tagId);
+    });
+  }
   // Backs all the way out without touching the registration -- no
   // network call, `current` stays exactly what it was. Only reachable
   // when hasExisting showed this button in the first place.
