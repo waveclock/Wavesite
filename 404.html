@@ -450,8 +450,8 @@
   .custom-screen-frame { width: 100%; max-width: 400px; margin: 14px auto 0; aspect-ratio: 792 / 272; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
   .custom-screen-frame img { width: 100%; height: 100%; display: block; object-fit: contain; }
   #customScreensList .custom-screen-frame:first-child { margin-top: 0; }
-  /* Song List panel -- a YouTube playlist the visitor picked themselves
-     from the "More Screens" gallery (screens/index.html), not pushed to
+  /* Song List panel -- a YouTube playlist or single video the visitor
+     picked themselves from the "More Screens" gallery (screens/index.html), not pushed to
      any physical WaveClock. 16:9 (not .custom-screen-frame's 792x272)
      since this is a real video player, not a mirror of the device's own
      display. Native YouTube controls (no autoplay param) are the one
@@ -769,7 +769,7 @@
        (screens/index.html) and saved per-tag (see lib/keychainScreens.js) --
        the only panel here that isn't a mirror of something set up
        elsewhere. Starts hidden; renderSongListPanel only shows it once a
-       real playlist is on file for this tag. -->
+       real playlist or video is on file for this tag. -->
   <section class="snap-panel hidden" id="songListPanel">
     <h1 class="wind-title">Song List</h1>
     <div class="curve-cap">Tap play for some beach music</div>
@@ -1742,17 +1742,27 @@
   // re-render (openTide runs every few hours, see its own setInterval)
   // from resetting src -- and restarting whatever's mid-playback -- when
   // nothing has actually changed since the last render.
+  // A single video loops (loop=1 needs playlist=<same id> too -- a
+  // YouTube embed quirk, not a typo) rather than ending and falling
+  // through to a related-videos screen after a few minutes.
+  function songListEmbedSrc(entry) {
+    if (entry.kind === 'video') {
+      return 'https://www.youtube.com/embed/' + encodeURIComponent(entry.id) + '?rel=0&loop=1&playlist=' + encodeURIComponent(entry.id);
+    }
+    return 'https://www.youtube.com/embed/videoseries?list=' + encodeURIComponent(entry.id) + '&shuffle=1&rel=0';
+  }
   async function renderSongListPanel(st) {
     const panel = $('songListPanel');
     if (!tagId) { panel.classList.add('hidden'); return; } // preview visits have no tagId to look this up under (see moreScreensBtn's own comment)
     try {
       const screens = await fetchKeychainScreensClient();
       const entry = screens.find(s => s.type === 'songList');
-      if (!entry || !entry.playlistId) { panel.classList.add('hidden'); return; }
+      if (!entry || !entry.id || (entry.kind !== 'video' && entry.kind !== 'playlist')) { panel.classList.add('hidden'); return; }
       const frame = $('songListFrame');
-      if (frame.dataset.playlistId !== entry.playlistId) {
-        frame.src = 'https://www.youtube.com/embed/videoseries?list=' + encodeURIComponent(entry.playlistId) + '&shuffle=1&rel=0';
-        frame.dataset.playlistId = entry.playlistId;
+      const key = entry.kind + ':' + entry.id;
+      if (frame.dataset.songKey !== key) {
+        frame.src = songListEmbedSrc(entry);
+        frame.dataset.songKey = key;
       }
       panel.classList.remove('hidden');
     } catch (err) {

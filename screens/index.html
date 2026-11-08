@@ -118,25 +118,36 @@
   }
 
   // ---------------------------------------------------------------------
-  // Same YouTube playlist link/ID parsing as lib/keychainScreens.js's own
-  // extractYoutubePlaylistId -- duplicated client-side (this project's
+  // Same YouTube playlist/video link parsing as lib/keychainScreens.js's
+  // own extractYoutubeMusicRef -- duplicated client-side (this project's
   // established no-build-step convention, see dynamic.js's own header
   // comment) just to give an immediate "that doesn't look like a
-  // playlist link" instead of waiting on a round trip for the same
+  // YouTube link" instead of waiting on a round trip for the same
   // rejection the server would give anyway.
   // ---------------------------------------------------------------------
   const PLAYLIST_ID_PATTERN = /^[A-Za-z0-9_-]{10,64}$/;
+  const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
   const YOUTUBE_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be']);
-  function extractYoutubePlaylistIdClient(input) {
+  function extractYoutubeMusicRefClient(input) {
     const trimmed = (input || '').trim();
     if (!trimmed) return null;
     try {
       const u = new URL(trimmed);
-      if (!YOUTUBE_HOSTS.has(u.hostname.toLowerCase())) return null;
+      const host = u.hostname.toLowerCase();
+      if (!YOUTUBE_HOSTS.has(host)) return null;
+      const pathVideo = host === 'youtu.be' ? u.pathname.slice(1).split('/')[0]
+        : /^\/shorts\//.test(u.pathname) ? u.pathname.split('/')[2]
+        : null;
+      const v = u.searchParams.get('v');
+      const videoId = pathVideo && VIDEO_ID_PATTERN.test(pathVideo) ? pathVideo
+        : v && VIDEO_ID_PATTERN.test(v) ? v
+        : null;
+      if (videoId) return { kind: 'video', id: videoId };
       const list = u.searchParams.get('list');
-      return list && PLAYLIST_ID_PATTERN.test(list) ? list : null;
+      return list && PLAYLIST_ID_PATTERN.test(list) ? { kind: 'playlist', id: list } : null;
     } catch (err) {
-      return PLAYLIST_ID_PATTERN.test(trimmed) ? trimmed : null;
+      if (VIDEO_ID_PATTERN.test(trimmed)) return { kind: 'video', id: trimmed };
+      return PLAYLIST_ID_PATTERN.test(trimmed) ? { kind: 'playlist', id: trimmed } : null;
     }
   }
 
@@ -150,14 +161,14 @@
       type: 'songList',
       title: 'Song List',
       icon: '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l11-2v13" stroke="#1f5fd1" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" stroke="#1f5fd1" stroke-width="1.8" fill="none"/><circle cx="17" cy="16" r="3" stroke="#1f5fd1" stroke-width="1.8" fill="none"/></svg>',
-      description: "Paste a YouTube playlist link and it'll be ready to play (shuffled) on its own screen.",
+      description: "Paste a YouTube playlist or video link and it'll be ready to play on its own screen.",
       // Renders this type's own add/edit form into `container`. Calls
       // onSave(sanitizedEntryOrNull) -- null means "remove this entry
       // entirely" (Remove button), otherwise the entry to upsert.
       renderForm(container, existingEntry) {
         container.innerHTML = `
-          <label for="songListInput">YouTube playlist link</label>
-          <input type="text" id="songListInput" placeholder="https://youtube.com/playlist?list=..." autocomplete="off" autocapitalize="off" spellcheck="false">
+          <label for="songListInput">YouTube playlist or video link</label>
+          <input type="text" id="songListInput" placeholder="https://youtube.com/watch?v=... or /playlist?list=..." autocomplete="off" autocapitalize="off" spellcheck="false">
           <div class="card-actions">
             <button type="button" class="btn btn-primary" id="songListSaveBtn">${existingEntry ? 'Update' : 'Add'}</button>
             ${existingEntry ? '<button type="button" class="btn btn-text" id="songListRemoveBtn">Remove</button>' : ''}
@@ -170,9 +181,9 @@
         const removeBtn = container.querySelector('#songListRemoveBtn');
 
         saveBtn.addEventListener('click', async () => {
-          const playlistId = extractYoutubePlaylistIdClient(input.value);
-          if (!playlistId) {
-            status.textContent = "That doesn't look like a YouTube playlist link.";
+          const ref = extractYoutubeMusicRefClient(input.value);
+          if (!ref) {
+            status.textContent = "That doesn't look like a YouTube playlist or video link.";
             status.classList.add('error');
             return;
           }
@@ -181,7 +192,7 @@
           saveBtn.disabled = true;
           saveBtn.textContent = 'Saving…';
           try {
-            await handleSave('songList', { type: 'songList', playlistId });
+            await handleSave('songList', { type: 'songList', kind: ref.kind, id: ref.id });
           } catch (err) {
             status.textContent = "Couldn't save that right now (" + err.message + ")";
             status.classList.add('error');

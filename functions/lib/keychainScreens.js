@@ -31,27 +31,46 @@ function screensFile(bucket, tagId) {
 // YouTube ever mints a new ID shape, while still being strict enough
 // that nothing but a playlist-id-shaped string reaches the embed URL.
 const PLAYLIST_ID_PATTERN = /^[A-Za-z0-9_-]{10,64}$/;
+// Video IDs, unlike playlist IDs, are always exactly 11 characters --
+// this is what makes a bare pasted ID (no URL at all) unambiguous
+// between the two down in extractYoutubeMusicRef below.
+const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 
 const YOUTUBE_HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"]);
 
-// Accepts either a full YouTube URL with a list= param (a playlist page
-// link, or a video+playlist combo link) or a bare playlist ID pasted
-// directly. Anything else -- a non-YouTube URL, a video-only link with
-// no list=, a malformed/garbage string -- returns null rather than
-// guessing, same "fail loudly/degrade cleanly, never fabricate" pattern
-// every other sanitizer in this codebase follows.
-function extractYoutubePlaylistId(input) {
+// Accepts a YouTube playlist link, a single video link (watch, youtu.be,
+// or Shorts), or a bare ID of either pasted directly -- "kind" tells the
+// caller which. A watch/youtu.be/Shorts link that ALSO happens to carry
+// a list= param (YouTube auto-attaches one to almost any watch link,
+// often an auto-generated "mix" that was never the customer's real
+// intent) is still treated as the single video -- video wins whenever
+// one is present, playlist only applies to an actual .../playlist?list=
+// link or a bare playlist ID. Anything else -- a non-YouTube URL, a
+// malformed/garbage string -- returns null rather than guessing, same
+// "fail loudly/degrade cleanly, never fabricate" pattern every other
+// sanitizer in this codebase follows.
+function extractYoutubeMusicRef(input) {
   if (typeof input !== "string") return null;
   const trimmed = input.trim();
   if (!trimmed) return null;
   try {
     const u = new URL(trimmed);
-    if (!YOUTUBE_HOSTS.has(u.hostname.toLowerCase())) return null;
+    const host = u.hostname.toLowerCase();
+    if (!YOUTUBE_HOSTS.has(host)) return null;
+    const pathVideo = host === "youtu.be" ? u.pathname.slice(1).split("/")[0]
+      : /^\/shorts\//.test(u.pathname) ? u.pathname.split("/")[2]
+      : null;
+    const v = u.searchParams.get("v");
+    const videoId = pathVideo && VIDEO_ID_PATTERN.test(pathVideo) ? pathVideo
+      : v && VIDEO_ID_PATTERN.test(v) ? v
+      : null;
+    if (videoId) return { kind: "video", id: videoId };
     const list = u.searchParams.get("list");
-    return list && PLAYLIST_ID_PATTERN.test(list) ? list : null;
+    return list && PLAYLIST_ID_PATTERN.test(list) ? { kind: "playlist", id: list } : null;
   } catch (err) {
-    // Not a URL at all -- maybe a bare playlist ID was pasted.
-    return PLAYLIST_ID_PATTERN.test(trimmed) ? trimmed : null;
+    // Not a URL at all -- maybe a bare ID was pasted.
+    if (VIDEO_ID_PATTERN.test(trimmed)) return { kind: "video", id: trimmed };
+    return PLAYLIST_ID_PATTERN.test(trimmed) ? { kind: "playlist", id: trimmed } : null;
   }
 }
 
@@ -61,10 +80,19 @@ function extractYoutubePlaylistId(input) {
 // later means adding one more entry here (plus its own gallery card and
 // 404.html panel) -- nothing else in sanitizeKeychainScreens/fetch/save
 // below needs to change.
+//
+// The gallery page already ran extractYoutubeMusicRef (its own
+// duplicated copy) on whatever the customer pasted, so raw.kind/raw.id
+// here is already a clean {kind, id} pair, not a raw URL -- this just
+// re-confirms id's shape actually matches the claimed kind, the same
+// "never trust the client, but don't redo work it already did
+// correctly" split astroProxy's own validation uses for its query params.
 const SCREEN_VALIDATORS = {
   songList: (raw) => {
-    const playlistId = extractYoutubePlaylistId(raw && raw.playlistId);
-    return playlistId ? { type: "songList", playlistId } : null;
+    if (!raw || typeof raw.id !== "string") return null;
+    if (raw.kind === "video" && VIDEO_ID_PATTERN.test(raw.id)) return { type: "songList", kind: "video", id: raw.id };
+    if (raw.kind === "playlist" && PLAYLIST_ID_PATTERN.test(raw.id)) return { type: "songList", kind: "playlist", id: raw.id };
+    return null;
   }
 };
 
@@ -120,7 +148,8 @@ module.exports = {
   KEYCHAIN_SCREENS_PREFIX,
   MAX_SCREENS,
   PLAYLIST_ID_PATTERN,
-  extractYoutubePlaylistId,
+  VIDEO_ID_PATTERN,
+  extractYoutubeMusicRef,
   sanitizeKeychainScreens,
   fetchKeychainScreens,
   saveKeychainScreens

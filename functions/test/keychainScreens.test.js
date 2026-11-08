@@ -6,7 +6,7 @@
 
 const assert = require("assert");
 const {
-  extractYoutubePlaylistId,
+  extractYoutubeMusicRef,
   sanitizeKeychainScreens,
   fetchKeychainScreens,
   saveKeychainScreens
@@ -47,65 +47,88 @@ async function test(name, fn) {
 }
 
 (async () => {
-  console.log("extractYoutubePlaylistId");
-  await test("a full playlist page URL yields its list id", () => {
-    assert.strictEqual(
-      extractYoutubePlaylistId("https://youtube.com/playlist?list=PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf&si=AoSfvgW48QuCSSE7"),
-      "PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf"
+  console.log("extractYoutubeMusicRef -- playlists");
+  await test("a full playlist page URL yields a playlist ref", () => {
+    assert.deepStrictEqual(
+      extractYoutubeMusicRef("https://youtube.com/playlist?list=PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf&si=AoSfvgW48QuCSSE7"),
+      { kind: "playlist", id: "PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf" }
     );
   });
-  await test("a video+playlist combo URL (youtu.be) yields the list id, not the video id", () => {
-    assert.strictEqual(extractYoutubePlaylistId("https://youtu.be/djV11Xbc914?list=PLabc123def456"), "PLabc123def456");
-  });
   await test("www./m./music. subdomains are all accepted", () => {
-    assert.strictEqual(extractYoutubePlaylistId("https://www.youtube.com/playlist?list=PLabc123def456"), "PLabc123def456");
-    assert.strictEqual(extractYoutubePlaylistId("https://m.youtube.com/playlist?list=PLabc123def456"), "PLabc123def456");
-    assert.strictEqual(extractYoutubePlaylistId("https://music.youtube.com/playlist?list=PLabc123def456"), "PLabc123def456");
+    assert.deepStrictEqual(extractYoutubeMusicRef("https://www.youtube.com/playlist?list=PLabc123def456"), { kind: "playlist", id: "PLabc123def456" });
+    assert.deepStrictEqual(extractYoutubeMusicRef("https://m.youtube.com/playlist?list=PLabc123def456"), { kind: "playlist", id: "PLabc123def456" });
+    assert.deepStrictEqual(extractYoutubeMusicRef("https://music.youtube.com/playlist?list=PLabc123def456"), { kind: "playlist", id: "PLabc123def456" });
   });
   await test("a bare playlist id (no URL at all) is accepted directly", () => {
-    assert.strictEqual(extractYoutubePlaylistId("PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf"), "PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf");
+    assert.deepStrictEqual(extractYoutubeMusicRef("PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf"), { kind: "playlist", id: "PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf" });
   });
-  await test("a single-video link with no list= is rejected, not guessed", () => {
-    assert.strictEqual(extractYoutubePlaylistId("https://youtu.be/djV11Xbc914?is=T_NBkF_Dk0XCcdQT"), null);
+
+  console.log("extractYoutubeMusicRef -- single videos (the feature this adds)");
+  await test("a plain youtu.be share link yields a video ref", () => {
+    assert.deepStrictEqual(extractYoutubeMusicRef("https://youtu.be/djV11Xbc914?is=T_NBkF_Dk0XCcdQT"), { kind: "video", id: "djV11Xbc914" });
   });
+  await test("a youtube.com/watch?v= link yields a video ref", () => {
+    assert.deepStrictEqual(extractYoutubeMusicRef("https://www.youtube.com/watch?v=djV11Xbc914"), { kind: "video", id: "djV11Xbc914" });
+  });
+  await test("a Shorts link yields a video ref", () => {
+    assert.deepStrictEqual(extractYoutubeMusicRef("https://www.youtube.com/shorts/djV11Xbc914"), { kind: "video", id: "djV11Xbc914" });
+  });
+  await test("a bare 11-char video id (no URL at all) is accepted directly as a video, not a playlist", () => {
+    assert.deepStrictEqual(extractYoutubeMusicRef("djV11Xbc914"), { kind: "video", id: "djV11Xbc914" });
+  });
+  await test("a watch link that ALSO carries a list= (YouTube's auto-attached mix) still resolves to the video, not the list", () => {
+    assert.deepStrictEqual(extractYoutubeMusicRef("https://www.youtube.com/watch?v=djV11Xbc914&list=RDdjV11Xbc914"), { kind: "video", id: "djV11Xbc914" });
+  });
+  await test("a youtu.be link that ALSO carries a list= still resolves to the video, not the list", () => {
+    assert.deepStrictEqual(extractYoutubeMusicRef("https://youtu.be/djV11Xbc914?list=PLabc123def456"), { kind: "video", id: "djV11Xbc914" });
+  });
+
+  console.log("extractYoutubeMusicRef -- rejections");
   await test("a non-YouTube URL is rejected even with a list= param", () => {
-    assert.strictEqual(extractYoutubePlaylistId("https://evil.example.com/playlist?list=PLabc123def456"), null);
+    assert.strictEqual(extractYoutubeMusicRef("https://evil.example.com/playlist?list=PLabc123def456"), null);
   });
   await test("garbage input yields null, not a thrown error", () => {
-    assert.strictEqual(extractYoutubePlaylistId(""), null);
-    assert.strictEqual(extractYoutubePlaylistId("not a url or an id!!"), null);
-    assert.strictEqual(extractYoutubePlaylistId(null), null);
-    assert.strictEqual(extractYoutubePlaylistId(undefined), null);
+    assert.strictEqual(extractYoutubeMusicRef(""), null);
+    assert.strictEqual(extractYoutubeMusicRef("not a url or an id!!"), null);
+    assert.strictEqual(extractYoutubeMusicRef(null), null);
+    assert.strictEqual(extractYoutubeMusicRef(undefined), null);
   });
 
   console.log("sanitizeKeychainScreens");
-  await test("a valid songList entry round-trips unchanged (plus whatever extraction normalizes)", () => {
-    const out = sanitizeKeychainScreens([{ type: "songList", playlistId: "https://youtube.com/playlist?list=PLabc123def456" }]);
-    assert.deepStrictEqual(out, [{ type: "songList", playlistId: "PLabc123def456" }]);
+  await test("a valid playlist songList entry passes through unchanged", () => {
+    const out = sanitizeKeychainScreens([{ type: "songList", kind: "playlist", id: "PLabc123def456" }]);
+    assert.deepStrictEqual(out, [{ type: "songList", kind: "playlist", id: "PLabc123def456" }]);
+  });
+  await test("a valid video songList entry passes through unchanged", () => {
+    const out = sanitizeKeychainScreens([{ type: "songList", kind: "video", id: "djV11Xbc914" }]);
+    assert.deepStrictEqual(out, [{ type: "songList", kind: "video", id: "djV11Xbc914" }]);
   });
   await test("non-array input throws", () => {
     assert.throws(() => sanitizeKeychainScreens("nope"));
     assert.throws(() => sanitizeKeychainScreens(null));
   });
   await test("an entry with no type throws", () => {
-    assert.throws(() => sanitizeKeychainScreens([{ playlistId: "PLabc123def456" }]));
+    assert.throws(() => sanitizeKeychainScreens([{ kind: "playlist", id: "PLabc123def456" }]));
   });
   await test("an unknown type throws", () => {
     assert.throws(() => sanitizeKeychainScreens([{ type: "weatherRadar" }]));
   });
-  await test("an invalid songList entry (bad playlist link) throws", () => {
-    assert.throws(() => sanitizeKeychainScreens([{ type: "songList", playlistId: "not a playlist" }]));
+  await test("an invalid songList entry (bad id shape) throws", () => {
+    assert.throws(() => sanitizeKeychainScreens([{ type: "songList", kind: "playlist", id: "not a playlist" }]));
+  });
+  await test("a kind/id mismatch (playlist-shaped id claimed as a video) throws, not silently accepted", () => {
+    assert.throws(() => sanitizeKeychainScreens([{ type: "songList", kind: "video", id: "PLabc123def456" }]));
   });
   await test("more than MAX_SCREENS entries throws", () => {
-    const many = Array.from({ length: 21 }, () => ({ type: "songList", playlistId: "PLabc123def456" }));
+    const many = Array.from({ length: 21 }, () => ({ type: "songList", kind: "playlist", id: "PLabc123def456" }));
     assert.throws(() => sanitizeKeychainScreens(many));
   });
   await test("two songList entries collapse to one (last wins) -- each type is a singleton", () => {
     const out = sanitizeKeychainScreens([
-      { type: "songList", playlistId: "PLabc123def456" },
-      { type: "songList", playlistId: "PLxyz789uvw012" }
+      { type: "songList", kind: "playlist", id: "PLabc123def456" },
+      { type: "songList", kind: "video", id: "djV11Xbc914" }
     ]);
-    assert.deepStrictEqual(out, [{ type: "songList", playlistId: "PLxyz789uvw012" }]);
+    assert.deepStrictEqual(out, [{ type: "songList", kind: "video", id: "djV11Xbc914" }]);
   });
 
   console.log("fetchKeychainScreens / saveKeychainScreens");
@@ -116,9 +139,9 @@ async function test(name, fn) {
   });
   await test("save then fetch round-trips the exact array", async () => {
     const bucket = makeFakeBucket();
-    await saveKeychainScreens(bucket, T1, [{ type: "songList", playlistId: "PLabc123def456" }]);
+    await saveKeychainScreens(bucket, T1, [{ type: "songList", kind: "video", id: "djV11Xbc914" }]);
     const screens = await fetchKeychainScreens(bucket, T1);
-    assert.deepStrictEqual(screens, [{ type: "songList", playlistId: "PLabc123def456" }]);
+    assert.deepStrictEqual(screens, [{ type: "songList", kind: "video", id: "djV11Xbc914" }]);
   });
   await test("a malformed tagId never touches storage -- reads empty, save throws", async () => {
     const bucket = makeFakeBucket();
