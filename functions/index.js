@@ -1250,17 +1250,48 @@ async function keychainScreensProxyHandler(req, res, bucketImpl) {
 
   if (req.method === "GET") {
     const tagId = req.query.tagId;
-    if (typeof tagId !== "string" || !isValidTagId(tagId)) {
-      res.status(400).json({ error: TAG_ID_HINT });
+    if (typeof tagId === "string" && tagId) {
+      if (!isValidTagId(tagId)) {
+        res.status(400).json({ error: TAG_ID_HINT });
+        return;
+      }
+      try {
+        const screens = await fetchKeychainScreens(bucket, tagId);
+        res.status(200).json({ screens });
+      } catch (err) {
+        logger.error("Keychain screens proxy GET failed for " + tagId + ":", err);
+        res.status(502).json({ error: "Couldn't reach storage right now" });
+      }
       return;
     }
-    try {
-      const screens = await fetchKeychainScreens(bucket, tagId);
-      res.status(200).json({ screens });
-    } catch (err) {
-      logger.error("Keychain screens proxy GET failed for " + tagId + ":", err);
-      res.status(502).json({ error: "Couldn't reach storage right now" });
+
+    // deviceId alternative -- 404.html's own device-scoped PREVIEW (see
+    // previewDeviceId's own comment there) has no real tagId to look
+    // this up under at all, by design, so it can't just pass one here.
+    // Resolves the device's linked tag SERVER-SIDE only and returns
+    // that tag's screens -- the resolved tagId itself is never put in
+    // the response, same "deviceId can prove a keychain is paired but
+    // never learn which one" rule deviceLinkStatusHandler already
+    // enforces for the exact same reason (see DEVICE_TAG_LINKS_PREFIX's
+    // own comment in lib/tideTag.js).
+    const deviceId = req.query.deviceId;
+    if (typeof deviceId === "string" && deviceId) {
+      if (!isValidDeviceId(deviceId)) {
+        res.status(400).json({ error: DEVICE_ID_HINT });
+        return;
+      }
+      try {
+        const link = await fetchDeviceTagLinkSelfHealing(bucket, deviceId);
+        const screens = link ? await fetchKeychainScreens(bucket, link.tagId) : [];
+        res.status(200).json({ screens });
+      } catch (err) {
+        logger.error("Keychain screens proxy GET (by deviceId) failed for " + deviceId + ":", err);
+        res.status(502).json({ error: "Couldn't reach storage right now" });
+      }
+      return;
     }
+
+    res.status(400).json({ error: "tagId or deviceId is required" });
     return;
   }
 
