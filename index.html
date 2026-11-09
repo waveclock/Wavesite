@@ -633,6 +633,11 @@
   .footer-name a { text-decoration: none; }
   .footer-name a:hover { text-decoration: underline; }
 
+  /* ---------- Rating summary (reviews section) ---------- */
+  .rating-summary { display: none; align-items: center; justify-content: center; gap: 10px; margin: 22px 0 0; }
+  .rating-summary .stars { color: var(--aqua); font-size: 22px; letter-spacing: 2px; }
+  .rating-summary .count { color: var(--ink-soft); font-size: 14px; }
+
   ::selection { background: var(--aqua); color: #fff; }
 </style>
 <script type="application/ld+json">
@@ -840,6 +845,10 @@
     <h2>Customer reviews</h2>
     <p class="lede" style="margin:0 auto 20px;">See what beach families are saying about their Wave Clock.</p>
     <a class="btn btn-aqua" href="reviews/">Read reviews &rarr;</a>
+    <div class="rating-summary" id="ratingSummary">
+      <span class="stars" id="summaryStars"></span>
+      <span class="count" id="summaryCount"></span>
+    </div>
   </div>
 </section>
 
@@ -1023,6 +1032,71 @@
       if (!revealed) sizeCanvas();
     });
   })();
+</script>
+
+<script type="module">
+  // Same approach reviews/index.html uses for its own rating-summary --
+  // listing reviews/approved/*.json straight from Storage and averaging
+  // their stars client-side, so this stays in sync with real approved
+  // reviews instead of a number that drifts out of date.
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getStorage, ref, listAll } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCm6S3mhAmLobxa5ID3uW6IUJTBcwK_zwM",
+    authDomain: "waveclock.firebaseapp.com",
+    projectId: "waveclock",
+    storageBucket: "waveclock.firebasestorage.app",
+    messagingSenderId: "668302334840",
+    appId: "1:668302334840:web:6a18ae2df23455e9dc468d"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const storage = getStorage(app);
+
+  const ratingSummary = document.getElementById("ratingSummary");
+  const summaryStars = document.getElementById("summaryStars");
+  const summaryCount = document.getElementById("summaryCount");
+
+  function storageUrl(path) {
+    return "https://firebasestorage.googleapis.com/v0/b/" + firebaseConfig.storageBucket + "/o/" + encodeURIComponent(path) + "?alt=media";
+  }
+
+  function starGlyphs(stars) {
+    return "★".repeat(stars) + "☆".repeat(5 - stars);
+  }
+
+  async function loadRatingSummary() {
+    if (!ratingSummary || !summaryStars || !summaryCount) return;
+    try {
+      const listing = await listAll(ref(storage, "reviews/approved"));
+      const items = listing.items.filter((item) => item.name.endsWith(".json"));
+      if (items.length === 0) return;
+
+      const stars = [];
+      for (const item of items) {
+        try {
+          const resp = await fetch(storageUrl(item.fullPath));
+          if (!resp.ok) continue;
+          const review = await resp.json();
+          if (typeof review.stars === "number") stars.push(review.stars);
+        } catch (err) {
+          // skip unreadable entries
+        }
+      }
+      if (stars.length === 0) return;
+
+      const avg = stars.reduce((sum, s) => sum + s, 0) / stars.length;
+      summaryStars.textContent = starGlyphs(Math.round(avg));
+      summaryCount.textContent = avg.toFixed(1) + " out of 5 (" + stars.length + (stars.length === 1 ? " review" : " reviews") + ")";
+      ratingSummary.style.display = "flex";
+    } catch (err) {
+      // No approved reviews yet, or Storage unreachable -- summary just
+      // stays hidden, same graceful degrade as the reviews page itself.
+    }
+  }
+
+  loadRatingSummary();
 </script>
 
 </body>
