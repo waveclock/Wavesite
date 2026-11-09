@@ -218,18 +218,40 @@
   }
   .screen-thumb-frame {
     width: 100%;
-    aspect-ratio: 9 / 16;
     border: 1px solid var(--line);
     border-radius: 10px;
     margin: 14px 0 16px;
     overflow: hidden;
     background: var(--foam);
+  }
+  .screen-thumb-frame img { width: 100%; height: auto; display: block; }
+
+  /* ---------- Player-style thumb (Beach Cam / Song List / Live Video --
+     no live-video frame to screenshot here, so these show a simple,
+     honest "this plays on the page" treatment instead of a fabricated
+     video frame or an invented track/stream title) ---------- */
+  .screen-thumb-frame.player {
+    aspect-ratio: 16 / 9;
+    background: linear-gradient(160deg, var(--navy-dark), var(--navy));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #fff;
+    text-align: center;
+    padding: 16px;
+  }
+  .player-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.14);
     display: flex;
     align-items: center;
     justify-content: center;
   }
-  .screen-thumb-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .screen-thumb-frame.pending { color: var(--ink-soft); font-size: 13px; text-align: center; padding: 16px; }
+  .player-caption { font-size: 13px; color: rgba(255,255,255,0.85); max-width: 26ch; }
   .screen-order {
     position: absolute;
     top: -14px;
@@ -345,13 +367,13 @@
   <div class="wrap">
     <p class="kicker">What tapping it opens</p>
     <h2>Every screen, right on your phone</h2>
-    <p class="lede">These are real screenshots of the actual page &mdash; swipe through them the same way on your own phone.</p>
+    <p class="lede">Most of these are real screenshots of the actual page &mdash; swipe through them the same way on your own phone.</p>
 
     <div class="screen-cards">
       <div class="screen-card">
         <span class="screen-order">Screen 1</span>
         <h3>Tide &amp; Conditions</h3>
-        <div class="screen-thumb-frame" id="thumb-tide"><div class="pending">Screenshot coming</div></div>
+        <div class="screen-thumb-frame"><img src="keychain_screen_tide.jpg" alt="Tide screen showing Ocean City, NJ, high tide in 1 hour 12 minutes, Rip Risk Low, and today's tide curve"></div>
         <p>Today's tide curve, water &amp; air temp, wind, and sky &mdash; the first thing you see.</p>
         <span class="tag">Default screen</span>
       </div>
@@ -359,7 +381,7 @@
       <div class="screen-card">
         <span class="screen-order">Screen 2</span>
         <h3>Waves &amp; Wind</h3>
-        <div class="screen-thumb-frame" id="thumb-windwave"><div class="pending">Screenshot coming</div></div>
+        <div class="screen-thumb-frame"><img src="keychain_screen_windwave.jpg" alt="Waves & Wind screen showing 0.5 ft waves at 5 seconds rated Fair, 8 mph onshore wind, and today's wave and wind charts"></div>
         <p>Wave height and period alongside wind speed and direction, today and tomorrow.</p>
         <span class="tag">Surf check</span>
       </div>
@@ -367,7 +389,7 @@
       <div class="screen-card">
         <span class="screen-order">Screen 3</span>
         <h3>Radar</h3>
-        <div class="screen-thumb-frame" id="thumb-radar"><div class="pending">Screenshot coming</div></div>
+        <div class="screen-thumb-frame"><img src="keychain_screen_radar.jpg" alt="Radar screen showing live precipitation near Ocean City, NJ, today's high and low of 76/70 with Scattered Showers, and an hourly rain and temperature chart"></div>
         <p>A live rain radar centered on your beach, plus a two-day rain and temperature outlook.</p>
         <span class="tag">Is it about to rain</span>
       </div>
@@ -375,7 +397,12 @@
       <div class="screen-card">
         <span class="screen-order">Screen 4</span>
         <h3>Live Beach Cam</h3>
-        <div class="screen-thumb-frame" id="thumb-beachcam"><div class="pending">Screenshot coming</div></div>
+        <div class="screen-thumb-frame player">
+          <span class="player-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
+          </span>
+          <span class="player-caption">Live from 14th Street Fishing Pier</span>
+        </div>
         <p>For Ocean City, NJ keychains: a real live camera feed from the 14th Street Fishing Pier.</p>
         <span class="tag">OCNJ only, for now</span>
       </div>
@@ -383,7 +410,7 @@
       <div class="screen-card">
         <span class="screen-order">Screen 5</span>
         <h3>Your Custom Screens</h3>
-        <div class="screen-thumb-frame" id="thumb-customscreens"><div class="pending">Screenshot coming</div></div>
+        <div class="screen-thumb-frame"><img src="keychain_screen_customscreens.jpg" alt="Your Custom Screens showing a hand-drawn 'Night in Venice' design from a paired Wave Clock"></div>
         <p>Paired to a Wave Clock? Whatever you've designed for it &mdash; a countdown, a team schedule, Beach Buddy &mdash; shows up here too.</p>
         <span class="tag">Linked keychains only</span>
       </div>
@@ -391,7 +418,7 @@
       <div class="screen-card">
         <span class="screen-order">Screen 6</span>
         <h3>Beach Day</h3>
-        <div class="screen-thumb-frame" id="thumb-beachday"><div class="pending">Screenshot coming</div></div>
+        <div class="screen-thumb-frame"><img src="keychain_screen_beachday.jpg" alt="Beach Day screen showing Rip Risk Mid, High Tide 10:09 PM, 2 ft waves, 76 degree water, wind 10-12 mph, 75 degree air, UV 0-7, 92% humidity, and Low fly risk"></div>
         <p>Rip risk, high tide, wave and water conditions, wind, UV, humidity, and fly risk, all at a glance.</p>
         <span class="tag">The whole checklist</span>
       </div>
@@ -399,7 +426,12 @@
       <div class="screen-card">
         <span class="screen-order">More Screens</span>
         <h3>Song List</h3>
-        <div class="screen-thumb-frame" id="thumb-songlist"><div class="pending">Screenshot coming</div></div>
+        <div class="screen-thumb-frame player">
+          <span class="player-icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 18V5l11-2v13" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" stroke="#fff" stroke-width="1.8"/><circle cx="17" cy="16" r="3" stroke="#fff" stroke-width="1.8"/></svg>
+          </span>
+          <span class="player-caption">Your playlist or song plays right here</span>
+        </div>
         <p>Paste any YouTube playlist or song and it plays right from your tide page &mdash; shuffled beach music, ready to go.</p>
         <span class="tag">Opt-in, no clock needed</span>
       </div>
@@ -407,7 +439,12 @@
       <div class="screen-card">
         <span class="screen-order">More Screens</span>
         <h3>Live Video Feed</h3>
-        <div class="screen-thumb-frame" id="thumb-livevideo"><div class="pending">Screenshot coming</div></div>
+        <div class="screen-thumb-frame player">
+          <span class="player-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="6" width="14" height="12" rx="2" stroke="#fff" stroke-width="1.8"/><path d="M16 10l6-3.5v11L16 14" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="player-caption">Your live stream plays right here, muted</span>
+        </div>
         <p>Paste a link to any YouTube live stream &mdash; a webcam, a surf cam, anything &mdash; and it plays muted, right on this page.</p>
         <span class="tag">Opt-in, no clock needed</span>
       </div>
