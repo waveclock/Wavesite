@@ -73,6 +73,9 @@ async function test(name, fn) {
   await test("a Shorts link yields a video ref", () => {
     assert.deepStrictEqual(extractYoutubeMusicRef("https://www.youtube.com/shorts/djV11Xbc914"), { kind: "video", id: "djV11Xbc914" });
   });
+  await test("a /live/ share link (YouTube's own format for an active live stream -- a real reported bug) yields a video ref", () => {
+    assert.deepStrictEqual(extractYoutubeMusicRef("https://www.youtube.com/live/EChjekRKsKU?feature=shared"), { kind: "video", id: "EChjekRKsKU" });
+  });
   await test("a bare 11-char video id (no URL at all) is accepted directly as a video, not a playlist", () => {
     assert.deepStrictEqual(extractYoutubeMusicRef("djV11Xbc914"), { kind: "video", id: "djV11Xbc914" });
   });

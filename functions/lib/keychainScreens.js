@@ -39,16 +39,17 @@ const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"]);
 
 // Accepts a YouTube playlist link, a single video link (watch, youtu.be,
-// or Shorts), or a bare ID of either pasted directly -- "kind" tells the
-// caller which. A watch/youtu.be/Shorts link that ALSO happens to carry
-// a list= param (YouTube auto-attaches one to almost any watch link,
-// often an auto-generated "mix" that was never the customer's real
-// intent) is still treated as the single video -- video wins whenever
-// one is present, playlist only applies to an actual .../playlist?list=
-// link or a bare playlist ID. Anything else -- a non-YouTube URL, a
-// malformed/garbage string -- returns null rather than guessing, same
-// "fail loudly/degrade cleanly, never fabricate" pattern every other
-// sanitizer in this codebase follows.
+// Shorts, or /live/ -- YouTube's own share-link format for an active
+// live stream), or a bare ID of either pasted directly -- "kind" tells
+// the caller which. A watch/youtu.be/Shorts/live link that ALSO happens
+// to carry a list= param (YouTube auto-attaches one to almost any watch
+// link, often an auto-generated "mix" that was never the customer's
+// real intent) is still treated as the single video -- video wins
+// whenever one is present, playlist only applies to an actual
+// .../playlist?list= link or a bare playlist ID. Anything else -- a
+// non-YouTube URL, a malformed/garbage string -- returns null rather
+// than guessing, same "fail loudly/degrade cleanly, never fabricate"
+// pattern every other sanitizer in this codebase follows.
 function extractYoutubeMusicRef(input) {
   if (typeof input !== "string") return null;
   const trimmed = input.trim();
@@ -58,7 +59,7 @@ function extractYoutubeMusicRef(input) {
     const host = u.hostname.toLowerCase();
     if (!YOUTUBE_HOSTS.has(host)) return null;
     const pathVideo = host === "youtu.be" ? u.pathname.slice(1).split("/")[0]
-      : /^\/shorts\//.test(u.pathname) ? u.pathname.split("/")[2]
+      : /^\/(shorts|live)\//.test(u.pathname) ? u.pathname.split("/")[2]
       : null;
     const v = u.searchParams.get("v");
     const videoId = pathVideo && VIDEO_ID_PATTERN.test(pathVideo) ? pathVideo
