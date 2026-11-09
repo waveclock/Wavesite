@@ -450,15 +450,13 @@
   .custom-screen-frame { width: 100%; max-width: 400px; margin: 14px auto 0; aspect-ratio: 792 / 272; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
   .custom-screen-frame img { width: 100%; height: 100%; display: block; object-fit: contain; }
   #customScreensList .custom-screen-frame:first-child { margin-top: 0; }
-  /* Song List panel -- a YouTube playlist or single video the visitor
-     picked themselves from the "More Screens" gallery (screens/index.html), not pushed to
-     any physical WaveClock. 16:9 (not .custom-screen-frame's 792x272)
-     since this is a real video player, not a mirror of the device's own
-     display. Native YouTube controls (no autoplay param) are the one
-     reliable way to get sound playing at all -- see renderSongListPanel's
-     own comment on why. */
-  .song-list-frame { width: 100%; max-width: 480px; margin: 14px auto 0; aspect-ratio: 16 / 9; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #000; }
-  .song-list-frame iframe { width: 100%; height: 100%; display: block; border: 0; }
+  /* Shared by Song List and Live Video Feed -- both are a YouTube
+     embed the visitor picked themselves from the "More Screens"
+     gallery (screens/index.html), not pushed to any physical WaveClock.
+     16:9 (not .custom-screen-frame's 792x272) since these are real
+     video players, not a mirror of the device's own display. */
+  .video-embed-frame { width: 100%; max-width: 480px; margin: 14px auto 0; aspect-ratio: 16 / 9; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #000; }
+  .video-embed-frame iframe { width: 100%; height: 100%; display: block; border: 0; }
   /* Zoomed 3.5x and pannable (see setupCamPan) -- sized/positioned in %
      of .beach-cam-frame's own box, not measured pixels, so it's always
      correct at any container width with no resize listener needed.
@@ -765,15 +763,27 @@
     <div class="custom-screen-frame" id="beachDayFrame"><img id="beachDayImg" alt="Today&rsquo;s Beach Day forecast"></div>
   </section>
 
-  <!-- Song List: an opt-in extra, picked from the "More Screens" gallery
-       (screens/index.html) and saved per-tag (see lib/keychainScreens.js) --
-       the only panel here that isn't a mirror of something set up
-       elsewhere. Starts hidden; renderSongListPanel only shows it once a
-       real playlist or video is on file for this tag. -->
+  <!-- Song List and Live Video Feed: opt-in extras, picked from the
+       "More Screens" gallery (screens/index.html) and saved per-tag
+       (see lib/keychainScreens.js) -- the only panels here that aren't
+       a mirror of something set up elsewhere. Both start hidden;
+       renderSongListPanel/renderLiveVideoPanel only show each once a
+       real link is on file for this tag. -->
   <section class="snap-panel hidden" id="songListPanel">
     <h1 class="wind-title">Song List</h1>
     <div class="curve-cap">Tap play for some beach music</div>
-    <div class="song-list-frame"><iframe id="songListFrame" title="Beach playlist" allow="autoplay; encrypted-media" allowfullscreen loading="lazy"></iframe></div>
+    <div class="video-embed-frame"><iframe id="songListFrame" title="Beach playlist" allow="autoplay; encrypted-media" allowfullscreen loading="lazy"></iframe></div>
+  </section>
+
+  <!-- Muted autoplay (unlike Song List's deliberate no-autoplay -- see
+       renderLiveVideoPanel's own comment) since this is a live view
+       someone wants to glance at, not something that needs a tap to
+       start, same reasoning the existing OCNJ beach cams above already
+       use for the same muted-autoplay-is-always-allowed browser rule. -->
+  <section class="snap-panel hidden" id="liveVideoPanel">
+    <h1 class="wind-title">Live Video Feed</h1>
+    <div class="curve-cap">Live now</div>
+    <div class="video-embed-frame"><iframe id="liveVideoFrame" title="Live video feed" allow="autoplay; encrypted-media" allowfullscreen loading="lazy"></iframe></div>
   </section>
 
   <!-- Location/WaveClock live OUTSIDE all three snap-panels, as a fixed
@@ -1483,7 +1493,8 @@
     { id: 'beachCam', label: 'OCNJ Fishing Pier Live', render: renderBeachCam },
     { id: 'customScreens', label: 'Your Custom Screens', render: renderCustomScreens },
     { id: 'beachDay', label: 'Beach Day', render: renderBeachDayPanel },
-    { id: 'songList', label: 'Song List', render: renderSongListPanel }
+    { id: 'songList', label: 'Song List', render: renderSongListPanel },
+    { id: 'liveVideo', label: 'Live Video Feed', render: renderLiveVideoPanel }
   ];
 
   // This one beach's own known center -- a distance gate, not a
@@ -1773,6 +1784,33 @@
       if (frame.dataset.songKey !== key) {
         frame.src = songListEmbedSrc(entry);
         frame.dataset.songKey = key;
+      }
+      panel.classList.remove('hidden');
+    } catch (err) {
+      panel.classList.add('hidden');
+    }
+  }
+
+  // ---------- Live Video Feed panel (opt-in, added from the "More Screens" gallery) ----------
+  // Always a single video (a stream's own video ID doesn't change while
+  // it's live) -- muted autoplay (the one combination every browser
+  // always allows without a tap, same rule the OCNJ beach cams above
+  // already rely on) since this is meant to be glanced at immediately,
+  // not something that needs sound by default; the native YouTube
+  // controls still let a visitor unmute if they want. Same dataset-key
+  // guard as Song List, so the periodic re-render doesn't reset src (and
+  // restart the stream's own buffering) when nothing's actually changed.
+  async function renderLiveVideoPanel(st) {
+    const panel = $('liveVideoPanel');
+    if (!tagId && !previewDeviceId) { panel.classList.add('hidden'); return; }
+    try {
+      const screens = await fetchKeychainScreensClient();
+      const entry = screens.find(s => s.type === 'liveVideo');
+      if (!entry || !entry.id) { panel.classList.add('hidden'); return; }
+      const frame = $('liveVideoFrame');
+      if (frame.dataset.videoId !== entry.id) {
+        frame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(entry.id) + '?autoplay=1&mute=1&playsinline=1&rel=0';
+        frame.dataset.videoId = entry.id;
       }
       panel.classList.remove('hidden');
     } catch (err) {

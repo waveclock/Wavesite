@@ -14,10 +14,10 @@
     returns to), not design/index.html's Design-tool palette -- these
     are two different parts of the site a visitor never confuses.
 
-    Deliberately a tiny, self-contained OPTIONS array (one entry today:
-    Song List) rather than a generic framework -- see OPTIONS' own
-    comment below for what adding a second gallery item actually
-    requires.
+    Deliberately a tiny, self-contained OPTIONS array (Song List and
+    Live Video Feed today) rather than a generic framework -- see
+    OPTIONS' own comment below for what adding another gallery item
+    actually requires.
   */
   :root {
     --ink: #0f1b3d;
@@ -207,6 +207,72 @@
             saveBtn.disabled = true;
             try {
               await handleSave('songList', null);
+            } catch (err) {
+              status.textContent = "Couldn't remove that right now (" + err.message + ")";
+              status.classList.add('error');
+              removeBtn.disabled = false;
+              saveBtn.disabled = false;
+            }
+          });
+        }
+      }
+    },
+    {
+      type: 'liveVideo',
+      title: 'Live Video Feed',
+      icon: '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="14" height="12" rx="2" stroke="#1f5fd1" stroke-width="1.8" fill="none"/><path d="M16 10l6-3.5v11L16 14" stroke="#1f5fd1" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg>',
+      description: 'Paste a YouTube live stream link (a beach cam, a webcam, anything live) and it\'ll play muted on its own screen -- tap it for sound.',
+      renderForm(container, existingEntry) {
+        container.innerHTML = `
+          <label for="liveVideoInput">YouTube live video link</label>
+          <input type="text" id="liveVideoInput" placeholder="https://youtube.com/watch?v=..." autocomplete="off" autocapitalize="off" spellcheck="false">
+          <div class="card-actions">
+            <button type="button" class="btn btn-primary" id="liveVideoSaveBtn">${existingEntry ? 'Update' : 'Add'}</button>
+            ${existingEntry ? '<button type="button" class="btn btn-text" id="liveVideoRemoveBtn">Remove</button>' : ''}
+            <p class="form-status" id="liveVideoFormStatus"></p>
+          </div>
+        `;
+        const input = container.querySelector('#liveVideoInput');
+        const status = container.querySelector('#liveVideoFormStatus');
+        const saveBtn = container.querySelector('#liveVideoSaveBtn');
+        const removeBtn = container.querySelector('#liveVideoRemoveBtn');
+
+        saveBtn.addEventListener('click', async () => {
+          // Reuses the same playlist-or-video parser as Song List, but
+          // only a single video makes sense for a live feed -- a
+          // playlist link here is rejected with its own clearer message
+          // rather than the generic "doesn't look like a link" one.
+          const ref = extractYoutubeMusicRefClient(input.value);
+          if (ref && ref.kind === 'playlist') {
+            status.textContent = 'That looks like a playlist link -- paste a single video link instead.';
+            status.classList.add('error');
+            return;
+          }
+          if (!ref) {
+            status.textContent = "That doesn't look like a YouTube video link.";
+            status.classList.add('error');
+            return;
+          }
+          status.textContent = '';
+          status.classList.remove('error');
+          saveBtn.disabled = true;
+          saveBtn.textContent = 'Saving…';
+          try {
+            await handleSave('liveVideo', { type: 'liveVideo', id: ref.id });
+          } catch (err) {
+            status.textContent = "Couldn't save that right now (" + err.message + ")";
+            status.classList.add('error');
+            saveBtn.disabled = false;
+            saveBtn.textContent = existingEntry ? 'Update' : 'Add';
+          }
+        });
+
+        if (removeBtn) {
+          removeBtn.addEventListener('click', async () => {
+            removeBtn.disabled = true;
+            saveBtn.disabled = true;
+            try {
+              await handleSave('liveVideo', null);
             } catch (err) {
               status.textContent = "Couldn't remove that right now (" + err.message + ")";
               status.classList.add('error');

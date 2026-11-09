@@ -93,6 +93,13 @@ const SCREEN_VALIDATORS = {
     if (raw.kind === "video" && VIDEO_ID_PATTERN.test(raw.id)) return { type: "songList", kind: "video", id: raw.id };
     if (raw.kind === "playlist" && PLAYLIST_ID_PATTERN.test(raw.id)) return { type: "songList", kind: "playlist", id: raw.id };
     return null;
+  },
+  // Always a single video (a live stream's own video ID doesn't change
+  // while it's live) -- no kind field needed, unlike songList, since
+  // there's no playlist equivalent here.
+  liveVideo: (raw) => {
+    if (!raw || typeof raw.id !== "string") return null;
+    return VIDEO_ID_PATTERN.test(raw.id) ? { type: "liveVideo", id: raw.id } : null;
   }
 };
 
