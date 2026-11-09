@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Wave Clock Keychain — Tap It, See Your Beach</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="description" content="Tap the Wave Clock keychain to the back of any phone to open your own live tide page — tide, waves, wind, radar, and more, no app and no Wave Clock required.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://waveclock.net/keychain.html">
+<meta property="og:title" content="The Wave Clock Keychain — Tap It, See Your Beach">
+<meta property="og:description" content="Tap the Wave Clock keychain to the back of any phone to open your own live tide page — tide, waves, wind, radar, and more, no app and no Wave Clock required.">
+<meta property="og:image" content="https://waveclock.net/social_preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="The Wave Clock Keychain — Tap It, See Your Beach">
+<meta name="twitter:description" content="Tap the Wave Clock keychain to the back of any phone to open your own live tide page — tide, waves, wind, radar, and more, no app and no Wave Clock required.">
+<meta name="twitter:image" content="https://waveclock.net/social_preview.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand: #F1E6CF;
+    --foam: #F8F2E4;
+    --ink: #1F3347;
+    --ink-soft: #4C6478;
+    --coral: #C97456;
+    --coral-dark: #A85C42;
+    --wax: #D9A441;
+    --aqua: #5FADA6;
+    --navy: #2C4A63;
+    --navy-dark: #1B2E3F;
+    --driftwood: #A68A6D;
+    --line: rgba(31, 51, 71, 0.14);
+
+    --display: 'Bungee', system-ui, sans-serif;
+    --heading: 'Fraunces', Georgia, serif;
+    --body: 'Work Sans', -apple-system, sans-serif;
+    --script: 'Caveat', cursive;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+  section { padding: 56px 0; }
+  .section-foam { background: var(--foam); }
+
+  .kicker {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--navy);
+    margin: 0 0 10px;
+  }
+
+  h2 {
+    font-family: var(--heading);
+    font-weight: 700;
+    font-size: clamp(26px, 3.4vw, 38px);
+    margin: 0 0 14px;
+    color: var(--ink);
+  }
+
+  .lede { max-width: 62ch; color: var(--ink-soft); font-size: 17px; margin-bottom: 8px; }
+
+  .cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 15px;
+    padding: 14px 26px;
+    border-radius: 999px;
+    text-decoration: none;
+    border: 2px solid var(--ink);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+  .btn-primary { background: var(--navy); color: var(--foam); box-shadow: 3px 3px 0 var(--ink); }
+  .btn-primary:hover { box-shadow: 5px 5px 0 var(--ink); }
+  .btn-ghost { background: transparent; color: var(--ink); }
+  .btn-ghost:hover { background: rgba(20,48,45,0.06); }
+  .btn-aqua { background: var(--aqua); color: #fff; border-color: var(--aqua); box-shadow: 3px 3px 0 rgba(0,0,0,0.3); }
+  .btn-aqua:hover { box-shadow: 5px 5px 0 rgba(0,0,0,0.3); }
+
+  /* ---------- Hero: tap-to-open moment ---------- */
+  .hero {
+    position: relative;
+    padding: 36px 0 0;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(44,74,99,0.12), transparent 60%),
+      linear-gradient(180deg, var(--sand) 0%, var(--sand) 70%, var(--foam) 100%);
+  }
+  .eyebrow-tape {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    background: var(--aqua);
+    color: #fff;
+    padding: 6px 14px;
+    transform: rotate(-1.5deg);
+    box-shadow: 2px 2px 0 rgba(20,48,45,0.15);
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 48px;
+    align-items: center;
+    padding: 28px 0 60px;
+  }
+  @media (max-width: 860px) { .hero-grid { grid-template-columns: 1fr; } }
+
+  h1.brand {
+    font-family: var(--display);
+    font-size: clamp(34px, 5.2vw, 56px);
+    line-height: 1.08;
+    margin: 18px 0 0;
+    color: var(--ink);
+    text-shadow: 3px 3px 0 var(--navy);
+    letter-spacing: 0.01em;
+  }
+  h1.brand span { color: var(--navy); text-shadow: 3px 3px 0 var(--ink); }
+
+  .hero-copy p.sub { margin-top: 18px; max-width: 48ch; color: var(--ink-soft); font-size: 16px; }
+
+  /* ---------- Hero tap visual (placeholder-safe: swap the <img> inside
+     .tap-photo-frame for a real photo later -- this SVG illustration is
+     just a stand-in for "tap keychain to phone" until one exists) ---------- */
+  .tap-visual { display: flex; justify-content: center; }
+  .tap-photo-frame {
+    position: relative;
+    width: 100%;
+    max-width: 460px;
+    border: 2px solid var(--ink);
+    border-radius: 16px;
+    background: #000;
+    box-shadow: 6px 6px 0 rgba(20,48,45,0.12);
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+  }
+  .tap-photo-frame video,
+  .tap-photo-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  /* ---------- Wave divider ---------- */
+  .wave-divider { display: block; width: 100%; height: 46px; }
+  .wave-divider path { fill: var(--foam); }
+
+  /* ---------- Numbered steps (how it works) ---------- */
+  .step-list { display: flex; flex-direction: column; gap: 26px; margin-top: 36px; }
+  .step-item {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 24px 26px 22px;
+    position: relative;
+    box-shadow: 5px 5px 0 rgba(20,48,45,0.10);
+  }
+  .step-number {
+    position: absolute;
+    top: -14px;
+    left: 20px;
+    background: var(--ink);
+    color: var(--foam);
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    letter-spacing: 0.06em;
+  }
+  .step-item h3 { font-family: var(--heading); font-size: 19px; font-weight: 700; margin: 12px 0 8px; }
+  .step-item p { color: var(--ink-soft); font-size: 15px; margin: 0; }
+
+  /* ---------- Screen gallery (reuses the look of index.html's own
+     .screen-cards, so the keychain's screens read as the same family as
+     the physical clock's screens elsewhere on the site) ---------- */
+  .screen-cards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 22px;
+    margin-top: 36px;
+  }
+  @media (max-width: 720px) { .screen-cards { grid-template-columns: 1fr; } }
+
+  .screen-card {
+    background: #fff;
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 22px 24px;
+    position: relative;
+    box-shadow: 5px 5px 0 rgba(20,48,45,0.10);
+  }
+  .screen-thumb-frame {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    margin: 14px 0 16px;
+    overflow: hidden;
+    background: var(--foam);
+  }
+  .screen-thumb-frame img { width: 100%; height: auto; display: block; }
+
+  /* ---------- Player-style thumb (Beach Cam / Song List / Live Video --
+     no live-video frame to screenshot here, so these show a simple,
+     honest "this plays on the page" treatment instead of a fabricated
+     video frame or an invented track/stream title) ---------- */
+  .screen-thumb-frame.player {
+    aspect-ratio: 16 / 9;
+    background: linear-gradient(160deg, var(--navy-dark), var(--navy));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #fff;
+    text-align: center;
+    padding: 16px;
+  }
+  .player-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.14);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .player-caption { font-size: 13px; color: rgba(255,255,255,0.85); max-width: 26ch; }
+  .screen-order {
+    position: absolute;
+    top: -14px;
+    left: 20px;
+    background: var(--ink);
+    color: var(--foam);
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    letter-spacing: 0.06em;
+  }
+  .screen-card h3 { font-family: var(--heading); font-size: 20px; font-weight: 700; margin: 10px 0 8px; }
+  .screen-card p { color: var(--ink-soft); font-size: 14.5px; margin: 0; }
+  .screen-card .tag {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--aqua);
+    background: rgba(95,173,166,0.16);
+    padding: 3px 10px;
+    border-radius: 999px;
+    margin-top: 12px;
+  }
+
+  /* ---------- Callout ---------- */
+  .callout {
+    background: var(--foam);
+    border-left: 4px solid var(--wax);
+    padding: 16px 20px;
+    border-radius: 4px;
+    font-size: 14.5px;
+    color: var(--ink-soft);
+    margin-top: 24px;
+  }
+  .callout b { color: var(--ink); }
+
+  /* ---------- Footer ---------- */
+  footer { padding: 40px 0 50px; text-align: center; color: var(--ink-soft); font-size: 14px; }
+  .footer-name { font-family: var(--script); font-size: 28px; color: var(--ink); display: block; margin-top: 6px; }
+  .footer-name a { text-decoration: none; }
+  .footer-name a:hover { text-decoration: underline; }
+
+  ::selection { background: var(--wax); color: var(--ink); }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="cta-row" style="margin-top:28px;">
+      <a class="btn btn-ghost" href="index.html">&larr; Back to Wave Clock</a>
+    </div>
+
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <span class="eyebrow-tape">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z" stroke="#fff" stroke-width="2"/><path d="M8 12a4 4 0 1 1 8 0" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+          No app. No Wave Clock required.
+        </span>
+        <h1 class="brand">Tap it.<br>See your <span>beach</span>.</h1>
+        <p class="sub">Every Wave Clock keychain is a tiny NFC tag. Tap it to the back of any phone and it opens a tide page tuned to one beach &mdash; yours. No account, no download, nothing to install.</p>
+        <div class="cta-row">
+          <a class="btn btn-aqua" href="index.html#buy">Get a keychain &rarr;</a>
+          <a class="btn btn-ghost" href="#screens">See what it shows &darr;</a>
+        </div>
+      </div>
+
+      <div class="tap-visual">
+        <div class="tap-photo-frame" id="tapPhotoFrame">
+          <video autoplay muted loop playsinline poster="keychain_tap_hero.jpg" aria-label="A hand holding a Wave Clock keychain taps it to the back of a phone on the beach, which opens the Ocean City tide page.">
+            <source src="keychain_tap_hero.mp4" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </div>
+  </div>
+  <svg class="wave-divider" viewBox="0 0 1200 60" preserveAspectRatio="none" aria-hidden="true"><path d="M0,30 C150,70 350,0 600,30 C850,60 1050,0 1200,30 L1200,60 L0,60 Z"/></svg>
+</header>
+
+<section id="how">
+  <div class="wrap">
+    <p class="kicker">How it works</p>
+    <h2>Three taps, that's it</h2>
+    <p class="lede">A Wave Clock keychain doesn't need power, WiFi, or a physical Wave Clock &mdash; it's a passive NFC tag that just opens a web page.</p>
+
+    <div class="step-list">
+      <div class="step-item">
+        <span class="step-number">Tap 1</span>
+        <h3>Hold it to the back of your phone</h3>
+        <p>Most phones wake up and open the link on their own, the same way tapping a contactless card does. No app to install first.</p>
+      </div>
+      <div class="step-item">
+        <span class="step-number">Tap 2</span>
+        <h3>Pick your beach (first time only)</h3>
+        <p>A brand-new keychain asks once which town's tide it should follow. After that, this exact keychain remembers &mdash; every future tap goes straight there.</p>
+      </div>
+      <div class="step-item">
+        <span class="step-number">Tap 3</span>
+        <h3>Swipe through its screens</h3>
+        <p>Your tide curve opens first. Swipe left or right (or tap the dots) to flip through everything else it knows about your beach &mdash; see below.</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <b>Already own a Wave Clock?</b> Pair the keychain to it from the clock's own setup page, and the two stay in sync &mdash; your custom screens and settings show up on this tide page too, right alongside everything else.
+    </div>
+  </div>
+</section>
+
+<section id="screens" class="section-foam">
+  <div class="wrap">
+    <p class="kicker">What tapping it opens</p>
+    <h2>Every screen, right on your phone</h2>
+    <p class="lede">Most of these are real screenshots of the actual page &mdash; swipe through them the same way on your own phone.</p>
+
+    <div class="screen-cards">
+      <div class="screen-card">
+        <span class="screen-order">Screen 1</span>
+        <h3>Tide &amp; Conditions</h3>
+        <div class="screen-thumb-frame"><img src="keychain_screen_tide.jpg" alt="Tide screen showing Ocean City, NJ, high tide in 1 hour 12 minutes, Rip Risk Low, and today's tide curve"></div>
+        <p>Today's tide curve, water &amp; air temp, wind, and sky &mdash; the first thing you see.</p>
+        <span class="tag">Default screen</span>
+      </div>
+
+      <div class="screen-card">
+        <span class="screen-order">Screen 2</span>
+        <h3>Waves &amp; Wind</h3>
+        <div class="screen-thumb-frame"><img src="keychain_screen_windwave.jpg" alt="Waves & Wind screen showing 0.5 ft waves at 5 seconds rated Fair, 8 mph onshore wind, and today's wave and wind charts"></div>
+        <p>Wave height and period alongside wind speed and direction, today and tomorrow.</p>
+        <span class="tag">Surf check</span>
+      </div>
+
+      <div class="screen-card">
+        <span class="screen-order">Screen 3</span>
+        <h3>Radar</h3>
+        <div class="screen-thumb-frame"><img src="keychain_screen_radar.jpg" alt="Radar screen showing live precipitation near Ocean City, NJ, today's high and low of 76/70 with Scattered Showers, and an hourly rain and temperature chart"></div>
+        <p>A live rain radar centered on your beach, plus a two-day rain and temperature outlook.</p>
+        <span class="tag">Is it about to rain</span>
+      </div>
+
+      <div class="screen-card">
+        <span class="screen-order">Screen 4</span>
+        <h3>Live Beach Cam</h3>
+        <div class="screen-thumb-frame"><img src="keychain_screen_beachcam.jpg" alt="OCNJ Fishing Pier Live screen showing two real camera views of the 14th Street Fishing Pier in Ocean City, NJ"></div>
+        <p>For Ocean City, NJ keychains: a real live camera feed from the 14th Street Fishing Pier.</p>
+        <span class="tag">OCNJ only, for now</span>
+      </div>
+
+      <div class="screen-card">
+        <span class="screen-order">Screen 5</span>
+        <h3>Your Custom Screens</h3>
+        <div class="screen-thumb-frame"><img src="keychain_screen_customscreens.jpg" alt="Your Custom Screens showing a Beach Day forecast card, an NBA Game Day card for 76ers vs Celtics, and a College Football Game Day card for Penn State vs Minnesota, all from a paired Wave Clock"></div>
+        <p>Paired to a Wave Clock? Whatever you've designed for it &mdash; a countdown, a team schedule, Beach Buddy &mdash; shows up here too.</p>
+        <span class="tag">Linked keychains only</span>
+      </div>
+
+      <div class="screen-card">
+        <span class="screen-order">Screen 6</span>
+        <h3>Beach Day</h3>
+        <div class="screen-thumb-frame"><img src="keychain_screen_beachday.jpg" alt="Beach Day screen showing Rip Risk Mid, High Tide 10:09 PM, 2 ft waves, 76 degree water, wind 10-12 mph, 75 degree air, UV 0-7, 92% humidity, and Low fly risk"></div>
+        <p>Rip risk, high tide, wave and water conditions, wind, UV, humidity, and fly risk, all at a glance.</p>
+        <span class="tag">The whole checklist</span>
+      </div>
+
+      <div class="screen-card">
+        <span class="screen-order">More Screens</span>
+        <h3>Song List</h3>
+        <div class="screen-thumb-frame"><img src="keychain_screen_songlist.jpg" alt="Song List screen showing a real YouTube embed playing a-ha's Take On Me"></div>
+        <p>Paste any YouTube playlist or song and it plays right from your tide page &mdash; shuffled beach music, ready to go.</p>
+        <span class="tag">Opt-in, no clock needed</span>
+      </div>
+
+      <div class="screen-card">
+        <span class="screen-order">More Screens</span>
+        <h3>Live Video Feed</h3>
+        <div class="screen-thumb-frame player">
+          <span class="player-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="2" y="6" width="14" height="12" rx="2" stroke="#fff" stroke-width="1.8"/><path d="M16 10l6-3.5v11L16 14" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="player-caption">Your live stream plays right here, muted</span>
+        </div>
+        <p>Paste a link to any YouTube live stream &mdash; a webcam, a surf cam, anything &mdash; and it plays muted, right on this page.</p>
+        <span class="tag">Opt-in, no clock needed</span>
+      </div>
+    </div>
+
+    <div class="callout">
+      <b>Song List and Live Video Feed</b> are added from the keychain's own "More Screens" gallery &mdash; no Wave Clock required, just the keychain and a few taps. Every keychain starts out showing a WaveClock-picked default for both, clearly marked as a preset, until you swap in your own.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>WAVE CLOCK</p>
+    <p>Designed in OCNJ<span class="footer-name"><a href="index.html">waveclock.net</a></span></p>
+    <p><a href="index.html">&larr; Back to Wave Clock</a></p>
+    <p><a href="guide.html">User Guide &rarr;</a></p>
+    <p><a href="index.html#contact">Questions? Get in touch &rarr;</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
