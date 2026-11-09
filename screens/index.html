@@ -136,7 +136,7 @@
       const host = u.hostname.toLowerCase();
       if (!YOUTUBE_HOSTS.has(host)) return null;
       const pathVideo = host === 'youtu.be' ? u.pathname.slice(1).split('/')[0]
-        : /^\/shorts\//.test(u.pathname) ? u.pathname.split('/')[2]
+        : /^\/(shorts|live)\//.test(u.pathname) ? u.pathname.split('/')[2]
         : null;
       const v = u.searchParams.get('v');
       const videoId = pathVideo && VIDEO_ID_PATTERN.test(pathVideo) ? pathVideo
