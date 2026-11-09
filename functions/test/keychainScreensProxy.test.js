@@ -10,11 +10,17 @@ const { keychainScreensProxyHandler } = require("../index.js")._internal;
 const T1 = "AAAAAAAAAABBBBBBBBBB"; // 20 chars, valid tagId shape
 const UNMINTED = "CCCCCCCCCCDDDDDDDDDD"; // well-formed, never minted
 
+// Includes getFiles (mirrors test/tideTagProxy.test.js's own fake) --
+// fetchDeviceTagLinkSelfHealing falls through to a tide-tags/ scan
+// whenever a deviceId has no direct device-tag-links/ record yet
+// (unlinked, or the legacy-pairing self-heal case), so any deviceId GET
+// test needs this even when it's never meant to find anything.
 function makeFakeBucket(initialFiles) {
   const store = new Map(Object.entries(initialFiles || {}));
   function fileHandle(path) {
     return {
       path,
+      name: path,
       async download() {
         if (!store.has(path)) {
           const err = new Error("not found");
@@ -26,7 +32,15 @@ function makeFakeBucket(initialFiles) {
       async save(data) { store.set(path, data); }
     };
   }
-  return { file: fileHandle, _store: store };
+  return {
+    file: fileHandle,
+    async getFiles(opts) {
+      const prefix = (opts && opts.prefix) || "";
+      const names = Array.from(store.keys()).filter((k) => k.startsWith(prefix));
+      return [names.map(fileHandle)];
+    },
+    _store: store
+  };
 }
 
 function mintedBucket(tagId, initialFiles) {
@@ -140,6 +154,53 @@ async function test(name, fn) {
     const res2 = fakeRes();
     await keychainScreensProxyHandler(fakeReq({ method: "PUT", body: { tagId: T1, screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }] } }), res2, bucket);
     assert.deepStrictEqual(res2.body, { screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }] });
+  });
+
+  await test("GET with no tagId and no deviceId at all is rejected", async () => {
+    const res = fakeRes();
+    await keychainScreensProxyHandler(fakeReq({ query: {} }), res, makeFakeBucket());
+    assert.strictEqual(res.statusCode, 400);
+  });
+
+  await test("GET with a malformed deviceId is rejected", async () => {
+    const res = fakeRes();
+    await keychainScreensProxyHandler(fakeReq({ query: { deviceId: "bad id with spaces" } }), res, makeFakeBucket());
+    assert.strictEqual(res.statusCode, 400);
+  });
+
+  // 404.html's device-scoped PREVIEW (see previewDeviceId's own comment
+  // there) has no real tagId at all -- it passes deviceId instead, and
+  // the server resolves the link server-side. The resolved tagId must
+  // never appear in the response (same rule deviceLinkStatusHandler
+  // already enforces, see DEVICE_TAG_LINKS_PREFIX's own comment in
+  // lib/tideTag.js).
+  await test("GET by deviceId (linked) returns that tag's screens, with no tagId in the response", async () => {
+    const bucket = mintedBucket(T1, {
+      "device-tag-links/WC-1.json": JSON.stringify({ tagId: T1, linkedAt: "x" }),
+      ["keychain-screens/" + T1 + ".json"]: JSON.stringify({ screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }] })
+    });
+    const res = fakeRes();
+    await keychainScreensProxyHandler(fakeReq({ query: { deviceId: "WC-1" } }), res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }] });
+    assert.ok(!("tagId" in res.body), "response must never include the resolved tagId");
+  });
+
+  await test("GET by deviceId (nothing linked) returns an empty array, not an error", async () => {
+    const res = fakeRes();
+    await keychainScreensProxyHandler(fakeReq({ query: { deviceId: "WC-unlinked" } }), res, makeFakeBucket());
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { screens: [] });
+  });
+
+  await test("tagId takes precedence when both tagId and deviceId are somehow both present", async () => {
+    const bucket = mintedBucket(T1, {
+      ["keychain-screens/" + T1 + ".json"]: JSON.stringify({ screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }] })
+    });
+    const res = fakeRes();
+    await keychainScreensProxyHandler(fakeReq({ query: { tagId: T1, deviceId: "WC-1" } }), res, bucket);
+    assert.strictEqual(res.statusCode, 200);
+    assert.deepStrictEqual(res.body, { screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }] });
   });
 
   await test("an unsupported method is rejected", async () => {

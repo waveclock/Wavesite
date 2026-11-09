@@ -1728,9 +1728,19 @@
   // set up elsewhere (a device, a location, a fixed town) -- it's
   // whatever this specific tag's own visitor added themselves via
   // screens/index.html. Self-contained like every SCREENS entry: does
-  // its own fetch, ignores `st` entirely (only tagId matters here).
+  // its own fetch, ignores `st` entirely (only tagId/previewDeviceId
+  // matter here).
+  //
+  // A device-scoped PREVIEW visit (previewDeviceId, no real tagId --
+  // see that variable's own comment) still wants to show whatever's
+  // really set for the paired keychain, so this falls back to asking by
+  // deviceId instead. The server resolves which tag that is and returns
+  // only its screens, never the tagId itself (same deviceId-can't-learn
+  // -the-tagId rule as everywhere else -- see keychainScreensProxyHandler's
+  // own comment on this in index.js).
   async function fetchKeychainScreensClient() {
-    const r = await fetch(KEYCHAIN_SCREENS_PROXY + '?tagId=' + encodeURIComponent(tagId));
+    const param = tagId ? ('tagId=' + encodeURIComponent(tagId)) : ('deviceId=' + encodeURIComponent(previewDeviceId));
+    const r = await fetch(KEYCHAIN_SCREENS_PROXY + '?' + param);
     if (!r.ok) throw new Error('http ' + r.status);
     const j = await r.json();
     return Array.isArray(j.screens) ? j.screens : [];
@@ -1753,7 +1763,7 @@
   }
   async function renderSongListPanel(st) {
     const panel = $('songListPanel');
-    if (!tagId) { panel.classList.add('hidden'); return; } // preview visits have no tagId to look this up under (see moreScreensBtn's own comment)
+    if (!tagId && !previewDeviceId) { panel.classList.add('hidden'); return; } // neither identity available -- shouldn't really happen, boot() already 404s this case
     try {
       const screens = await fetchKeychainScreensClient();
       const entry = screens.find(s => s.type === 'songList');
@@ -2813,9 +2823,13 @@
     isChanging = true;
     openPicker();
   });
-  // Song List (like every keychain-screens entry) is saved per-tagId --
-  // nothing to show/add for a device-scoped PREVIEW visit, which never
-  // has a real tagId at all (see previewDeviceId's own comment above).
+  // Keychain-screens entries are saved per-tagId -- a device-scoped
+  // PREVIEW visit (see previewDeviceId's own comment above) can VIEW
+  // whatever's already set for its paired tag (renderSongListPanel
+  // resolves that by deviceId server-side, see its own comment), but
+  // can't add/edit one without a real tagId to write to, so the gallery
+  // link itself stays hidden there -- same as every other write path on
+  // this page (pairing, registering a beach) needing the real tag.
   if (!tagId) {
     $('moreScreensBtn').classList.add('hidden');
   } else {
