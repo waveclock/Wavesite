@@ -156,30 +156,16 @@
   .tap-photo-frame {
     position: relative;
     width: 100%;
-    max-width: 320px;
+    max-width: 460px;
     border: 2px solid var(--ink);
     border-radius: 16px;
-    background: #fff;
+    background: #000;
     box-shadow: 6px 6px 0 rgba(20,48,45,0.12);
     overflow: hidden;
-    aspect-ratio: 4 / 5;
+    aspect-ratio: 16 / 9;
   }
+  .tap-photo-frame video,
   .tap-photo-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .tap-illustration {
-    width: 100%; height: 100%;
-    display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(160deg, var(--foam), var(--sand));
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    .nfc-wave { animation: nfcPulse 2.2s ease-in-out infinite; transform-origin: center; }
-    .nfc-wave:nth-child(2) { animation-delay: 0.3s; }
-    .nfc-wave:nth-child(3) { animation-delay: 0.6s; }
-  }
-  @keyframes nfcPulse {
-    0% { opacity: 0.9; transform: scale(0.85); }
-    70% { opacity: 0; transform: scale(1.25); }
-    100% { opacity: 0; transform: scale(1.25); }
-  }
 
   /* ---------- Wave divider ---------- */
   .wave-divider { display: block; width: 100%; height: 46px; }
@@ -315,22 +301,9 @@
 
       <div class="tap-visual">
         <div class="tap-photo-frame" id="tapPhotoFrame">
-          <!--
-            Placeholder illustration -- swap this whole inner block for
-            <img src="keychain_tap_hero.jpg" alt="..."> once a real photo
-            of tapping the keychain to a phone is in hand.
-          -->
-          <div class="tap-illustration" aria-hidden="true">
-            <svg width="68%" viewBox="0 0 160 200" fill="none">
-              <rect x="20" y="10" width="90" height="180" rx="16" fill="#fff" stroke="#1F3347" stroke-width="3"/>
-              <rect x="30" y="26" width="70" height="140" rx="4" fill="#F1E6CF"/>
-              <circle cx="65" cy="178" r="6" fill="#1F3347"/>
-              <circle cx="128" cy="96" r="16" fill="#D9A441" stroke="#1F3347" stroke-width="3"/>
-              <path class="nfc-wave" d="M100 80a24 24 0 0 1 0 32" stroke="#2C4A63" stroke-width="3" fill="none" stroke-linecap="round"/>
-              <path class="nfc-wave" d="M92 70a36 36 0 0 1 0 52" stroke="#2C4A63" stroke-width="3" fill="none" stroke-linecap="round"/>
-              <path class="nfc-wave" d="M84 60a50 50 0 0 1 0 72" stroke="#2C4A63" stroke-width="3" fill="none" stroke-linecap="round"/>
-            </svg>
-          </div>
+          <video autoplay muted loop playsinline poster="keychain_tap_hero.jpg" aria-label="A hand holding a Wave Clock keychain taps it to the back of a phone on the beach, which opens the Ocean City tide page.">
+            <source src="keychain_tap_hero.mp4" type="video/mp4">
+          </video>
         </div>
       </div>
     </div>
