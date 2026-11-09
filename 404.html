@@ -1756,6 +1756,25 @@
     const j = await r.json();
     return Array.isArray(j.screens) ? j.screens : [];
   }
+  // YouTube's own public oEmbed endpoint -- no API key, just the normal
+  // watch/playlist URL for whatever's actually playing -- so a caption
+  // can show the real video/playlist title instead of a bare id.
+  // Fail-soft by design: any network hiccup or unexpected shape just
+  // means no title (caller keeps its own static caption), never an
+  // error the visitor sees.
+  async function fetchYoutubeTitleClient(kind, id) {
+    try {
+      const watchUrl = kind === 'playlist'
+        ? 'https://www.youtube.com/playlist?list=' + encodeURIComponent(id)
+        : 'https://www.youtube.com/watch?v=' + encodeURIComponent(id);
+      const r = await fetch('https://www.youtube.com/oembed?url=' + encodeURIComponent(watchUrl) + '&format=json');
+      if (!r.ok) return null;
+      const j = await r.json();
+      return (j && typeof j.title === 'string') ? j.title : null;
+    } catch (err) {
+      return null;
+    }
+  }
   // No autoplay param at all -- YouTube's own native play button inside
   // the iframe is what makes this playable WITH sound in the first
   // place (autoplay is only ever allowed muted; see this feature's own
@@ -1784,6 +1803,11 @@
       if (frame.dataset.songKey !== key) {
         frame.src = songListEmbedSrc(entry);
         frame.dataset.songKey = key;
+        const cap = panel.querySelector('.curve-cap');
+        cap.textContent = 'Tap play for some beach music';
+        fetchYoutubeTitleClient(entry.kind, entry.id).then((title) => {
+          if (title && frame.dataset.songKey === key) cap.textContent = title;
+        });
       }
       panel.classList.remove('hidden');
     } catch (err) {
@@ -1811,6 +1835,11 @@
       if (frame.dataset.videoId !== entry.id) {
         frame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(entry.id) + '?autoplay=1&mute=1&playsinline=1&rel=0';
         frame.dataset.videoId = entry.id;
+        const cap = panel.querySelector('.curve-cap');
+        cap.textContent = 'Live now';
+        fetchYoutubeTitleClient('video', entry.id).then((title) => {
+          if (title && frame.dataset.videoId === entry.id) cap.textContent = title;
+        });
       }
       panel.classList.remove('hidden');
     } catch (err) {

@@ -9,7 +9,9 @@ const {
   extractYoutubeMusicRef,
   sanitizeKeychainScreens,
   fetchKeychainScreens,
-  saveKeychainScreens
+  saveKeychainScreens,
+  withDefaultScreens,
+  DEFAULT_SCREENS
 } = require("../lib/keychainScreens");
 
 const T1 = "AAAAAAAAAABBBBBBBBBB"; // 20 chars, valid tagId shape
@@ -149,6 +151,29 @@ async function test(name, fn) {
       { type: "songList", kind: "video", id: "djV11Xbc914" }
     ]);
     assert.deepStrictEqual(out, [{ type: "songList", kind: "video", id: "djV11Xbc914" }]);
+  });
+
+  console.log("withDefaultScreens");
+  await test("an empty/missing array gets both WaveClock defaults filled in, each flagged preset", () => {
+    assert.deepStrictEqual(withDefaultScreens([]), [
+      Object.assign({ preset: true }, DEFAULT_SCREENS.songList),
+      Object.assign({ preset: true }, DEFAULT_SCREENS.liveVideo)
+    ]);
+    assert.deepStrictEqual(withDefaultScreens(null), [
+      Object.assign({ preset: true }, DEFAULT_SCREENS.songList),
+      Object.assign({ preset: true }, DEFAULT_SCREENS.liveVideo)
+    ]);
+  });
+  await test("a real songList entry suppresses its own default but liveVideo still gets filled in", () => {
+    const real = { type: "songList", kind: "video", id: "djV11Xbc914" };
+    const out = withDefaultScreens([real]);
+    assert.deepStrictEqual(out, [real, Object.assign({ preset: true }, DEFAULT_SCREENS.liveVideo)]);
+    assert.ok(!("preset" in out[0]), "a real entry is never flagged preset");
+  });
+  await test("once both types have real entries, no defaults are added at all", () => {
+    const realSongs = { type: "songList", kind: "video", id: "djV11Xbc914" };
+    const realVideo = { type: "liveVideo", id: "abc12345678" };
+    assert.deepStrictEqual(withDefaultScreens([realSongs, realVideo]), [realSongs, realVideo]);
   });
 
   console.log("fetchKeychainScreens / saveKeychainScreens");

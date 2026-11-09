@@ -80,11 +80,14 @@ async function test(name, fn) {
     assert.strictEqual(res.statusCode, 400);
   });
 
-  await test("GET with nothing saved yet returns an empty array, not a 404", async () => {
+  await test("GET with nothing saved yet returns WaveClock's own presets, not a 404", async () => {
     const res = fakeRes();
     await keychainScreensProxyHandler(fakeReq({ query: { tagId: T1 } }), res, mintedBucket(T1));
     assert.strictEqual(res.statusCode, 200);
-    assert.deepStrictEqual(res.body, { screens: [] });
+    assert.deepStrictEqual(res.body, { screens: [
+      { type: "songList", kind: "playlist", id: "PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf", preset: true },
+      { type: "liveVideo", id: "EChjekRKsKU", preset: true }
+    ] });
   });
 
   await test("PUT with a malformed tagId is rejected before even checking the body", async () => {
@@ -157,7 +160,7 @@ async function test(name, fn) {
     assert.deepStrictEqual(res.body, { screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }, { type: "liveVideo", id: "abc12345678" }] });
   });
 
-  await test("a GET after a successful PUT reads back exactly what was saved", async () => {
+  await test("a GET after a successful PUT reads back what was saved, plus the preset for the type still untouched", async () => {
     const bucket = mintedBucket(T1);
     const putRes = fakeRes();
     await keychainScreensProxyHandler(fakeReq({ method: "PUT", body: { tagId: T1, screens: [{ type: "songList", kind: "playlist", id: "PLabc123def456" }] } }), putRes, bucket);
@@ -166,7 +169,10 @@ async function test(name, fn) {
     const getRes = fakeRes();
     await keychainScreensProxyHandler(fakeReq({ query: { tagId: T1 } }), getRes, bucket);
     assert.strictEqual(getRes.statusCode, 200);
-    assert.deepStrictEqual(getRes.body, { screens: [{ type: "songList", kind: "playlist", id: "PLabc123def456" }] });
+    assert.deepStrictEqual(getRes.body, { screens: [
+      { type: "songList", kind: "playlist", id: "PLabc123def456" },
+      { type: "liveVideo", id: "EChjekRKsKU", preset: true }
+    ] });
   });
 
   await test("a PUT replaces the whole array -- adding a second valid screen type drops nothing else that's still valid", async () => {
@@ -207,15 +213,21 @@ async function test(name, fn) {
     const res = fakeRes();
     await keychainScreensProxyHandler(fakeReq({ query: { deviceId: "WC-1" } }), res, bucket);
     assert.strictEqual(res.statusCode, 200);
-    assert.deepStrictEqual(res.body, { screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }] });
+    assert.deepStrictEqual(res.body, { screens: [
+      { type: "songList", kind: "video", id: "djV11Xbc914" },
+      { type: "liveVideo", id: "EChjekRKsKU", preset: true }
+    ] });
     assert.ok(!("tagId" in res.body), "response must never include the resolved tagId");
   });
 
-  await test("GET by deviceId (nothing linked) returns an empty array, not an error", async () => {
+  await test("GET by deviceId (nothing linked) returns WaveClock's own presets, not an error", async () => {
     const res = fakeRes();
     await keychainScreensProxyHandler(fakeReq({ query: { deviceId: "WC-unlinked" } }), res, makeFakeBucket());
     assert.strictEqual(res.statusCode, 200);
-    assert.deepStrictEqual(res.body, { screens: [] });
+    assert.deepStrictEqual(res.body, { screens: [
+      { type: "songList", kind: "playlist", id: "PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf", preset: true },
+      { type: "liveVideo", id: "EChjekRKsKU", preset: true }
+    ] });
   });
 
   await test("tagId takes precedence when both tagId and deviceId are somehow both present", async () => {
@@ -225,7 +237,10 @@ async function test(name, fn) {
     const res = fakeRes();
     await keychainScreensProxyHandler(fakeReq({ query: { tagId: T1, deviceId: "WC-1" } }), res, bucket);
     assert.strictEqual(res.statusCode, 200);
-    assert.deepStrictEqual(res.body, { screens: [{ type: "songList", kind: "video", id: "djV11Xbc914" }] });
+    assert.deepStrictEqual(res.body, { screens: [
+      { type: "songList", kind: "video", id: "djV11Xbc914" },
+      { type: "liveVideo", id: "EChjekRKsKU", preset: true }
+    ] });
   });
 
   await test("an unsupported method is rejected", async () => {
