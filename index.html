@@ -450,6 +450,33 @@
     padding: 16px 32px;
   }
 
+  /* ---------- Free keychain bonus callout ---------- */
+  .keychain-bonus { margin: 30px auto 0; max-width: 340px; }
+  .keychain-bonus-label {
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--foam);
+    margin: 0 0 14px;
+  }
+  .keychain-bonus-video {
+    border: 2px solid var(--aqua);
+    border-radius: 12px;
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+    box-shadow: 4px 4px 0 rgba(0,0,0,0.3);
+  }
+  .keychain-bonus-video video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .keychain-bonus-link {
+    display: inline-block;
+    margin-top: 14px;
+    font-family: var(--body);
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--aqua);
+    text-decoration: underline;
+  }
+
   /* ---------- Scratch-off promo card ---------- */
   .scratch-card {
     position: relative;
@@ -791,6 +818,17 @@
       <div class="cta-row" style="justify-content:center;">
         <a class="btn btn-aqua" id="orderNowBtn" href="https://buy.stripe.com/fZu5kF8d824Y20heIw2cg01" target="_blank" rel="noopener">Order now &rarr;</a>
       </div>
+
+      <div class="keychain-bonus">
+        <p class="keychain-bonus-label">Free Smart Key Chain with every WaveClock order</p>
+        <div class="keychain-bonus-video">
+          <video autoplay muted loop playsinline poster="keychain_tap_hero.jpg" aria-label="A hand holding a Wave Clock keychain taps it to the back of a phone on the beach, which opens the Ocean City tide page.">
+            <source src="keychain_tap_hero.mp4" type="video/mp4">
+          </video>
+        </div>
+        <a class="keychain-bonus-link" href="keychain.html">See what the keychain does &rarr;</a>
+      </div>
+
       <p style="margin-top:22px; font-size:13px;"><a href="faq.html" style="color:rgba(247,244,236,0.75); text-decoration:underline;">Shipping, returns &amp; FAQs &rarr;</a></p>
     </div>
   </div>
