@@ -119,6 +119,23 @@ async function test(name, fn) {
   await test("a kind/id mismatch (playlist-shaped id claimed as a video) throws, not silently accepted", () => {
     assert.throws(() => sanitizeKeychainScreens([{ type: "songList", kind: "video", id: "PLabc123def456" }]));
   });
+  await test("a valid liveVideo entry passes through unchanged (no kind field, unlike songList)", () => {
+    const out = sanitizeKeychainScreens([{ type: "liveVideo", id: "djV11Xbc914" }]);
+    assert.deepStrictEqual(out, [{ type: "liveVideo", id: "djV11Xbc914" }]);
+  });
+  await test("an invalid liveVideo entry (playlist-shaped id) throws", () => {
+    assert.throws(() => sanitizeKeychainScreens([{ type: "liveVideo", id: "PLabc123def456" }]));
+  });
+  await test("liveVideo and songList coexist -- different types, both singletons, neither displaces the other", () => {
+    const out = sanitizeKeychainScreens([
+      { type: "songList", kind: "video", id: "djV11Xbc914" },
+      { type: "liveVideo", id: "abc12345678" }
+    ]);
+    assert.deepStrictEqual(out, [
+      { type: "songList", kind: "video", id: "djV11Xbc914" },
+      { type: "liveVideo", id: "abc12345678" }
+    ]);
+  });
   await test("more than MAX_SCREENS entries throws", () => {
     const many = Array.from({ length: 21 }, () => ({ type: "songList", kind: "playlist", id: "PLabc123def456" }));
     assert.throws(() => sanitizeKeychainScreens(many));
