@@ -30,7 +30,7 @@ const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
 const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLinkSelfHealing, unpairDevice, backfillDeviceTagLinks, sanitizeZoneId, sanitizeCoastFacingDirection } = require("./lib/tideTag");
 const { regenerateBeachDayCache } = require("./lib/beachDayCache");
 const { fetchBeachDayData } = require("./lib/beachDay");
-const { sanitizeKeychainScreens, fetchKeychainScreens, saveKeychainScreens } = require("./lib/keychainScreens");
+const { sanitizeKeychainScreens, fetchKeychainScreens, saveKeychainScreens, withDefaultScreens } = require("./lib/keychainScreens");
 const tzlookup = require("tz-lookup");
 const { fetchCoastlineNear } = require("./lib/coastline");
 const { fetchCachedCoastline, saveCachedCoastline } = require("./lib/coastlineCache");
@@ -1244,7 +1244,11 @@ exports.tideTagProxy = onRequest({ cors: true, region: "us-central1" }, tideTagP
 // own header comment for the data model. Same GET-to-read/PUT-to-replace
 // shape as tideTagProxyHandler above, and the same isTagIdMinted gate on
 // any write (a well-formed but never-issued tagId still can't write
-// anything here, same reasoning as that handler's own POST/PUT).
+// anything here, same reasoning as that handler's own POST/PUT). GET
+// runs withDefaultScreens over whatever's actually saved -- see that
+// function's own comment -- so both the real array AND WaveClock's own
+// presets for anything not yet customized come back from one call; PUT
+// is untouched by this, always exactly what was sanitized and saved.
 async function keychainScreensProxyHandler(req, res, bucketImpl) {
   const bucket = bucketImpl || admin.storage().bucket();
 
@@ -1256,7 +1260,7 @@ async function keychainScreensProxyHandler(req, res, bucketImpl) {
         return;
       }
       try {
-        const screens = await fetchKeychainScreens(bucket, tagId);
+        const screens = withDefaultScreens(await fetchKeychainScreens(bucket, tagId));
         res.status(200).json({ screens });
       } catch (err) {
         logger.error("Keychain screens proxy GET failed for " + tagId + ":", err);
@@ -1282,7 +1286,7 @@ async function keychainScreensProxyHandler(req, res, bucketImpl) {
       }
       try {
         const link = await fetchDeviceTagLinkSelfHealing(bucket, deviceId);
-        const screens = link ? await fetchKeychainScreens(bucket, link.tagId) : [];
+        const screens = withDefaultScreens(link ? await fetchKeychainScreens(bucket, link.tagId) : []);
         res.status(200).json({ screens });
       } catch (err) {
         logger.error("Keychain screens proxy GET (by deviceId) failed for " + deviceId + ":", err);

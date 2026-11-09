@@ -11,6 +11,12 @@
 // might also be linked to (see 404.html's own identity model: every
 // visit resolves a tagId from the URL first, device-linking is a
 // secondary lookup on top of that).
+//
+// Song List and Live Video Feed aren't strictly opt-in anymore -- every
+// keychain shows WaveClock's own default for whichever of these it
+// hasn't set its own entry for (see DEFAULT_SCREENS/withDefaultScreens
+// below), so every visitor sees SOMETHING instead of a blank/missing
+// panel, with a clear path to replace it with their own pick.
 "use strict";
 
 const { isValidTagId } = require("./tideTag");
@@ -152,13 +158,44 @@ async function saveKeychainScreens(bucket, tagId, screens) {
   await screensFile(bucket, tagId).save(body, { contentType: "application/json" });
 }
 
+// WaveClock's own pick for a keychain that hasn't set its own yet -- one
+// per type, keyed the same way SCREEN_VALIDATORS is. Real links, run
+// through extractYoutubeMusicRef the same as any customer paste would
+// be (see that function's own comment on the /live/ share-link shape):
+// https://www.youtube.com/live/EChjekRKsKU and
+// https://youtube.com/playlist?list=PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf
+const DEFAULT_SCREENS = {
+  songList: { type: "songList", kind: "playlist", id: "PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf" },
+  liveVideo: { type: "liveVideo", id: "EChjekRKsKU" }
+};
+
+// Fills in WaveClock's own default for any type the customer hasn't set
+// their own entry for yet, flagged `preset: true` so a caller (the
+// gallery page, specifically) can tell "this is just what we show by
+// default" apart from "the customer actually chose this" -- 404.html's
+// own panels don't need to care either way, they just play whatever
+// comes back. Never mutates the real saved array; this is purely a
+// GET-time view, PUT/saveKeychainScreens above are completely untouched
+// by it, so a preset is never accidentally written to storage as if it
+// had been chosen.
+function withDefaultScreens(screens) {
+  const present = new Set((screens || []).map((s) => s && s.type));
+  const merged = (screens || []).slice();
+  for (const type of Object.keys(DEFAULT_SCREENS)) {
+    if (!present.has(type)) merged.push(Object.assign({ preset: true }, DEFAULT_SCREENS[type]));
+  }
+  return merged;
+}
+
 module.exports = {
   KEYCHAIN_SCREENS_PREFIX,
   MAX_SCREENS,
   PLAYLIST_ID_PATTERN,
   VIDEO_ID_PATTERN,
+  DEFAULT_SCREENS,
   extractYoutubeMusicRef,
   sanitizeKeychainScreens,
   fetchKeychainScreens,
-  saveKeychainScreens
+  saveKeychainScreens,
+  withDefaultScreens
 };

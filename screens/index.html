@@ -51,6 +51,9 @@
   .card-title { font-size: 17px; font-weight: 700; margin: 0; }
   .card-desc { color: var(--soft); font-size: 14px; margin: 6px 0 0; line-height: 1.4; }
   .card-badge { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--wave); background: var(--wave-pale); padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+  .card-badge.preset { color: var(--soft); background: var(--line); }
+  .card-preset-note { color: var(--soft); font-size: 13px; margin: 8px 0 0; font-style: italic; }
+  .card-now-playing { color: var(--ink); font-size: 14px; font-weight: 600; margin: 8px 0 0; }
 
   .card-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   .card-form label { display: block; font-size: 13px; font-weight: 700; color: var(--soft); margin-bottom: 6px; }
@@ -165,13 +168,18 @@
       // Renders this type's own add/edit form into `container`. Calls
       // onSave(sanitizedEntryOrNull) -- null means "remove this entry
       // entirely" (Remove button), otherwise the entry to upsert.
-      renderForm(container, existingEntry) {
+      // isPreset means `existingEntry` is only WaveClock's own default
+      // (see withDefaultScreens server-side) -- nothing the visitor
+      // actually chose yet, so there's nothing to Remove and the button
+      // still reads "Add", not "Update".
+      renderForm(container, existingEntry, isPreset) {
+        const hasOwnEntry = existingEntry && !isPreset;
         container.innerHTML = `
           <label for="songListInput">YouTube playlist or video link</label>
           <input type="text" id="songListInput" placeholder="https://youtube.com/watch?v=... or /playlist?list=..." autocomplete="off" autocapitalize="off" spellcheck="false">
           <div class="card-actions">
-            <button type="button" class="btn btn-primary" id="songListSaveBtn">${existingEntry ? 'Update' : 'Add'}</button>
-            ${existingEntry ? '<button type="button" class="btn btn-text" id="songListRemoveBtn">Remove</button>' : ''}
+            <button type="button" class="btn btn-primary" id="songListSaveBtn">${hasOwnEntry ? 'Update' : 'Add'}</button>
+            ${hasOwnEntry ? '<button type="button" class="btn btn-text" id="songListRemoveBtn">Remove</button>' : ''}
             <p class="form-status" id="songListFormStatus"></p>
           </div>
         `;
@@ -197,7 +205,7 @@
             status.textContent = "Couldn't save that right now (" + err.message + ")";
             status.classList.add('error');
             saveBtn.disabled = false;
-            saveBtn.textContent = existingEntry ? 'Update' : 'Add';
+            saveBtn.textContent = hasOwnEntry ? 'Update' : 'Add';
           }
         });
 
@@ -222,13 +230,14 @@
       title: 'Live Video Feed',
       icon: '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="14" height="12" rx="2" stroke="#1f5fd1" stroke-width="1.8" fill="none"/><path d="M16 10l6-3.5v11L16 14" stroke="#1f5fd1" stroke-width="1.8" fill="none" stroke-linejoin="round"/></svg>',
       description: 'Paste a YouTube live stream link (a beach cam, a webcam, anything live) and it\'ll play muted on its own screen -- tap it for sound.',
-      renderForm(container, existingEntry) {
+      renderForm(container, existingEntry, isPreset) {
+        const hasOwnEntry = existingEntry && !isPreset;
         container.innerHTML = `
           <label for="liveVideoInput">YouTube live video link</label>
           <input type="text" id="liveVideoInput" placeholder="https://youtube.com/watch?v=..." autocomplete="off" autocapitalize="off" spellcheck="false">
           <div class="card-actions">
-            <button type="button" class="btn btn-primary" id="liveVideoSaveBtn">${existingEntry ? 'Update' : 'Add'}</button>
-            ${existingEntry ? '<button type="button" class="btn btn-text" id="liveVideoRemoveBtn">Remove</button>' : ''}
+            <button type="button" class="btn btn-primary" id="liveVideoSaveBtn">${hasOwnEntry ? 'Update' : 'Add'}</button>
+            ${hasOwnEntry ? '<button type="button" class="btn btn-text" id="liveVideoRemoveBtn">Remove</button>' : ''}
             <p class="form-status" id="liveVideoFormStatus"></p>
           </div>
         `;
@@ -263,7 +272,7 @@
             status.textContent = "Couldn't save that right now (" + err.message + ")";
             status.classList.add('error');
             saveBtn.disabled = false;
-            saveBtn.textContent = existingEntry ? 'Update' : 'Add';
+            saveBtn.textContent = hasOwnEntry ? 'Update' : 'Add';
           }
         });
 
@@ -291,17 +300,42 @@
   // in the new/removed entry for this one type, PUTs the whole array
   // (server-side upsert-by-type already collapses this, see
   // sanitizeKeychainScreens's own comment), and re-renders on success.
+  // Presets (see withDefaultScreens server-side) are never real saves --
+  // they're filtered out of the PUT payload so removing/adding one type
+  // never accidentally "promotes" WaveClock's own default for a
+  // DIFFERENT, still-untouched type into the visitor's own saved
+  // choice. Re-fetches via GET afterward (rather than trusting the PUT's
+  // own echo, which never carries presets) so any type the visitor still
+  // hasn't customized shows its preset again right away.
   async function handleSave(type, entryOrNull) {
-    const withoutThisType = currentScreens.filter(s => s.type !== type);
+    const withoutThisType = currentScreens.filter(s => s.type !== type && !s.preset);
     const next = entryOrNull ? withoutThisType.concat([entryOrNull]) : withoutThisType;
-    currentScreens = await saveScreens(next);
+    await saveScreens(next);
+    currentScreens = await fetchScreens();
     render();
+  }
+
+  // Same YouTube oEmbed lookup as 404.html's own duplicated copy -- see
+  // that file's fetchYoutubeTitleClient for the fail-soft reasoning.
+  async function fetchYoutubeTitleClient(kind, id) {
+    try {
+      const watchUrl = kind === 'playlist'
+        ? 'https://www.youtube.com/playlist?list=' + encodeURIComponent(id)
+        : 'https://www.youtube.com/watch?v=' + encodeURIComponent(id);
+      const r = await fetch('https://www.youtube.com/oembed?url=' + encodeURIComponent(watchUrl) + '&format=json');
+      if (!r.ok) return null;
+      const j = await r.json();
+      return (j && typeof j.title === 'string') ? j.title : null;
+    } catch (err) {
+      return null;
+    }
   }
 
   function render() {
     cardList.innerHTML = '';
     for (const opt of OPTIONS) {
       const existing = currentScreens.find(s => s.type === opt.type) || null;
+      const isPreset = !!(existing && existing.preset);
       const card = document.createElement('div');
       card.className = 'card';
       card.innerHTML = `
@@ -310,13 +344,25 @@
           <div>
             <p class="card-title">${opt.title}</p>
           </div>
-          ${existing ? '<span class="card-badge">Added</span>' : ''}
+          ${existing ? (isPreset ? '<span class="card-badge preset">Preset by WaveClock</span>' : '<span class="card-badge">Added</span>') : ''}
         </div>
         <p class="card-desc">${opt.description}</p>
+        ${isPreset ? '<p class="card-preset-note">This was preset by WaveClock -- paste your own link below to change it.</p>' : ''}
+        <p class="card-now-playing hidden"></p>
         <div class="card-form"></div>
       `;
       cardList.appendChild(card);
-      opt.renderForm(card.querySelector('.card-form'), existing);
+      opt.renderForm(card.querySelector('.card-form'), existing, isPreset);
+
+      if (existing && existing.id) {
+        const nowPlaying = card.querySelector('.card-now-playing');
+        const kind = existing.kind || 'video';
+        fetchYoutubeTitleClient(kind, existing.id).then((title) => {
+          if (!title) return;
+          nowPlaying.textContent = 'Now playing: ' + title;
+          nowPlaying.classList.remove('hidden');
+        });
+      }
     }
   }
 
