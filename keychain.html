@@ -19,6 +19,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,500&family=Work+Sans:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<script async src="https://js.stripe.com/v3/buy-button.js"></script>
 <style>
   :root {
     --sand: #F1E6CF;
@@ -249,7 +250,11 @@
         <h1 class="brand">WaveClock KeyChain</h1>
         <p class="sub">Every Wave Clock keychain is a tiny NFC tag. Tap it to the back of any phone and it opens a tide page tuned to one beach &mdash; yours.</p>
         <div class="cta-row">
-          <a class="btn btn-aqua" href="index.html#buy">Get a keychain &rarr;</a>
+          <stripe-buy-button
+            buy-button-id="buy_btn_1UaJosRxLETQHOMNfQOxt2WK"
+            publishable-key="pk_live_51Tr661RxLETQHOMNfYseyAbP8Rl5J5iZeUIMsUh268SvdC77HLy6MJ78cDM79aYz9W7ofV6x9Ak93DZyTcAGW41R00xYXQjWoa"
+          >
+          </stripe-buy-button>
         </div>
       </div>
 
