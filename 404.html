@@ -2089,7 +2089,12 @@
       let j = await fetchDeviceStatusLocation(deviceId).catch(() => null);
       if (!j) j = await fetchDeviceLocation(deviceId);
       if (!j) {
-        window.location.href = '../location/?id=' + encodeURIComponent(deviceId);
+        // No location yet -- send them to the same device hub the
+        // WaveClock's own QR code (Update Online) already lands on,
+        // rather than straight into the Location picker, so there's one
+        // consistent "set up your new WaveClock" landing spot no matter
+        // which path got them here.
+        window.location.href = '../manage/?id=' + encodeURIComponent(deviceId);
         return;
       }
       applyRegistration(deviceLocationToStation(j));
