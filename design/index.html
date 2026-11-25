@@ -2217,6 +2217,7 @@
         const drawFn = isMusic ? drawMusicCardClient
           : obj.subType === "ocnjEvents" ? drawOcnjEventsCardClient
           : obj.subType === "hurricaneTracker" ? drawHurricaneTrackerCardClient
+          : obj.subType === "streetWater" ? drawStreetWaterCardClient
           : obj.subType === "beachDay" ? drawBeachDayCardClient
           : drawBeachFlagCardClient;
         // Beach Day alone needs a third (icons) argument -- fetchData
@@ -2274,6 +2275,7 @@
         : obj.subType === "liveMusic" ? "Live Music"
         : obj.subType === "ocnjEvents" ? "OCNJ Events"
         : obj.subType === "hurricaneTracker" ? "Hurricane Tracker"
+        : obj.subType === "streetWater" ? "Street Water"
         : "Beach Flags";
       return "Local Info: " + subTypeLabel + (obj.cardData ? "" : " (loading…)");
     }
@@ -5008,6 +5010,291 @@
     hurricaneDrawMapPanel(ctx, mapPanel, Object.assign({ townLat: data.townLat, townLon: data.townLon }, data));
   }
 
+  // ================= Street Water (live preview) =================
+  // Direct port of drawStreetWaterCard/fetchStreetWaterData in
+  // functions/lib/streetWater.js -- same duplicated-per-file convention
+  // as Hurricane Tracker just above (no build step between this page
+  // and the functions codebase). Takes lat/lon directly rather than
+  // resolving a location itself (unlike local-info-gallery.html's own
+  // zero-arg copy) since LOCAL_INFO_SUBTYPES.streetWater.fetchData
+  // above already has the device's real location in hand by the time
+  // this is called. Uses the same self-hosted "WC Beach Day FreeSans"
+  // font Beach Day already loads on this page.
+  const STREET_WATER_PROXY_BASE = "https://us-central1-waveclock.cloudfunctions.net/streetWaterProxy";
+
+  async function fetchStreetWaterCardDataClient(lat, lon) {
+    const url = STREET_WATER_PROXY_BASE + "?lat=" + encodeURIComponent(lat) + "&lon=" + encodeURIComponent(lon);
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error((data && data.error) || ("Street Water fetch failed: " + resp.status));
+    return data; // null ("not available here") is itself a valid, expected response -- not an error.
+  }
+
+  const SW_FONT_FAMILY = "WC Beach Day FreeSans";
+  const SW_CHART_X0 = 293, SW_CHART_X1 = 776;
+
+  function swFont(ctx, px) { ctx.font = px + 'px "' + SW_FONT_FAMILY + '"'; }
+  function swText(ctx, text, x, y, px, align) {
+    swFont(ctx, px);
+    ctx.textAlign = align || "left";
+    ctx.fillText(text, x, y);
+  }
+  function swKnockout(ctx, centerX, baselineY, text, px) {
+    swFont(ctx, px);
+    const w = ctx.measureText(text).width;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(centerX - w / 2 - 3, baselineY - px * 0.8 - 3, w + 6, px * 0.8 + px * 0.25 + 6);
+    ctx.fillStyle = "#000";
+  }
+  function swChartX(h) { return SW_CHART_X0 + h * 20.125; }
+  function swChartY(ft, ymin, ymax) {
+    const y = 215 - ((ft - ymin) / (ymax - ymin)) * 167;
+    return Math.max(48, Math.min(215, y));
+  }
+  function swDashedHLine(ctx, x0, x1, y, lineWidth, onPx, offPx) {
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = lineWidth;
+    for (let x = x0; x < x1; x += onPx + offPx) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(Math.min(x + onPx, x1), y);
+      ctx.stroke();
+    }
+  }
+  function swSeriesAt(seriesFt, h) {
+    const idx = h / 0.25;
+    const i0 = Math.max(0, Math.min(seriesFt.length - 1, Math.floor(idx)));
+    const i1 = Math.min(seriesFt.length - 1, i0 + 1);
+    const a = seriesFt[i0], b = seriesFt[i1];
+    if (!Number.isFinite(a)) return b;
+    if (!Number.isFinite(b)) return a;
+    const frac = idx - i0;
+    return a + (b - a) * frac;
+  }
+  function swDrawWindIcon(ctx, x, y, size) {
+    ctx.save();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = size * 0.08;
+    ctx.lineCap = "round";
+    const lines = [[0.27, [0.65, 1]], [0.5, [0.85, 1]], [0.73, [0.45, 1]]];
+    for (const [fy, fx] of lines) {
+      ctx.beginPath();
+      ctx.moveTo(x + fx[0] * size, y + fy * size);
+      ctx.lineTo(x + fx[1] * size, y + fy * size);
+      ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(x + 0.73 * size, y + 0.22 * size, size * 0.12, Math.PI * 0.2, Math.PI * 1.9); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x + 0.93 * size, y + 0.58 * size, size * 0.12, Math.PI * 0.2, Math.PI * 1.9); ctx.stroke();
+    ctx.restore();
+  }
+  function swDrawRainIcon(ctx, x, y, size) {
+    ctx.save();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = size * 0.08;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.arc(x + 0.35 * size, y + 0.42 * size, size * 0.22, Math.PI * 0.5, Math.PI * 1.55);
+    ctx.arc(x + 0.58 * size, y + 0.3 * size, size * 0.26, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.lineTo(x + 0.82 * size, y + 0.42 * size);
+    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 0.3 * size, y + 0.62 * size); ctx.lineTo(x + 0.22 * size, y + 0.88 * size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 0.5 * size, y + 0.62 * size); ctx.lineTo(x + 0.42 * size, y + 0.88 * size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 0.7 * size, y + 0.62 * size); ctx.lineTo(x + 0.62 * size, y + 0.88 * size); ctx.stroke();
+    ctx.restore();
+  }
+  function swDrawAlertIcon(ctx, x, y, size) {
+    ctx.save();
+    ctx.translate(x + size / 2, y + size / 2 + size * 0.08);
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = size * 0.11;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(0, -size * 0.42); ctx.lineTo(size * 0.46, size * 0.38); ctx.lineTo(-size * 0.46, size * 0.38); ctx.closePath();
+    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -size * 0.1); ctx.lineTo(0, size * 0.12); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, size * 0.26, size * 0.045, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill();
+    ctx.restore();
+  }
+  function swDrawHeader(ctx, data) {
+    if (data.alert && data.alert.active) {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, CANVAS_WIDTH, 34);
+      swDrawAlertIcon(ctx, 12, 6, 22);
+      ctx.fillStyle = "#fff";
+      swText(ctx, data.alert.header, 42, 24, 20, "left");
+      if (data.alert.ends_label) swText(ctx, data.alert.ends_label, 780, 23, 16, "right");
+    } else {
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, CANVAS_WIDTH, 34);
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 32, CANVAS_WIDTH, 2);
+      swText(ctx, "STREET WATER · NEXT 24 H", 12, 24, 20, "left");
+      swText(ctx, "No flood alerts", 780, 23, 16, "right");
+    }
+  }
+  function swDrawFooter(ctx, data, now) {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 246, CANVAS_WIDTH, 2);
+    if (data.now && data.now.label) swText(ctx, data.now.label, 12, 265, 14, "left");
+    const staleMinutes = (now.getTime() - new Date(data.generated_utc).getTime()) / 60000;
+    if (staleMinutes > data.stale_after_min) {
+      const hoursOld = Math.round(staleMinutes / 60);
+      const label = "DATA " + hoursOld + " H OLD";
+      swFont(ctx, 14);
+      const w = ctx.measureText(label).width;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(780 - w - 10, 250, w + 10, 19);
+      ctx.fillStyle = "#fff";
+      swText(ctx, label, 775, 265, 14, "right");
+    } else {
+      ctx.fillStyle = "#000";
+      swText(ctx, "Updated " + data.updated_label, 780, 265, 14, "right");
+    }
+  }
+  function swDrawLeftPanel(ctx, data) {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(248, 34, 2, 211);
+    const headline = (data.peaks || [])[data.headline_peak_index];
+    if (headline) {
+      swText(ctx, headline.label, 12, 57, 14, "left");
+      swFont(ctx, 58);
+      const ftStr = headline.ft.toFixed(1);
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#000";
+      ctx.fillText(ftStr, 12, 110);
+      const ftStrWidth = ctx.measureText(ftStr).width;
+      swText(ctx, "ft", 12 + ftStrWidth, 113, 20, "left");
+      swFont(ctx, 20);
+      const unitWidth = ctx.measureText("ft").width;
+      const badgeLeft = 12 + ftStrWidth + unitWidth + 8;
+      const byCategory = { major: "MAJOR", moderate: "MOD", minor: "MINOR" };
+      const badgeText = byCategory[headline.category] || "OK";
+      swFont(ctx, 20);
+      const textW = ctx.measureText(badgeText).width;
+      const boxW = textW + 14;
+      ctx.fillStyle = headline.category === "none" ? "#fff" : "#000";
+      ctx.fillRect(badgeLeft, 79, boxW, 29);
+      if (headline.category === "none") {
+        ctx.strokeStyle = "#000"; ctx.lineWidth = 2; ctx.strokeRect(badgeLeft + 1, 80, boxW - 2, 27);
+      }
+      ctx.fillStyle = headline.category === "none" ? "#000" : "#fff";
+      swText(ctx, badgeText, badgeLeft + boxW / 2, 101, 20, "center");
+    }
+    ctx.fillStyle = "#000";
+    ctx.fillRect(12, 136, 223, 2);
+    swDrawWindIcon(ctx, 12, 152, 30);
+    swText(ctx, "GUSTS", 50, 158, 14, "left");
+    if (data.weather && data.weather.gust_mph != null) swText(ctx, data.weather.gust_mph + " mph", 50, 183, 28, "left");
+    swDrawRainIcon(ctx, 12, 203, 30);
+    if (data.weather) {
+      swText(ctx, data.weather.rain_label, 50, 209, 14, "left");
+      swText(ctx, data.weather.rain_value, 50, 234, 28, "left");
+    }
+  }
+  function swDrawChart(ctx, data) {
+    const [ymin, ymax] = data.y_range_ft;
+    const seriesFt = data.series.ft;
+    const thresholds = data.thresholds_ft;
+    for (let x = SW_CHART_X0; x <= SW_CHART_X1; x++) {
+      const h = (x - SW_CHART_X0) / 20.125;
+      const ft = swSeriesAt(seriesFt, h);
+      if (!Number.isFinite(ft) || ft <= thresholds.minor) continue;
+      const yTop = Math.ceil(swChartY(ft, ymin, ymax));
+      const yBottom = Math.floor(swChartY(thresholds.minor, ymin, ymax));
+      ctx.fillStyle = "#000";
+      for (let y = yTop; y <= yBottom; y++) if ((x + y) % 6 < 3) ctx.fillRect(x, y, 1, 1);
+    }
+    const thresholdEntries = [["MINOR", thresholds.minor], ["MOD", thresholds.moderate], ["MAJOR", thresholds.major]];
+    const ys = {};
+    for (const entry of thresholdEntries) ys[entry[1]] = swChartY(entry[1], ymin, ymax);
+    for (const entry of thresholdEntries) {
+      const label = entry[0], v = entry[1];
+      if (v < ymin || v > ymax) continue;
+      const y = swChartY(v, ymin, ymax);
+      swDashedHLine(ctx, SW_CHART_X0, SW_CHART_X1, y, 2, 5, 4);
+      if (label === "MOD") {
+        const nearMinor = Math.abs(ys[thresholds.minor] - y) < 15;
+        const nearMajor = Math.abs(ys[thresholds.major] - y) < 15;
+        if (nearMinor || nearMajor) continue;
+      }
+      ctx.fillStyle = "#000";
+      swText(ctx, label, 299, y - 4, 12, "left");
+    }
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 4;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    seriesFt.forEach((ft, i) => {
+      if (!Number.isFinite(ft)) return;
+      const x = swChartX(i * 0.25), y = swChartY(ft, ymin, ymax);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.fillStyle = "#000";
+    ctx.fillRect(292, 46, 3, 215 - 46);
+    ctx.fillRect(SW_CHART_X0, 215, SW_CHART_X1 - SW_CHART_X0, 2);
+    swText(ctx, "ft", 287, 47, 12, "right");
+    for (const ft of data.y_ticks_ft) {
+      const y = swChartY(ft, ymin, ymax);
+      if (Math.abs(y - 47) < 12) continue;
+      swText(ctx, String(ft), 287, y + 4, 12, "right");
+    }
+    for (const peak of data.peaks) {
+      if (peak.category === "none") continue;
+      const x = swChartX(peak.h);
+      const y = Math.max(54, swChartY(peak.ft, ymin, ymax) - 10);
+      const text = peak.ft.toFixed(1);
+      swKnockout(ctx, x, y, text, 17);
+      swText(ctx, text, x, y, 17, "center");
+    }
+    const windows = data.wet_windows || [];
+    const kept = [];
+    for (const w of windows) {
+      const prev = kept[kept.length - 1];
+      if (prev && swChartX(w.start_h) - swChartX(prev.end_h) < 60) kept.pop();
+      kept.push(w);
+    }
+    for (const w of kept) {
+      const x0 = swChartX(w.start_h), x1 = swChartX(w.end_h);
+      ctx.fillStyle = "#000";
+      ctx.fillRect(x0, 193, x1 - x0, 2);
+      ctx.fillRect(x0 - 1, 189, 2, 10);
+      ctx.fillRect(x1 - 1, 189, 2, 10);
+      const mid = (x0 + x1) / 2;
+      swKnockout(ctx, mid, 210, w.label, 12);
+      swText(ctx, w.label, mid, 210, 12, "center");
+    }
+    for (const xl of data.x_labels) {
+      if (xl.h === 0) swText(ctx, xl.t, 297, 236, 14, "left");
+      else if (xl.h === 24) swText(ctx, xl.t, 776, 236, 14, "right");
+      else swText(ctx, xl.t, swChartX(xl.h), 236, 14, "center");
+    }
+  }
+  function drawStreetWaterCardClient(ctx, data) {
+    const now = new Date();
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    if (!data) {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 32, CANVAS_WIDTH, 2);
+      swText(ctx, "STREET WATER · NEXT 24 H", 12, 24, 20, "left");
+      swText(ctx, "Not available here yet", 780, 23, 16, "right");
+      swText(ctx, "Not available for your area yet", CANVAS_WIDTH / 2, 145, 20, "center");
+      return;
+    }
+    swDrawHeader(ctx, data);
+    swDrawLeftPanel(ctx, data);
+    if (data.seriesUnavailable) {
+      ctx.fillStyle = "#000";
+      swText(ctx, "Forecast unavailable", (252 + 785) / 2, 145, 14, "center");
+      swDrawFooter(ctx, data, now);
+      return;
+    }
+    swDrawChart(ctx, data);
+    swDrawFooter(ctx, data, now);
+  }
+
   // ================= Beach Day (client preview) =================
   // Direct port of drawBeachDayCard in functions/lib/dynamic.js -- same
   // duplicated-per-file convention as every other full-bleed card here
@@ -5294,6 +5581,29 @@
         // mirrors functions/lib/dynamic.js's renderDynamicDesign doing the
         // same merge server-side before its own draw call.
         const data = Object.assign({ townLat: location.lat, townLon: location.lon }, raw);
+        return { data, successText: "This is the real card — it updates itself hourly after you publish." };
+      }
+    },
+    // Same "no useful fallback" reasoning as Hurricane Tracker just
+    // above -- the flood/water-level data is relative to a specific
+    // gauge/town, so a device with no saved location gets an
+    // explanatory placeholder here rather than a guessed-at town (the
+    // gallery page's own fetchStreetWaterCardDataClient falls back to
+    // Ocean City, NJ instead, since THAT page's whole point is
+    // browsing/comparing options before a location is even set).
+    streetWater: {
+      needsLocation: true,
+      loadingText: "Checking flood alerts and water levels…",
+      errorLabel: "the street water forecast",
+      async fetchData(location) {
+        const hasLocation = location && typeof location.lat === "number" && typeof location.lon === "number";
+        if (!hasLocation) {
+          return {
+            data: null,
+            successText: "Set a device location (see Manage) so this card knows which town's flood alerts and water level to show."
+          };
+        }
+        const data = await fetchStreetWaterCardDataClient(location.lat, location.lon);
         return { data, successText: "This is the real card — it updates itself hourly after you publish." };
       }
     },

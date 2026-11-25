@@ -27,6 +27,7 @@ const { fetchMusicEventsCardData } = require("./lib/liveMusic");
 const { runOcnjEventsPipeline } = require("./lib/ocnjPipeline");
 const { fetchOcnjEventsCardData } = require("./lib/ocnjCard");
 const { fetchHurricaneTrackerCardData } = require("./lib/hurricaneTracker");
+const { fetchStreetWaterData } = require("./lib/streetWater");
 const { isValidTagId, isValidDeviceId, isValidPairCode, fetchTideTag, saveTideTag, updateTideTag, deleteTideTag, isTagIdMinted, mintTagIds, linkTideTagToDevice, createPairCode, redeemPairCode, fetchDeviceTagLinkSelfHealing, unpairDevice, backfillDeviceTagLinks, sanitizeZoneId, sanitizeCoastFacingDirection } = require("./lib/tideTag");
 const { regenerateBeachDayCache } = require("./lib/beachDayCache");
 const { fetchBeachDayData } = require("./lib/beachDay");
@@ -122,8 +123,11 @@ async function processDevice(bucket, deviceId, now, fetchImpl, options) {
 // reason as beachFlag/liveMusic -- an active storm's position, forecast,
 // and distance to a given town can all meaningfully change within a
 // single day, so it rides its own hourly schedule
-// (regenerateHurricaneTrackerDesigns below) instead.
-const DAILY_REGEN_TYPES = (type) => type !== "beachBuddy" && type !== "beachFlag" && type !== "liveMusic" && type !== "liveMusicMore" && type !== "hurricaneTracker";
+// (regenerateHurricaneTrackerDesigns below) instead. "streetWater" is
+// excluded for the same reason again -- a flood forecast/alert can
+// meaningfully change within a day, so it rides its own hourly schedule
+// too (regenerateStreetWaterDesigns below).
+const DAILY_REGEN_TYPES = (type) => type !== "beachBuddy" && type !== "beachFlag" && type !== "liveMusic" && type !== "liveMusicMore" && type !== "hurricaneTracker" && type !== "streetWater";
 
 exports.regenerateCountdownDesigns = onSchedule(
   { schedule: "0 9 * * *", timeZone: "Etc/UTC", retryCount: 1 },
@@ -345,6 +349,43 @@ exports.regenerateHurricaneTrackerDesigns = onSchedule(
       }
     }
     logger.info("Hurricane Tracker refresh done. updated=" + updated + " skipped(not hurricaneTracker)=" + skipped + " failed=" + failed);
+  }
+);
+
+// Hourly, same reasoning as Hurricane Tracker just above -- a coastal
+// flood forecast/alert can meaningfully change within a day (that's the
+// entire point of the screen), so DAILY_REGEN_TYPES excludes
+// "streetWater" and this is the only thing keeping it current. lib/
+// streetWater.js's fetchStreetWaterData never throws on a bad/missing
+// gauge (it degrades to the "forecast unavailable" card state instead,
+// see that module's own header comment on why), so a failure caught
+// here is a genuine network/runtime error, not an expected missing-data
+// case -- same "degrade over throw" split hurricaneTracker.js documents
+// for its own card.
+exports.regenerateStreetWaterDesigns = onSchedule(
+  { schedule: "0 * * * *", timeZone: "Etc/UTC", retryCount: 1 },
+  async () => {
+    const bucket = admin.storage().bucket();
+    const [files] = await bucket.getFiles({ prefix: DESIGNS_PREFIX });
+    const deviceIds = files
+      .map((f) => deviceIdFromDynamicPath(f.name))
+      .filter(Boolean);
+
+    const now = new Date();
+    let updated = 0, skipped = 0, failed = 0;
+    for (const deviceId of deviceIds) {
+      try {
+        const outcome = await processDevice(bucket, deviceId, now, undefined, {
+          typeFilter: (type) => type === "streetWater"
+        });
+        if (outcome === "updated") updated++;
+        else if (outcome === "skipped") skipped++;
+      } catch (err) {
+        failed++;
+        logger.error("Failed to refresh Street Water layer for " + deviceId + ":", err);
+      }
+    }
+    logger.info("Street Water refresh done. updated=" + updated + " skipped(not streetWater)=" + skipped + " failed=" + failed);
   }
 );
 
@@ -820,6 +861,35 @@ async function hurricaneTrackerProxyHandler(req, res) {
 }
 
 exports.hurricaneTrackerProxy = onRequest({ cors: true, region: "us-central1" }, hurricaneTrackerProxyHandler);
+
+// ================= Street Water proxy =================
+// design's Local Info tool, Street Water subtype -- same
+// required-coordinates shape as hurricaneTrackerProxy (the nearest
+// configured gauge/town is relative to a specific device location, so
+// there's no useful locationless card here either). Returns a real
+// fetchStreetWaterData result (which itself never throws -- it
+// degrades to a null "no coverage" or seriesUnavailable: true "no
+// verified gauge" result instead, see that module's own header
+// comment), so a 502 here means an actual network/runtime failure, not
+// an ordinary "your town isn't covered yet" case.
+async function streetWaterProxyHandler(req, res) {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+    res.status(400).json({ error: "lat/lon must be valid coordinates" });
+    return;
+  }
+
+  try {
+    const data = await fetchStreetWaterData({ lat, lon }, new Date());
+    res.status(200).json(data);
+  } catch (err) {
+    logger.error("Street Water proxy request failed:", err);
+    res.status(502).json({ error: "Couldn't reach the flood/water-level feeds right now" });
+  }
+}
+
+exports.streetWaterProxy = onRequest({ cors: true, region: "us-central1" }, streetWaterProxyHandler);
 
 // ================= Coastline proxy =================
 // Backs the tide tag page's (404.html) Clean/Fair/Choppy wind-vs-coast
@@ -1765,4 +1835,4 @@ exports.coastOrientationReport = onRequest({ cors: false, region: "us-central1" 
 // Exposed for the mocked-bucket/mocked-req-res tests in test/orchestration.test.js
 // -- harmless extra export, Firebase only picks up trigger-shaped exports
 // when deploying.
-exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachDayProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, keychainScreensProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler, backfillDeviceTagLinksHandler, coastOrientationReportHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
+exports._internal = { processDevice, deviceIdFromDynamicPath, deleteIfExists, getOrGenerateBeachBuddyArt, espnProxyHandler, newsProxyHandler, astroProxyHandler, astroTimelineProxyHandler, beachDayProxyHandler, beachFlagProxyHandler, liveMusicProxyHandler, ocnjEventsProxyHandler, hurricaneTrackerProxyHandler, streetWaterProxyHandler, imagenProxyHandler, inkBlotProxyHandler, teamsnapProxyHandler, tideTagProxyHandler, keychainScreensProxyHandler, pairTideTagHandler, requestPairCodeHandler, redeemPairCodeHandler, deviceLinkStatusHandler, unpairDeviceHandler, mintTideTagBatchHandler, backfillDeviceTagLinksHandler, coastOrientationReportHandler, coastlineProxyHandler, ALLOWED_LEAGUES, isEspnCdnUrl };
