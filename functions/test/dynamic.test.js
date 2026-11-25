@@ -2781,6 +2781,49 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     await assert.rejects(() => renderDynamicDesign(base, meta, now, fetchImpl));
   });
 
+  console.log("renderDynamicDesign (type: streetWater)");
+  // Regression test for a real production incident: WC-540574 (Ocean
+  // City) published a fully blank screen right after the verified
+  // gauge mapping went live. The root cause traced to this dispatcher
+  // unconditionally reading data.now.label for its log-only `content`
+  // string -- but computeNowAndTrend legitimately returns null when a
+  // gauge has no recent observed reading (sparse real-world data, not
+  // an error), which used to throw here and abort the whole per-device
+  // job. The editor-side crash itself (a separate, still-unconfirmed
+  // cause -- NWPS is unreachable from this dev sandbox so the exact
+  // live response shape that triggered it couldn't be reproduced) is
+  // now contained by renderLayers' own per-layer try/catch in
+  // design/index.html; this test covers the one concrete bug that
+  // WAS found and fixed in this same file.
+  await test("a resolved forecast with no recent observed reading (now: null) doesn't throw building the log content", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-11-26T08:00:00Z");
+    const meta = { type: "streetWater", lat: 39.2776, lon: -74.5746 };
+    const forecast = Array.from({ length: 97 }, (_, i) => ({ validTime: new Date(now.getTime() + i * 15 * 60000).toISOString(), value: 3 + i * 0.01 }));
+    const fetchImpl = async (url) => {
+      if (url.includes("api.weather.gov")) return { ok: true, json: async () => ({ features: [] }) };
+      if (url.includes("/gauges/ONCN4/stageflow")) return { ok: true, json: async () => ({ forecast: { data: forecast }, observed: { data: [] } }) };
+      if (url.includes("/gauges/ONCN4")) return { ok: true, json: async () => ({ name: "Great Egg Harbor Bay at Ocean City", flood: { stages: { minor: 5.3, moderate: 6.3, major: 7.3 } } }) };
+      if (url.includes("api.open-meteo.com")) return { ok: true, json: async () => ({ hourly: { time: [], wind_gusts_10m: [], precipitation: [] } }) };
+      return { ok: false, json: async () => null };
+    };
+    const result = await renderDynamicDesign(base, meta, now, fetchImpl);
+    assert.ok(result);
+    assert.strictEqual(result.streetWaterData.now, null);
+    assert.ok(!result.content.includes("undefined"), result.content);
+    assert.ok(result.content.startsWith("Ocean City"), result.content);
+  });
+
+  await test("a device far from every configured town renders the 'not available' card, not an error", async () => {
+    const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
+    const now = new Date("2026-11-26T08:00:00Z");
+    const meta = { type: "streetWater", lat: 40.2171, lon: -74.7429 }; // Trenton, NJ
+    const result = await renderDynamicDesign(base, meta, now, async () => ({ ok: false, json: async () => null }));
+    assert.ok(result);
+    assert.strictEqual(result.streetWaterData, null);
+    assert.strictEqual(result.content, "No Street Water coverage for this location");
+  });
+
   console.log("\n" + passed + " passed, " + failed + " failed");
   process.exit(failed ? 1 : 0);
 })();

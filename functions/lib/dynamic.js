@@ -3245,12 +3245,38 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
 
   if (meta.type === "streetWater") {
     const data = await fetchStreetWaterData({ lat: meta.lat, lon: meta.lon }, now, fetchImpl);
-    const result = await compositeAndPack(basePngBuffer, (ctx) => drawStreetWaterCard(ctx, data, now), meta);
+    // drawStreetWaterCard itself never throws against any data shape
+    // fetchStreetWaterData can actually produce (that function degrades
+    // internally rather than returning anything the renderer doesn't
+    // expect) -- but this card is the one place on the whole board
+    // where "the screen went blank and stayed that way" could read as
+    // "no flood risk" when it's really just a bug, so a genuinely
+    // unexpected throw here (a live API shape this was never checked
+    // against, see streetWater.js's own live-verification caveat)
+    // falls back to a plain, visible error card instead of propagating
+    // up to processDevice's catch, which would leave whatever was
+    // there before -- possibly nothing -- untouched for another hour.
+    let result;
+    try {
+      result = await compositeAndPack(basePngBuffer, (ctx) => drawStreetWaterCard(ctx, data, now), meta);
+    } catch (err) {
+      logger.error("drawStreetWaterCard threw -- falling back to an error card so this device isn't left blank:", err);
+      result = await compositeAndPack(basePngBuffer, (ctx) => {
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        ctx.fillStyle = "#000"; ctx.fillRect(0, 32, CANVAS_WIDTH, 2);
+        ctx.font = '20px "' + FONT_FAMILY.freeSansBold + '"'; ctx.textAlign = "left";
+        ctx.fillText("STREET WATER · NEXT 24 H", 12, 24);
+        ctx.font = '14px "' + FONT_FAMILY.freeSansBold + '"'; ctx.textAlign = "center";
+        ctx.fillText("Couldn't load this screen right now", CANVAS_WIDTH / 2, 145);
+        ctx.fillText("It'll try again automatically within the hour", CANVAS_WIDTH / 2, 170);
+      }, meta);
+    }
+    const nowLabel = data && data.now ? data.now.label : null;
     const content = !data
       ? "No Street Water coverage for this location"
       : data.seriesUnavailable
         ? data.town_name + " -- forecast unavailable (no verified gauge yet)"
-        : data.town_name + " -- " + data.now.label + (data.alert.active ? " -- " + data.alert.header : "");
+        : data.town_name + (nowLabel ? " -- " + nowLabel : "") + (data.alert.active ? " -- " + data.alert.header : "");
     return Object.assign(result, { streetWaterData: data, content });
   }
 
