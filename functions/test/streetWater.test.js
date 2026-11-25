@@ -56,9 +56,14 @@ const OC_THRESHOLDS = { minor: 5.4, moderate: 6.2, major: 7.0 };
 const OC_SERIES = [3.0,3.1,3.2,3.3,3.4,3.6,3.8,4.0,4.3,4.5,4.8,5.0,5.3,5.6,5.8,6.1,6.3,6.6,6.7,6.9,7.1,7.2,7.2,7.3,7.3,7.3,7.2,7.2,7.1,6.9,6.8,6.6,6.5,6.3,6.1,5.9,5.6,5.4,5.2,5.0,4.8,4.6,4.4,4.3,4.1,4.0,3.9,3.9,3.8,3.8,3.8,3.8,3.9,4.0,4.0,4.1,4.2,4.4,4.5,4.7,4.8,5.0,5.1,5.3,5.4,5.6,5.7,5.8,6.0,6.1,6.1,6.2,6.3,6.3,6.3,6.3,6.2,6.2,6.1,6.0,5.8,5.6,5.4,5.2,5.0,4.8,4.6,4.3,4.1,3.9,3.6,3.4,3.3,3.1,2.9,2.8,2.7];
 const OC_WINDOW_START = new Date("2026-11-26T08:00:00Z");
 
+// Accepts either an array of [match, body] pairs (ordered matters when
+// one match string is a substring of another -- list the more specific
+// one first) or a plain object (iterated in its own insertion order,
+// same rule applies).
 function stubFetch(responses) {
+  const entries = Array.isArray(responses) ? responses : Object.entries(responses);
   return async (url) => {
-    for (const [match, body] of responses) {
+    for (const [match, body] of entries) {
       if (url.includes(match)) return { ok: true, json: async () => body };
     }
     return { ok: false, json: async () => null };
@@ -82,9 +87,10 @@ function stubFetch(responses) {
     assert.ok(Math.abs(a - b) < 1e-9);
   });
 
-  await test("STREET_WATER_TOWNS has no duplicate slugs", () => {
-    const slugs = STREET_WATER_TOWNS.map((t) => t.slug);
+  await test("STREET_WATER_TOWNS keys are all distinct (object literal would already enforce this, but asserts the shape)", () => {
+    const slugs = Object.keys(STREET_WATER_TOWNS);
     assert.strictEqual(new Set(slugs).size, slugs.length);
+    assert.ok(slugs.length >= 8);
   });
 
   await test("fetchActiveAlert prefers Warning over Advisory when both are active", async () => {
@@ -203,23 +209,60 @@ function stubFetch(responses) {
     assert.strictEqual(data, null);
   });
 
-  await test("fetchStreetWaterData end-to-end for Ocean City with a full stubbed feed", async () => {
+  // Builds a stubbed fetchImpl for Ocean City's forecastGauge (ONCN4),
+  // using the verified refThresholdsMLLW as the live response's own
+  // flood stages -- this is what an actually-working NWPS response
+  // looks like post-gauge-mapping-update, unlike the earlier tests in
+  // this file which exercise the "no gauge configured" degrade.
+  function oceanCityLiveFetch(overrides) {
     const forecast = OC_SERIES.map((ft, i) => ({ validTime: new Date(OC_WINDOW_START.getTime() + i * 15 * 60000).toISOString(), value: ft }));
-    const fetchImpl = stubFetch([
-      ["api.weather.gov", { features: [{ properties: { event: "Coastal Flood Warning", ends: "2026-11-27T08:00:00Z" } }] }],
-      ["/stageflow", { forecast: { data: forecast }, observed: { data: [{ validTime: "2026-11-26T07:24:00Z", value: 2.6 }, { validTime: "2026-11-26T07:54:00Z", value: 3.0 }] } }],
-      ["/gauges/", { name: "Ocean City (Great Egg Harbor)", datum: "MLW", flood: { stages: OC_THRESHOLDS } }],
-      ["api.open-meteo.com", { hourly: { time: Array.from({ length: 24 }, (_, h) => new Date(OC_WINDOW_START.getTime() + h * 3600000).toISOString()), wind_gusts_10m: Array(24).fill(65), precipitation: Array(24).fill(0.1) } }]
-    ]);
-    // Ocean City has no verified nwps_id in STREET_WATER_TOWNS today, so
-    // this exercises the "no gauge configured" degrade path, not the
-    // full-forecast path -- see the next test for that one (Margate,
-    // which does have a coops_id, even though it also has no nwps_id).
-    const data = await fetchStreetWaterData({ lat: 39.2776, lon: -74.5746 }, OC_WINDOW_START, fetchImpl);
+    return stubFetch(Object.assign({
+      "api.weather.gov": { features: [{ properties: { event: "Coastal Flood Warning", ends: "2026-11-27T08:00:00Z" } }] },
+      "/gauges/ONCN4/stageflow": { forecast: { data: forecast }, observed: { data: [{ validTime: "2026-11-26T07:24:00Z", value: 2.6 }, { validTime: "2026-11-26T07:54:00Z", value: 3.0 }] } },
+      "/gauges/ONCN4": { name: "Great Egg Harbor Bay at Ocean City", flood: { stages: { minor: 5.3, moderate: 6.3, major: 7.3 } } },
+      "api.open-meteo.com": { hourly: { time: Array.from({ length: 24 }, (_, h) => new Date(OC_WINDOW_START.getTime() + h * 3600000).toISOString()), wind_gusts_10m: Array(24).fill(65), precipitation: Array(24).fill(0.1) } }
+    }, overrides));
+  }
+
+  await test("fetchStreetWaterData end-to-end for Ocean City now resolves a real forecast (post gauge-mapping update)", async () => {
+    const data = await fetchStreetWaterData({ lat: 39.2776, lon: -74.5746 }, OC_WINDOW_START, oceanCityLiveFetch());
     assert.strictEqual(data.town, "ocean-city-nj");
     assert.strictEqual(data.alert.active, true);
-    assert.strictEqual(data.seriesUnavailable, true);
+    assert.strictEqual(data.seriesUnavailable, undefined);
+    assert.deepStrictEqual(data.thresholds_ft, { minor: 5.3, moderate: 6.3, major: 7.3 });
+    assert.strictEqual(data.gauge.label, "Ocean City gauge");
+    assert.strictEqual(data.displayDatum, "MLLW");
     assert.strictEqual(data.weather.gust_mph, 65);
+    assert.strictEqual(data.series.ft.length, 97);
+  });
+
+  await test("fetchStreetWaterData's live thresholds match the verified refThresholdsMLLW (regression check -- flags a NWS change, not a bug)", async () => {
+    for (const [slug, town] of Object.entries(STREET_WATER_TOWNS)) {
+      if (!town.forecastGauge || !town.refThresholdsMLLW) continue;
+      const fetchImpl = stubFetch({
+        "api.weather.gov": { features: [] },
+        ["/gauges/" + town.forecastGauge + "/stageflow"]: { forecast: { data: [] }, observed: { data: [] } },
+        ["/gauges/" + town.forecastGauge]: { name: town.name, flood: { stages: town.refThresholdsMLLW } },
+        "api.open-meteo.com": { hourly: { time: [], wind_gusts_10m: [], precipitation: [] } }
+      });
+      const data = await fetchStreetWaterData({ lat: town.lat, lon: town.lon }, OC_WINDOW_START, fetchImpl);
+      assert.deepStrictEqual(data.thresholds_ft, town.refThresholdsMLLW, slug + ": live thresholds no longer match refThresholdsMLLW -- confirm with NWPS and update both together");
+    }
+  });
+
+  await test("obsGauge is used for 'Water now' when configured, not the forecast gauge's own (farther) observed point", async () => {
+    // Margate: forecastGauge ACYN4 (Atlantic City), obsGauge MGTN4 (a
+    // closer local gauge) -- MGTN4's reading should win for "now" even
+    // though ACYN4 also has its own observed series.
+    const fetchImpl = stubFetch({
+      "api.weather.gov": { features: [] },
+      "/gauges/ACYN4/stageflow": { forecast: { data: [] }, observed: { data: [{ validTime: "2026-11-26T07:54:00Z", value: 99 }] } },
+      "/gauges/ACYN4": { name: "Atlantic City (ocean front)", flood: { stages: { minor: 6.0, moderate: 7.0, major: 8.0 } } },
+      "/gauges/MGTN4/stageflow": { observed: { data: [{ validTime: "2026-11-26T07:24:00Z", value: 1.8 }, { validTime: "2026-11-26T07:54:00Z", value: 2.0 }] } },
+      "api.open-meteo.com": { hourly: { time: [], wind_gusts_10m: [], precipitation: [] } }
+    });
+    const data = await fetchStreetWaterData({ lat: 39.3279, lon: -74.5035 }, OC_WINDOW_START, fetchImpl);
+    assert.strictEqual(data.now.ft, 2.0, "expected MGTN4's (obsGauge) reading, not ACYN4's 99");
   });
 
   await test("fetchStreetWaterData degrades gracefully when NWPS has no gauge configured at all", async () => {

@@ -57,7 +57,7 @@ async function test(name, fn) {
     assert.strictEqual(res.body, null);
   });
 
-  await test("Ocean City (no verified gauge yet) returns 200 with seriesUnavailable: true, not an error", async () => {
+  await test("Ocean City with every upstream unreachable returns 200 with seriesUnavailable: true, not an error", async () => {
     const originalFetch = global.fetch;
     global.fetch = async () => ({ ok: false, status: 500 });
     try {

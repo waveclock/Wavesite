@@ -12,18 +12,17 @@
 // slow-changing custom screen (Hurricane Tracker, Beach Flag) already
 // uses -- see regenerateStreetWaterDesigns in index.js.
 //
-// Town -> gauge mapping is NOT fully verified. None of NWS/NWPS/CO-OPS/
-// Open-Meteo are reachable from this dev sandbox (confirmed: all 4
-// hosts reject the egress proxy's CONNECT outright), so every fetcher
-// below is written straight from each API's published docs/the handoff
-// package's own notes, never exercised against a live response. Needs
-// a real check once deployed, same caveat as this codebase's NHC and
-// ESPN integrations. Ocean City NJ -- by far the largest town here
-// (59 of 93 represented clocks in the handoff's own town list) -- has
-// NO verified NWPS gauge at all yet (the handoff's own sample marks it
-// "TODO-VERIFY"); until Kurt supplies one, Ocean City renders the
-// documented "Forecast unavailable" degrade rather than a guessed
-// reading, which matters because flood category is safety-relevant.
+// Town -> gauge mapping is now verified against the live NWPS API
+// (checked 2026-11-25, see STREET_WATER_TOWNS's own comment) -- a
+// second handoff (street-water-gauges-update.zip) replaced the
+// original placeholder mapping, including Ocean City NJ, by far the
+// largest town here (59 of 93 represented clocks). None of this is
+// independently re-verified from THIS sandbox, though: NWS/NWPS/
+// Open-Meteo are all unreachable here (confirmed: the egress proxy
+// rejects the CONNECT outright), so every fetcher below is still
+// written straight from each API's published docs/the handoff's own
+// verified values, never exercised against a live response -- same
+// caveat this codebase's NHC and ESPN integrations carry.
 "use strict";
 
 const tzlookup = require("tz-lookup");
@@ -35,24 +34,91 @@ const tzlookup = require("tz-lookup");
 // what the handoff package's own data-pipeline doc specifies verbatim.
 const NWS_FETCH_HEADERS = { "User-Agent": "WaveClock/1.0 (hello@waveclock.net)" };
 
-// Ported from the handoff package's config/towns.json. clocks/gauge_hint
-// are carried over as documentation only (not used at runtime) so the
-// provenance of each entry -- which towns actually have customers, and
-// what Kurt still needs to confirm -- stays visible in the one place
-// that matters instead of a separate doc nobody will re-open. nwps_id/
-// coops_id are null exactly where the handoff marked them unverified;
-// thresholds_override is null everywhere (take NWPS's own thresholds),
-// matching the handoff's "fill in only to override" convention.
-const STREET_WATER_TOWNS = [
-  { slug: "ocean-city-nj", name: "Ocean City", state: "NJ", lat: 39.2776, lon: -74.5746, clocks: 59, nwps_id: null, coops_id: null, thresholds_override: null },
-  { slug: "bethany-beach-de", name: "Bethany Beach", state: "DE", lat: 38.5390, lon: -75.0552, clocks: 14, nwps_id: null, coops_id: null, thresholds_override: null },
-  { slug: "avalon-nj", name: "Avalon", state: "NJ", lat: 39.1012, lon: -74.7177, clocks: 4, nwps_id: null, coops_id: null, thresholds_override: null },
-  { slug: "margate-nj", name: "Margate", state: "NJ", lat: 39.3279, lon: -74.5035, clocks: 4, nwps_id: null, coops_id: "8534720", thresholds_override: null },
-  { slug: "sea-isle-city-nj", name: "Sea Isle City", state: "NJ", lat: 39.1534, lon: -74.6929, clocks: 4, nwps_id: null, coops_id: null, thresholds_override: null },
-  { slug: "north-wildwood-nj", name: "North Wildwood", state: "NJ", lat: 39.0001, lon: -74.7993, clocks: 3, nwps_id: null, coops_id: null, thresholds_override: null },
-  { slug: "south-bethany-de", name: "South Bethany", state: "DE", lat: 38.5196, lon: -75.0574, clocks: 3, nwps_id: null, coops_id: null, thresholds_override: null },
-  { slug: "ventnor-nj", name: "Ventnor", state: "NJ", lat: 39.3401, lon: -74.4774, clocks: 2, nwps_id: null, coops_id: "8534720", thresholds_override: null }
-];
+// Verified 2026-11-25 against api.water.noaa.gov/nwps/v1 (bbox search
+// over the NJ/DE shore, then /gauges/{LID} for each candidate) --
+// replaces the original placeholder mapping (every nwps_id was null or
+// "TODO-VERIFY"). All gauges report in ft MLLW.
+//
+// forecastGauge: the NWPS LID with a real total-water-level FORECAST --
+// drives the curve, peaks, category, and wet windows. null means no
+// forecast gauge responds well for this town (Delaware's back-bay
+// towns: Lewes/LWSD1 is Delaware Bay and reads completely differently
+// from the back bay -- at verification time Lewes showed MINOR while
+// South Bethany's own local gauge showed no flooding at all, so using
+// Lewes would put a false reading on those clocks). These towns still
+// get an alert + weather + local observed level, just no forecast
+// chart -- see fetchStreetWaterData's "no forecast gauge" branch.
+// obsGauge: an optional NWPS LID with observed-only data (no forecast,
+// often no flood-category thresholds either) from a gauge physically
+// closer to this specific town than its shared forecastGauge --
+// used ONLY for the footer "Water now" line, never for the chart.
+// Falls back to forecastGauge's own observed series when null.
+// refThresholdsMLLW: the minor/moderate/major read from NWPS at
+// verification time, kept here as a regression check (see
+// streetWater.test.js) so a later run noticing different live values
+// is a deliberate NWS change, not a silent drift no one caught --
+// thresholds are always READ LIVE from forecastGauge at runtime, never
+// hardcoded from this field.
+const STREET_WATER_TOWNS = {
+  "ocean-city-nj": {
+    name: "Ocean City", lat: 39.2776, lon: -74.5746,
+    forecastGauge: "ONCN4", obsGauge: null,
+    refThresholdsMLLW: { minor: 5.3, moderate: 6.3, major: 7.3 },
+    gaugeLabel: "Ocean City gauge"
+  },
+  "margate-nj": {
+    name: "Margate", lat: 39.3279, lon: -74.5035,
+    forecastGauge: "ACYN4", obsGauge: "MGTN4",
+    refThresholdsMLLW: { minor: 6.0, moderate: 7.0, major: 8.0 },
+    gaugeLabel: "Atlantic City gauge"
+  },
+  "ventnor-nj": {
+    name: "Ventnor", lat: 39.3401, lon: -74.4774,
+    forecastGauge: "ACYN4", obsGauge: null,
+    refThresholdsMLLW: { minor: 6.0, moderate: 7.0, major: 8.0 },
+    gaugeLabel: "Atlantic City gauge"
+  },
+  "sea-isle-city-nj": {
+    name: "Sea Isle City", lat: 39.1534, lon: -74.6929,
+    forecastGauge: "ONCN4", obsGauge: "SICN4",
+    refThresholdsMLLW: { minor: 5.3, moderate: 6.3, major: 7.3 },
+    gaugeLabel: "Ocean City gauge"
+  },
+  // TENTATIVE per the handoff -- Kurt may switch this to ONCN4 instead.
+  "avalon-nj": {
+    name: "Avalon", lat: 39.1012, lon: -74.7177,
+    forecastGauge: "CAPN4", obsGauge: "AVLN4",
+    refThresholdsMLLW: { minor: 6.2, moderate: 7.2, major: 8.2 },
+    gaugeLabel: "Cape May Harbor gauge"
+  },
+  "north-wildwood-nj": {
+    name: "North Wildwood", lat: 39.0001, lon: -74.7993,
+    forecastGauge: "CAPN4", obsGauge: null,
+    refThresholdsMLLW: { minor: 6.2, moderate: 7.2, major: 8.2 },
+    gaugeLabel: "Cape May Harbor gauge"
+  },
+  "bethany-beach-de": {
+    name: "Bethany Beach", lat: 38.5390, lon: -75.0552,
+    forecastGauge: null, obsGauge: "SBED1",
+    refThresholdsMLLW: null,
+    gaugeLabel: "South Bethany gauge"
+  },
+  "south-bethany-de": {
+    name: "South Bethany", lat: 38.5196, lon: -75.0574,
+    forecastGauge: null, obsGauge: "SBED1",
+    refThresholdsMLLW: null,
+    gaugeLabel: "South Bethany gauge"
+  }
+};
+
+// MLW = MLLW minus this many feet, per gauge -- NOT applied anywhere
+// yet (every value in this feed stays in the gauges' own MLLW, per
+// displayDatum below). Kept for when/if MLW display is ever enabled,
+// since Ocean City OEM notices quote MLW and the two datums read about
+// 0.15 ft apart for the same water -- if that's ever turned on, the
+// offset must be applied to the series, the observed level, AND the
+// thresholds together, never just one of the three.
+const GAUGE_MLW_OFFSET_FT = { ONCN4: -0.153, ACYN4: -0.17, CAPN4: -0.169, LWSD1: -0.16 };
 
 // Nothing further than this counts as "near" a configured town -- a
 // device well outside this handful of shore towns (every customer
@@ -74,15 +140,17 @@ function haversineMiles(lat1, lon1, lat2, lon2) {
 // same "match by proximity to a short curated list" idea this codebase
 // already uses for srfZone/coastFacingDirection lookups elsewhere, so
 // adding Street Water needs no new per-device setup field -- it just
-// rides the location every device already has.
+// rides the location every device already has. Returns the town's own
+// config object plus its slug merged in (the object key, needed for
+// the feed's own `town` field, isn't otherwise attached to the value).
 function nearestStreetWaterTown(lat, lon) {
-  let best = null, bestMiles = Infinity;
-  for (const town of STREET_WATER_TOWNS) {
+  let bestSlug = null, best = null, bestMiles = Infinity;
+  for (const [slug, town] of Object.entries(STREET_WATER_TOWNS)) {
     const miles = haversineMiles(lat, lon, town.lat, town.lon);
-    if (miles < bestMiles) { bestMiles = miles; best = town; }
+    if (miles < bestMiles) { bestMiles = miles; best = town; bestSlug = slug; }
   }
   if (!best || bestMiles > MAX_TOWN_DISTANCE_MILES) return null;
-  return best;
+  return Object.assign({ slug: bestSlug }, best);
 }
 
 async function safeFetchJson(url, options, fetchImpl) {
@@ -121,14 +189,14 @@ async function fetchActiveAlert(lat, lon, fetchImpl) {
   };
 }
 
-// NWPS gauge metadata + forecast/observed series. Returns null on any
-// shape mismatch (unknown gauge, no forecast) rather than guessing --
-// callers fall back to CO-OPS, or omit the series entirely per the
-// handoff's own "fallback is allowed only if Kurt approves it per town"
-// rule (STREET_WATER_TOWNS has no such approval flag yet, so every town
-// currently takes the CO-OPS fallback path, never silently invents a
-// forecast NWPS didn't actually provide).
-async function fetchNwpsGauge(nwpsId, fetchImpl) {
+// NWPS gauge metadata (name + flood-category thresholds) -- a separate
+// endpoint from the time-series data below. Returns null on any shape
+// mismatch (unknown gauge, no published thresholds) rather than
+// guessing; callers treat that the same as forecastGauge: null (the
+// documented "forecast unavailable" degrade), since a chart with no
+// flood categories at all would be worse than useless on a safety
+// screen -- it would just be wrong-looking, not obviously absent.
+async function fetchNwpsGaugeMeta(nwpsId, fetchImpl) {
   if (!nwpsId) return null;
   const meta = await safeFetchJson("https://api.water.noaa.gov/nwps/v1/gauges/" + encodeURIComponent(nwpsId), undefined, fetchImpl);
   if (!meta) return null;
@@ -138,40 +206,25 @@ async function fetchNwpsGauge(nwpsId, fetchImpl) {
   const moderate = typeof stages.moderate === "number" ? stages.moderate : null;
   const major = typeof stages.major === "number" ? stages.major : null;
   if (minor == null || moderate == null || major == null) return null;
+  return { name: meta.name || null, thresholds: { minor, moderate, major } };
+}
 
+// The same stageflow endpoint serves BOTH a forecastGauge (forecast +
+// its own observed) and an obsGauge (observed only -- forecast.data is
+// simply absent/empty for those). Used for either, which is why this
+// takes just a bare LID rather than knowing which kind of gauge it is.
+async function fetchNwpsStageflow(nwpsId, fetchImpl) {
+  if (!nwpsId) return { forecast: [], observed: [] };
   const stageflow = await safeFetchJson("https://api.water.noaa.gov/nwps/v1/gauges/" + encodeURIComponent(nwpsId) + "/stageflow", undefined, fetchImpl);
   const forecastPoints = (stageflow && stageflow.forecast && Array.isArray(stageflow.forecast.data)) ? stageflow.forecast.data : [];
   const observedPoints = (stageflow && stageflow.observed && Array.isArray(stageflow.observed.data)) ? stageflow.observed.data : [];
-
+  // {validTime, value} pairs with value in gauge units (feet) --
+  // normalized here so derive-layer code never has to know NWPS's own
+  // field names.
   return {
-    name: meta.name || null,
-    datum: meta.datum || flood.datum || "unknown",
-    thresholds: { minor, moderate, major },
-    // {validTime, value} pairs with value in gauge units (feet) --
-    // normalized here so derive-layer code never has to know NWPS's
-    // own field names.
     forecast: forecastPoints.map((p) => ({ t: p.validTime || p.time, ft: Number(p.value) })).filter((p) => p.t && Number.isFinite(p.ft)),
     observed: observedPoints.map((p) => ({ t: p.validTime || p.time, ft: Number(p.value) })).filter((p) => p.t && Number.isFinite(p.ft))
   };
-}
-
-// CO-OPS fallback: latest observed water level (product=water_level)
-// and 6-min astronomical predictions (product=predictions) over the
-// next 24h, both in the gauge's own datum. Used either as the primary
-// "now" reading (when NWPS has no observed series) or as the base for
-// the tide_plus_offset fallback series.
-async function fetchCoopsSeries(coopsId, product, datum, beginDate, endDate, fetchImpl) {
-  if (!coopsId) return [];
-  const params = new URLSearchParams({
-    product, station: coopsId, datum, units: "english", time_zone: "gmt", format: "json", application: "WaveClock"
-  });
-  if (product === "predictions") { params.set("interval", "6"); params.set("begin_date", beginDate); params.set("end_date", endDate); }
-  else { params.set("date", "latest"); }
-  const j = await safeFetchJson("https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?" + params.toString(), undefined, fetchImpl);
-  const rows = (j && Array.isArray(j.predictions)) ? j.predictions : (j && Array.isArray(j.data)) ? j.data : [];
-  return rows
-    .map((r) => ({ t: (r.t || "").replace(" ", "T") + "Z", ft: Number(r.v) }))
-    .filter((r) => Number.isFinite(r.ft));
 }
 
 async function fetchOpenMeteoWeather(lat, lon, fetchImpl) {
@@ -423,72 +476,55 @@ async function fetchStreetWaterData(loc, now, fetchImpl) {
   const windowStart = floorToStep(at, 15);
   const timeZone = tzlookup(loc.lat, loc.lon);
 
-  const [alertRaw, gauge, openMeteo] = await Promise.all([
+  const [alertRaw, openMeteo, forecastMeta, forecastSeries, obsSeries] = await Promise.all([
     fetchActiveAlert(loc.lat, loc.lon, fetchImpl),
-    fetchNwpsGauge(town.nwps_id, fetchImpl),
-    fetchOpenMeteoWeather(loc.lat, loc.lon, fetchImpl)
+    fetchOpenMeteoWeather(loc.lat, loc.lon, fetchImpl),
+    fetchNwpsGaugeMeta(town.forecastGauge, fetchImpl),
+    fetchNwpsStageflow(town.forecastGauge, fetchImpl),
+    fetchNwpsStageflow(town.obsGauge, fetchImpl)
   ]);
 
-  const thresholds = (town.thresholds_override) || (gauge && gauge.thresholds) || null;
-  const datum = (gauge && gauge.datum) || "MLLW";
+  const alert = alertRaw.active
+    ? Object.assign({ ends_label: endsLabel(alertRaw.ends_utc, windowStart, timeZone) }, alertRaw)
+    : { active: false };
+  const weather = computeWeather(openMeteo, windowStart);
+  // obsGauge is observed-only (never has a forecast of its own), so
+  // its "observed" series is exactly what the handoff calls "the local
+  // observed level" -- falls back to the forecast gauge's own observed
+  // data when this town has no separate local gauge configured.
+  const nowObserved = town.obsGauge ? obsSeries.observed : forecastSeries.observed;
+  const now_ = computeNowAndTrend(nowObserved, windowStart);
 
-  // No NWPS gauge configured/verified for this town (true for every
-  // town right now except Margate/Ventnor's shared CO-OPS id, and even
-  // those have no NWPS flood-category thresholds to pair with it) --
-  // CO-OPS alone can't report a flood category (it has no stage
-  // thresholds), so this town gets the documented "series missing"
-  // degrade: header/footer/alert still real, chart says unavailable.
-  if (!gauge || !thresholds) {
-    const observed = await fetchCoopsSeries(town.coops_id, "water_level", datum, null, null, fetchImpl);
-    const now_ = computeNowAndTrend(observed, windowStart);
+  // No forecast gauge configured for this town (Bethany/South Bethany
+  // -- see STREET_WATER_TOWNS's own comment on why), or NWPS didn't
+  // return usable thresholds for the one that IS configured (a live
+  // shape mismatch or outage): the documented "forecast unavailable"
+  // degrade. Alert/weather/local observed level are all still real.
+  if (!town.forecastGauge || !forecastMeta) {
     return {
       v: 1, town: town.slug, town_name: town.name,
       generated_utc: at.toISOString(),
       updated_label: weekdayHourLabel(at.getTime(), timeZone, true),
       stale_after_min: 180,
-      alert: alertRaw.active ? Object.assign({ ends_label: endsLabel(alertRaw.ends_utc, windowStart, timeZone) }, alertRaw) : { active: false },
-      gauge: { name: town.name, nwps_id: town.nwps_id, datum, source: "unavailable" },
+      alert,
+      gauge: { name: null, label: town.gaugeLabel, source: "unavailable" },
       thresholds_ft: null,
+      displayDatum: "MLLW",
       seriesUnavailable: true,
       now: now_,
-      weather: computeWeather(openMeteo, windowStart)
+      weather
     };
   }
 
-  // tide_plus_offset fallback: CO-OPS astronomical prediction + the
-  // current anomaly (latest observed minus the prediction at that same
-  // time), held constant across the window -- used whenever NWPS has
-  // no forecast or it's stale, per the handoff's own fallback rule.
-  const nwpsForecastFresh = gauge.forecast.length > 0;
-  let series, gaugeSource = "nwps_forecast", observedForNow = gauge.observed;
-
-  if (nwpsForecastFresh) {
-    series = buildSeries(windowStart, gauge.observed, gauge.forecast);
-  } else {
-    const begin = windowStart.toISOString().slice(0, 16).replace(/[-:T]/g, "").slice(0, 8) + " " + windowStart.toISOString().slice(11, 16);
-    const endMs = new Date(windowStart.getTime() + 24 * 3600000);
-    const end = endMs.toISOString().slice(0, 16).replace(/[-:T]/g, "").slice(0, 8) + " " + endMs.toISOString().slice(11, 16);
-    const predictions = await fetchCoopsSeries(town.coops_id, "predictions", datum, begin, end, fetchImpl);
-    const observed = gauge.observed.length ? gauge.observed : await fetchCoopsSeries(town.coops_id, "water_level", datum, null, null, fetchImpl);
-    observedForNow = observed;
-    const latest = observed.slice().sort((a, b) => new Date(b.t) - new Date(a.t))[0];
-    const predictionAtLatest = latest ? interpolate(predictions, new Date(latest.t).getTime()) : null;
-    const anomaly = (latest && predictionAtLatest != null) ? latest.ft - predictionAtLatest : 0;
-    series = buildSeries(windowStart, [], predictions.map((p) => ({ t: p.t, ft: p.ft + anomaly })));
-    gaugeSource = "tide_plus_offset";
-  }
-
+  const thresholds = forecastMeta.thresholds;
+  const series = buildSeries(windowStart, forecastSeries.observed, forecastSeries.forecast);
   const { y_range_ft, y_ticks_ft } = computeYRange(series, thresholds);
-  const rawPoints = gauge.forecast.length ? gauge.forecast.concat(gauge.observed) : [];
+  const rawPoints = forecastSeries.forecast.concat(forecastSeries.observed);
   const unlabeledPeaks = findPeaks(series, windowStart, rawPoints, thresholds);
   const headline_peak_index = headlinePeakIndex(unlabeledPeaks);
   const peaks = labelPeaks(unlabeledPeaks, headline_peak_index, windowStart, timeZone);
   const wet_windows = computeWetWindows(series, thresholds, timeZone);
   const x_labels = computeXLabels(timeZone, windowStart);
-  const now_ = computeNowAndTrend(observedForNow, windowStart);
-  const alert = alertRaw.active
-    ? Object.assign({ ends_label: endsLabel(alertRaw.ends_utc, windowStart, timeZone) }, alertRaw)
-    : { active: false };
 
   return {
     v: 1, town: town.slug, town_name: town.name,
@@ -496,13 +532,14 @@ async function fetchStreetWaterData(loc, now, fetchImpl) {
     updated_label: weekdayHourLabel(at.getTime(), timeZone, true),
     stale_after_min: 180,
     alert,
-    gauge: { name: gauge.name || town.name, nwps_id: town.nwps_id, datum, source: gaugeSource },
+    gauge: { name: forecastMeta.name || town.name, label: town.gaugeLabel, source: "nwps_forecast" },
     thresholds_ft: thresholds,
+    displayDatum: "MLLW",
     y_range_ft, y_ticks_ft,
     now: now_,
     series: { start_utc: windowStart.toISOString(), step_min: 15, ft: series },
     x_labels, peaks, headline_peak_index, wet_windows,
-    weather: computeWeather(openMeteo, windowStart)
+    weather
   };
 }
 
@@ -653,18 +690,31 @@ function swDrawHeader(ctx, data) {
 function swDrawFooter(ctx, data, now) {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 246, SW_CANVAS_WIDTH, 2);
-  if (data.now && data.now.label) swText(ctx, data.now.label, 12, 265, 14, "left");
 
   const staleMinutes = (now.getTime() - new Date(data.generated_utc).getTime()) / 60000;
-  if (staleMinutes > data.stale_after_min) {
-    const hoursOld = Math.round(staleMinutes / 60);
-    const label = "DATA " + hoursOld + " H OLD";
-    swFont(ctx, 14);
-    const w = ctx.measureText(label).width;
+  const stale = staleMinutes > data.stale_after_min;
+  const staleLabel = stale ? "DATA " + Math.round(staleMinutes / 60) + " H OLD" : null;
+
+  swFont(ctx, 14);
+  const rightTextWidth = ctx.measureText(stale ? staleLabel : "Updated " + data.updated_label).width;
+
+  // Per the gauge-mapping update: print the datum ("MLLW") in this
+  // note ONLY if it fits without crowding the right-side text/badge --
+  // never resize or rearrange the footer to make room for it.
+  let leftText = (data.now && data.now.label) || "";
+  if (leftText && data.displayDatum) {
+    const withNote = leftText + " (" + data.displayDatum + ")";
+    const available = 780 - rightTextWidth - 24 - 12;
+    if (ctx.measureText(withNote).width <= available) leftText = withNote;
+  }
+  if (leftText) swText(ctx, leftText, 12, 265, 14, "left");
+
+  if (stale) {
+    const w = ctx.measureText(staleLabel).width;
     ctx.fillStyle = "#000";
     ctx.fillRect(780 - w - 10, 250, w + 10, 19);
     ctx.fillStyle = "#fff";
-    swText(ctx, label, 775, 265, 14, "right");
+    swText(ctx, staleLabel, 775, 265, 14, "right");
   } else {
     ctx.fillStyle = "#000";
     swText(ctx, "Updated " + data.updated_label, 780, 265, 14, "right");
@@ -867,9 +917,10 @@ module.exports = {
   MAX_TOWN_DISTANCE_MILES,
   nearestStreetWaterTown,
   haversineMiles,
+  GAUGE_MLW_OFFSET_FT,
   fetchActiveAlert,
-  fetchNwpsGauge,
-  fetchCoopsSeries,
+  fetchNwpsGaugeMeta,
+  fetchNwpsStageflow,
   fetchOpenMeteoWeather,
   buildSeries,
   computeYRange,

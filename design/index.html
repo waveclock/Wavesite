@@ -5136,17 +5136,31 @@
   function swDrawFooter(ctx, data, now) {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 246, CANVAS_WIDTH, 2);
-    if (data.now && data.now.label) swText(ctx, data.now.label, 12, 265, 14, "left");
+
     const staleMinutes = (now.getTime() - new Date(data.generated_utc).getTime()) / 60000;
-    if (staleMinutes > data.stale_after_min) {
-      const hoursOld = Math.round(staleMinutes / 60);
-      const label = "DATA " + hoursOld + " H OLD";
-      swFont(ctx, 14);
-      const w = ctx.measureText(label).width;
+    const stale = staleMinutes > data.stale_after_min;
+    const staleLabel = stale ? "DATA " + Math.round(staleMinutes / 60) + " H OLD" : null;
+
+    swFont(ctx, 14);
+    const rightTextWidth = ctx.measureText(stale ? staleLabel : "Updated " + data.updated_label).width;
+
+    // Only append the gauge's datum ("MLLW") if it fits without
+    // crowding the right-side text/badge -- never resize/rearrange the
+    // footer to make room for it.
+    let leftText = (data.now && data.now.label) || "";
+    if (leftText && data.displayDatum) {
+      const withNote = leftText + " (" + data.displayDatum + ")";
+      const available = 780 - rightTextWidth - 24 - 12;
+      if (ctx.measureText(withNote).width <= available) leftText = withNote;
+    }
+    if (leftText) swText(ctx, leftText, 12, 265, 14, "left");
+
+    if (stale) {
+      const w = ctx.measureText(staleLabel).width;
       ctx.fillStyle = "#000";
       ctx.fillRect(780 - w - 10, 250, w + 10, 19);
       ctx.fillStyle = "#fff";
-      swText(ctx, label, 775, 265, 14, "right");
+      swText(ctx, staleLabel, 775, 265, 14, "right");
     } else {
       ctx.fillStyle = "#000";
       swText(ctx, "Updated " + data.updated_label, 780, 265, 14, "right");
