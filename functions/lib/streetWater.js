@@ -222,17 +222,27 @@ async function fetchNwpsGaugeMeta(nwpsId, fetchImpl) {
 // its own observed) and an obsGauge (observed only -- forecast.data is
 // simply absent/empty for those). Used for either, which is why this
 // takes just a bare LID rather than knowing which kind of gauge it is.
+// A point's primary reading, or null for NWPS's -999 "not applicable"
+// sentinel (confirmed alongside secondary's own use of the same
+// sentinel in a real captured response -- never seen on primary
+// itself there, but guarded the same way on general principle).
+function nwpsPrimary(p) {
+  const v = p && p.primary;
+  return typeof v === "number" && v > -999 ? v : null;
+}
 async function fetchNwpsStageflow(nwpsId, fetchImpl) {
   if (!nwpsId) return { forecast: [], observed: [] };
   const stageflow = await safeFetchJson("https://api.water.noaa.gov/nwps/v1/gauges/" + encodeURIComponent(nwpsId) + "/stageflow", undefined, fetchImpl);
   const forecastPoints = (stageflow && stageflow.forecast && Array.isArray(stageflow.forecast.data)) ? stageflow.forecast.data : [];
   const observedPoints = (stageflow && stageflow.observed && Array.isArray(stageflow.observed.data)) ? stageflow.observed.data : [];
-  // {validTime, value} pairs with value in gauge units (feet) --
-  // normalized here so derive-layer code never has to know NWPS's own
-  // field names.
+  // {validTime, primary} pairs, primary in gauge units (feet) --
+  // normalized to {t, ft} here so derive-layer code never has to know
+  // NWPS's own field names (confirmed against a real captured
+  // response: each point is {validTime, generatedTime, primary,
+  // secondary}, not {validTime, value} as originally assumed).
   return {
-    forecast: forecastPoints.map((p) => ({ t: p.validTime || p.time, ft: Number(p.value) })).filter((p) => p.t && Number.isFinite(p.ft)),
-    observed: observedPoints.map((p) => ({ t: p.validTime || p.time, ft: Number(p.value) })).filter((p) => p.t && Number.isFinite(p.ft))
+    forecast: forecastPoints.map((p) => ({ t: p.validTime || p.time, ft: nwpsPrimary(p) })).filter((p) => p.t && Number.isFinite(p.ft)),
+    observed: observedPoints.map((p) => ({ t: p.validTime || p.time, ft: nwpsPrimary(p) })).filter((p) => p.t && Number.isFinite(p.ft))
   };
 }
 
