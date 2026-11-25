@@ -2256,9 +2256,28 @@
     }
   }
 
+  // Each layer's own try/catch, not one around the whole forEach --
+  // forEach doesn't stop at a throw either way, but without per-layer
+  // isolation a dynamic card that throws mid-draw (e.g. a live-data
+  // shape it didn't expect) leaves the canvas exactly as blank as it
+  // was before that layer ran, AND skips every layer after it in the
+  // same pass. That's the same "clean canvas, draw on top" risk every
+  // kind/draw...Client() branch above already runs (most of them paint
+  // over the WHOLE canvas, not just their own area), so one bad render
+  // shouldn't be able to blank out a screen that published fine before,
+  // or hide unrelated layers drawn later in the list. Falls back to
+  // visible text, same as the existing "LOADING…" convention above,
+  // rather than silently leaving nothing.
   function renderLayers() {
     layersCtx.clearRect(0, 0, layersCanvas.width, layersCanvas.height);
-    layers.forEach((obj) => drawStampObject(layersCtx, obj));
+    layers.forEach((obj) => {
+      try {
+        drawStampObject(layersCtx, obj);
+      } catch (err) {
+        console.error("Couldn't draw a " + obj.kind + " layer:", err);
+        drawText(layersCtx, "⚠ Couldn't draw this layer", obj);
+      }
+    });
     renderLayersList();
   }
 
