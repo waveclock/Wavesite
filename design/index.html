@@ -1402,6 +1402,8 @@
   // reveal it. overlayCanvas only ever shows the ONE object currently
   // being positioned/resized, so dragging it never touches committed
   // content until it's placed.
+  const CANVAS_WIDTH = 792;
+  const CANVAS_HEIGHT = 272;
   const baseCanvas = document.getElementById("baseCanvas");
   const baseCtx = baseCanvas.getContext("2d");
   const layersCanvas = document.getElementById("layersCanvas");
@@ -2268,6 +2270,33 @@
   // or hide unrelated layers drawn later in the list. Falls back to
   // visible text, same as the existing "LOADING…" convention above,
   // rather than silently leaving nothing.
+  // Draws the actual error message, not just "something went wrong" --
+  // small/wrapped so it stays legible regardless of length, and on its
+  // own clean white rect so it reads even over a full-bleed card that
+  // got partway through painting dark content before it threw. The
+  // point is that whoever sees this (a customer, Kurt, or a future
+  // debugging session) can read the real cause straight off the canvas
+  // without needing browser dev tools.
+  function drawLayerErrorFallback(ctx, obj, err) {
+    const x = typeof obj.x === "number" ? obj.x : CANVAS_WIDTH / 2;
+    const y = typeof obj.y === "number" ? obj.y : CANVAS_HEIGHT / 2;
+    const boxW = Math.min(CANVAS_WIDTH - 24, 500), boxH = 70;
+    const boxX = Math.max(12, Math.min(CANVAS_WIDTH - 12 - boxW, x - boxW / 2));
+    const boxY = Math.max(12, Math.min(CANVAS_HEIGHT - 12 - boxH, y - boxH / 2));
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeStyle = "#000"; ctx.lineWidth = 2;
+    ctx.strokeRect(boxX + 1, boxY + 1, boxW - 2, boxH - 2);
+
+    ctx.fillStyle = "#000";
+    ctx.textAlign = "left";
+    ctx.font = "bold 13px Georgia, serif";
+    ctx.fillText("⚠ Couldn't draw this layer:", boxX + 10, boxY + 18);
+    ctx.font = "12px Georgia, serif";
+    const lines = wrapToLines(ctx, (obj.kind || "") + ": " + (err && err.message || String(err)), boxW - 20, 3);
+    lines.forEach((line, i) => ctx.fillText(line, boxX + 10, boxY + 34 + i * 14));
+  }
+
   function renderLayers() {
     layersCtx.clearRect(0, 0, layersCanvas.width, layersCanvas.height);
     layers.forEach((obj) => {
@@ -2275,7 +2304,7 @@
         drawStampObject(layersCtx, obj);
       } catch (err) {
         console.error("Couldn't draw a " + obj.kind + " layer:", err);
-        drawText(layersCtx, "⚠ Couldn't draw this layer", obj);
+        drawLayerErrorFallback(layersCtx, obj, err);
       }
     });
     renderLayersList();
