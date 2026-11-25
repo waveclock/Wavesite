@@ -1,0 +1,215 @@
+{
+ "v": 1,
+ "town": "ocean-city-nj",
+ "town_name": "Ocean City",
+ "generated_utc": "2026-11-26T08:00:00Z",
+ "updated_label": "3:00 AM Thu",
+ "stale_after_min": 180,
+ "alert": {
+  "active": true,
+  "event": "Coastal Flood Warning",
+  "header": "COASTAL FLOOD WARNING",
+  "ends_utc": "2026-11-27T08:00:00Z",
+  "ends_label": "until 3 AM Fri"
+ },
+ "gauge": {
+  "name": "Ocean City (Great Egg Harbor)",
+  "nwps_id": "TODO-VERIFY",
+  "datum": "MLW",
+  "source": "nwps_forecast"
+ },
+ "thresholds_ft": {
+  "minor": 5.4,
+  "moderate": 6.2,
+  "major": 7.0
+ },
+ "y_range_ft": [
+  1.0,
+  8.5
+ ],
+ "y_ticks_ft": [
+  2,
+  4,
+  6,
+  8
+ ],
+ "now": {
+  "ft": 3.0,
+  "trend": "rising",
+  "obs_utc": "2026-11-26T07:54:00Z",
+  "label": "Water now 3.0 ft ↑ rising"
+ },
+ "series": {
+  "start_utc": "2026-11-26T08:00:00Z",
+  "step_min": 15,
+  "ft": [
+   3.0,
+   3.1,
+   3.2,
+   3.3,
+   3.4,
+   3.6,
+   3.8,
+   4.0,
+   4.3,
+   4.5,
+   4.8,
+   5.0,
+   5.3,
+   5.6,
+   5.8,
+   6.1,
+   6.3,
+   6.6,
+   6.7,
+   6.9,
+   7.1,
+   7.2,
+   7.2,
+   7.3,
+   7.3,
+   7.3,
+   7.2,
+   7.2,
+   7.1,
+   6.9,
+   6.8,
+   6.6,
+   6.5,
+   6.3,
+   6.1,
+   5.9,
+   5.6,
+   5.4,
+   5.2,
+   5.0,
+   4.8,
+   4.6,
+   4.4,
+   4.3,
+   4.1,
+   4.0,
+   3.9,
+   3.9,
+   3.8,
+   3.8,
+   3.8,
+   3.8,
+   3.9,
+   4.0,
+   4.0,
+   4.1,
+   4.2,
+   4.4,
+   4.5,
+   4.7,
+   4.8,
+   5.0,
+   5.1,
+   5.3,
+   5.4,
+   5.6,
+   5.7,
+   5.8,
+   6.0,
+   6.1,
+   6.1,
+   6.2,
+   6.3,
+   6.3,
+   6.3,
+   6.3,
+   6.2,
+   6.2,
+   6.1,
+   6.0,
+   5.8,
+   5.6,
+   5.4,
+   5.2,
+   5.0,
+   4.8,
+   4.6,
+   4.3,
+   4.1,
+   3.9,
+   3.6,
+   3.4,
+   3.3,
+   3.1,
+   2.9,
+   2.8,
+   2.7
+  ]
+ },
+ "x_labels": [
+  {
+   "h": 0,
+   "t": "NOW"
+  },
+  {
+   "h": 3,
+   "t": "6a"
+  },
+  {
+   "h": 6,
+   "t": "9a"
+  },
+  {
+   "h": 9,
+   "t": "12p"
+  },
+  {
+   "h": 12,
+   "t": "3p"
+  },
+  {
+   "h": 15,
+   "t": "6p"
+  },
+  {
+   "h": 18,
+   "t": "9p"
+  },
+  {
+   "h": 21,
+   "t": "12a"
+  },
+  {
+   "h": 24,
+   "t": "3a"
+  }
+ ],
+ "peaks": [
+  {
+   "h": 5.95,
+   "ft": 7.3,
+   "category": "major",
+   "label": "PEAK · THU 8:57 AM"
+  },
+  {
+   "h": 18.53,
+   "ft": 6.3,
+   "category": "moderate",
+   "label": "THU 9:32 PM"
+  }
+ ],
+ "headline_peak_index": 0,
+ "wet_windows": [
+  {
+   "start_h": 3.1,
+   "end_h": 9.28,
+   "label": "WET 6a–12p"
+  },
+  {
+   "start_h": 15.98,
+   "end_h": 20.58,
+   "label": "WET 7p–11p"
+  }
+ ],
+ "weather": {
+  "gust_mph": 65,
+  "rain_label": "RAIN FROM 5 AM",
+  "rain_value": "2–3 in"
+ }
+}

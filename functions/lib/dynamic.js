@@ -34,6 +34,7 @@ const { fetchBeachDayData, SKY_ICON_BY_WORD } = require("./beachDay");
 const { fetchMusicEventsCardData, drawMusicCard } = require("./liveMusic");
 const { fetchOcnjEventsCardData, drawOcnjEventsCard } = require("./ocnjCard");
 const { fetchHurricaneTrackerCardData, drawHurricaneTrackerCard } = require("./hurricaneTracker");
+const { fetchStreetWaterData, drawStreetWaterCard } = require("./streetWater");
 
 const CANVAS_WIDTH = 792;
 const CANVAS_HEIGHT = 272;
@@ -3240,6 +3241,17 @@ async function renderDynamicDesign(basePngBuffer, meta, now, fetchImpl, beachBud
       ? "No active storms nearby"
       : data.stormName + " " + data.miles + " mi " + data.direction + " · " + data.classificationNow;
     return Object.assign(result, { hurricaneData: data, content });
+  }
+
+  if (meta.type === "streetWater") {
+    const data = await fetchStreetWaterData({ lat: meta.lat, lon: meta.lon }, now, fetchImpl);
+    const result = await compositeAndPack(basePngBuffer, (ctx) => drawStreetWaterCard(ctx, data, now), meta);
+    const content = !data
+      ? "No Street Water coverage for this location"
+      : data.seriesUnavailable
+        ? data.town_name + " -- forecast unavailable (no verified gauge yet)"
+        : data.town_name + " -- " + data.now.label + (data.alert.active ? " -- " + data.alert.header : "");
+    return Object.assign(result, { streetWaterData: data, content });
   }
 
   throw new Error("Unknown dynamic layer type: " + meta.type);
