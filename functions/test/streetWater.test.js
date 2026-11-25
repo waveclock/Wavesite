@@ -175,7 +175,7 @@ function stubFetch(responses) {
   });
 
   await test("computeWetWindows finds spans above minor matching the sample's two windows", () => {
-    const windows = computeWetWindows(OC_SERIES, OC_THRESHOLDS, "America/New_York");
+    const windows = computeWetWindows(OC_SERIES, OC_THRESHOLDS, "America/New_York", OC_WINDOW_START);
     assert.strictEqual(windows.length, 2, JSON.stringify(windows));
     assert.ok(Math.abs(windows[0].start_h - 3.1) < 0.3);
     assert.ok(Math.abs(windows[0].end_h - 9.28) < 0.3);
@@ -183,7 +183,28 @@ function stubFetch(responses) {
 
   await test("computeWetWindows returns no windows for a series that never crosses minor", () => {
     const flat = new Array(97).fill(2.0);
-    assert.deepStrictEqual(computeWetWindows(flat, OC_THRESHOLDS, "America/New_York"), []);
+    assert.deepStrictEqual(computeWetWindows(flat, OC_THRESHOLDS, "America/New_York", OC_WINDOW_START), []);
+  });
+
+  // Regression test for a real production bug: computeWetWindows used
+  // to label a window's start/end by treating its "hours from now"
+  // offset as if it were ALREADY a clock hour-of-day (e.g. an offset
+  // of 16h came out as "4p", literally reading 16 as 16:00) --
+  // ignoring what time "now" actually was. labelPeaks/computeXLabels
+  // never had this bug (they correctly add the offset to windowStart
+  // first); this asserts computeWetWindows now matches that same,
+  // correct convention.
+  await test("computeWetWindows labels a window using windowStart's actual clock time, not its raw hours-from-now offset", () => {
+    // windowStart = 2pm local -- a window from +16h to +22h is
+    // genuinely 6am to 12pm the NEXT calendar day, which must read as
+    // "WET 6a–12p", not "WET 4p–10p" (16/22 misread as raw 24h clock
+    // hours, ignoring the 2pm start time entirely).
+    const windowStart = new Date("2026-11-25T19:00:00Z"); // 2:00 PM America/New_York (EST, UTC-5)
+    const series = new Array(97).fill(2.0);
+    for (let i = 64; i <= 88; i++) series[i] = 7.0; // above minor (5.3) from h=16 to h=22
+    const windows = computeWetWindows(series, OC_THRESHOLDS, "America/New_York", windowStart);
+    assert.strictEqual(windows.length, 1, JSON.stringify(windows));
+    assert.strictEqual(windows[0].label, "WET 6a–12p", windows[0].label);
   });
 
   await test("computeWeather matches the sample's gust/rain fields shape", () => {

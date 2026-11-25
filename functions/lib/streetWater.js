@@ -392,11 +392,21 @@ function labelPeaks(peaks, headlineIndex, windowStart, timeZone) {
   });
 }
 
+// The local wall-clock hour-of-day (0-23) at windowStart + h hours --
+// shared by computeWetWindows and computeXLabels so both convert an
+// "hours from now" offset into a clock hour the same (correct) way,
+// rather than one of them mistakenly treating the offset itself as
+// already being a clock hour.
+function localHourAt(windowStart, h, timeZone) {
+  const atMs = windowStart.getTime() + h * 3600000;
+  return Number(new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hour12: false }).format(new Date(atMs))) % 24;
+}
+
 // Contiguous spans where the series is above the minor threshold,
 // crossing times linearly interpolated between the two bracketing
 // samples -- same idea as findPeaks' own interpolation, just solving
 // for "where does the line cross minor" instead of "where's the max".
-function computeWetWindows(seriesFt, thresholds, timeZone) {
+function computeWetWindows(seriesFt, thresholds, timeZone, windowStart) {
   const windows = [];
   let startH = null;
   for (let i = 0; i < seriesFt.length; i++) {
@@ -422,15 +432,17 @@ function computeWetWindows(seriesFt, thresholds, timeZone) {
   if (startH != null) windows.push({ start_h: startH, end_h: (seriesFt.length - 1) * 0.25 });
 
   const roundToHour = (h) => Math.round(h);
-  const hourLabel = (hr) => { const m = ((hr % 24) + 24) % 24; if (m === 0) return "12a"; if (m === 12) return "12p"; return m > 12 ? (m - 12) + "p" : m + "a"; };
+  const hourLabel = (hr) => {
+    const m = localHourAt(windowStart, hr, timeZone);
+    if (m === 0) return "12a"; if (m === 12) return "12p"; return m > 12 ? (m - 12) + "p" : m + "a";
+  };
   return windows.map((w) => Object.assign({ label: "WET " + hourLabel(roundToHour(w.start_h)) + "–" + hourLabel(roundToHour(w.end_h)) }, w));
 }
 
 function computeXLabels(timeZone, windowStart) {
   const labels = [{ h: 0, t: "NOW" }];
   for (let h = 1; h <= 24; h++) {
-    const atMs = windowStart.getTime() + h * 3600000;
-    const localHour = Number(new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hour12: false }).format(new Date(atMs))) % 24;
+    const localHour = localHourAt(windowStart, h, timeZone);
     if (localHour % 3 !== 0) continue;
     if (h < 1.5 || h > 24) continue;
     const label = localHour === 0 ? "12a" : localHour === 12 ? "12p" : localHour > 12 ? (localHour - 12) + "p" : localHour + "a";
@@ -542,7 +554,7 @@ async function fetchStreetWaterData(loc, now, fetchImpl) {
   const unlabeledPeaks = findPeaks(series, windowStart, rawPoints, thresholds);
   const headline_peak_index = headlinePeakIndex(unlabeledPeaks);
   const peaks = labelPeaks(unlabeledPeaks, headline_peak_index, windowStart, timeZone);
-  const wet_windows = computeWetWindows(series, thresholds, timeZone);
+  const wet_windows = computeWetWindows(series, thresholds, timeZone, windowStart);
   const x_labels = computeXLabels(timeZone, windowStart);
 
   return {
