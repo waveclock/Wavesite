@@ -16,6 +16,8 @@ const {
   nearestStreetWaterTown,
   haversineMiles,
   fetchActiveAlert,
+  fetchNwpsGaugeMeta,
+  fetchNwpsStageflow,
   buildSeries,
   computeYRange,
   categoryFor,
@@ -209,17 +211,78 @@ function stubFetch(responses) {
     assert.strictEqual(data, null);
   });
 
+  // Regression test for a real production incident: the live
+  // /gauges/{id} response nests flood stage thresholds under
+  // flood.categories.<level>.stage (each level an object with its own
+  // "stage"/"flow"), NOT flood.stages.<level> as a bare number the way
+  // earlier tests in this file (and the original implementation) had
+  // assumed -- that mismatch made fetchNwpsGaugeMeta return null for
+  // every real gauge, which is why every WaveClock's Street Water
+  // screen showed "Forecast unavailable" even for towns with a
+  // verified forecastGauge. Trimmed from a real captured response for
+  // ONCN4 (Ocean City), 2026-11-25, kept only to the fields this
+  // function reads.
+  await test("fetchNwpsGaugeMeta parses the REAL NWPS response shape (flood.categories.<level>.stage), not flood.stages", async () => {
+    const realShapeResponse = {
+      name: "Great Egg Harbor Bay at Ocean City (IN MLLW)",
+      flood: {
+        stageUnits: "ft",
+        flowUnits: "cfs",
+        categories: {
+          major: { stage: 7.3, flow: -9999 },
+          moderate: { stage: 6.3, flow: -9999 },
+          minor: { stage: 5.3, flow: -9999 },
+          action: { stage: -9999, flow: -9999 }
+        }
+      }
+    };
+    const meta = await fetchNwpsGaugeMeta("ONCN4", async () => ({ ok: true, json: async () => realShapeResponse }));
+    assert.deepStrictEqual(meta, { name: "Great Egg Harbor Bay at Ocean City (IN MLLW)", thresholds: { minor: 5.3, moderate: 6.3, major: 7.3 } });
+  });
+
+  await test("fetchNwpsGaugeMeta treats NWPS's -9999 'not applicable' sentinel as missing, not a real threshold of -9999", async () => {
+    const meta = await fetchNwpsGaugeMeta("TEST1", async () => ({ ok: true, json: async () => ({
+      name: "Test gauge with no published minor stage",
+      flood: { categories: { major: { stage: 7.3 }, moderate: { stage: 6.3 }, minor: { stage: -9999 } } }
+    }) }));
+    assert.strictEqual(meta, null);
+  });
+
+  // Same real-incident category as the gauge-meta test above, same
+  // root cause (the original implementation guessed a field name NWPS
+  // doesn't use): /gauges/{id}/stageflow points are {validTime,
+  // generatedTime, primary, secondary}, not {validTime, value} --
+  // confirmed against a real captured ONCN4 stageflow response.
+  // Trimmed to 2 observed + 2 forecast points; the real response has
+  // thousands of observed points (~6-min cadence, weeks of history)
+  // and hourly forecast points.
+  await test("fetchNwpsStageflow parses the REAL NWPS stageflow shape ({primary}, not {value})", async () => {
+    const realShapeResponse = {
+      observed: { pedts: "HMIRG", data: [
+        { validTime: "2026-11-25T17:18:00Z", generatedTime: "2026-11-25T17:39:57Z", primary: 2.19, secondary: -999 },
+        { validTime: "2026-11-25T17:24:00Z", generatedTime: "2026-11-25T17:39:57Z", primary: 2.25, secondary: -999 }
+      ] },
+      forecast: { pedts: "HMIFE", data: [
+        { validTime: "2026-11-25T09:00:00Z", generatedTime: "2026-11-25T09:54:50Z", primary: 1.9, secondary: -999 },
+        { validTime: "2026-11-25T10:00:00Z", generatedTime: "2026-11-25T09:54:50Z", primary: 3.2, secondary: -999 }
+      ] }
+    };
+    const result = await fetchNwpsStageflow("ONCN4", async () => ({ ok: true, json: async () => realShapeResponse }));
+    assert.deepStrictEqual(result.observed, [{ t: "2026-11-25T17:18:00Z", ft: 2.19 }, { t: "2026-11-25T17:24:00Z", ft: 2.25 }]);
+    assert.deepStrictEqual(result.forecast, [{ t: "2026-11-25T09:00:00Z", ft: 1.9 }, { t: "2026-11-25T10:00:00Z", ft: 3.2 }]);
+  });
+
   // Builds a stubbed fetchImpl for Ocean City's forecastGauge (ONCN4),
   // using the verified refThresholdsMLLW as the live response's own
   // flood stages -- this is what an actually-working NWPS response
   // looks like post-gauge-mapping-update, unlike the earlier tests in
   // this file which exercise the "no gauge configured" degrade.
   function oceanCityLiveFetch(overrides) {
-    const forecast = OC_SERIES.map((ft, i) => ({ validTime: new Date(OC_WINDOW_START.getTime() + i * 15 * 60000).toISOString(), value: ft }));
+    const forecast = OC_SERIES.map((ft, i) => ({ validTime: new Date(OC_WINDOW_START.getTime() + i * 15 * 60000).toISOString(), primary: ft }));
     return stubFetch(Object.assign({
       "api.weather.gov": { features: [{ properties: { event: "Coastal Flood Warning", ends: "2026-11-27T08:00:00Z" } }] },
-      "/gauges/ONCN4/stageflow": { forecast: { data: forecast }, observed: { data: [{ validTime: "2026-11-26T07:24:00Z", value: 2.6 }, { validTime: "2026-11-26T07:54:00Z", value: 3.0 }] } },
-      "/gauges/ONCN4": { name: "Great Egg Harbor Bay at Ocean City", flood: { stages: { minor: 5.3, moderate: 6.3, major: 7.3 } } },
+      "/gauges/ONCN4/stageflow": { forecast: { data: forecast }, observed: { data: [{ validTime: "2026-11-26T07:24:00Z", primary: 2.6 }, { validTime: "2026-11-26T07:54:00Z", primary: 3.0 }] } },
+      "/gauges/ONCN4": { name: "Great Egg Harbor Bay at Ocean City", flood: { categories: { minor: { stage: 5.3 }, moderate: { stage: 6.3 }, major: { stage: 7.3 } } } },
       "api.open-meteo.com": { hourly: { time: Array.from({ length: 24 }, (_, h) => new Date(OC_WINDOW_START.getTime() + h * 3600000).toISOString()), wind_gusts_10m: Array(24).fill(65), precipitation: Array(24).fill(0.1) } }
     }, overrides));
   }
@@ -242,7 +305,11 @@ function stubFetch(responses) {
       const fetchImpl = stubFetch({
         "api.weather.gov": { features: [] },
         ["/gauges/" + town.forecastGauge + "/stageflow"]: { forecast: { data: [] }, observed: { data: [] } },
-        ["/gauges/" + town.forecastGauge]: { name: town.name, flood: { stages: town.refThresholdsMLLW } },
+        ["/gauges/" + town.forecastGauge]: { name: town.name, flood: { categories: {
+          minor: { stage: town.refThresholdsMLLW.minor },
+          moderate: { stage: town.refThresholdsMLLW.moderate },
+          major: { stage: town.refThresholdsMLLW.major }
+        } } },
         "api.open-meteo.com": { hourly: { time: [], wind_gusts_10m: [], precipitation: [] } }
       });
       const data = await fetchStreetWaterData({ lat: town.lat, lon: town.lon }, OC_WINDOW_START, fetchImpl);
@@ -256,9 +323,9 @@ function stubFetch(responses) {
     // though ACYN4 also has its own observed series.
     const fetchImpl = stubFetch({
       "api.weather.gov": { features: [] },
-      "/gauges/ACYN4/stageflow": { forecast: { data: [] }, observed: { data: [{ validTime: "2026-11-26T07:54:00Z", value: 99 }] } },
-      "/gauges/ACYN4": { name: "Atlantic City (ocean front)", flood: { stages: { minor: 6.0, moderate: 7.0, major: 8.0 } } },
-      "/gauges/MGTN4/stageflow": { observed: { data: [{ validTime: "2026-11-26T07:24:00Z", value: 1.8 }, { validTime: "2026-11-26T07:54:00Z", value: 2.0 }] } },
+      "/gauges/ACYN4/stageflow": { forecast: { data: [] }, observed: { data: [{ validTime: "2026-11-26T07:54:00Z", primary: 99 }] } },
+      "/gauges/ACYN4": { name: "Atlantic City (ocean front)", flood: { categories: { minor: { stage: 6.0 }, moderate: { stage: 7.0 }, major: { stage: 8.0 } } } },
+      "/gauges/MGTN4/stageflow": { observed: { data: [{ validTime: "2026-11-26T07:24:00Z", primary: 1.8 }, { validTime: "2026-11-26T07:54:00Z", primary: 2.0 }] } },
       "api.open-meteo.com": { hourly: { time: [], wind_gusts_10m: [], precipitation: [] } }
     });
     const data = await fetchStreetWaterData({ lat: 39.3279, lon: -74.5035 }, OC_WINDOW_START, fetchImpl);

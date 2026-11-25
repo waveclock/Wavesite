@@ -196,15 +196,24 @@ async function fetchActiveAlert(lat, lon, fetchImpl) {
 // documented "forecast unavailable" degrade), since a chart with no
 // flood categories at all would be worse than useless on a safety
 // screen -- it would just be wrong-looking, not obviously absent.
+// Real shape (confirmed against a live /gauges/ONCN4 response -- the
+// field names below are NOT what NWPS's own docs would suggest):
+// meta.flood.categories.<level>.stage, not meta.flood.stages.<level>
+// directly. NWPS uses -9999 as a "not applicable" sentinel for a
+// stage/flow that doesn't apply to this gauge (e.g. an "action" stage
+// many gauges don't have) -- treated as missing, same as absent.
+function nwpsStage(categories, level) {
+  const v = categories && categories[level] && categories[level].stage;
+  return typeof v === "number" && v > -9999 ? v : null;
+}
 async function fetchNwpsGaugeMeta(nwpsId, fetchImpl) {
   if (!nwpsId) return null;
   const meta = await safeFetchJson("https://api.water.noaa.gov/nwps/v1/gauges/" + encodeURIComponent(nwpsId), undefined, fetchImpl);
   if (!meta) return null;
-  const flood = meta.flood || {};
-  const stages = flood.stages || {};
-  const minor = typeof stages.minor === "number" ? stages.minor : null;
-  const moderate = typeof stages.moderate === "number" ? stages.moderate : null;
-  const major = typeof stages.major === "number" ? stages.major : null;
+  const categories = (meta.flood && meta.flood.categories) || {};
+  const minor = nwpsStage(categories, "minor");
+  const moderate = nwpsStage(categories, "moderate");
+  const major = nwpsStage(categories, "major");
   if (minor == null || moderate == null || major == null) return null;
   return { name: meta.name || null, thresholds: { minor, moderate, major } };
 }
@@ -213,17 +222,27 @@ async function fetchNwpsGaugeMeta(nwpsId, fetchImpl) {
 // its own observed) and an obsGauge (observed only -- forecast.data is
 // simply absent/empty for those). Used for either, which is why this
 // takes just a bare LID rather than knowing which kind of gauge it is.
+// A point's primary reading, or null for NWPS's -999 "not applicable"
+// sentinel (confirmed alongside secondary's own use of the same
+// sentinel in a real captured response -- never seen on primary
+// itself there, but guarded the same way on general principle).
+function nwpsPrimary(p) {
+  const v = p && p.primary;
+  return typeof v === "number" && v > -999 ? v : null;
+}
 async function fetchNwpsStageflow(nwpsId, fetchImpl) {
   if (!nwpsId) return { forecast: [], observed: [] };
   const stageflow = await safeFetchJson("https://api.water.noaa.gov/nwps/v1/gauges/" + encodeURIComponent(nwpsId) + "/stageflow", undefined, fetchImpl);
   const forecastPoints = (stageflow && stageflow.forecast && Array.isArray(stageflow.forecast.data)) ? stageflow.forecast.data : [];
   const observedPoints = (stageflow && stageflow.observed && Array.isArray(stageflow.observed.data)) ? stageflow.observed.data : [];
-  // {validTime, value} pairs with value in gauge units (feet) --
-  // normalized here so derive-layer code never has to know NWPS's own
-  // field names.
+  // {validTime, primary} pairs, primary in gauge units (feet) --
+  // normalized to {t, ft} here so derive-layer code never has to know
+  // NWPS's own field names (confirmed against a real captured
+  // response: each point is {validTime, generatedTime, primary,
+  // secondary}, not {validTime, value} as originally assumed).
   return {
-    forecast: forecastPoints.map((p) => ({ t: p.validTime || p.time, ft: Number(p.value) })).filter((p) => p.t && Number.isFinite(p.ft)),
-    observed: observedPoints.map((p) => ({ t: p.validTime || p.time, ft: Number(p.value) })).filter((p) => p.t && Number.isFinite(p.ft))
+    forecast: forecastPoints.map((p) => ({ t: p.validTime || p.time, ft: nwpsPrimary(p) })).filter((p) => p.t && Number.isFinite(p.ft)),
+    observed: observedPoints.map((p) => ({ t: p.validTime || p.time, ft: nwpsPrimary(p) })).filter((p) => p.t && Number.isFinite(p.ft))
   };
 }
 

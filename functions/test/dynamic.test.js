@@ -2799,11 +2799,11 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const base = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).toBuffer("image/png");
     const now = new Date("2026-11-26T08:00:00Z");
     const meta = { type: "streetWater", lat: 39.2776, lon: -74.5746 };
-    const forecast = Array.from({ length: 97 }, (_, i) => ({ validTime: new Date(now.getTime() + i * 15 * 60000).toISOString(), value: 3 + i * 0.01 }));
+    const forecast = Array.from({ length: 97 }, (_, i) => ({ validTime: new Date(now.getTime() + i * 15 * 60000).toISOString(), primary: 3 + i * 0.01 }));
     const fetchImpl = async (url) => {
       if (url.includes("api.weather.gov")) return { ok: true, json: async () => ({ features: [] }) };
       if (url.includes("/gauges/ONCN4/stageflow")) return { ok: true, json: async () => ({ forecast: { data: forecast }, observed: { data: [] } }) };
-      if (url.includes("/gauges/ONCN4")) return { ok: true, json: async () => ({ name: "Great Egg Harbor Bay at Ocean City", flood: { stages: { minor: 5.3, moderate: 6.3, major: 7.3 } } }) };
+      if (url.includes("/gauges/ONCN4")) return { ok: true, json: async () => ({ name: "Great Egg Harbor Bay at Ocean City", flood: { categories: { minor: { stage: 5.3 }, moderate: { stage: 6.3 }, major: { stage: 7.3 } } } }) };
       if (url.includes("api.open-meteo.com")) return { ok: true, json: async () => ({ hourly: { time: [], wind_gusts_10m: [], precipitation: [] } }) };
       return { ok: false, json: async () => null };
     };
