@@ -196,15 +196,24 @@ async function fetchActiveAlert(lat, lon, fetchImpl) {
 // documented "forecast unavailable" degrade), since a chart with no
 // flood categories at all would be worse than useless on a safety
 // screen -- it would just be wrong-looking, not obviously absent.
+// Real shape (confirmed against a live /gauges/ONCN4 response -- the
+// field names below are NOT what NWPS's own docs would suggest):
+// meta.flood.categories.<level>.stage, not meta.flood.stages.<level>
+// directly. NWPS uses -9999 as a "not applicable" sentinel for a
+// stage/flow that doesn't apply to this gauge (e.g. an "action" stage
+// many gauges don't have) -- treated as missing, same as absent.
+function nwpsStage(categories, level) {
+  const v = categories && categories[level] && categories[level].stage;
+  return typeof v === "number" && v > -9999 ? v : null;
+}
 async function fetchNwpsGaugeMeta(nwpsId, fetchImpl) {
   if (!nwpsId) return null;
   const meta = await safeFetchJson("https://api.water.noaa.gov/nwps/v1/gauges/" + encodeURIComponent(nwpsId), undefined, fetchImpl);
   if (!meta) return null;
-  const flood = meta.flood || {};
-  const stages = flood.stages || {};
-  const minor = typeof stages.minor === "number" ? stages.minor : null;
-  const moderate = typeof stages.moderate === "number" ? stages.moderate : null;
-  const major = typeof stages.major === "number" ? stages.major : null;
+  const categories = (meta.flood && meta.flood.categories) || {};
+  const minor = nwpsStage(categories, "minor");
+  const moderate = nwpsStage(categories, "moderate");
+  const major = nwpsStage(categories, "major");
   if (minor == null || moderate == null || major == null) return null;
   return { name: meta.name || null, thresholds: { minor, moderate, major } };
 }
