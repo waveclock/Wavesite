@@ -220,7 +220,14 @@ const IMAGEN_SCENE_HINTS = {
   // dynamic.js) -- Imagen has no such limit, so this can ask for the
   // real thing directly.
   biking: "Buddy is riding a beach cruiser bicycle along the boardwalk, one hand up waving, having a great time",
-  coffee: "Buddy is sitting at a small beachside cafe table, sipping a cup of coffee and eating a donut, completely content"
+  coffee: "Buddy is sitting at a small beachside cafe table, sipping a cup of coffee and eating a donut, completely content",
+  // Thanksgiving-only pose (see isThanksgiving/moodForBeachData in
+  // dynamic.js) -- a beach-themed take on the holiday, not an indoor
+  // dining room, to stay consistent with every other scene. Rewritten
+  // at the user's request: rain falling right on top of him while he
+  // eats, undeterred, rather than a clear/sunny table -- no umbrella
+  // or shelter of any kind, that's the joke.
+  turkey: "Buddy is sitting at a small beachside picnic table, happily eating a turkey drumstick even though it's pouring rain down right on top of him -- rain streaks visibly falling around his head and shoulders -- completely unbothered and content, with no umbrella or shelter of any kind"
 };
 
 // `mood.props` including "sun" (see moodForBeachData's businessHoursCloudCoverPct

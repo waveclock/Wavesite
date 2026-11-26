@@ -2154,6 +2154,11 @@ const STICK_POSES = {
   biking: { armL: [20, -20], armR: [20, 20], legL: [-25, 15], legR: [25, -15] },
   // Arm raised toward the head/mouth, as if holding a cup.
   coffee: { armL: [-15, 0], armR: [130, -60], legL: [-10, 0], legR: [10, 0] },
+  // Same raised-arm-to-mouth geometry as "coffee" -- eating a turkey
+  // drumstick is the same gesture, just a different prop (see
+  // drawProp's "turkey" branch) and its own Imagen scene hint/cache
+  // entry. See isThanksgiving/moodForBeachData for when this fires.
+  turkey: { armL: [-15, 0], armR: [130, -60], legL: [-10, 0], legR: [10, 0] },
   // Same relaxed arms-crossed geometry as "lounging"/"stargazing" --
   // watching the horizon looks fine with this same posture -- kept as
   // their own named poses (see moodForBeachData) purely so sunrise and
@@ -2397,6 +2402,44 @@ function drawProp(ctx, kind, x, y, s) {
     ctx.beginPath();
     ctx.arc(x, y, s * 0.12, 0, Math.PI * 2);
     ctx.fill();
+  } else if (kind === "turkey") {
+    // A roasted drumstick -- a solid oval "meat" end, a thin bone
+    // handle below it, and a short crossbar at the tip (the classic
+    // cartoon-drumstick silhouette). Held up near the "turkey" pose's
+    // raised hand, same idea as coffeeCup near the "coffee" pose's own.
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI * 0.12);
+    ctx.beginPath();
+    ctx.ellipse(0, -s * 0.1, s * 0.28, s * 0.38, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.05, s * 0.2);
+    ctx.lineTo(-s * 0.05, s * 0.55);
+    ctx.moveTo(s * 0.05, s * 0.2);
+    ctx.lineTo(s * 0.05, s * 0.55);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.14, s * 0.55);
+    ctx.lineTo(s * 0.14, s * 0.55);
+    ctx.stroke();
+    ctx.restore();
+  } else if (kind === "rainDrops") {
+    // Long diagonal streaks, narrow enough to stay over the head/
+    // shoulders (not spread out wide like windLines) and long enough
+    // to visibly run from just above the head down across it and the
+    // upper torso (see BUDDY_PROP_OFFSET's anchor, just above head-top)
+    // -- unlike "umbrella", there's nothing shielding him; the rain
+    // falls right on top of the figure, which is the whole point of
+    // this pose.
+    for (let i = 0; i < 5; i++) {
+      const dx = (i - 2) * s * 0.16;
+      const dy0 = (i % 2) * s * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(x + dx, y + dy0 - s * 0.15);
+      ctx.lineTo(x + dx - s * 0.1, y + dy0 + s * 1.3);
+      ctx.stroke();
+    }
   }
 }
 
@@ -2422,7 +2465,13 @@ const BUDDY_PROP_OFFSET = {
   bike: { dx: 0, dy: 1.6 },
   // Near the coffee pose's own raised hand.
   coffeeCup: { dx: 1.1, dy: -1.7 },
-  donut: { dx: -1.4, dy: -0.3 }
+  donut: { dx: -1.4, dy: -0.3 },
+  // Same raised hand as "coffee" (identical arm geometry), same offset.
+  turkey: { dx: 1.1, dy: -1.7 },
+  // Centered above the head (headR 0.42u, head top sits around -2.4u
+  // below the shoulder's own -1.5u) -- the streaks drawn in drawProp
+  // extend down from there across the head/shoulders.
+  rainDrops: { dx: 0, dy: -2.6 }
 };
 
 // Picks today's headline + pose from the SAME payload fetchTideCardData
@@ -2454,10 +2503,34 @@ const BUDDY_PROP_OFFSET = {
 // the evening, or the daily job running pre-dawn on an otherwise calm
 // day) -- so it's still reachable, just no longer the default outcome
 // for most days.
+// U.S. Thanksgiving: the fourth Thursday of November. Checked against
+// the device's own LOCAL calendar date (data.timeZone), not raw UTC --
+// `now` can read as Thursday UTC while it's already Friday morning on
+// the US east coast, or still Wednesday night out west, right around
+// the holiday's own midnight boundary.
+function isThanksgiving(at, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric", weekday: "short" }).formatToParts(at);
+  const get = (type) => parts.find((p) => p.type === type).value;
+  if (get("weekday") !== "Thu" || Number(get("month")) !== 11) return false;
+  const day = Number(get("day"));
+  return day >= 22 && day <= 28;
+}
+
 function moodForBeachData(data, now) {
   const at = now || new Date();
   const nowMs = at.getTime();
   const weather = data.weather || {};
+
+  // One day a year, Buddy's doing one thing: Thanksgiving dinner,
+  // rain/wind/tide/everything else be damned -- literally: the scene
+  // is always Buddy eating a turkey leg at his table WHILE it rains
+  // on him, undeterred, rather than conditioning rain on the actual
+  // forecast (there's no umbrella/shelter in this one -- that's the
+  // joke). Checked first and returns immediately, ahead of every
+  // other branch below.
+  if (isThanksgiving(at, data.timeZone || "America/New_York")) {
+    return { pose: "turkey", headline: "HAPPY THANKSGIVING", sub: null, props: ["turkey", "rainDrops"] };
+  }
   const bhStartMs = data.businessHoursStart ? new Date(data.businessHoursStart.t).getTime() : null;
   const bhEndMs = data.businessHoursEnd ? new Date(data.businessHoursEnd.t).getTime() : null;
   const overlapsBusinessHours = (startMs, endMs) => bhStartMs != null && bhEndMs != null && startMs <= bhEndMs && endMs >= bhStartMs;
@@ -3343,6 +3416,7 @@ module.exports = {
   drawStickFigure,
   drawProp,
   moodForBeachData,
+  isThanksgiving,
   drawBeachBuddyCard,
   drawBeachBuddyArtCard,
   ditheredArtCoverCanvas,
