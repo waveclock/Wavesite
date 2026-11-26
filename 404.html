@@ -791,7 +791,14 @@
       </button>
     </div>
     <div class="curve-cap">Tap play for some beach music</div>
-    <div class="video-embed-frame"><iframe id="songListFrame" title="Beach playlist" allow="autoplay; encrypted-media" allowfullscreen loading="lazy"></iframe></div>
+    <!-- A plain <div>, not an <iframe> -- the YouTube IFrame Player API
+         (see ensureSongListPlayer below) replaces whatever element this
+         id names with its own real <iframe> (keeping the same id), which
+         is the API's own documented way to bind to an element; it isn't
+         meant to "take over" an iframe that doesn't already have a real
+         embed URL loaded. Needed for setShuffle/setLoop, neither of
+         which the plain embed URL's own query params reliably honor. -->
+    <div class="video-embed-frame"><div id="songListFrame"></div></div>
   </section>
 
   <!-- Muted autoplay (unlike Song List's deliberate no-autoplay -- see
@@ -1799,13 +1806,12 @@
       return null;
     }
   }
-  // No autoplay param at all -- YouTube's own native play button inside
-  // the iframe is what makes this playable WITH sound in the first
-  // place (autoplay is only ever allowed muted; see this feature's own
-  // product discussion). The one-time dataset guard stops the periodic
-  // re-render (openTide runs every few hours, see its own setInterval)
-  // from resetting src -- and restarting whatever's mid-playback -- when
-  // nothing has actually changed since the last render.
+  // Fallback only now (see ensureSongListPlayer below) -- a plain embed
+  // URL's &shuffle=1 is well known to be unreliable on YouTube's actual
+  // embed player (it's accepted but often just doesn't shuffle), which
+  // is exactly the live report this was rewritten for. Kept as the
+  // degrade path if the real Player API below fails to load/init, since
+  // a non-shuffling playlist that still plays beats a broken panel.
   // A single video loops (loop=1 needs playlist=<same id> too -- a
   // YouTube embed quirk, not a typo) rather than ending and falling
   // through to a related-videos screen after a few minutes.
@@ -1815,6 +1821,66 @@
     }
     return 'https://www.youtube.com/embed/videoseries?list=' + encodeURIComponent(entry.id) + '&shuffle=1&rel=0';
   }
+  // Lazily injects YouTube's IFrame Player API script (never loaded for
+  // a visit that doesn't use Song List at all) and resolves once it's
+  // actually ready to construct a Player -- cached so this only ever
+  // happens once per page load, no matter how many times
+  // ensureSongListPlayer below gets called. Rejects (rather than hangs
+  // forever) if the script errors or simply never calls back within
+  // YT_API_TIMEOUT_MS, so a blocked/slow network degrades to the plain
+  // embed fallback instead of leaving Song List stuck.
+  const YT_API_TIMEOUT_MS = 6000;
+  let youtubeIframeApiPromise = null;
+  function loadYoutubeIframeApi() {
+    if (window.YT && window.YT.Player) return Promise.resolve(window.YT);
+    if (!youtubeIframeApiPromise) {
+      youtubeIframeApiPromise = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('YouTube IFrame API timed out')), YT_API_TIMEOUT_MS);
+        const prevReady = window.onYouTubeIframeAPIReady;
+        window.onYouTubeIframeAPIReady = () => {
+          clearTimeout(timer);
+          if (typeof prevReady === 'function') prevReady();
+          resolve(window.YT);
+        };
+        const script = document.createElement('script');
+        script.src = 'https://www.youtube.com/iframe_api';
+        script.onerror = () => { clearTimeout(timer); reject(new Error("YouTube IFrame API script didn't load")); };
+        document.head.appendChild(script);
+      });
+    }
+    return youtubeIframeApiPromise;
+  }
+  // The one Player instance for the whole page -- created once (on
+  // whichever visit actually needs it) and reused for every later entry
+  // change, rather than tearing down and recreating it each time.
+  // setShuffle/setLoop are the IFrame Player API's own real toggles
+  // (see https://developers.google.com/youtube/iframe_api_reference) --
+  // unlike the plain embed URL's &shuffle=1, which YouTube's player
+  // frequently just ignores. Both must be called BEFORE cuePlaylist,
+  // per that same reference. cuePlaylist (not loadPlaylist) loads
+  // without starting playback, preserving this panel's deliberate
+  // no-autoplay-with-sound behavior (see below) exactly as the old
+  // plain-src version did.
+  let songListPlayerPromise = null;
+  function ensureSongListPlayer() {
+    if (!songListPlayerPromise) {
+      songListPlayerPromise = loadYoutubeIframeApi().then((YT) => new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('YouTube player never became ready')), YT_API_TIMEOUT_MS);
+        const player = new YT.Player('songListFrame', {
+          playerVars: { rel: 0, playsinline: 1 },
+          events: { onReady: () => { clearTimeout(timer); resolve(player); } }
+        });
+      }));
+    }
+    return songListPlayerPromise;
+  }
+  // No autoplay param at all -- YouTube's own native play button inside
+  // the iframe is what makes this playable WITH sound in the first
+  // place (autoplay is only ever allowed muted; see this feature's own
+  // product discussion). The one-time dataset guard stops the periodic
+  // re-render (openTide runs every few hours, see its own setInterval)
+  // from resetting src -- and restarting whatever's mid-playback -- when
+  // nothing has actually changed since the last render.
   async function renderSongListPanel(st) {
     const panel = $('songListPanel');
     if (!tagId && !previewDeviceId) { panel.classList.add('hidden'); return; } // neither identity available -- shouldn't really happen, boot() already 404s this case
@@ -1825,12 +1891,41 @@
       const frame = $('songListFrame');
       const key = entry.kind + ':' + entry.id;
       if (frame.dataset.songKey !== key) {
-        frame.src = songListEmbedSrc(entry);
-        frame.dataset.songKey = key;
         const cap = panel.querySelector('.curve-cap');
         cap.textContent = 'Tap play for some beach music';
+        try {
+          const player = await ensureSongListPlayer();
+          if (entry.kind === 'video') {
+            // A single video treated as its own 1-item playlist (an
+            // array of one video ID, not a real playlist ID) is what
+            // makes setLoop actually apply -- it has no effect on a
+            // lone video loaded on its own.
+            player.setLoop(true);
+            player.cuePlaylist([entry.id]);
+          } else {
+            player.setShuffle(true);
+            player.cuePlaylist({ listType: 'playlist', list: entry.id });
+          }
+          player.getIframe().dataset.songKey = key;
+        } catch (err) {
+          // The Player API didn't load/init in time -- fall back to the
+          // plain embed URL. A real <iframe> this time (not the <div>
+          // placeholder the Player API would have replaced), since
+          // nothing ever took that div over.
+          const fallback = document.createElement('iframe');
+          fallback.id = 'songListFrame';
+          fallback.title = 'Beach playlist';
+          fallback.allow = 'autoplay; encrypted-media';
+          fallback.allowFullscreen = true;
+          fallback.loading = 'lazy';
+          fallback.dataset.songKey = key;
+          fallback.src = songListEmbedSrc(entry);
+          frame.replaceWith(fallback);
+        }
         fetchYoutubeTitleClient(entry.kind, entry.id).then((title) => {
-          if (title && frame.dataset.songKey === key) cap.textContent = title;
+          if (!title) return;
+          const current = $('songListFrame');
+          if (current && current.dataset.songKey === key) cap.textContent = title;
         });
       }
       panel.classList.remove('hidden');
