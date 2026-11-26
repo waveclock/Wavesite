@@ -223,8 +223,11 @@ const IMAGEN_SCENE_HINTS = {
   coffee: "Buddy is sitting at a small beachside cafe table, sipping a cup of coffee and eating a donut, completely content",
   // Thanksgiving-only pose (see isThanksgiving/moodForBeachData in
   // dynamic.js) -- a beach-themed take on the holiday, not an indoor
-  // dining room, to stay consistent with every other scene.
-  turkey: "Buddy is sitting at a small beachside picnic table set for Thanksgiving, happily eating a turkey drumstick, a few autumn leaves scattered on the table, completely content"
+  // dining room, to stay consistent with every other scene. Rewritten
+  // at the user's request: rain falling right on top of him while he
+  // eats, undeterred, rather than a clear/sunny table -- no umbrella
+  // or shelter of any kind, that's the joke.
+  turkey: "Buddy is sitting at a small beachside picnic table, happily eating a turkey drumstick even though it's pouring rain down right on top of him -- rain streaks visibly falling around his head and shoulders -- completely unbothered and content, with no umbrella or shelter of any kind"
 };
 
 // `mood.props` including "sun" (see moodForBeachData's businessHoursCloudCoverPct

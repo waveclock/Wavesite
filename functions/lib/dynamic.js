@@ -2424,6 +2424,22 @@ function drawProp(ctx, kind, x, y, s) {
     ctx.lineTo(s * 0.14, s * 0.55);
     ctx.stroke();
     ctx.restore();
+  } else if (kind === "rainDrops") {
+    // Long diagonal streaks, narrow enough to stay over the head/
+    // shoulders (not spread out wide like windLines) and long enough
+    // to visibly run from just above the head down across it and the
+    // upper torso (see BUDDY_PROP_OFFSET's anchor, just above head-top)
+    // -- unlike "umbrella", there's nothing shielding him; the rain
+    // falls right on top of the figure, which is the whole point of
+    // this pose.
+    for (let i = 0; i < 5; i++) {
+      const dx = (i - 2) * s * 0.16;
+      const dy0 = (i % 2) * s * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(x + dx, y + dy0 - s * 0.15);
+      ctx.lineTo(x + dx - s * 0.1, y + dy0 + s * 1.3);
+      ctx.stroke();
+    }
   }
 }
 
@@ -2451,7 +2467,11 @@ const BUDDY_PROP_OFFSET = {
   coffeeCup: { dx: 1.1, dy: -1.7 },
   donut: { dx: -1.4, dy: -0.3 },
   // Same raised hand as "coffee" (identical arm geometry), same offset.
-  turkey: { dx: 1.1, dy: -1.7 }
+  turkey: { dx: 1.1, dy: -1.7 },
+  // Centered above the head (headR 0.42u, head top sits around -2.4u
+  // below the shoulder's own -1.5u) -- the streaks drawn in drawProp
+  // extend down from there across the head/shoulders.
+  rainDrops: { dx: 0, dy: -2.6 }
 };
 
 // Picks today's headline + pose from the SAME payload fetchTideCardData
@@ -2502,10 +2522,14 @@ function moodForBeachData(data, now) {
   const weather = data.weather || {};
 
   // One day a year, Buddy's doing one thing: Thanksgiving dinner,
-  // rain/wind/tide/everything else be damned. Checked first and
-  // returns immediately, ahead of every other branch below.
+  // rain/wind/tide/everything else be damned -- literally: the scene
+  // is always Buddy eating a turkey leg at his table WHILE it rains
+  // on him, undeterred, rather than conditioning rain on the actual
+  // forecast (there's no umbrella/shelter in this one -- that's the
+  // joke). Checked first and returns immediately, ahead of every
+  // other branch below.
   if (isThanksgiving(at, data.timeZone || "America/New_York")) {
-    return { pose: "turkey", headline: "HAPPY THANKSGIVING", sub: null, props: ["turkey"] };
+    return { pose: "turkey", headline: "HAPPY THANKSGIVING", sub: null, props: ["turkey", "rainDrops"] };
   }
   const bhStartMs = data.businessHoursStart ? new Date(data.businessHoursStart.t).getTime() : null;
   const bhEndMs = data.businessHoursEnd ? new Date(data.businessHoursEnd.t).getTime() : null;

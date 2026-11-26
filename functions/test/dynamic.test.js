@@ -2151,7 +2151,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   await test("drawProp accepts every prop kind moodForBeachData can pick without throwing", () => {
     const canvas = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = canvas.getContext("2d");
-    ["sun", "cloud", "moon", "star", "wave", "umbrella", "windLines", "surfboard", "paddleboard", "kite", "fishingRod", "bike", "coffeeCup", "donut", "turkey"].forEach((kind) => {
+    ["sun", "cloud", "moon", "star", "wave", "umbrella", "windLines", "surfboard", "paddleboard", "kite", "fishingRod", "bike", "coffeeCup", "donut", "turkey", "rainDrops"].forEach((kind) => {
       assert.doesNotThrow(() => drawProp(ctx, kind, 396, 120, 60), kind + " threw while drawing");
     });
   });
@@ -2206,7 +2206,16 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
     const mood = moodForBeachData(data, THANKSGIVING_NOON);
     assert.strictEqual(mood.pose, "turkey");
     assert.strictEqual(mood.headline, "HAPPY THANKSGIVING");
-    assert.deepStrictEqual(mood.props, ["turkey"]);
+    assert.deepStrictEqual(mood.props, ["turkey", "rainDrops"]);
+  });
+
+  await test("Thanksgiving's turkey pose rains on him regardless of the ACTUAL forecast -- not weather-conditional like every other pose's props", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [], windRamp: null, swell: null, waterTempF: null, businessHoursCloudCoverPct: 0 }
+    });
+    const mood = moodForBeachData(data, THANKSGIVING_NOON);
+    assert.strictEqual(mood.pose, "turkey");
+    assert.deepStrictEqual(mood.props, ["turkey", "rainDrops"], "rainDrops should show even on a mock-clear forecast -- it's the pose's own fixed scene, not a real rain reading");
   });
 
   await test("active rain wins over everything else -- umbrella pose, RAINY DAY headline", () => {
