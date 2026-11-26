@@ -53,6 +53,7 @@ const {
   drawStickFigure,
   drawProp,
   moodForBeachData,
+  isThanksgiving,
   drawBeachBuddyCard,
   drawBeachBuddyArtCard,
   ditheredArtCoverCanvas,
@@ -2150,7 +2151,7 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   await test("drawProp accepts every prop kind moodForBeachData can pick without throwing", () => {
     const canvas = whiteCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
     const ctx = canvas.getContext("2d");
-    ["sun", "cloud", "moon", "star", "wave", "umbrella", "windLines", "surfboard", "paddleboard", "kite", "fishingRod", "bike", "coffeeCup", "donut"].forEach((kind) => {
+    ["sun", "cloud", "moon", "star", "wave", "umbrella", "windLines", "surfboard", "paddleboard", "kite", "fishingRod", "bike", "coffeeCup", "donut", "turkey"].forEach((kind) => {
       assert.doesNotThrow(() => drawProp(ctx, kind, 396, 120, 60), kind + " threw while drawing");
     });
   });
@@ -2181,6 +2182,32 @@ const SAMPLE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
   const NOON = new Date("2026-07-15T16:00:00.000Z"); // noon Eastern, inside both business hours and the mock sunrise/sunset above
   const MIDNIGHT = new Date("2026-07-15T05:00:00.000Z"); // 1 AM Eastern, outside both
   const PREDAWN = new Date("2026-07-15T09:00:00.000Z"); // 5 AM Eastern -- roughly when the once-daily job actually runs (regenerateCountdownDesigns is 9am UTC), well before business hours or sunrise
+  const THANKSGIVING_NOON = new Date("2026-11-26T16:00:00.000Z"); // 11 AM Eastern (EST, UTC-5) on Thu Nov 26, 2026 -- a real Thanksgiving
+
+  await test("isThanksgiving is true only for the 4th Thursday of November, checked against local date not raw UTC", () => {
+    assert.strictEqual(isThanksgiving(new Date("2025-11-27T17:00:00.000Z"), "America/New_York"), true, "2025's Thanksgiving");
+    assert.strictEqual(isThanksgiving(new Date("2026-11-26T17:00:00.000Z"), "America/New_York"), true, "2026's Thanksgiving");
+    assert.strictEqual(isThanksgiving(new Date("2027-11-25T17:00:00.000Z"), "America/New_York"), true, "2027's Thanksgiving");
+    assert.strictEqual(isThanksgiving(new Date("2025-11-20T17:00:00.000Z"), "America/New_York"), false, "the 3rd Thursday, not the 4th");
+    assert.strictEqual(isThanksgiving(new Date("2025-12-04T17:00:00.000Z"), "America/New_York"), false, "a Thursday, but December");
+    assert.strictEqual(isThanksgiving(new Date("2026-11-27T17:00:00.000Z"), "America/New_York"), false, "the Friday after, not Thanksgiving itself");
+    // 2026-11-27T03:00:00Z is already Friday in UTC, but still 10 PM
+    // Thursday the 26th in America/New_York (EST, UTC-5) -- confirms
+    // this genuinely checks the LOCAL date, not just reformatting a
+    // UTC day-of-week.
+    assert.strictEqual(isThanksgiving(new Date("2026-11-27T03:00:00.000Z"), "America/New_York"), true, "still Thursday evening on the US east coast");
+    assert.strictEqual(isThanksgiving(new Date("2026-11-27T03:00:00.000Z"), "UTC"), false, "already Friday in UTC itself");
+  });
+
+  await test("Thanksgiving overrides active rain -- turkey pose, every other branch skipped entirely", () => {
+    const data = beachData({
+      weather: { wind: null, pressure: { trend: "steady" }, rainWindows: [{ start: "2026-11-26T15:00:00.000Z", end: "2026-11-26T18:00:00.000Z", label: "RAIN LIKELY 10:00 AM-1:00 PM" }], windRamp: null, swell: null, waterTempF: null }
+    });
+    const mood = moodForBeachData(data, THANKSGIVING_NOON);
+    assert.strictEqual(mood.pose, "turkey");
+    assert.strictEqual(mood.headline, "HAPPY THANKSGIVING");
+    assert.deepStrictEqual(mood.props, ["turkey"]);
+  });
 
   await test("active rain wins over everything else -- umbrella pose, RAINY DAY headline", () => {
     const data = beachData({
