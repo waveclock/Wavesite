@@ -83,6 +83,12 @@
 
 <script type="module">
   const tagId = new URLSearchParams(location.search).get('tagId') || '';
+  // 404.html's own per-panel edit buttons (Song List/Live Video Feed)
+  // link here with &focus=<type> -- a shortcut straight to that one
+  // card instead of landing on the gallery top and making someone
+  // re-find it among every option. `type` matches OPTIONS' own `type`
+  // field exactly, so no separate lookup table is needed.
+  const focusType = new URLSearchParams(location.search).get('focus') || '';
   // Same shape lib/tideTag.js's TAG_ID_PATTERN validates server-side --
   // duplicated here only so a malformed/missing tagId (a stale bookmark,
   // a hand-edited URL) shows a clear message instead of a confusing
@@ -338,6 +344,7 @@
       const isPreset = !!(existing && existing.preset);
       const card = document.createElement('div');
       card.className = 'card';
+      card.id = 'card-' + opt.type;
       card.innerHTML = `
         <div class="card-head">
           <div class="card-icon">${opt.icon}</div>
@@ -366,10 +373,26 @@
     }
   }
 
+  // Scrolls straight to the card ?focus=<type> named (see focusType's
+  // own comment above) and focuses its link input, so arriving from
+  // 404.html's edit buttons drops you right where you'd paste a new
+  // link -- not just in view of the right card, cursor-ready in it.
+  // Silently does nothing for an unrecognized/missing focus value,
+  // same "degrade, don't break the page" rule as everything else here.
+  function focusCard(type) {
+    if (!type) return;
+    const card = document.getElementById('card-' + type);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const input = card.querySelector('input[type="text"]');
+    if (input) input.focus({ preventScroll: true });
+  }
+
   (async () => {
     try {
       currentScreens = await fetchScreens();
       render();
+      focusCard(focusType);
     } catch (err) {
       pageStatus.textContent = "Couldn't load your screens right now (" + err.message + ") -- try again in a bit.";
       pageStatus.classList.add('error');
