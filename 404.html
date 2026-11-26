@@ -202,6 +202,20 @@
 
   /* wind & waves screen */
   .wind-title { font-size: clamp(30px, 9vw, 42px); font-weight: 900; letter-spacing: -0.01em; margin: 4px 0 18px; }
+  /* Song List/Live Video Feed only -- a shortcut straight to that one
+     screen's own card in the "More Screens" gallery (?focus=<type>,
+     see screens/index.html), instead of making someone who already
+     added a screen re-find it in the full gallery grid just to change
+     the link. Resets .wind-title's own margin onto the row instead so
+     wrapping it doesn't add extra vertical space. */
+  .panel-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 18px; }
+  .panel-title-row .wind-title { margin: 0; }
+  .panel-edit-btn {
+    flex: none; width: 36px; height: 36px; border: none; border-radius: 50%;
+    background: var(--wave-pale); color: var(--wave); display: flex;
+    align-items: center; justify-content: center; cursor: pointer;
+  }
+  .panel-edit-btn:active { background: var(--line); }
   .surf-debug { font-size: 13px; color: var(--soft); margin: -12px 0 14px; }
   .wind-arrow { color: var(--wave); flex-shrink: 0; }
   /* Per-chart header -- the SAME format for both today and tomorrow (a
@@ -770,7 +784,12 @@
        renderSongListPanel/renderLiveVideoPanel only show each once a
        real link is on file for this tag. -->
   <section class="snap-panel hidden" id="songListPanel">
-    <h1 class="wind-title">Song List</h1>
+    <div class="panel-title-row">
+      <h1 class="wind-title">Song List</h1>
+      <button type="button" class="panel-edit-btn" id="editSongListBtn" aria-label="Change Song List">
+        <svg class="panel-edit-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/></svg>
+      </button>
+    </div>
     <div class="curve-cap">Tap play for some beach music</div>
     <div class="video-embed-frame"><iframe id="songListFrame" title="Beach playlist" allow="autoplay; encrypted-media" allowfullscreen loading="lazy"></iframe></div>
   </section>
@@ -781,7 +800,12 @@
        start, same reasoning the existing OCNJ beach cams above already
        use for the same muted-autoplay-is-always-allowed browser rule. -->
   <section class="snap-panel hidden" id="liveVideoPanel">
-    <h1 class="wind-title">Live Video Feed</h1>
+    <div class="panel-title-row">
+      <h1 class="wind-title">Live Video Feed</h1>
+      <button type="button" class="panel-edit-btn" id="editLiveVideoBtn" aria-label="Change Live Video Feed">
+        <svg class="panel-edit-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/></svg>
+      </button>
+    </div>
     <div class="curve-cap">Live now</div>
     <div class="video-embed-frame"><iframe id="liveVideoFrame" title="Live video feed" allow="autoplay; encrypted-media" allowfullscreen loading="lazy"></iframe></div>
   </section>
@@ -2904,9 +2928,17 @@
   // this page (pairing, registering a beach) needing the real tag.
   if (!tagId) {
     $('moreScreensBtn').classList.add('hidden');
+    $('editSongListBtn').classList.add('hidden');
+    $('editLiveVideoBtn').classList.add('hidden');
   } else {
     $('moreScreensBtn').addEventListener('click', () => {
       window.location.href = '../screens/?tagId=' + encodeURIComponent(tagId);
+    });
+    $('editSongListBtn').addEventListener('click', () => {
+      window.location.href = '../screens/?tagId=' + encodeURIComponent(tagId) + '&focus=songList';
+    });
+    $('editLiveVideoBtn').addEventListener('click', () => {
+      window.location.href = '../screens/?tagId=' + encodeURIComponent(tagId) + '&focus=liveVideo';
     });
   }
   // Backs all the way out without touching the registration -- no
