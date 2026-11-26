@@ -162,11 +162,11 @@ async function saveKeychainScreens(bucket, tagId, screens) {
 // per type, keyed the same way SCREEN_VALIDATORS is. Real links, run
 // through extractYoutubeMusicRef the same as any customer paste would
 // be (see that function's own comment on the /live/ share-link shape):
-// https://www.youtube.com/live/EChjekRKsKU and
+// https://www.youtube.com/live/1l-nqyyhzro and
 // https://youtube.com/playlist?list=PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf
 const DEFAULT_SCREENS = {
   songList: { type: "songList", kind: "playlist", id: "PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf" },
-  liveVideo: { type: "liveVideo", id: "EChjekRKsKU" }
+  liveVideo: { type: "liveVideo", id: "1l-nqyyhzro" }
 };
 
 // Fills in WaveClock's own default for any type the customer hasn't set
