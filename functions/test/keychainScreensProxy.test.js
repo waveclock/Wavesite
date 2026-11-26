@@ -86,7 +86,7 @@ async function test(name, fn) {
     assert.strictEqual(res.statusCode, 200);
     assert.deepStrictEqual(res.body, { screens: [
       { type: "songList", kind: "playlist", id: "PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf", preset: true },
-      { type: "liveVideo", id: "EChjekRKsKU", preset: true }
+      { type: "liveVideo", id: "1l-nqyyhzro", preset: true }
     ] });
   });
 
@@ -171,7 +171,7 @@ async function test(name, fn) {
     assert.strictEqual(getRes.statusCode, 200);
     assert.deepStrictEqual(getRes.body, { screens: [
       { type: "songList", kind: "playlist", id: "PLabc123def456" },
-      { type: "liveVideo", id: "EChjekRKsKU", preset: true }
+      { type: "liveVideo", id: "1l-nqyyhzro", preset: true }
     ] });
   });
 
@@ -215,7 +215,7 @@ async function test(name, fn) {
     assert.strictEqual(res.statusCode, 200);
     assert.deepStrictEqual(res.body, { screens: [
       { type: "songList", kind: "video", id: "djV11Xbc914" },
-      { type: "liveVideo", id: "EChjekRKsKU", preset: true }
+      { type: "liveVideo", id: "1l-nqyyhzro", preset: true }
     ] });
     assert.ok(!("tagId" in res.body), "response must never include the resolved tagId");
   });
@@ -226,7 +226,7 @@ async function test(name, fn) {
     assert.strictEqual(res.statusCode, 200);
     assert.deepStrictEqual(res.body, { screens: [
       { type: "songList", kind: "playlist", id: "PLmXxqSJJq-yXrCPGIT2gn8b34JjOrl4Xf", preset: true },
-      { type: "liveVideo", id: "EChjekRKsKU", preset: true }
+      { type: "liveVideo", id: "1l-nqyyhzro", preset: true }
     ] });
   });
 
@@ -239,7 +239,7 @@ async function test(name, fn) {
     assert.strictEqual(res.statusCode, 200);
     assert.deepStrictEqual(res.body, { screens: [
       { type: "songList", kind: "video", id: "djV11Xbc914" },
-      { type: "liveVideo", id: "EChjekRKsKU", preset: true }
+      { type: "liveVideo", id: "1l-nqyyhzro", preset: true }
     ] });
   });
 
